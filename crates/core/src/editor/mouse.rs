@@ -1,6 +1,6 @@
 //! Mouse input, by the part of the window it lands in.
 
-use super::{Editor, Effect, Focus, Mouse, MouseKind, PALETTE_ROWS, Side, WHEEL_LINES};
+use super::{Editor, Effect, Focus, Mouse, MouseKind, PALETTE_ROWS, Pointer, Side, WHEEL_LINES};
 
 /// Columns the wheel scrolls sideways per step.
 const WHEEL_COLUMNS: usize = 6;
@@ -9,6 +9,99 @@ use crate::doc::Doc;
 use crate::key::{Key, KeyCode};
 
 impl Editor {
+    /// The mouse over a group's text in a window. A press focuses the
+    /// group; the rest is as a click in the text's own grid, at the nearest
+    /// gap between characters for presses and drags.
+    pub(crate) fn pointer(&mut self, p: Pointer, fx: &mut Vec<Effect>) {
+        let g = p.group.min(self.groups.len().saturating_sub(1));
+        if matches!(p.kind, MouseKind::Down | MouseKind::Context) {
+            self.focus_group(g);
+        }
+        let here = g == self.group;
+        let gutter = self.gutter() as f32;
+        let x = if p.col < gutter || matches!(p.kind, MouseKind::Move | MouseKind::Rest) {
+            p.col.floor()
+        } else {
+            (p.col + 0.5).floor()
+        };
+        let (x, y) = (
+            x.clamp(0.0, u16::MAX as f32) as u16,
+            p.row.floor().clamp(0.0, u16::MAX as f32) as u16,
+        );
+        match p.kind {
+            // Lit-up fold arrows and hovers are for the focused group.
+            MouseKind::Move => {
+                self.hover = here.then_some((x, y));
+                if here {
+                    self.pointer_moved(x, y);
+                }
+            }
+            MouseKind::Rest if here => self.hover_at(x, y, fx),
+            MouseKind::Rest => {}
+            MouseKind::Context => self.open_context(x, y),
+            kind => {
+                // A drag goes on in the group it began in.
+                if !here && kind != MouseKind::Down {
+                    return;
+                }
+                self.hover = Some((x, y));
+                self.mouse(
+                    Mouse {
+                        kind,
+                        x,
+                        y,
+                        shift: p.shift,
+                        alt: p.alt,
+                        ctrl: p.ctrl,
+                        clicks: p.clicks,
+                    },
+                    fx,
+                );
+            }
+        }
+    }
+
+    /// Does `f` in group `g`, without focusing it.
+    pub(crate) fn in_group(&mut self, g: usize, f: impl FnOnce(&mut Self)) {
+        if g >= self.groups.len() {
+            return;
+        }
+        let back = (self.group, self.focus);
+        self.focus_group(g);
+        f(self);
+        self.focus_group(back.0);
+        self.focus = back.1;
+    }
+
+    /// Scrolls group `g` by `rows` and `cols`, without focusing it.
+    pub(crate) fn scroll_group(&mut self, g: usize, rows: f32, cols: f32) {
+        self.in_group(g, |e| {
+            if rows != 0.0 {
+                e.scroll_by(rows as f64);
+            }
+            if cols != 0.0 && !e.wrapping() {
+                e.sideways += cols;
+                let whole = e.sideways.trunc();
+                e.sideways -= whole;
+                let widest = e.widest_on_screen();
+                let doc = e.doc_mut();
+                doc.hscroll = doc
+                    .hscroll
+                    .saturating_add_signed(whole as isize)
+                    .min(widest.saturating_sub(10));
+            }
+        });
+    }
+
+    /// The display width of the longest line in and around the view.
+    fn widest_on_screen(&self) -> usize {
+        let doc = self.doc();
+        (doc.scroll..(doc.scroll + 200).min(doc.last_line() + 1))
+            .map(|l| doc.display_col(l, doc.buffer.line_len(l)))
+            .max()
+            .unwrap_or(0)
+    }
+
     pub(crate) fn mouse(&mut self, m: Mouse, fx: &mut Vec<Effect>) {
         // Moving only changes what's lit up, which `update` records.
         if m.kind == MouseKind::Move {
@@ -34,7 +127,8 @@ impl Editor {
         // it without taking focus.
         let editor = self.layout().editor;
         let panes = self.pane_rects(editor);
-        if panes.len() == self.groups.len()
+        if !self.windowed
+            && panes.len() == self.groups.len()
             && let Some(g) = panes.iter().position(|p| p.contains(m.x, m.y))
             && g != self.group
         {
@@ -127,12 +221,9 @@ impl Editor {
                 doc.hscroll = doc.hscroll.saturating_sub(WHEEL_COLUMNS);
             }
             MouseKind::ScrollRight => {
-                let doc = self.doc_mut();
                 // No further than the longest line on screen allows.
-                let widest = (doc.scroll..(doc.scroll + 200).min(doc.last_line() + 1))
-                    .map(|l| doc.display_col(l, doc.buffer.line_len(l)))
-                    .max()
-                    .unwrap_or(0);
+                let widest = self.widest_on_screen();
+                let doc = self.doc_mut();
                 doc.hscroll = (doc.hscroll + WHEEL_COLUMNS).min(widest.saturating_sub(10));
             }
             MouseKind::Down
@@ -177,7 +268,9 @@ impl Editor {
                 self.minimap_drag = true;
                 self.minimap_scroll(m.y, false);
             }
-            MouseKind::Down if text.contains(m.x, m.y) && m.x + 1 == text.right() => {
+            MouseKind::Down
+                if !self.windowed && text.contains(m.x, m.y) && m.x + 1 == text.right() =>
+            {
                 self.scrollbar_drag = true;
                 self.scroll_to_row(m.y);
             }

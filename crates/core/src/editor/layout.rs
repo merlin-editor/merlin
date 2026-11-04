@@ -165,20 +165,11 @@ impl Editor {
 
     /// In a window that draws its own frame, the screen is all editor
     /// groups, without tabs or breadcrumbs: the window draws those.
+    /// In a window, each group's text is a grid of its own, as big as the
+    /// window made it: the window lays the groups out, with their tabs.
     fn window_layout(&self) -> Layout {
-        let (w, h) = (self.width, self.height);
         let none = Rect::default();
-        let all = Rect { x: 0, y: 0, w, h };
-        let panes = self.pane_rects(all);
-        let editor = panes.get(self.pane()).copied().unwrap_or(all);
-        // With several groups, each has its own tabs and breadcrumbs, which
-        // the window draws in rows kept at the top of its pane.
-        let head = if panes.len() > 1 {
-            super::tabs::GROUP_TABS + self.breadcrumbs as u16
-        } else {
-            0
-        };
-        let head = head.min(editor.h.saturating_sub(1));
+        let editor = self.viewport(self.pane());
         Layout {
             menu: none,
             activity: None,
@@ -187,14 +178,20 @@ impl Editor {
             bottom: None,
             tabs: Rect { h: 0, ..editor },
             crumbs: Rect { h: 0, ..editor },
-            editor: all,
-            text: Rect {
-                y: editor.y + head,
-                h: editor.h - head,
-                ..editor
-            },
+            editor,
+            text: editor,
             status: none,
         }
+    }
+
+    /// Group `g`'s text area in a window, at its own top left.
+    pub(crate) fn viewport(&self, g: usize) -> Rect {
+        let (w, h) = self
+            .viewports
+            .get(g)
+            .copied()
+            .unwrap_or((self.width, self.height));
+        Rect { x: 0, y: 0, w, h }
     }
 
     /// The screen cell where the first visible column of the first visible
@@ -211,8 +208,13 @@ impl Editor {
     /// Columns the text can use: the text area less the gutter, the
     /// minimap and the scrollbar.
     pub(crate) fn text_columns(&self) -> usize {
-        (self.layout().text.w as usize)
-            .saturating_sub(self.gutter() + 1 + self.minimap_width() as usize)
+        // A window keeps its scrollbar and minimap out of the viewport.
+        let beside = if self.windowed {
+            0
+        } else {
+            1 + self.minimap_width() as usize
+        };
+        (self.layout().text.w as usize).saturating_sub(self.gutter() + beside)
     }
 
     /// Whether the gutter has a column for git signs or a review's + and -.
@@ -249,7 +251,11 @@ impl Editor {
             doc.scroll = line;
         } else if line >= doc.scroll + height {
             doc.scroll = line + 1 - height;
+        } else if line == doc.scroll {
+            // The cursor's line whole, not part scrolled off.
+            self.snap_top();
         }
+        let doc = self.doc_mut();
         let x = doc.display_col(line, col);
         if x < doc.hscroll {
             doc.hscroll = x;

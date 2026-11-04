@@ -10,15 +10,16 @@ use std::collections::HashMap;
 
 use super::Editor;
 use crate::buffer::Change;
-use crate::doc::{Caret, Doc};
+use crate::doc::{Caret, Doc, Sub};
 
 /// Where a group is in a document.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct View {
     pub cursor: usize,
     pub anchor: Option<usize>,
     pub goal: Option<usize>,
     pub scroll: usize,
+    pub sub: Sub,
     pub hscroll: usize,
     /// Cursors besides the primary one.
     pub extra: Vec<Caret>,
@@ -33,6 +34,7 @@ impl View {
             anchor: doc.anchor,
             goal: doc.goal,
             scroll: doc.scroll,
+            sub: doc.scroll_sub,
             hscroll: doc.hscroll,
             extra: doc.extra.clone(),
             folds: doc.folds.clone(),
@@ -93,6 +95,7 @@ impl View {
         doc.anchor = v.anchor;
         doc.goal = v.goal;
         doc.scroll = v.scroll;
+        doc.scroll_sub = v.sub;
         doc.hscroll = v.hscroll;
         doc.extra = v.extra;
         doc.extra_version = doc.buffer.version();
@@ -116,6 +119,11 @@ pub(crate) struct Group {
     /// Under the group before it, in the same column, rather than in a
     /// column of its own.
     pub below: bool,
+    /// Its share of the window: of the width, for the first group of a
+    /// column, which speaks for the column; of its column's height, for
+    /// every group.
+    pub width: f32,
+    pub height: f32,
 }
 
 impl Group {
@@ -125,6 +133,8 @@ impl Group {
             active: id,
             saved: HashMap::new(),
             below: false,
+            width: 1.0,
+            height: 1.0,
         }
     }
 }
@@ -453,6 +463,10 @@ impl Editor {
     /// one area, for the focused group.
     pub(crate) fn pane_rects(&self, editor: super::layout::Rect) -> Vec<super::layout::Rect> {
         use super::layout::Rect;
+        // A window lays the groups out itself; each is a grid of its own.
+        if self.windowed {
+            return (0..self.groups.len()).map(|g| self.viewport(g)).collect();
+        }
         let mut columns: Vec<usize> = Vec::new();
         for group in &self.groups {
             match columns.last_mut() {

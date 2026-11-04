@@ -53,6 +53,16 @@ impl Caret {
     }
 }
 
+/// The top of a view, past the first line shown: which of the line's rows
+/// is at the top, and the part of that row scrolled off. It's kept with the
+/// line it's for, so whatever moves `scroll` leaves it behind.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Sub {
+    pub line: usize,
+    pub row: usize,
+    pub frac: f32,
+}
+
 pub struct Doc {
     /// Stays the same for as long as the file is open.
     pub id: u64,
@@ -64,6 +74,8 @@ pub struct Doc {
     pub goal: Option<usize>,
     /// First line shown.
     pub scroll: usize,
+    /// Where in it the view starts; see [`Sub`].
+    pub scroll_sub: Sub,
     /// Display columns scrolled off the left.
     pub hscroll: usize,
     /// Diagnostics from plugins.
@@ -100,6 +112,7 @@ impl Doc {
             anchor: None,
             goal: None,
             scroll: 0,
+            scroll_sub: Sub::default(),
             hscroll: 0,
             marks: Vec::new(),
             review: None,

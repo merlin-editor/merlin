@@ -20,7 +20,9 @@ use crate::screen::{Hue, Style};
 /// An editor group's text, as it's on screen now.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextView {
-    /// Where the text is, in cells of the core's grid, scrollbar included.
+    /// The editor group it's in.
+    pub group: usize,
+    /// Where the text is, in cells of its group's grid.
     pub area: Rect,
     /// Cells left of the text: signs, numbers and the fold arrow.
     pub gutter: usize,
@@ -32,6 +34,12 @@ pub struct TextView {
     /// in columns.
     pub scroll: usize,
     pub hscroll: usize,
+    /// How much of the top row is scrolled off, in rows: a window draws
+    /// every row that much higher.
+    pub top_frac: f32,
+    /// The top, and every row there is, in rows from the top of the file.
+    pub top_row: f64,
+    pub total_rows: usize,
     pub wrapping: bool,
     /// Whether keys go here, so the cursors and current line show.
     pub focused: bool,
@@ -106,9 +114,8 @@ pub struct CaretView {
     pub cell: Option<(u16, u16)>,
 }
 
-/// Lines a window gets above and below the view, so scrolling can glide
-/// as far as a page step without a gap. Not while wrapping, where rows and
-/// lines differ.
+/// Rows a window gets above and below the view, so scrolling can glide
+/// as far as a page step without a gap.
 pub const OVERSCAN: u16 = 8;
 
 impl Editor {
@@ -208,6 +215,9 @@ impl Editor {
                     })
                     .collect();
                 TextView {
+                    group: self.pane(),
+                    top_row: v.scroll as f64,
+                    total_rows: rows.len(),
                     area: rect,
                     gutter,
                     // The right half's last column is the scrollbar.
@@ -216,6 +226,7 @@ impl Editor {
                     signs: true,
                     scroll: v.scroll,
                     hscroll: v.hscroll,
+                    top_frac: 0.0,
                     wrapping: false,
                     focused,
                     lines,
@@ -242,24 +253,23 @@ impl Editor {
             self.carets().iter().filter_map(|c| c.selection()).collect();
         let selection = selections.first().copied();
         let hidden = self.hidden_lines();
-        // A window drawing the text gets lines past both edges.
-        let overscan = if self.own_text && !self.row_based() {
-            OVERSCAN
-        } else {
-            0
-        };
+        // A window drawing the text gets rows past both edges.
+        let overscan = if self.own_text { OVERSCAN } else { 0 };
+        // The top may be a row part-way down the first line: its rows above
+        // that are above the view.
+        let (top_row, top_frac) = self.top_sub();
         let mut first = v.scroll;
-        let mut above = 0i32;
-        while above < overscan as i32 && first > 0 {
+        let mut above = top_row as i32;
+        while above < overscan as i32 + top_row as i32 && first > 0 {
             first -= 1;
             match hidden.iter().find(|r| r.contains(&first)) {
                 Some(fold) => first = fold.start.min(first),
-                None => above += 1,
+                None => above += self.line_rows(first).len().max(1) as i32,
             }
         }
         // The lines on screen, which reach further down past folds.
         let last_shown = if self.row_based() {
-            self.line_at_row(area.h as usize).0
+            self.line_at_row(area.h as usize + overscan as usize).0
         } else {
             v.scroll + area.h as usize + overscan as usize
         };
@@ -281,6 +291,9 @@ impl Editor {
         let wrapping = self.wrapping();
         let signs = self.has_signs();
         let mut view = TextView {
+            group: self.pane(),
+            top_row: self.top_row(),
+            total_rows: *self.row_index().last().unwrap_or(&0),
             area,
             gutter,
             columns: self.text_columns(),
@@ -288,6 +301,7 @@ impl Editor {
             signs,
             scroll: v.scroll,
             hscroll: if wrapping { 0 } else { v.hscroll },
+            top_frac: if self.own_text { top_frac } else { 0.0 },
             wrapping,
             focused,
             lines: Vec::new(),

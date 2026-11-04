@@ -200,6 +200,11 @@ impl Editor {
             s.put(area.x, area.y + row, '~', Style::Muted);
         }
         for l in &view.lines {
+            // A line that starts above the top: the cells start at its
+            // first whole row.
+            if l.row < 0 {
+                continue;
+            }
             let (y, shown, rows) = (area.y + l.row as u16, l.shown, &l.rows);
             if l.base != Style::Normal {
                 for r in 0..shown {

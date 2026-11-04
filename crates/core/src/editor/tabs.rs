@@ -3,11 +3,7 @@
 //! the menu on a tab, as VS Code has it.
 
 use super::context::ContextMenu;
-use super::layout::Rect;
 use super::{Editor, Effect, Focus, TabView};
-
-/// Rows kept at the top of each group's pane for its tabs.
-pub(crate) const GROUP_TABS: u16 = 2;
 
 /// A tab's right-click menu.
 pub(crate) const TAB_ITEMS: &[(&str, &str)] = &[
@@ -22,14 +18,19 @@ pub(crate) const TAB_ITEMS: &[(&str, &str)] = &[
     ("view.split_down", "Split Down"),
 ];
 
-/// An editor group, when there are several: its tabs and breadcrumbs, and
-/// its pane in the text's grid, the tab and breadcrumb rows included.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// An editor group: its tabs and breadcrumbs, and where it goes. Groups
+/// are in columns left to right; one `below` is under the group before it,
+/// in the same column.
+#[derive(Clone, Debug, PartialEq)]
 pub struct GroupView {
     pub tabs: Vec<TabView>,
     pub crumbs: Vec<String>,
     pub focused: bool,
-    pub pane: Rect,
+    pub below: bool,
+    /// Its share of the width, for the first group of a column, which
+    /// speaks for the column; of its column's height, for every group.
+    pub width: f32,
+    pub height: f32,
 }
 
 impl Editor {
@@ -50,22 +51,10 @@ impl Editor {
             .collect()
     }
 
-    /// Each group, when there's more than one on screen.
+    /// Every group, for a window to lay out and draw.
     pub(crate) fn group_strips(&self) -> Vec<GroupView> {
-        let all = Rect {
-            x: 0,
-            y: 0,
-            w: self.width,
-            h: self.height,
-        };
-        let panes = self.pane_rects(all);
-        if panes.len() < 2 || panes.len() != self.groups.len() {
-            return Vec::new();
-        }
-        panes
-            .into_iter()
-            .enumerate()
-            .map(|(g, pane)| {
+        (0..self.groups.len())
+            .map(|g| {
                 self.as_group(g, || GroupView {
                     tabs: self.tab_views(),
                     crumbs: if self.breadcrumbs && self.shows_crumbs() {
@@ -74,7 +63,9 @@ impl Editor {
                         Vec::new()
                     },
                     focused: g == self.group,
-                    pane,
+                    below: self.groups[g].below,
+                    width: self.groups[g].width,
+                    height: self.groups[g].height,
                 })
             })
             .collect()

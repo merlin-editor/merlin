@@ -6,7 +6,7 @@
 use merlin_core::panel::{Entry, Node, Tone};
 use merlin_core::{
     ContextItem, ContextView, FindAction, FindView, Key, KeyCode, MenuView, PaletteView, PopupKind,
-    PopupView, Side, SideView, TabView, ToastView, UiEvent, WindowView,
+    PopupView, Side, SideView, TabView, ToastView, UiEvent, WindowView, editor::GroupView,
 };
 
 use super::canvas::{Canvas, Face, Pictures, Rect, Text};
@@ -42,16 +42,43 @@ pub enum Hit {
     /// A tab strip, past its tabs: a dragged tab dropped there goes at the
     /// end, of group `n` when there are several.
     TabStrip(Option<usize>),
+    /// An edge between editor groups, to drag.
+    GroupSash(GroupSash),
 }
 
-/// Where the islands are, in logical pixels.
+/// An edge between editor groups: after column `n`, or under group `n` in
+/// its column.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GroupSash {
+    Column(usize),
+    Row(usize),
+}
+
+/// Where an editor group's parts go, in logical pixels.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct GroupArea {
+    pub tabs: Rect,
+    pub crumbs: Option<Rect>,
+    /// The code: gutter, text, minimap and scrollbar.
+    pub text: Rect,
+}
+
+/// The line between groups, and the room a sash takes on either side.
+pub const DIVIDER: f32 = 1.0;
+const SASH: f32 = 3.0;
+
+/// Where the islands are, in logical pixels.
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Areas {
     pub left: Option<Rect>,
     pub right: Option<Rect>,
     pub bottom: Option<Rect>,
     pub editor: Rect,
-    /// The code inside the editor island.
+    /// Each editor group's parts, in the editor island.
+    pub groups: Vec<GroupArea>,
+    /// The edges between groups.
+    pub group_sashes: Vec<(Rect, GroupSash)>,
+    /// The focused group's code, for what floats over it.
     pub text: Rect,
 }
 
@@ -151,25 +178,86 @@ pub fn areas(view: &WindowView, w: f32, h: f32, gap: f32, sizes: &Sizes) -> Area
     });
     let editor_h = body_h - bottom.map_or(0.0, |b| b.h + gap);
     let editor = Rect::new(x, top, main_w, editor_h.max(0.0));
-    let head = if !view.groups.is_empty() {
-        0.0
-    } else if view.crumbs.is_empty() {
-        TABS_H
-    } else {
-        TABS_H + CRUMBS_H
-    };
-    let text = Rect::new(
-        editor.x,
-        editor.y + head + 4.0,
-        editor.w,
-        (editor.h - head - 4.0).max(0.0),
-    );
+    let (groups, group_sashes) = group_areas(editor, &view.groups);
+    let text = groups
+        .iter()
+        .zip(&view.groups)
+        .find(|(_, g)| g.focused)
+        .or_else(|| groups.iter().zip(&view.groups).next())
+        .map_or(editor, |(a, _)| a.text);
     Areas {
         left,
         right,
         bottom,
         editor,
+        groups,
+        group_sashes,
         text,
+    }
+}
+
+/// The editor groups' places in `editor`: columns left to right by their
+/// shares of the width, each column's groups top to bottom by theirs of
+/// its height, a divider between each.
+pub fn group_areas(editor: Rect, groups: &[GroupView]) -> (Vec<GroupArea>, Vec<(Rect, GroupSash)>) {
+    let n = groups.len().max(1);
+    let heads: Vec<usize> = (0..groups.len())
+        .filter(|&g| g == 0 || !groups[g].below)
+        .collect();
+    let heads = if heads.is_empty() { vec![0] } else { heads };
+    let share = |g: usize, wide: bool| {
+        groups
+            .get(g)
+            .map_or(1.0, |v| if wide { v.width } else { v.height })
+    };
+    let total_w: f32 = heads.iter().map(|&h| share(h, true)).sum();
+    let room_w = (editor.w - (heads.len() - 1) as f32 * DIVIDER).max(0.0);
+    let mut areas = Vec::with_capacity(n);
+    let mut sashes = Vec::new();
+    let mut x = editor.x;
+    for (c, &head) in heads.iter().enumerate() {
+        let end = heads.get(c + 1).copied().unwrap_or(n);
+        let last_column = c + 1 == heads.len();
+        let w = if last_column {
+            editor.right() - x
+        } else {
+            room_w * share(head, true) / total_w
+        };
+        let total_h: f32 = (head..end).map(|g| share(g, false)).sum();
+        let room_h = (editor.h - (end - head - 1) as f32 * DIVIDER).max(0.0);
+        let mut y = editor.y;
+        for g in head..end {
+            let h = if g + 1 == end {
+                editor.bottom() - y
+            } else {
+                room_h * share(g, false) / total_h
+            };
+            let crumbs = groups.get(g).is_some_and(|v| !v.crumbs.is_empty());
+            areas.push(GroupArea::of(Rect::new(x, y, w, h), crumbs));
+            if g + 1 < end {
+                let r = Rect::new(x, y + h - SASH, w, DIVIDER + 2.0 * SASH);
+                sashes.push((r, GroupSash::Row(g)));
+            }
+            y += h + DIVIDER;
+        }
+        if !last_column {
+            let r = Rect::new(x + w - SASH, editor.y, DIVIDER + 2.0 * SASH, editor.h);
+            sashes.push((r, GroupSash::Column(c)));
+        }
+        x += w + DIVIDER;
+    }
+    (areas, sashes)
+}
+
+impl GroupArea {
+    /// A group's tabs on top, then its breadcrumbs, then its code.
+    fn of(r: Rect, crumbs: bool) -> Self {
+        let head = if crumbs { TABS_H + CRUMBS_H } else { TABS_H };
+        Self {
+            tabs: Rect::new(r.x, r.y, r.w, TABS_H.min(r.h)),
+            crumbs: crumbs.then(|| Rect::new(r.x, r.y + TABS_H, r.w, CRUMBS_H)),
+            text: Rect::new(r.x, r.y + head + 4.0, r.w, (r.h - head - 4.0).max(0.0)),
+        }
     }
 }
 
@@ -229,14 +317,20 @@ impl Frame<'_> {
             }
             self.sash_hits.push((r, Hit::Sash(side)));
         }
-        // Several groups draw their own tabs, over the code's grid.
-        if view.groups.is_empty() {
-            self.tabs(view, a.editor);
-            if !view.crumbs.is_empty() {
-                self.crumbs(view, a.editor);
-            }
+        // Hairlines between the groups, lit while dragged or under the
+        // mouse.
+        for &(r, sash) in &a.group_sashes {
+            let line = match sash {
+                GroupSash::Column(_) => Rect::new(r.x + SASH, r.y, DIVIDER, r.h),
+                GroupSash::Row(_) => Rect::new(r.x, r.y + SASH, r.w, DIVIDER),
+            };
+            let lit = self.hovered(r);
+            self.canvas.fill(line, if lit { p.accent } else { p.line });
+            self.sash_hits.push((r, Hit::GroupSash(sash)));
         }
-        self.hit(a.text, Hit::Text);
+        for group in &a.groups {
+            self.hit(group.text, Hit::Text);
+        }
         // Over the code's edge, the sash wins.
         let sashes = std::mem::take(&mut self.sash_hits);
         self.hits.extend(sashes);
@@ -265,7 +359,7 @@ impl Frame<'_> {
         w: f32,
         h: f32,
     ) {
-        self.groups(view, a, cell);
+        self.group_heads(view, a);
         if let Some(find) = &view.find {
             self.find(find, a);
         }
@@ -1507,11 +1601,6 @@ impl Frame<'_> {
         r.w
     }
 
-    fn tabs(&mut self, view: &WindowView, editor: Rect) {
-        let row = Rect::new(editor.x, editor.y, editor.w, TABS_H);
-        self.tab_strip(&view.tabs, row, None, true);
-    }
-
     /// A strip of tabs in `row`, for group `group` when there are several.
     /// With more tabs than fit, it starts late enough for the active one to
     /// show. While a tab is dragged, a bar marks where it would go.
@@ -1655,11 +1744,6 @@ impl Frame<'_> {
         );
     }
 
-    fn crumbs(&mut self, view: &WindowView, editor: Rect) {
-        let row = Rect::new(editor.x, editor.y + TABS_H, editor.w, CRUMBS_H);
-        self.crumb_row(&view.crumbs, row, None);
-    }
-
     fn crumb_row(&mut self, crumbs: &[String], row: Rect, group: Option<usize>) {
         let p = self.p;
         let face = Face::ui(12.0);
@@ -1704,19 +1788,12 @@ impl Frame<'_> {
         }
     }
 
-    /// Each group's tabs and breadcrumbs, in the rows its pane keeps for
-    /// them, and the tab being dragged under the mouse.
-    fn groups(&mut self, view: &WindowView, a: &Areas, (cw, ch): (f32, f32)) {
-        for (g, group) in view.groups.iter().enumerate() {
-            let pane = group.pane;
-            let x = a.text.x + pane.x as f32 * cw;
-            let y = a.text.y + pane.y as f32 * ch;
-            let w = pane.w as f32 * cw;
-            let tabs = Rect::new(x, y, w, 2.0 * ch);
-            self.canvas.fill(tabs, self.p.island);
-            self.tab_strip(&group.tabs, tabs, Some(g), group.focused);
-            if !group.crumbs.is_empty() {
-                let row = Rect::new(x, y + 2.0 * ch, w, ch);
+    /// Each group's tabs and breadcrumbs above its code, and the tab being
+    /// dragged under the mouse.
+    fn group_heads(&mut self, view: &WindowView, a: &Areas) {
+        for (g, (group, area)) in view.groups.iter().zip(&a.groups).enumerate() {
+            self.tab_strip(&group.tabs, area.tabs, Some(g), group.focused);
+            if let Some(row) = area.crumbs {
                 self.crumb_row(&group.crumbs, row, Some(g));
             }
         }

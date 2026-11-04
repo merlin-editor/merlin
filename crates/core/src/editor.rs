@@ -19,6 +19,7 @@ mod mouse;
 mod palette;
 mod panels;
 mod render;
+mod scroll;
 mod select;
 mod settings;
 mod tabs;
@@ -90,6 +91,27 @@ pub enum MouseKind {
     ScrollLines(i16),
     /// The mouse moved with no button down.
     Move,
+    /// A right click, for the menu there.
+    Context,
+    /// The mouse has rested a while, for a hover.
+    Rest,
+}
+
+/// The mouse over an editor group's text, as a window measures it: rows
+/// down from the top of the view, parts of a row scrolled off included,
+/// and columns from the group's left edge, the gutter's included. Drags
+/// and the release that ends them are in the group they began in.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Pointer {
+    pub group: usize,
+    pub kind: MouseKind,
+    pub row: f32,
+    pub col: f32,
+    pub shift: bool,
+    pub alt: bool,
+    pub ctrl: bool,
+    /// 2 for a double click and 3 for a triple click, on presses; else 1.
+    pub clicks: u8,
 }
 
 /// A left-button or wheel event, in screen cells.
@@ -120,6 +142,22 @@ pub enum Event {
     /// [`Editor::set_windowed`].
     Ui(UiEvent),
     Resize(u16, u16),
+    /// Each editor group's text area, in columns and rows of the code's
+    /// font, as the window has laid them out.
+    Viewports(Vec<(u16, u16)>),
+    Pointer(Pointer),
+    /// Scrolls a group's text by rows, parts of one too, and columns.
+    Scroll {
+        group: usize,
+        rows: f32,
+        cols: f32,
+    },
+    /// Puts a group's top at `row` rows from the top of its file, as the
+    /// scrollbar and minimap do.
+    ScrollTo {
+        group: usize,
+        row: f64,
+    },
     Command(String),
     Saved {
         doc: u64,
@@ -610,6 +648,14 @@ pub struct Editor {
     /// The lines folded away, for a document, version and set of folds.
     #[allow(clippy::type_complexity)]
     fold_cache: std::cell::RefCell<Option<((u64, u64, Vec<usize>), Vec<std::ops::Range<usize>>)>>,
+    /// The rows before each line, by document, version, width and folds.
+    #[allow(clippy::type_complexity)]
+    row_cache: std::cell::RefCell<
+        Option<(
+            (u64, u64, Option<usize>, Vec<usize>),
+            std::rc::Rc<Vec<usize>>,
+        )>,
+    >,
     /// Where the mouse is, for lighting up what's under it.
     hover: Option<(u16, u16)>,
     /// Whether to draw Nerd Font icons.
@@ -641,6 +687,10 @@ pub struct Editor {
     user_keys: Vec<keymap::Binding>,
     /// Every key binding, in the order they're tried.
     keymap: Vec<keymap::Binding>,
+    /// Each group's text area from the window, in columns and rows.
+    viewports: Vec<(u16, u16)>,
+    /// Sideways scrolling short of a whole column, for touchpads.
+    sideways: f32,
     /// Whether a click in the Explorer opens a preview tab.
     preview_tabs: bool,
     /// Indentation for files that have none of their own, or all files
@@ -716,6 +766,7 @@ impl Editor {
             jumps: Vec::new(),
             bracket_cache: Default::default(),
             fold_cache: Default::default(),
+            row_cache: Default::default(),
             hover: None,
             nerd: false,
             minimap: false,
@@ -734,6 +785,8 @@ impl Editor {
             colours: Default::default(),
             user_keys: Vec::new(),
             keymap: keymap::builtin(),
+            viewports: Vec::new(),
+            sideways: 0.0,
             preview_tabs: true,
             indent: Indent::spaces(4),
             detect_indentation: true,
@@ -931,7 +984,8 @@ impl Editor {
         let by_user = matches!(
             event,
             Event::Key(_) | Event::Paste(_) | Event::Command(_) | Event::Ui(_)
-        ) || matches!(event, Event::Mouse(m) if m.kind == MouseKind::Down);
+        ) || matches!(event, Event::Mouse(m) if m.kind == MouseKind::Down)
+            || matches!(event, Event::Pointer(p) if p.kind == MouseKind::Down);
         let armed = if by_user { self.armed.take() } else { None };
         if let Event::Mouse(m) = &event {
             self.hover = Some((m.x, m.y));
@@ -967,6 +1021,10 @@ impl Editor {
                 self.width = w;
                 self.height = h;
             }
+            Event::Viewports(sizes) => self.viewports = sizes,
+            Event::Pointer(p) => self.pointer(p, &mut fx),
+            Event::Scroll { group, rows, cols } => self.scroll_group(group, rows, cols),
+            Event::ScrollTo { group, row } => self.in_group(group, |e| e.set_top_row(row)),
             Event::Command(id) => self.run(&id, armed, &mut fx),
             Event::Saved {
                 doc,

@@ -25,8 +25,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result};
-use merlin_core::screen::Cell;
-use merlin_core::{Event, Key, KeyCode, Mouse, MouseKind, Side, TextView, UiEvent, WindowView};
+use merlin_core::{Event, Key, KeyCode, MouseKind, Pointer, Side, TextView, UiEvent, WindowView};
 use merlin_plugins::PluginHost;
 use softbuffer::{Context, Surface};
 use winit::application::ApplicationHandler;
@@ -87,26 +86,29 @@ pub fn run(app: &mut App) -> Result<()> {
         grid: None,
         modifiers: ModifiersState::empty(),
         pointer: None,
-        pressed_in_text: false,
+        pressed_group: None,
+        dragged_to: None,
         rest: None,
+        over_cell: None,
         tip_drawn: None,
         tips: Vec::new(),
         tip: None,
         zoomed: 0.0,
         sizes: frame::Sizes::default(),
         sash: None,
+        group_drag: None,
+        viewports: Vec::new(),
+        resized_to: (0, 0),
         tab_drag: None,
         cursor_icon: CursorIcon::Default,
         blink_from: Instant::now(),
         caret_drawn: true,
         focused: true,
         glide: None,
-        last_scroll: None,
+        last_top: Vec::new(),
         context_at: None,
         clicks: Clicks::default(),
         scroll: 0.0,
-        touch: None,
-        touch_drawn: None,
         touched: false,
         state: State::default(),
         hits: Vec::new(),
@@ -157,10 +159,14 @@ struct Gui<'a> {
     modifiers: ModifiersState,
     /// Where the mouse is, in logical pixels.
     pointer: Option<(f32, f32)>,
-    /// The left button went down in the code, so moves are drags there.
-    pressed_in_text: bool,
-    /// When the mouse, still on a cell of the text, asks for a hover.
-    rest: Option<(Instant, (u16, u16))>,
+    /// The group whose code the left button went down in, so moves are
+    /// drags there; and the cell last dragged to.
+    pressed_group: Option<usize>,
+    dragged_to: Option<(i32, i32)>,
+    /// When the mouse, resting on the text, asks for a hover, and where.
+    rest: Option<(Instant, (f32, f32))>,
+    /// The cell of the text the mouse was last over, by group.
+    over_cell: Option<(usize, i32, i32)>,
     /// Where the right-click menu was opened, in logical pixels.
     context_at: Option<(f32, f32)>,
     /// Each icon's tooltip, as last drawn.
@@ -175,6 +181,13 @@ struct Gui<'a> {
     sizes: frame::Sizes,
     /// The side whose edge is being dragged.
     sash: Option<Side>,
+    /// The edge between groups being dragged: which, where it began, and
+    /// the groups' sizes and places then.
+    group_drag: Option<(frame::GroupSash, (f32, f32), Vec<frame::GroupArea>)>,
+    /// Each group's text area, in columns and rows, as last told the
+    /// editor; and the whole editor area's.
+    viewports: Vec<(u16, u16)>,
+    resized_to: (u16, u16),
     /// A tab pressed on, and whether it's being dragged yet.
     tab_drag: Option<TabDrag>,
     /// The mouse pointer's shape now.
@@ -185,21 +198,17 @@ struct Gui<'a> {
     caret_drawn: bool,
     /// Whether the window has the keyboard; the caret blinks only then.
     focused: bool,
-    /// A scroll gliding: when it began and how far, in physical pixels, the
-    /// lines started from where they are now.
-    glide: Option<(Instant, f32)>,
-    /// The active group's last top line and its area, to tell a scroll
-    /// from a change of layout.
-    last_scroll: Option<(usize, merlin_core::editor::CellRect)>,
+    /// A scroll gliding: the group, when it began and how far, in physical
+    /// pixels, its lines started from where they are now.
+    glide: Option<(usize, Instant, f32)>,
+    /// Each group's top row as last drawn, to tell how far a scroll went.
+    last_top: Vec<(usize, f64)>,
     clicks: Clicks,
-    /// Touchpad scrolling short of a whole line, in physical pixels, and
-    /// the text it's in: the lines are drawn that far down, so the text
-    /// follows the fingers.
+    /// Touchpad scrolling off the text, short of a wheel step, in physical
+    /// pixels.
     scroll: f64,
-    touch: Option<(merlin_core::editor::CellRect, f32)>,
-    touch_drawn: Option<(merlin_core::editor::CellRect, f32)>,
-    /// The touchpad scrolled whole lines since the last frame, which the
-    /// offset already shows: no glide.
+    /// The touchpad scrolled since the last frame: it moves the text
+    /// exactly, so no glide.
     touched: bool,
     state: State,
     /// What each clickable part of the last frame does; later ones are on
@@ -208,15 +217,7 @@ struct Gui<'a> {
     areas: Areas,
     /// What was last drawn, so a redraw that changes nothing costs nothing.
     #[allow(clippy::type_complexity)]
-    drawn: Option<(
-        WindowView,
-        Vec<Cell>,
-        Option<(u16, u16)>,
-        Option<usize>,
-        [f32; 3],
-        (u32, u32),
-        Look,
-    )>,
+    drawn: Option<(WindowView, Option<usize>, [f32; 3], (u32, u32), Look)>,
     /// The text last drawn, beside `drawn`.
     drawn_text: Vec<TextView>,
     pictures: Pictures,
@@ -313,12 +314,70 @@ impl Gui<'_> {
         let (w, h) = (size.width as f32 / s, size.height as f32 / s);
         let view = self.app.editor.window_view();
         self.areas = frame::areas(&view, w, h, self.app.look.layout.gap, &self.sizes);
-        let t = self.areas.text;
-        let cols = ((t.w * s) as u32 / grid.cell_w).clamp(1, u16::MAX as u32) as u16;
-        let rows = ((t.h * s) as u32 / grid.cell_h).clamp(1, u16::MAX as u32) as u16;
-        if self.app.editor.render().width != cols || self.app.editor.render().height != rows {
-            self.app.dispatch(Event::Resize(cols, rows));
+        let (cw, ch) = (grid.cell_w, grid.cell_h);
+        let cells = |r: Rect| {
+            (
+                ((r.w * s) as u32 / cw).clamp(1, u16::MAX as u32) as u16,
+                ((r.h * s) as u32 / ch).clamp(1, u16::MAX as u32) as u16,
+            )
+        };
+        let viewports: Vec<(u16, u16)> = self.areas.groups.iter().map(|g| cells(g.text)).collect();
+        let whole = cells(self.areas.editor);
+        if whole != self.resized_to {
+            self.resized_to = whole;
+            self.app.dispatch(Event::Resize(whole.0, whole.1));
         }
+        if viewports != self.viewports {
+            self.viewports = viewports.clone();
+            self.app.dispatch(Event::Viewports(viewports));
+        }
+    }
+
+    /// The group whose code is under a point.
+    fn group_at(&self, (x, y): (f32, f32)) -> Option<usize> {
+        self.areas.groups.iter().position(|g| g.text.contains(x, y))
+    }
+
+    /// A point in group `g`'s code as the editor counts it: rows from the
+    /// top of the view, the part scrolled off included, and columns from
+    /// the group's left edge.
+    fn text_point(&self, g: usize, (x, y): (f32, f32)) -> (f32, f32) {
+        let (Some(grid), Some(area)) = (&self.grid, self.areas.groups.get(g)) else {
+            return (0.0, 0.0);
+        };
+        let s = self.scale();
+        let frac = self
+            .drawn_text
+            .iter()
+            .find(|v| v.group == g)
+            .map_or(0.0, |v| v.top_frac);
+        let a = area.text;
+        (
+            (y - a.y) * s / grid.cell_h as f32 + frac,
+            (x - a.x) * s / grid.cell_w as f32,
+        )
+    }
+
+    /// Tells the editor what the mouse did in group `g`'s code.
+    fn pointer_event(&mut self, g: usize, kind: MouseKind, at: (f32, f32), clicks: u8) {
+        let (row, col) = self.text_point(g, at);
+        self.dispatch(Event::Pointer(Pointer {
+            group: g,
+            kind,
+            row,
+            col,
+            shift: self.modifiers.shift_key(),
+            alt: self.modifiers.alt_key(),
+            ctrl: self.modifiers.control_key(),
+            clicks,
+        }));
+    }
+
+    /// The cell of group `g`'s code a point is nearest the gap before, as
+    /// a press or drag picks it.
+    fn gap_cell(&self, g: usize, at: (f32, f32)) -> (i32, i32) {
+        let (row, col) = self.text_point(g, at);
+        (row.floor() as i32, (col + 0.5).floor() as i32)
     }
 
     /// The topmost clickable part under the mouse.
@@ -331,54 +390,6 @@ impl Gui<'_> {
             .map(|(i, (_, hit))| (i, hit))
     }
 
-    /// The code's cell under a point, clamped to the code.
-    fn cell_at(&self, (x, y): (f32, f32)) -> (u16, u16) {
-        let Some(grid) = &self.grid else {
-            return (0, 0);
-        };
-        let s = self.scale();
-        let t = self.areas.text;
-        let cx = (((x - t.x).max(0.0) * s) as u32 / grid.cell_w).min(u16::MAX as u32) as u16;
-        let cy = (((y - t.y).max(0.0) * s) as u32 / grid.cell_h).min(u16::MAX as u32) as u16;
-        // Text a touchpad left part-way down a line is that much lower.
-        if let Some((area, offset)) = self.touch
-            && area.contains(cx, cy)
-        {
-            let py = ((y - t.y) * s - offset).max(0.0);
-            let cy = (py as u32 / grid.cell_h).min(u16::MAX as u32) as u16;
-            return (cx, cy.max(area.y));
-        }
-        (cx, cy)
-    }
-
-    fn text_mouse(&mut self, kind: MouseKind, at: (f32, f32), clicks: u8) {
-        let (mut x, y) = self.cell_at(at);
-        // In the code, a click goes to the nearest gap between characters,
-        // not the cell it's in.
-        if matches!(kind, MouseKind::Down | MouseKind::Drag)
-            && let Some(grid) = &self.grid
-        {
-            let s = self.scale();
-            let column = (at.0 - self.areas.text.x).max(0.0) * s / grid.cell_w as f32;
-            let in_code = self.drawn_text.iter().any(|v| {
-                let first = v.area.x + v.gutter as u16;
-                v.area.contains(x, y) && x >= first && x < first + v.columns as u16
-            });
-            if in_code {
-                x = (column + 0.5) as u16;
-            }
-        }
-        self.dispatch(Event::Mouse(Mouse {
-            kind,
-            x,
-            y,
-            shift: self.modifiers.shift_key(),
-            alt: self.modifiers.alt_key(),
-            ctrl: self.modifiers.control_key(),
-            clicks,
-        }));
-    }
-
     fn press(&mut self, at: (f32, f32)) {
         let clicks = self.clicks.count(at);
         let Some((_, hit)) = self.hit_at(at) else {
@@ -386,8 +397,19 @@ impl Gui<'_> {
         };
         match hit.clone() {
             Hit::Text => {
-                self.pressed_in_text = true;
-                self.text_mouse(MouseKind::Down, at, clicks);
+                if let Some(g) = self.group_at(at) {
+                    self.pressed_group = Some(g);
+                    self.dragged_to = Some(self.gap_cell(g, at));
+                    self.pointer_event(g, MouseKind::Down, at, clicks);
+                }
+            }
+            // A double click puts the groups back to the same sizes.
+            Hit::GroupSash(_) if clicks >= 2 => {
+                let even = vec![(1.0, 1.0); self.areas.groups.len()];
+                self.dispatch(Event::Ui(UiEvent::GroupSizes(even)));
+            }
+            Hit::GroupSash(sash) => {
+                self.group_drag = Some((sash, at, self.areas.groups.clone()));
             }
             Hit::Ui(UiEvent::Tab { index, .. }) => {
                 self.hold_tab(None, index, at);
@@ -436,13 +458,7 @@ impl Gui<'_> {
             Some(Hit::Ui(UiEvent::CloseTab(index))) => Some((focused, Some(index))),
             Some(Hit::Ui(UiEvent::CloseGroupTab { group, index })) => Some((group, Some(index))),
             Some(Hit::TabStrip(group)) => Some((group.unwrap_or(focused), None)),
-            Some(Hit::Text) => {
-                let (x, y) = self.cell_at(at);
-                view.groups
-                    .iter()
-                    .position(|g| g.pane.contains(x, y))
-                    .map(|g| (g, None))
-            }
+            Some(Hit::Text) => self.group_at(at).map(|g| (g, None)),
             _ => None,
         };
         if let Some((group, at)) = target {
@@ -484,35 +500,41 @@ impl Gui<'_> {
             self.redraw();
             return;
         }
-        let shift = self.modifiers.shift_key();
-        let kind = match (sideways || shift, lines > 0.0) {
-            (false, true) => MouseKind::ScrollUp,
-            (false, false) => MouseKind::ScrollDown,
-            (true, true) => MouseKind::ScrollLeft,
-            (true, false) => MouseKind::ScrollRight,
+        // Three rows a step, or six columns sideways, as VS Code scrolls.
+        let group = self.group_at(at).unwrap_or(self.focused_group());
+        let steps = lines as f32;
+        let (rows, cols) = if sideways || self.modifiers.shift_key() {
+            (0.0, -steps * 6.0)
+        } else {
+            (-steps * 3.0, 0.0)
         };
-        for _ in 0..(lines.abs().round() as u32).max(1) {
-            self.text_mouse(kind, at, 1);
-        }
+        self.dispatch(Event::Scroll { group, rows, cols });
     }
 
-    /// A touchpad moved the text by (`dx`, `dy`) physical pixels: whole
-    /// lines scroll, and what's left shows as an offset until it adds up
-    /// to another.
+    fn focused_group(&self) -> usize {
+        self.app
+            .editor
+            .window_view()
+            .groups
+            .iter()
+            .position(|g| g.focused)
+            .unwrap_or(0)
+    }
+
+    /// A touchpad moved the text by (`dx`, `dy`) physical pixels: the text
+    /// follows it exactly, parts of a row and column too.
     fn touch_scroll(&mut self, dx: f64, dy: f64) {
         let Some(at) = self.pointer else { return };
         let over_text = matches!(self.hit_at(at), None | Some((_, Hit::Text)));
-        let cell_h = self.grid.as_ref().map_or(20, |g| g.cell_h) as f64;
-        let cell = self.cell_at(at);
-        let area = self
-            .drawn_text
-            .iter()
-            .find(|v| v.area.contains(cell.0, cell.1))
-            .map(|v| (v.area, v.scroll));
-        // Off the text, or sideways: as many wheel steps as it adds up to.
-        let Some((area, top)) = area.filter(|_| over_text && dy.abs() >= dx.abs()) else {
+        let (cw, ch) = self
+            .grid
+            .as_ref()
+            .map_or((10.0, 20.0), |g| (g.cell_w as f64, g.cell_h as f64));
+        let group = self.group_at(at).filter(|_| over_text);
+        // Off the text: as many wheel steps as it adds up to.
+        let Some(group) = group else {
             self.scroll += if dy.abs() >= dx.abs() { dy } else { dx };
-            let step = cell_h * 3.0;
+            let step = ch * 3.0;
             let steps = (self.scroll / step).trunc();
             if steps != 0.0 {
                 self.scroll -= steps * step;
@@ -520,38 +542,12 @@ impl Gui<'_> {
             }
             return;
         };
-        if self.touch.is_none_or(|(a, _)| a != area) {
-            self.scroll = 0.0;
-        }
-        self.scroll += dy;
-        let lines = (self.scroll / cell_h).floor();
-        if lines != 0.0 {
-            self.scroll -= lines * cell_h;
-            self.touched = true;
-            let (x, y) = cell;
-            self.dispatch(Event::Mouse(Mouse {
-                kind: MouseKind::ScrollLines(-(lines as i16)),
-                x,
-                y,
-                shift: false,
-                alt: false,
-                ctrl: false,
-                clicks: 1,
-            }));
-        }
-        // At the top, there's nothing above to show.
-        let now = self
-            .app
-            .editor
-            .text_views()
-            .into_iter()
-            .find(|v| v.area == area)
-            .map_or(top, |v| v.scroll);
-        if now == 0 && self.scroll > 0.0 {
-            self.scroll = 0.0;
-        }
-        self.touch = Some((area, self.scroll as f32));
-        self.redraw();
+        self.touched = true;
+        self.dispatch(Event::Scroll {
+            group,
+            rows: (-dy / ch) as f32,
+            cols: (-dx / cw) as f32,
+        });
     }
 
     fn key(&mut self, event: KeyEvent) {
@@ -630,23 +626,32 @@ impl Gui<'_> {
         let cell_h = self.grid.as_ref().map_or(1, |g| g.cell_h) as f32;
         let texts = self.app.editor.text_views();
         let caret_on = self.caret_on();
-        // A scroll since the last frame glides there from where it was.
-        if let Some(v) = texts.last() {
-            if let Some((was, area)) = &self.last_scroll
-                && *area == v.area
-                && *was != v.scroll
-                && v.overscan > 0
+        // A scroll since the last frame glides there from where it was, but
+        // a touchpad's follows the fingers already.
+        let mut tops = Vec::new();
+        for v in &texts {
+            if tops.iter().any(|(g, _)| *g == v.group) {
+                continue;
+            }
+            let was = self
+                .last_top
+                .iter()
+                .find(|(g, _)| *g == v.group)
+                .map(|t| t.1);
+            if let Some(was) = was
+                && was != v.top_row
                 && !self.touched
             {
-                let rows = v.scroll as f32 - *was as f32;
-                let from = self.glide_offset() + rows * cell_h;
-                self.glide = (rows.abs() <= v.overscan as f32).then(|| (Instant::now(), from));
+                let rows = (v.top_row - was) as f32;
+                let from = self.glide_offset(v.group) + rows * cell_h;
+                self.glide =
+                    (rows.abs() <= v.overscan as f32).then(|| (v.group, Instant::now(), from));
             }
-            self.last_scroll = Some((v.scroll, v.area));
+            tops.push((v.group, v.top_row));
         }
-        let glide = self.glide_offset();
+        self.last_top = tops;
         self.touched = false;
-        let touch = self.touch;
+        let glide = self.glide.map_or(0.0, |(g, ..)| self.glide_offset(g));
         let (Some(shown), Some(text), Some(grid)) =
             (&mut self.window, &mut self.text, &mut self.grid)
         else {
@@ -657,11 +662,9 @@ impl Gui<'_> {
         if pw == 0 || ph == 0 {
             return;
         }
-        let mut screen = self.app.editor.render();
-        // Code blocks ask for their colours while drawn; draw again with them.
-        if self.app.serve_colours() {
-            screen = self.app.editor.render();
-        }
+        // Code blocks in hovers ask for their colours as they're laid out.
+        self.app.editor.render();
+        self.app.serve_colours();
         let view = self.app.editor.window_view();
         let hovered = self.pointer.and_then(|p| {
             self.hits
@@ -671,14 +674,8 @@ impl Gui<'_> {
                 .find(|(_, (r, _))| r.contains(p.0, p.1))
                 .map(|(i, _)| i)
         });
-        let cells: Vec<Cell> = (0..screen.height)
-            .flat_map(|y| (0..screen.width).map(move |x| (x, y)))
-            .map(|(x, y)| screen.cell(x, y))
-            .collect();
         let drawn = Some((
             view.clone(),
-            cells,
-            screen.cursor,
             hovered,
             self.state.scroll,
             (size.width, size.height),
@@ -694,7 +691,6 @@ impl Gui<'_> {
             .map(|t| t.1.clone());
         let tip_changed = tip != self.tip_drawn;
         if self.drawn == drawn
-            && self.touch_drawn == touch
             && !tip_changed
             && self.drawn_text == texts
             && caret_on == self.caret_drawn
@@ -705,7 +701,7 @@ impl Gui<'_> {
         }
         // Packs changed: their pictures may have too. Too many bitmaps:
         // start again.
-        if self.drawn.as_ref().map(|d| &d.6) != Some(&self.app.look)
+        if self.drawn.as_ref().map(|d| &d.4) != Some(&self.app.look)
             || self.bitmaps.bytes() > Bitmaps::LIMIT
         {
             self.bitmaps.clear();
@@ -739,49 +735,24 @@ impl Gui<'_> {
                 .map(|d| d.name.clone()),
         };
         f.base(&view, &areas, &mut self.state, w, h);
-        let t = areas.text;
-        let origin = ((t.x * s) as usize, (t.y * s) as usize);
-        let last = texts.len().saturating_sub(1);
-        self.touch_drawn = touch;
-        for (i, text) in texts.iter().enumerate() {
-            let glide = if i == last { glide } else { 0.0 }
-                + touch
-                    .filter(|(a, _)| *a == text.area)
-                    .map_or(0.0, |(_, o)| o);
+        for text in &texts {
+            let Some(area) = areas.groups.get(text.group) else {
+                continue;
+            };
+            let t = area.text;
+            let glide = match self.glide {
+                Some((g, ..)) if g == text.group => glide,
+                _ => 0.0,
+            };
             grid.draw_code(
                 text,
                 &mut f.canvas,
-                origin,
+                [t.x * s, t.y * s, t.w * s, t.h * s],
                 &self.app.look.palette,
                 caret_on,
                 glide,
             );
         }
-        // Hairlines between editor groups, in the cell each leaves for one.
-        let (cw, ch) = (grid.cell_w as f32, grid.cell_h as f32);
-        let full = texts.iter().map(|v| v.area.right()).max().unwrap_or(0);
-        let low = texts.iter().map(|v| v.area.bottom()).max().unwrap_or(0);
-        let line = self.app.look.palette.line;
-        let hair = s.max(1.0) as usize;
-        for a in texts.iter().filter(|_| texts.len() > 1).map(|v| v.area) {
-            let (x0, y0) = (origin.0 as f32, origin.1 as f32);
-            if a.right() < full {
-                let x = (x0 + (a.right() as f32 + 0.5) * cw).round() as usize;
-                let (y, h) = ((y0 + a.y as f32 * ch) as usize, (a.h as f32 * ch) as usize);
-                f.canvas.fill_px(x, y, hair, h, line);
-            }
-            if a.bottom() < low {
-                let y = (y0 + (a.bottom() as f32 + 0.5) * ch).round() as usize;
-                let (x, w) = ((x0 + a.x as f32 * cw) as usize, (a.w as f32 * cw) as usize);
-                f.canvas.fill_px(x, y, w, hair, line);
-            }
-        }
-        grid.draw(
-            &screen,
-            &mut f.canvas,
-            ((t.x * s) as usize, (t.y * s) as usize),
-            &self.app.look.palette,
-        );
         let cell = (grid.cell_w as f32 / s, grid.cell_h as f32 / s);
         f.floating(&view, &areas, cell, self.context_at, w, h);
         f.overlays(&view, &areas, w, h);
@@ -814,7 +785,7 @@ impl Gui<'_> {
                 .find(|(_, (r, _))| r.contains(p.0, p.1))
                 .map(|(i, _)| i)
         });
-        self.drawn = drawn.map(|d| (d.0, d.1, d.2, hovered, d.4, d.5, d.6));
+        self.drawn = drawn.map(|d| (d.0, hovered, d.2, d.3, d.4));
         self.drawn_text = texts;
         self.caret_drawn = caret_on;
         // Until the glide ends, every frame moves it on.
@@ -847,10 +818,13 @@ impl Gui<'_> {
 
     /// How far, in physical pixels, the lines are from where they're
     /// gliding to: eased out, so it starts quick and settles.
-    fn glide_offset(&self) -> f32 {
-        let Some((start, from)) = self.glide else {
+    fn glide_offset(&self, group: usize) -> f32 {
+        let Some((g, start, from)) = self.glide else {
             return 0.0;
         };
+        if g != group {
+            return 0.0;
+        }
         let t = start.elapsed().as_secs_f32() / GLIDE.as_secs_f32();
         if t >= 1.0 {
             return 0.0;
@@ -904,11 +878,13 @@ impl ApplicationHandler for Gui<'_> {
 
     fn new_events(&mut self, _: &ActiveEventLoop, cause: StartCause) {
         if let StartCause::ResumeTimeReached { .. } = cause {
-            if let Some((when, (x, y))) = self.rest
+            if let Some((when, at)) = self.rest
                 && Instant::now() >= when
             {
                 self.rest = None;
-                self.dispatch(Event::HoverAt(x, y));
+                if let Some(g) = self.group_at(at) {
+                    self.pointer_event(g, MouseKind::Rest, at, 1);
+                }
             }
             if self
                 .tip
@@ -975,7 +951,7 @@ impl ApplicationHandler for Gui<'_> {
                 };
                 if state == ElementState::Pressed {
                     self.press(at);
-                } else if self.sash.take().is_some() {
+                } else if self.sash.take().is_some() || self.group_drag.take().is_some() {
                     self.redraw();
                 } else if let Some(drag) = self.tab_drag.take() {
                     if drag.moved {
@@ -983,9 +959,9 @@ impl ApplicationHandler for Gui<'_> {
                     }
                     self.set_pointer(CursorIcon::Default);
                     self.redraw();
-                } else if self.pressed_in_text {
-                    self.pressed_in_text = false;
-                    self.text_mouse(MouseKind::Up, at, 1);
+                } else if let Some(g) = self.pressed_group.take() {
+                    self.dragged_to = None;
+                    self.pointer_event(g, MouseKind::Up, at, 1);
                 }
             }
             WindowEvent::MouseInput {
@@ -997,9 +973,10 @@ impl ApplicationHandler for Gui<'_> {
                 self.rest = None;
                 match self.hit_at(at).map(|(_, h)| h.clone()) {
                     Some(Hit::Text) => {
-                        let (x, y) = self.cell_at(at);
-                        self.context_at = Some(at);
-                        self.dispatch(Event::ContextMenu(x, y));
+                        if let Some(g) = self.group_at(at) {
+                            self.context_at = Some(at);
+                            self.pointer_event(g, MouseKind::Context, at, 1);
+                        }
                     }
                     // An Explorer row's menu, or the menu for its empty space.
                     Some(Hit::Ui(UiEvent::Target { side, index })) => {
@@ -1102,8 +1079,12 @@ impl Gui<'_> {
         let s = self.scale() as f64;
         let at = ((position.x / s) as f32, (position.y / s) as f32);
         let before = self.pointer.and_then(|p| self.hit_at(p).map(|(i, _)| i));
-        let old_cell = self.pointer.map(|p| self.cell_at(p));
         self.pointer = Some(at);
+        if let Some((sash, from, areas)) = &self.group_drag {
+            let sizes = group_sizes(*sash, &areas.clone(), (at.0 - from.0, at.1 - from.1));
+            self.dispatch(Event::Ui(UiEvent::GroupSizes(sizes)));
+            return;
+        }
         if let Some(side) = self.sash {
             let s = self.scale();
             if let Some(shown) = &self.window {
@@ -1126,9 +1107,11 @@ impl Gui<'_> {
             }
             return;
         }
-        if self.pressed_in_text {
-            if old_cell != Some(self.cell_at(at)) {
-                self.text_mouse(MouseKind::Drag, at, 1);
+        if let Some(g) = self.pressed_group {
+            let cell = self.gap_cell(g, at);
+            if self.dragged_to != Some(cell) {
+                self.dragged_to = Some(cell);
+                self.pointer_event(g, MouseKind::Drag, at, 1);
             }
             return;
         }
@@ -1152,6 +1135,8 @@ impl Gui<'_> {
             Some((_, Hit::Text)) => CursorIcon::Text,
             Some((_, Hit::Sash(Side::Bottom))) => CursorIcon::RowResize,
             Some((_, Hit::Sash(_))) => CursorIcon::ColResize,
+            Some((_, Hit::GroupSash(frame::GroupSash::Column(_)))) => CursorIcon::ColResize,
+            Some((_, Hit::GroupSash(frame::GroupSash::Row(_)))) => CursorIcon::RowResize,
             _ => CursorIcon::Default,
         };
         self.set_pointer(icon);
@@ -1159,21 +1144,75 @@ impl Gui<'_> {
         if let Some((_, Hit::Ui(UiEvent::MenuTitle(i)))) = over {
             self.dispatch(Event::Ui(UiEvent::MenuTitle(i)));
         }
-        if let Some((_, Hit::Text)) = over {
+        if let (Some((_, Hit::Text)), Some(g)) = (&over, self.group_at(at)) {
             // The editor lights up what's under the mouse in the code, and
             // a rest on a word brings up its hover.
-            let cell = self.cell_at(at);
-            if old_cell != Some(cell) {
-                self.text_mouse(MouseKind::Move, at, 1);
-                self.rest = Some((Instant::now() + HOVER_DELAY, cell));
+            let (row, col) = self.text_point(g, at);
+            let cell = (g, row.floor() as i32, col.floor() as i32);
+            if self.over_cell != Some(cell) {
+                self.over_cell = Some(cell);
+                self.pointer_event(g, MouseKind::Move, at, 1);
+                self.rest = Some((Instant::now() + HOVER_DELAY, at));
             }
             return;
         }
+        self.over_cell = None;
         self.rest = None;
         if before != over.map(|(i, _)| i) {
             self.redraw();
         }
     }
+}
+
+/// The groups' sizes after the edge `sash` is dragged by `by` logical
+/// pixels from where it was, with the groups where `areas` had them: the
+/// two either side of it share the room they had, neither under a few
+/// columns.
+fn group_sizes(
+    sash: frame::GroupSash,
+    areas: &[frame::GroupArea],
+    by: (f32, f32),
+) -> Vec<(f32, f32)> {
+    const LEAST: f32 = 120.0;
+    let whole = |a: &frame::GroupArea| {
+        let top = a.tabs.y;
+        (a.text.w, a.text.bottom() - top, a.text.x, top)
+    };
+    let mut sizes: Vec<(f32, f32)> = areas.iter().map(|a| (whole(a).0, whole(a).1)).collect();
+    match sash {
+        frame::GroupSash::Column(c) => {
+            // The first group of each column speaks for it.
+            let mut heads: Vec<usize> = Vec::new();
+            for (g, a) in areas.iter().enumerate() {
+                if heads
+                    .last()
+                    .is_none_or(|&h| whole(&areas[h]).2 != whole(a).2)
+                {
+                    heads.push(g);
+                }
+            }
+            if let (Some(&l), Some(&r)) = (heads.get(c), heads.get(c + 1)) {
+                let room = sizes[l].0 + sizes[r].0;
+                let left = (sizes[l].0 + by.0).clamp(LEAST, (room - LEAST).max(LEAST));
+                for (g, a) in areas.iter().enumerate() {
+                    if whole(a).2 == whole(&areas[l]).2 {
+                        sizes[g].0 = left;
+                    } else if whole(a).2 == whole(&areas[r]).2 {
+                        sizes[g].0 = room - left;
+                    }
+                }
+            }
+        }
+        frame::GroupSash::Row(g) => {
+            if g + 1 < sizes.len() {
+                let room = sizes[g].1 + sizes[g + 1].1;
+                let top = (sizes[g].1 + by.1).clamp(LEAST, (room - LEAST).max(LEAST));
+                sizes[g].1 = top;
+                sizes[g + 1].1 = room - top;
+            }
+        }
+    }
+    sizes
 }
 
 /// Counts presses in the same place in quick succession, so the editor can

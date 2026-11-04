@@ -131,3 +131,123 @@ fn a_touchpad_scrolls_by_exact_lines() {
     // No further up than the top.
     assert_eq!(scroll(&mut s, -10), 0);
 }
+
+/// A window drawing the text itself, `rows` high, as the GUI has it.
+fn window(text: &str, rows: u16) -> Session {
+    use merlin_core::Event;
+    let mut s = Session::new(text, Some("notes.txt"), 60, rows);
+    s.editor.set_windowed(true);
+    s.editor.set_own_text(true);
+    s.send(Event::Viewports(vec![(60, rows)]));
+    s
+}
+
+fn pointer(group: usize, kind: merlin_core::MouseKind, row: f32, col: f32) -> merlin_core::Event {
+    merlin_core::Event::Pointer(merlin_core::Pointer {
+        group,
+        kind,
+        row,
+        col,
+        shift: false,
+        alt: false,
+        ctrl: false,
+        clicks: 1,
+    })
+}
+
+#[test]
+fn scrolling_goes_by_parts_of_a_row() {
+    use merlin_core::Event;
+    let text: String = (1..=100).map(|i| format!("line {i}\n")).collect();
+    let mut s = window(&text, 10);
+    s.send(Event::Scroll {
+        group: 0,
+        rows: 2.5,
+        cols: 0.0,
+    });
+    let view = s.editor.text_views().pop().unwrap();
+    assert_eq!((view.scroll, view.top_frac, view.top_row), (2, 0.5, 2.5));
+    // Rows above the view come too, to glide into.
+    assert!(view.lines.iter().any(|l| l.row < 0));
+    // No further up than the top.
+    s.send(Event::Scroll {
+        group: 0,
+        rows: -10.0,
+        cols: 0.0,
+    });
+    let view = s.editor.text_views().pop().unwrap();
+    assert_eq!((view.scroll, view.top_frac), (0, 0.0));
+    // The scrollbar and minimap put the top anywhere.
+    s.send(Event::ScrollTo {
+        group: 0,
+        row: 40.25,
+    });
+    let view = s.editor.text_views().pop().unwrap();
+    assert_eq!((view.scroll, view.top_frac), (40, 0.25));
+}
+
+#[test]
+fn a_wrapped_line_scrolls_a_row_at_a_time() {
+    use merlin_core::Event;
+    let long = "word ".repeat(60);
+    let mut s = window(&format!("{long}\nshort\n"), 6);
+    s.run("cmd view.wrap");
+    let rows = s.editor.text_views().pop().unwrap().lines[0].rows.len();
+    assert!(rows > 3, "the line wraps");
+    s.send(Event::Scroll {
+        group: 0,
+        rows: 2.0,
+        cols: 0.0,
+    });
+    let view = s.editor.text_views().pop().unwrap();
+    // Still the first line, two of its rows up.
+    assert_eq!((view.scroll, view.top_row), (0, 2.0));
+    assert_eq!(view.lines[0].row, -2);
+}
+
+#[test]
+fn the_pointer_clicks_by_rows_and_columns_of_a_group() {
+    use merlin_core::MouseKind;
+    let mut s = window("alpha\nbravo\ncharlie\n", 10);
+    let gutter = s.editor.text_views().pop().unwrap().gutter as f32;
+    // Nearer the gap after "br" than before it.
+    s.send(pointer(0, MouseKind::Down, 1.2, gutter + 1.6));
+    s.send(pointer(0, MouseKind::Up, 1.2, gutter + 1.6));
+    assert_eq!(s.editor.cursor_utf16(), (1, 2));
+    // Half a row scrolled off: the same place is the next row down.
+    s.send(merlin_core::Event::Scroll {
+        group: 0,
+        rows: 0.5,
+        cols: 0.0,
+    });
+    s.send(pointer(0, MouseKind::Down, 1.7, gutter + 0.2));
+    assert_eq!(s.editor.cursor_utf16(), (1, 0));
+}
+
+#[test]
+fn a_press_in_another_group_focuses_it() {
+    use merlin_core::{Event, MouseKind};
+    let mut s = window("one\ntwo\n", 10);
+    s.run("cmd view.split");
+    s.send(Event::Viewports(vec![(30, 10), (30, 10)]));
+    let gutter = s.editor.text_views().pop().unwrap().gutter as f32;
+    assert!(s.editor.window_view().groups[1].focused);
+    s.send(pointer(0, MouseKind::Down, 1.0, gutter + 1.0));
+    s.send(pointer(0, MouseKind::Up, 1.0, gutter + 1.0));
+    assert!(s.editor.window_view().groups[0].focused);
+    assert_eq!(s.editor.cursor_utf16(), (1, 1));
+    // The wheel scrolls a group without focusing it.
+    s.send(Event::Scroll {
+        group: 1,
+        rows: 1.0,
+        cols: 0.0,
+    });
+    assert!(s.editor.window_view().groups[0].focused);
+    let right = s
+        .editor
+        .text_views()
+        .into_iter()
+        .find(|v| v.group == 1)
+        .unwrap();
+    assert_eq!(right.scroll, 1);
+}

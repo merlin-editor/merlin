@@ -55,27 +55,32 @@ struct Spot {
 }
 
 impl Fonts {
-    /// Draws `view` with the grid's top left at physical (`ox`, `oy`).
+    /// Draws `view` in its group's text area, physical (`ox`, `oy`) to
+    /// (`ox` + `w`, `oy` + `h`), with the view's grid from its top left.
     /// `caret_on` is the blink's phase; carets show only while it's on.
     /// `glide` moves the lines down by that many pixels, while scrolling
-    /// eases to where the view is.
+    /// eases to where the view is; the part of the top row scrolled off
+    /// moves them up.
     pub fn draw_code(
         &mut self,
         view: &TextView,
         canvas: &mut Canvas,
-        (ox, oy): (usize, usize),
+        [ox, oy, w, h]: [f32; 4],
         p: &Palette,
         caret_on: bool,
         glide: f32,
     ) {
         let (cw, ch) = (self.cell_w as f32, self.cell_h as f32);
+        let glide = glide - view.top_frac * ch;
+        let first_prim = canvas.scene.prims.len();
         let s = canvas.scale;
         let area = view.area;
-        let gutter_x = ox as f32 + area.x as f32 * cw;
+        let gutter_x = ox + area.x as f32 * cw;
         let text_x = gutter_x + view.gutter as f32 * cw;
-        let right = text_x + view.columns as f32 * cw;
-        let top = oy as f32 + area.y as f32 * ch;
-        let bottom = top + area.h as f32 * ch;
+        let right = (text_x + view.columns as f32 * cw).min(ox + w);
+        let top = oy + area.y as f32 * ch;
+        // The rows the view has, and the part of one more the area fits.
+        let bottom = (top + (area.h as f32 + 1.0) * ch).min(oy + h);
         let clip = [text_x as i32, top as i32, right as i32, bottom as i32];
         canvas.fill_px(
             gutter_x as usize,
@@ -334,7 +339,7 @@ impl Fonts {
         // The scrollbar: a slim rounded thumb, with ticks for changes,
         // matches and problems.
         if let Some(bar) = &view.scrollbar {
-            let x0 = ox as f32 + (area.right() - 1) as f32 * cw;
+            let x0 = ox + w - cw;
             let track = bottom - top;
             let thumb_h = (bar.len * track).max(20.0 * s);
             let y = top + bar.top * track;
@@ -401,9 +406,17 @@ impl Fonts {
                 sticky: Vec::new(),
                 scrollbar: None,
                 beyond: Vec::new(),
+                top_frac: 0.0,
                 ..view.clone()
             };
-            self.draw_code(&pinned, canvas, (ox, oy), p, false, 0.0);
+            self.draw_code(
+                &pinned,
+                canvas,
+                [ox, oy, w, rows as f32 * ch],
+                p,
+                false,
+                0.0,
+            );
             let y = top + rows as f32 * ch;
             for (k, alpha) in [(0.0, 60u8), (1.0, 35), (2.0, 15)] {
                 canvas.scene.prims.push(Prim::Quad {
@@ -416,6 +429,7 @@ impl Fonts {
                 });
             }
         }
+        clip_rows(&mut canvas.scene.prims[first_prim..], top, bottom);
     }
 
     /// The glyphs of a line, shaped once and kept, with the characters
@@ -536,6 +550,34 @@ impl Fonts {
 /// counts them.
 fn advance(c: char, col: usize) -> usize {
     merlin_core::doc::advance(c, col)
+}
+
+/// Cuts what was drawn to the rows from `top` to `bottom`, as a row part
+/// scrolled off, or one more than fits, needs: boxes are cut, lines and
+/// glyphs outside go.
+fn clip_rows(prims: &mut [Prim], top: f32, bottom: f32) {
+    let gone = [0.0, 0.0, 0.0, 0.0];
+    for prim in prims {
+        match prim {
+            Prim::Quad { rect, .. } | Prim::Shadow { rect, .. } => {
+                if rect[3] <= top || rect[1] >= bottom {
+                    *rect = gone;
+                } else {
+                    rect[1] = rect[1].max(top);
+                    rect[3] = rect[3].min(bottom);
+                }
+            }
+            Prim::Line { a, b, .. } => {
+                if a[1].max(b[1]) < top || a[1].min(b[1]) > bottom {
+                    (*a, *b) = ([-64.0, -64.0], [-64.0, -64.0]);
+                }
+            }
+            Prim::Glyph { clip, .. } | Prim::Image { clip, .. } => {
+                clip[1] = clip[1].max(top.floor() as i32);
+                clip[3] = clip[3].min(bottom.ceil() as i32);
+            }
+        }
+    }
 }
 
 fn quad(canvas: &mut Canvas, rect: [f32; 4], radius: f32, fill: u32) {

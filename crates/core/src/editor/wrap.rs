@@ -102,16 +102,18 @@ impl Editor {
         if !self.row_based() {
             return Some(line - v.scroll);
         }
+        // The top may be a row part-way down the first line.
+        let (top, _) = self.top_sub();
         let height = self.text_height();
         let mut rows = 0;
         for l in v.scroll..line {
             rows += self.line_rows(l).len();
             // No need to count further than the view.
-            if rows > height {
-                return Some(rows + r);
+            if rows > height + top {
+                return Some(rows + r - top);
             }
         }
-        Some(rows + r)
+        (rows + r).checked_sub(top)
     }
 
     /// Where a character is, as its line's row and its cell from the left
@@ -180,17 +182,22 @@ impl Editor {
         let cursor = self.doc().cursor;
         let (line, r, _) = self.visual(cursor);
         let wrapping = self.wrapping();
+        let (top, _) = self.top_sub();
         let doc = self.doc_mut();
         if wrapping {
             doc.hscroll = 0;
         }
-        if line < doc.scroll {
-            doc.scroll = line;
-            return;
+        if line < doc.scroll || (line == doc.scroll && r <= top) {
+            return self.set_top(line, r);
         }
-        while self.doc().scroll < line && self.screen_row(line, r).is_some_and(|row| row >= height)
-        {
-            self.doc_mut().scroll += 1;
+        let mut scrolled = 0;
+        while self.screen_row(line, r).is_some_and(|row| row >= height) && scrolled < 10_000 {
+            self.scroll_by(1.0);
+            scrolled += 1;
+        }
+        // Scrolled to show it: whole rows, so it isn't cut at the bottom.
+        if scrolled > 0 {
+            self.snap_top();
         }
     }
 
@@ -199,6 +206,8 @@ impl Editor {
     pub(crate) fn line_at_row(&self, row: usize) -> (usize, usize) {
         let doc = self.doc();
         let v = self.view();
+        let (top, _) = self.top_sub();
+        let row = row + top;
         let mut seen = 0;
         let mut line = v.scroll;
         while line <= doc.last_line() {

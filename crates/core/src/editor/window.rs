@@ -14,7 +14,7 @@ use crate::panel::{Node, Target};
 use crate::screen::Hue;
 
 /// Something clicked in a window's frame.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum UiEvent {
     /// An activity rail item, by its index in [`WindowView::rail`].
     Rail(usize),
@@ -74,6 +74,9 @@ pub enum UiEvent {
         group: usize,
         at: Option<usize>,
     },
+    /// The sashes between groups were dragged: each group's new width and
+    /// height shares, as in [`super::tabs::GroupView`].
+    GroupSizes(Vec<(f32, f32)>),
     /// A right click on the focused tab.
     TabMenu,
     /// A right click on a side's element, or on its empty space.
@@ -107,8 +110,8 @@ pub struct WindowView {
     pub popup: Option<PopupView>,
     pub menu: Option<MenuView>,
     pub find: Option<FindView>,
-    /// Each editor group, when there are several; `tabs` and `crumbs` are
-    /// then empty.
+    /// Every editor group, to lay out and draw; `tabs` and `crumbs` are
+    /// the focused one's.
     pub groups: Vec<super::tabs::GroupView>,
     /// Where keys go.
     pub focus: Focus,
@@ -313,12 +316,8 @@ impl Editor {
 
     pub fn window_view(&self) -> WindowView {
         let groups = self.group_strips();
-        let tabs = if groups.is_empty() {
-            self.tab_views()
-        } else {
-            Vec::new()
-        };
-        let crumbs = if self.shows_crumbs() && groups.is_empty() {
+        let tabs = self.tab_views();
+        let crumbs = if self.shows_crumbs() {
             self.crumbs().into_iter().map(|(text, _)| text).collect()
         } else {
             Vec::new()
@@ -430,6 +429,12 @@ impl Editor {
                 }
             }
             UiEvent::DropTab { group, at } => self.drop_tab_at(group, at),
+            UiEvent::GroupSizes(sizes) => {
+                for (group, (w, h)) in self.groups.iter_mut().zip(sizes) {
+                    group.width = w.max(0.05);
+                    group.height = h.max(0.05);
+                }
+            }
             UiEvent::TabMenu => self.open_tab_menu(),
             UiEvent::TargetMenu { side, index } => {
                 if self.active_panel_name(side).as_deref() == Some(super::views::EXPLORER) {

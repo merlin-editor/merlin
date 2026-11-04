@@ -397,8 +397,9 @@ fn several_groups_have_their_own_tabs_and_take_dropped_tabs() {
     let mut s = three_tabs();
     s.send(Event::Command("view.split".into()));
     let view = s.editor.window_view();
-    assert!(view.tabs.is_empty(), "the groups have the tabs");
     assert_eq!(view.groups.len(), 2);
+    // The window lays the groups out, halves to start with.
+    assert!(view.groups.iter().all(|g| !g.below && g.width == 1.0));
     assert!(view.groups[1].focused);
     let names = |g: usize, s: &Session| -> Vec<String> {
         s.editor.window_view().groups[g]
@@ -416,13 +417,19 @@ fn several_groups_have_their_own_tabs_and_take_dropped_tabs() {
     s.send(Event::Ui(UiEvent::DropTab { group: 1, at: None }));
     assert_eq!(names(0, &s), ["main.rs", "c.rs"]);
     assert!(names(1, &s).contains(&"lib.rs".to_string()));
-    // Each pane keeps rows for its tabs above the code.
+    // Each group's text is a grid of its own, as big as the window says.
+    s.send(Event::Viewports(vec![(40, 20), (30, 10)]));
     let views = s.editor.text_views();
-    assert!(
-        views.iter().all(|v| v.area.y >= 2),
-        "{:?}",
-        views.iter().map(|v| v.area).collect::<Vec<_>>()
-    );
+    let area = |g: usize| views.iter().find(|v| v.group == g).unwrap().area;
+    assert_eq!((area(0).x, area(0).y, area(0).w, area(0).h), (0, 0, 40, 20));
+    assert_eq!((area(1).w, area(1).h), (30, 10));
+    // Dragging the edge between them gives them new shares.
+    s.send(Event::Ui(UiEvent::GroupSizes(vec![
+        (300.0, 1.0),
+        (100.0, 1.0),
+    ])));
+    let view = s.editor.window_view();
+    assert_eq!((view.groups[0].width, view.groups[1].width), (300.0, 100.0));
 }
 
 #[test]

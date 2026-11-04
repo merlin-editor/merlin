@@ -35,6 +35,10 @@ impl Editor {
     /// Columns the minimap takes from the text area: none when it's off,
     /// the window is narrow, or a review is showing.
     pub(crate) fn minimap_width(&self) -> u16 {
+        // A window draws its own beside the text.
+        if self.windowed {
+            return 0;
+        }
         let on = self.minimap && self.doc().review.is_none() && self.layout().text.w >= MIN_TEXT;
         if on { MINIMAP_W } else { 0 }
     }
