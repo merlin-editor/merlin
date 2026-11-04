@@ -82,6 +82,16 @@ const MENUS: &[(&str, &[&str])] = &[
     ("Help", &["palette.open", "-", "app.about"]),
 ];
 
+/// The menus, as a window draws them: the titles, the one open, and its
+/// items, separators with empty labels.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MenuView {
+    pub titles: Vec<String>,
+    pub open: usize,
+    pub items: Vec<super::ContextItem>,
+    pub selected: Option<usize>,
+}
+
 /// A menu item: command id, label and key. The id `-` is a separator.
 type Item = (&'static str, String, String);
 
@@ -325,6 +335,40 @@ impl Editor {
                 Style::MenuMuted
             };
             s.print(x + width - kw - 1, y, key, hint, kw);
+        }
+    }
+
+    pub(crate) fn menu_view(&self) -> Option<MenuView> {
+        let menu = self.menu.as_ref()?;
+        Some(MenuView {
+            titles: MENUS.iter().map(|(t, _)| t.to_string()).collect(),
+            open: menu.index,
+            items: self
+                .menu_items(menu.index)
+                .into_iter()
+                .map(|(id, label, key)| super::ContextItem {
+                    label: if id == "-" { String::new() } else { label },
+                    key: (!key.is_empty()).then_some(key),
+                })
+                .collect(),
+            selected: menu.item,
+        })
+    }
+
+    /// The window's menu: a title the mouse is over opens its menu.
+    pub(crate) fn menu_title(&mut self, index: usize) {
+        if let Some(menu) = &mut self.menu
+            && index < MENUS.len()
+            && menu.index != index
+        {
+            menu.index = index;
+            menu.item = None;
+        }
+    }
+
+    pub(crate) fn menu_item(&mut self, item: usize, fx: &mut Vec<Effect>) {
+        if self.menu.is_some() {
+            self.run_item(item, fx);
         }
     }
 }

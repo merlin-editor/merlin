@@ -331,6 +331,45 @@ impl Fonts {
             }
         }
 
+        // The scrollbar: a slim rounded thumb, with ticks for changes,
+        // matches and problems.
+        if let Some(bar) = &view.scrollbar {
+            let x0 = ox as f32 + (area.right() - 1) as f32 * cw;
+            let track = bottom - top;
+            let thumb_h = (bar.len * track).max(20.0 * s);
+            let y = top + bar.top * track;
+            canvas.scene.prims.push(Prim::Quad {
+                rect: [x0 + cw * 0.2, y, x0 + cw * 0.8, (y + thumb_h).min(bottom)],
+                radius: cw * 0.3,
+                fill: p.muted,
+                alpha: 70,
+                border: 0,
+                border_w: 0.0,
+            });
+            for &(at, style) in &bar.marks {
+                let colour = match style {
+                    Style::GitAdded => p.success,
+                    Style::GitChanged => p.info,
+                    Style::GitRemoved => p.error,
+                    Style::ScrollMatch => p.find_current,
+                    Style::GutterError => p.error,
+                    _ => p.warning,
+                };
+                let my = top + at * track;
+                let (a, b) = match style {
+                    Style::GitAdded | Style::GitChanged | Style::GitRemoved => (0.0, 0.3),
+                    Style::ScrollMatch => (0.3, 0.7),
+                    _ => (0.7, 1.0),
+                };
+                quad(
+                    canvas,
+                    [x0 + cw * a, my, x0 + cw * b, my + (2.0 * s).max(2.0)],
+                    0.0,
+                    colour,
+                );
+            }
+        }
+
         // The cursors: thin bars, every one of them.
         if view.focused && caret_on {
             let beam = (2.0 * s).round().max(2.0);
@@ -347,6 +386,34 @@ impl Fonts {
                     beam / 2.0,
                     p.accent,
                 );
+            }
+        }
+
+        // Sticky scroll: the blocks' first lines pinned over the top, with a
+        // shadow under them.
+        if !view.sticky.is_empty() {
+            let rows = view.sticky.len() as u16;
+            let pinned = TextView {
+                area: merlin_core::editor::CellRect { h: rows, ..area },
+                lines: view.sticky.clone(),
+                carets: Vec::new(),
+                focused: false,
+                sticky: Vec::new(),
+                scrollbar: None,
+                beyond: Vec::new(),
+                ..view.clone()
+            };
+            self.draw_code(&pinned, canvas, (ox, oy), p, false, 0.0);
+            let y = top + rows as f32 * ch;
+            for (k, alpha) in [(0.0, 60u8), (1.0, 35), (2.0, 15)] {
+                canvas.scene.prims.push(Prim::Quad {
+                    rect: [gutter_x, y + k * s, right, y + (k + 1.0) * s],
+                    radius: 0.0,
+                    fill: 0x000000,
+                    alpha,
+                    border: 0,
+                    border_w: 0.0,
+                });
             }
         }
     }

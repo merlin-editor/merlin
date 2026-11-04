@@ -43,6 +43,21 @@ pub struct TextView {
     pub beyond: Vec<u16>,
     /// Every cursor, the primary one first.
     pub carets: Vec<CaretView>,
+    /// Lines sticky scroll pins over the top, from the top row down.
+    pub sticky: Vec<LineView>,
+    /// The scrollbar, when the file is longer than the view.
+    pub scrollbar: Option<ScrollbarView>,
+}
+
+/// The scrollbar, in parts of the track from its top: the thumb, and marks
+/// for changes, matches and problems, as VS Code's overview ruler has them.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ScrollbarView {
+    pub top: f32,
+    pub len: f32,
+    /// Where each mark is, and what it is: `GitAdded`, `GitChanged`,
+    /// `GitRemoved`, `ScrollMatch`, `GutterError` or `GutterWarning`.
+    pub marks: Vec<(f32, Style)>,
 }
 
 /// A line of the file on screen.
@@ -176,6 +191,8 @@ impl Editor {
             lines: Vec::new(),
             beyond: Vec::new(),
             carets: Vec::new(),
+            sticky: Vec::new(),
+            scrollbar: None,
         };
         let bottom = area.h as i32 + overscan as i32;
         let mut row = -above;
@@ -357,6 +374,13 @@ impl Editor {
             row += shown as i32;
             line += 1;
         }
+        view.sticky = self
+            .sticky_lines(area)
+            .into_iter()
+            .enumerate()
+            .map(|(row, line)| self.plain_line(line, row as i32, gutter, signs))
+            .collect();
+        view.scrollbar = self.scrollbar_view(area);
         view.carets = self
             .carets()
             .iter()
@@ -372,5 +396,84 @@ impl Editor {
             })
             .collect();
         view
+    }
+
+    /// A line with its colours and number only, as sticky scroll pins it.
+    fn plain_line(&self, line: usize, row: i32, gutter: usize, signs: bool) -> LineView {
+        let doc = self.doc();
+        let start = doc.line_start(line);
+        let chars: Vec<char> = doc
+            .line_chars(line)
+            .into_iter()
+            .take_while(|c| *c != '\n' && *c != '\r')
+            .collect();
+        let mut syntax = vec![Syntax::Plain; chars.len()];
+        for (a, b, kind) in doc.spans(line..line + 1) {
+            for i in a.max(start)..b.min(start + chars.len()) {
+                syntax[i - start] = kind;
+            }
+        }
+        let n = chars.len();
+        LineView {
+            line,
+            row,
+            rows: vec![Row {
+                start: 0,
+                col: 0,
+                indent: 0,
+            }],
+            shown: 1,
+            number: format!("{:>w$} ", line + 1, w = gutter - 1 - signs as usize),
+            number_style: Style::Gutter,
+            sign: None,
+            base: Style::Normal,
+            fold_arrow: None,
+            folded: false,
+            chars,
+            syntax,
+            marks: vec![None; n],
+            styles: vec![Style::Normal; n],
+            brackets: vec![None; n],
+            guides: vec![None; n],
+            eol_selected: false,
+        }
+    }
+
+    fn scrollbar_view(&self, area: Rect) -> Option<ScrollbarView> {
+        let doc = self.doc();
+        let lines = doc.last_line() + 1;
+        let h = area.h as usize;
+        if lines <= h || h == 0 {
+            return None;
+        }
+        let at = |line: usize| line as f32 / lines as f32;
+        let mut marks = Vec::new();
+        for (line, sign) in doc.git_signs.iter().enumerate() {
+            let style = match sign {
+                Some(Sign::Added) => Style::GitAdded,
+                Some(Sign::Changed) => Style::GitChanged,
+                Some(Sign::Removed) => Style::GitRemoved,
+                None => continue,
+            };
+            marks.push((at(line), style));
+        }
+        if let Some((query, fold)) = self.query() {
+            for m in self.all_matches(&query, fold) {
+                marks.push((at(doc.line_col(m).0), Style::ScrollMatch));
+            }
+        }
+        for mark in &doc.marks {
+            let style = match mark.severity {
+                Severity::Error => Style::GutterError,
+                Severity::Warning => Style::GutterWarning,
+                _ => continue,
+            };
+            marks.push((at(doc.line_col(mark.start).0), style));
+        }
+        Some(ScrollbarView {
+            top: at(self.view().scroll),
+            len: h as f32 / lines as f32,
+            marks,
+        })
     }
 }

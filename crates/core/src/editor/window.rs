@@ -6,6 +6,8 @@
 
 use super::chrome::Action;
 use super::context::{ContextView, PopupView};
+use super::find::{FindAction, FindView};
+use super::menu::MenuView;
 use super::{Editor, Effect, Focus, Side, Source};
 use crate::icons::{Icon, icon};
 use crate::panel::{Node, Target};
@@ -45,6 +47,12 @@ pub enum UiEvent {
     /// A right-click menu item, by its index in [`ContextView::items`].
     ContextItem(usize),
     CloseContext,
+    /// The menu under a title of [`MenuView::titles`], an item of the open
+    /// menu, or a click away from them.
+    MenuTitle(usize),
+    MenuItem(usize),
+    CloseMenu,
+    Find(FindAction),
 }
 
 /// What the window draws around the text.
@@ -68,6 +76,8 @@ pub struct WindowView {
     pub toast: Option<ToastView>,
     pub context: Option<ContextView>,
     pub popup: Option<PopupView>,
+    pub menu: Option<MenuView>,
+    pub find: Option<FindView>,
     /// Where keys go.
     pub focus: Focus,
     /// The page the active tab shows instead of text, by name, such as a
@@ -357,6 +367,8 @@ impl Editor {
             toast,
             context: self.context_view(),
             popup: self.popup_view(),
+            menu: self.menu_view(),
+            find: self.find_view(),
             focus: self.focus,
             page: self.doc().page.as_ref().map(|(name, _)| name.clone()),
         }
@@ -366,6 +378,10 @@ impl Editor {
         match event {
             UiEvent::ContextItem(i) => self.context_item(i, fx),
             UiEvent::CloseContext => self.close_context(),
+            UiEvent::MenuTitle(i) => self.menu_title(i),
+            UiEvent::MenuItem(i) => self.menu_item(i, fx),
+            UiEvent::CloseMenu => self.close_menu(),
+            UiEvent::Find(what) => self.find_ui(what),
             UiEvent::Rail(i) => {
                 if let Some((_, action)) = self.rail_items().into_iter().nth(i) {
                     self.act(action, fx);

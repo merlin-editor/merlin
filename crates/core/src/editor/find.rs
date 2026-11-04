@@ -2,6 +2,23 @@
 
 use super::*;
 
+/// The find box, as a window draws it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FindView {
+    pub query: String,
+    /// The replacement, when replacing.
+    pub replace: Option<String>,
+    /// Whether typing goes to the replacement.
+    pub in_replace: bool,
+    /// Whether keys go to the box.
+    pub focused: bool,
+    /// Which match is selected, from 1, and how many there are.
+    pub current: Option<usize>,
+    pub total: usize,
+    /// Case is ignored: the query has no capitals.
+    pub ignore_case: bool,
+}
+
 pub(super) fn same(a: char, b: char, fold: bool) -> bool {
     a == b || (fold && a.to_lowercase().eq(b.to_lowercase()))
 }
@@ -201,4 +218,66 @@ impl Editor {
             }
         }
     }
+
+    pub(crate) fn find_view(&self) -> Option<FindView> {
+        let find = self.find.as_ref()?;
+        let (matches, ignore_case) = match self.query() {
+            Some((query, fold)) => (self.all_matches(&query, fold), fold),
+            None => (Vec::new(), true),
+        };
+        let at = self.doc().selection().map(|(start, _)| start);
+        Some(FindView {
+            query: find.query.clone(),
+            replace: find.replace.clone(),
+            in_replace: find.in_replace,
+            focused: self.focus == Focus::Find,
+            current: at
+                .and_then(|a| matches.iter().position(|&m| m == a))
+                .map(|i| i + 1),
+            total: matches.len(),
+            ignore_case,
+        })
+    }
+
+    /// A button or field of the window's find box.
+    pub(crate) fn find_ui(&mut self, what: FindAction) {
+        let cursor = self.cursor();
+        let Some(find) = &mut self.find else { return };
+        match what {
+            FindAction::Next => self.find_from(cursor + 1),
+            FindAction::Previous => self.find_before(cursor),
+            FindAction::Close => {
+                self.find = None;
+                self.focus = Focus::Editor;
+            }
+            FindAction::ToggleReplace => {
+                if find.replace.is_some() {
+                    find.replace = None;
+                    find.in_replace = false;
+                } else {
+                    find.replace = Some(String::new());
+                }
+                self.focus = Focus::Find;
+            }
+            FindAction::Field(replace) => {
+                find.in_replace = replace && find.replace.is_some();
+                self.focus = Focus::Find;
+            }
+            FindAction::ReplaceOne => self.replace_one(),
+            FindAction::ReplaceAll => self.replace_all(),
+        }
+    }
+}
+
+/// What a click on the window's find box does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FindAction {
+    Next,
+    Previous,
+    Close,
+    ToggleReplace,
+    /// Typing goes to the query, or with `true` the replacement.
+    Field(bool),
+    ReplaceOne,
+    ReplaceAll,
 }

@@ -30,9 +30,11 @@ pub use window::{
 };
 
 pub use context::{ContextItem, ContextView, PopupKind, PopupView};
+pub use find::{FindAction, FindView};
 pub use layout::Rect as CellRect;
+pub use menu::MenuView;
 pub use settings::Settings;
-pub use text_view::{CaretView, LineView, OVERSCAN, TextView};
+pub use text_view::{CaretView, LineView, OVERSCAN, ScrollbarView, TextView};
 pub use workspace::{GroupState, Tab, Workspace};
 pub use wrap::Row as WrapRow;
 

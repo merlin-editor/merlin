@@ -24,7 +24,7 @@ impl Editor {
         // Other editor groups first, each with its own tabs and view, and a
         // line between groups.
         let panes = self.pane_rects(layout.editor);
-        if panes.len() == self.groups.len() && panes.len() > 1 {
+        if panes.len() == self.groups.len() && panes.len() > 1 && !self.own_text {
             for g in 0..self.groups.len() {
                 self.as_group(g, || {
                     let layout = self.layout();
@@ -32,7 +32,9 @@ impl Editor {
                         self.render_tabs(&mut screen, &layout);
                         self.render_crumbs(&mut screen, layout.crumbs);
                         self.render_text(&mut screen, layout.text);
-                        self.render_sticky(&mut screen, layout.text);
+                        if !self.own_text {
+                            self.render_sticky(&mut screen, layout.text);
+                        }
                     }
                 });
             }
@@ -68,14 +70,21 @@ impl Editor {
         self.render_tabs(&mut screen, &layout);
         self.render_crumbs(&mut screen, layout.crumbs);
         self.render_text(&mut screen, layout.text);
-        self.render_sticky(&mut screen, layout.text);
-        if let Some(find) = &self.find {
+        if !self.own_text {
+            self.render_sticky(&mut screen, layout.text);
+        }
+        // A window drawing the text draws find, popups and menus too.
+        if let Some(find) = &self.find
+            && !self.own_text
+        {
             self.render_find(&mut screen, find, layout.text);
         }
         self.render_popup(&mut screen);
         // A window draws the rest of the frame itself.
         if self.windowed {
-            self.render_menu(&mut screen);
+            if !self.own_text {
+                self.render_menu(&mut screen);
+            }
             return screen;
         }
         self.render_activity(&mut screen);
@@ -173,10 +182,9 @@ impl Editor {
             return;
         }
         // A window may draw the text itself, from `text_views`; the cells
-        // keep the minimap and scrollbar.
+        // keep only the minimap.
         if self.own_text {
             self.render_minimap(s);
-            self.render_scrollbar(s, area);
             return;
         }
         let view = self.text_view(area);

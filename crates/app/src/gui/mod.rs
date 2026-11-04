@@ -543,6 +543,25 @@ impl Gui<'_> {
                 glide,
             );
         }
+        // Hairlines between editor groups, in the cell each leaves for one.
+        let (cw, ch) = (grid.cell_w as f32, grid.cell_h as f32);
+        let full = texts.iter().map(|v| v.area.right()).max().unwrap_or(0);
+        let low = texts.iter().map(|v| v.area.bottom()).max().unwrap_or(0);
+        let line = self.app.look.palette.line;
+        let hair = s.max(1.0) as usize;
+        for a in texts.iter().filter(|_| texts.len() > 1).map(|v| v.area) {
+            let (x0, y0) = (origin.0 as f32, origin.1 as f32);
+            if a.right() < full {
+                let x = (x0 + (a.right() as f32 + 0.5) * cw).round() as usize;
+                let (y, h) = ((y0 + a.y as f32 * ch) as usize, (a.h as f32 * ch) as usize);
+                f.canvas.fill_px(x, y, hair, h, line);
+            }
+            if a.bottom() < low {
+                let y = (y0 + (a.bottom() as f32 + 0.5) * ch).round() as usize;
+                let (x, w) = ((x0 + a.x as f32 * cw) as usize, (a.w as f32 * cw) as usize);
+                f.canvas.fill_px(x, y, w, hair, line);
+            }
+        }
         grid.draw(
             &screen,
             &mut f.canvas,
@@ -817,6 +836,10 @@ impl Gui<'_> {
             return;
         }
         let over = self.hit_at(at).map(|(i, h)| (i, h.clone()));
+        // Over a menu's title, its menu opens, as menus do.
+        if let Some((_, Hit::Ui(UiEvent::MenuTitle(i)))) = over {
+            self.dispatch(Event::Ui(UiEvent::MenuTitle(i)));
+        }
         if let Some((_, Hit::Text)) = over {
             // The editor lights up what's under the mouse in the code, and
             // a rest on a word brings up its hover.

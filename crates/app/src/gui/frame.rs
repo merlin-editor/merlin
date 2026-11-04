@@ -5,8 +5,8 @@
 
 use merlin_core::panel::{Entry, Node, Tone};
 use merlin_core::{
-    ContextView, Key, KeyCode, PaletteView, PopupKind, PopupView, Side, SideView, ToastView,
-    UiEvent, WindowView,
+    ContextItem, ContextView, FindAction, FindView, Key, KeyCode, MenuView, PaletteView, PopupKind,
+    PopupView, Side, SideView, ToastView, UiEvent, WindowView,
 };
 
 use super::canvas::{Canvas, Face, Pictures, Rect, Text};
@@ -187,21 +187,215 @@ impl Frame<'_> {
         w: f32,
         h: f32,
     ) {
+        if let Some(find) = &view.find {
+            self.find(find, a);
+        }
         if let Some(popup) = &view.popup {
             self.popup(popup, a, cell);
         }
         if let (Some(menu), Some(at)) = (&view.context, context_at) {
             self.context(menu, at, w, h);
         }
+        if let Some(menu) = &view.menu {
+            self.menu(menu, w, h);
+        }
     }
 
-    fn context(&mut self, menu: &ContextView, (x, y): (f32, f32), w: f32, h: f32) {
+    /// The menus behind the title bar's button: their titles in one card,
+    /// and the open one's items in another beside it.
+    fn menu(&mut self, menu: &MenuView, w: f32, h: f32) {
         let p = self.p;
+        self.hit(Rect::new(0.0, 0.0, w, h), Hit::Ui(UiEvent::CloseMenu));
+        let row_h = 28.0;
+        let titles = Rect::new(
+            10.0,
+            TITLE_H - 4.0,
+            180.0,
+            menu.titles.len() as f32 * row_h + 10.0,
+        );
+        self.canvas.shadow(titles, 8.0, theme::is_light(&p));
+        self.canvas.outline(titles, 8.0, 1.0, p.border, p.widget);
+        self.hit(titles, Hit::Block);
+        let face = Face::ui(13.0);
+        let mut open_y = titles.y;
+        for (i, title) in menu.titles.iter().enumerate() {
+            let row = Rect::new(
+                titles.x + 5.0,
+                titles.y + 5.0 + i as f32 * row_h,
+                titles.w - 10.0,
+                row_h,
+            );
+            let open = i == menu.open;
+            if open {
+                self.canvas.round(row, 5.0, p.focus_row);
+                open_y = row.y - 5.0;
+            } else if self.hovered(row) {
+                self.canvas.round(row, 5.0, p.hover);
+            }
+            let colour = if open { p.bright } else { p.text };
+            self.text.draw_in_row(
+                &mut self.canvas,
+                title,
+                face,
+                row.x + 12.0,
+                row.y,
+                row_h,
+                colour,
+                row,
+            );
+            self.canvas
+                .chevron(row.right() - 14.0, row.y + row_h / 2.0, 7.0, false, p.muted);
+            self.hit(row, Hit::Ui(UiEvent::MenuTitle(i)));
+        }
+        let at = (titles.right() + 4.0, open_y);
+        self.items_card(&menu.items, menu.selected, at, w, h, UiEvent::MenuItem);
+    }
+
+    /// The find box at the top right of the code, as VS Code has it: the
+    /// query with its count and arrows, and the replacement below it.
+    fn find(&mut self, find: &FindView, a: &Areas) {
+        let p = self.p;
+        let rows = 1.0 + find.replace.is_some() as u8 as f32;
+        let bw = 440.0_f32.min(a.text.w - 24.0);
+        if bw < 200.0 {
+            return;
+        }
+        let r = Rect::new(
+            a.text.right() - bw - 22.0,
+            a.text.y + 4.0,
+            bw,
+            rows * 34.0 + 8.0,
+        );
+        self.canvas.shadow(r, 8.0, theme::is_light(&p));
+        self.canvas.outline(r, 8.0, 1.0, p.border, p.widget);
+        self.hit(r, Hit::Block);
+        let ui = Face::ui(13.0);
+        // The arrow that shows and hides the replacement.
+        let toggle = Rect::new(r.x + 4.0, r.y + 4.0, 20.0, rows * 34.0);
+        if self.hovered(toggle) {
+            self.canvas.round(toggle, 4.0, p.hover);
+        }
+        self.canvas.chevron(
+            toggle.x + 10.0,
+            r.y + 4.0 + 17.0,
+            8.0,
+            find.replace.is_some(),
+            p.muted,
+        );
+        self.hit(toggle, Hit::Ui(UiEvent::Find(FindAction::ToggleReplace)));
+        let field_x = toggle.right() + 4.0;
+        let buttons_w = 96.0;
+        let field_w = r.w - (field_x - r.x) - buttons_w - 8.0;
+        let count = match (find.current, find.total) {
+            (_, 0) if find.query.is_empty() => String::new(),
+            (_, 0) => "No results".to_string(),
+            (Some(i), n) => format!("{i} of {n}"),
+            (None, n) => format!("{n} found"),
+        };
+        let fields: Vec<(&str, bool, &str)> = std::iter::once((find.query.as_str(), false, "Find"))
+            .chain(find.replace.as_deref().map(|t| (t, true, "Replace")))
+            .collect();
+        for (k, (value, is_replace, hint)) in fields.into_iter().enumerate() {
+            let y = r.y + 4.0 + k as f32 * 34.0;
+            let field = Rect::new(field_x, y + 4.0, field_w, 26.0);
+            let active = find.focused && find.in_replace == is_replace;
+            self.canvas.outline(
+                field,
+                5.0,
+                1.0,
+                if active { p.accent } else { p.border },
+                p.raised,
+            );
+            self.hit(field, Hit::Ui(UiEvent::Find(FindAction::Field(is_replace))));
+            let info_w = if is_replace || count.is_empty() {
+                0.0
+            } else {
+                self.text.width(&count, Face::ui(12.0)) + 12.0
+            };
+            let room = field.w - 16.0 - info_w;
+            let shown = self.text.fit(value, ui, room);
+            let (text, colour) = if value.is_empty() {
+                (hint.to_string(), p.muted)
+            } else {
+                (shown, p.bright)
+            };
+            let tw = self.text.draw_in_row(
+                &mut self.canvas,
+                &text,
+                ui,
+                field.x + 8.0,
+                field.y,
+                field.h,
+                colour,
+                field,
+            );
+            if active {
+                let cx = field.x + 8.0 + if value.is_empty() { 0.0 } else { tw } + 1.0;
+                self.canvas
+                    .fill(Rect::new(cx, field.y + 5.0, 1.5, field.h - 10.0), p.accent);
+            }
+            if info_w > 0.0 {
+                let colour = if find.total == 0 { p.error } else { p.muted };
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    &count,
+                    Face::ui(12.0),
+                    field.right() - info_w,
+                    field.y,
+                    field.h,
+                    colour,
+                    field,
+                );
+            }
+            // Buttons right of the field.
+            let mut bx = field.right() + 6.0;
+            let buttons: &[(&str, FindAction)] = if is_replace {
+                &[
+                    ("Replace", FindAction::ReplaceOne),
+                    ("All", FindAction::ReplaceAll),
+                ]
+            } else {
+                &[
+                    ("↑", FindAction::Previous),
+                    ("↓", FindAction::Next),
+                    ("✕", FindAction::Close),
+                ]
+            };
+            for &(label, action) in buttons {
+                let lw = self.text.width(label, ui) + 14.0;
+                let b = Rect::new(bx, field.y, lw.max(26.0), field.h);
+                if self.hovered(b) {
+                    self.canvas.round(b, 5.0, p.hover);
+                }
+                let lx = b.x + (b.w - self.text.width(label, ui)) / 2.0;
+                self.text
+                    .draw_in_row(&mut self.canvas, label, ui, lx, b.y, b.h, p.text, b);
+                self.hit(b, Hit::Ui(UiEvent::Find(action)));
+                bx = b.right() + 2.0;
+            }
+        }
+    }
+
+    fn context(&mut self, menu: &ContextView, at: (f32, f32), w: f32, h: f32) {
         // A click anywhere else closes it.
         self.hit(Rect::new(0.0, 0.0, w, h), Hit::Ui(UiEvent::CloseContext));
+        self.items_card(&menu.items, menu.selected, at, w, h, UiEvent::ContextItem);
+    }
+
+    /// A card of commands with their keys at `at`, or up and left of it at
+    /// the window's edges; a click on the `k`th item sends `event(k)`.
+    fn items_card(
+        &mut self,
+        items: &[ContextItem],
+        selected: Option<usize>,
+        (x, y): (f32, f32),
+        w: f32,
+        h: f32,
+        event: fn(usize) -> UiEvent,
+    ) {
+        let p = self.p;
         let (label_f, key_f) = (Face::ui(13.0), Face::ui(12.0));
-        let widest = menu
-            .items
+        let widest = items
             .iter()
             .map(|i| {
                 self.text.width(&i.label, label_f)
@@ -212,15 +406,14 @@ impl Frame<'_> {
             .fold(0.0, f32::max);
         let mw = (widest + 40.0).max(220.0);
         let height = |label: &str| if label.is_empty() { 9.0 } else { 28.0 };
-        let mh: f32 = menu.items.iter().map(|i| height(&i.label)).sum::<f32>() + 10.0;
-        // Opens down and right of the mouse, or the other way at an edge.
+        let mh: f32 = items.iter().map(|i| height(&i.label)).sum::<f32>() + 10.0;
         let x = if x + mw > w - 8.0 {
             (x - mw).max(8.0)
         } else {
             x
         };
         let y = if y + mh > h - 8.0 {
-            (y - mh).max(8.0)
+            (h - 8.0 - mh).max(8.0)
         } else {
             y
         };
@@ -229,7 +422,7 @@ impl Frame<'_> {
         self.canvas.outline(r, 8.0, 1.0, p.border, p.widget);
         self.hit(r, Hit::Block);
         let mut ry = r.y + 5.0;
-        for (k, item) in menu.items.iter().enumerate() {
+        for (k, item) in items.iter().enumerate() {
             let rh = height(&item.label);
             if item.label.is_empty() {
                 self.canvas
@@ -238,7 +431,7 @@ impl Frame<'_> {
                 continue;
             }
             let row = Rect::new(r.x + 5.0, ry, r.w - 10.0, rh);
-            let on = menu.selected == Some(k) || self.hovered(row);
+            let on = selected == Some(k) || self.hovered(row);
             if on {
                 self.canvas.round(row, 5.0, p.focus_row);
             }
@@ -266,7 +459,7 @@ impl Frame<'_> {
                     row,
                 );
             }
-            self.hit(row, Hit::Ui(UiEvent::ContextItem(k)));
+            self.hit(row, Hit::Ui(event(k)));
             ry += rh;
         }
     }
