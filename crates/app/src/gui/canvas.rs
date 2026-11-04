@@ -9,8 +9,19 @@ use cosmic_text::{
     SwashContent, Weight,
 };
 
-/// Families for the interface, the first one installed wins.
+/// Families for the interface, the first one installed wins. Inter comes
+/// with merlin, so it's always there unless `MERLIN_UI_FONT` asks for
+/// another.
 const UI_FAMILIES: &[&str] = &["Inter", "Noto Sans", "Cantarell", "DejaVu Sans"];
+
+/// Inter's regular, italic, medium and semibold faces, built in
+/// (SIL Open Font License; see fonts/Inter-LICENSE.txt).
+const INTER: &[&[u8]] = &[
+    include_bytes!("../../fonts/Inter-Regular.ttf"),
+    include_bytes!("../../fonts/Inter-Italic.ttf"),
+    include_bytes!("../../fonts/Inter-Medium.ttf"),
+    include_bytes!("../../fonts/Inter-SemiBold.ttf"),
+];
 /// Families for code. The Nerd Fonts carry the icons the core uses.
 const MONO_FAMILIES: &[&str] = &[
     "JetBrainsMono Nerd Font",
@@ -135,7 +146,10 @@ pub struct Text {
 
 impl Text {
     pub fn new(scale: f32) -> Self {
-        let system = FontSystem::new();
+        let mut system = FontSystem::new();
+        for face in INTER {
+            system.db_mut().load_font_data(face.to_vec());
+        }
         let installed = |name: &str| {
             system
                 .db()

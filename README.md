@@ -39,9 +39,9 @@ The window draws its own frame in pixels, as the
 title bar holds the project, the branch, one search box and the layout
 toggles, with the menus behind ☰. Beside it are the activity rail and the
 side bar, editor and panel, as rounded islands on a darker ground, and a thin
-status bar runs underneath. The interface uses a proportional font (the first
-installed of Inter, Noto Sans, Cantarell and DejaVu Sans; `MERLIN_UI_FONT`
-picks another). Code stays monospace.
+status bar runs underneath. The interface uses [Inter](https://rsms.me/inter/),
+which comes built into the binary (SIL Open Font License, in
+[`crates/app/fonts`](crates/app/fonts); `MERLIN_UI_FONT` picks another). Code stays monospace.
 
 The core still owns all state and behaviour. In window mode
 (`Editor::set_windowed`) its screen is only the code, and the window draws
