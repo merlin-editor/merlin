@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use crate::buffer::{Buffer, Change};
 use crate::diff::{self, LineKind, Sign};
+use crate::indent::{self, Indent};
 use crate::lang::Mark;
 use crate::layers::Layers;
 use crate::screen::char_width;
@@ -76,11 +77,14 @@ pub struct Doc {
     /// A page the window draws instead of text, such as a plugin's: its
     /// name and title. Pages can't be edited.
     pub page: Option<(String, String)>,
+    /// The indentation the file already uses, if it has any.
+    pub indent: Option<Indent>,
 }
 
 impl Doc {
     pub fn new(id: u64, text: &str, path: Option<PathBuf>) -> Self {
         let buffer = Buffer::new(text, path);
+        let indent = indent::detect(buffer.rope());
         Self {
             id,
             buffer,
@@ -98,6 +102,7 @@ impl Doc {
             folds: Vec::new(),
             layers: Layers::default(),
             page: None,
+            indent,
         }
     }
 

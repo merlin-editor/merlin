@@ -289,12 +289,19 @@ Keys, as in VS Code:
 | `Ctrl+PageUp` / `Ctrl+PageDown` | Previous / next tab |
 | `Shift`+arrows, `Ctrl+A` | Select |
 | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | Copy, cut, paste (the whole line without a selection) |
-| `Tab` / `Shift+Tab` | Indent / dedent the selected lines |
+| `Tab` / `Shift+Tab`, `Ctrl+]` / `Ctrl+[` | Indent / dedent the selected lines |
 | `Ctrl+Left` / `Ctrl+Right` | Move by word |
+| `Ctrl+Backspace` / `Ctrl+Delete` | Delete the word before / after |
+| `Alt+Up` / `Alt+Down` | Move the lines up / down |
+| `Ctrl+Shift+Alt+Up` / `Down` | Copy the lines up / down |
+| `Ctrl+Shift+K` | Delete the lines |
+| `Ctrl+Enter` / `Ctrl+Shift+Enter` | New line below / above |
+| `Ctrl+L` | Select the line, and the next each time |
+| `Ctrl+Shift+\` | Go to the matching bracket |
 | `Ctrl+Z` / `Ctrl+Y` | Undo / redo |
 | `Ctrl+D` / `Ctrl+Shift+L` | Add the next occurrence as a cursor / select them all |
 | `Shift+Alt+Up` / `Down` (or `Ctrl+Alt`) | Add a cursor above / below |
-| `Ctrl+F` / `Ctrl+R` | Find / find and replace. Lowercase queries ignore case. Enter or Down for the next match, Up for the previous; in the replace field Enter replaces one, `Alt+Enter` all |
+| `Ctrl+F` / `Ctrl+H` | Find / find and replace. Lowercase queries ignore case. Enter or Down for the next match, Up for the previous; in the replace field Enter replaces one, `Alt+Enter` all |
 | `Alt+Left` | Go back after go-to-definition |
 | `Ctrl+Q` | Quit |
 
@@ -306,6 +313,12 @@ palette items, status bar items and the scrollbar. It places
 the cursor, selects by dragging (Shift+click extends), and scrolls, sideways
 with Shift or a sideways wheel. Hold Shift to select with the terminal
 instead. Alt+click adds a cursor.
+
+Brackets and quotes close themselves, are typed over, wrap a selection,
+and go together on Backspace. Enter keeps the line's indent, adds a level
+after an opener, and opens a line between a pair; a closing bracket alone
+on its line goes back a level. Indentation follows the file (the status
+bar shows it), or `tab_size` and `insert_spaces` where it has none.
 
 With several cursors, typing, deleting, moving and selecting happen at
 each, as one undo step. Copy takes every selection, a line each, and

@@ -78,7 +78,7 @@ fn find_ignores_case_unless_the_query_has_capitals() {
 #[test]
 fn replace_one_then_all_and_undo_all_at_once() {
     let mut s = Session::new("cat cat cat cat", Some("n.txt"), 60, 8);
-    s.run("key ctrl+r; type cat; key tab; type dog; key enter");
+    s.run("key ctrl+h; type cat; key tab; type dog; key enter");
     assert_eq!(s.text(), "dog cat cat cat");
     s.run("key alt+enter");
     assert_eq!(s.text(), "dog dog dog dog");
@@ -288,4 +288,170 @@ fn clicking_a_tab_switches_to_it() {
     // Tabs are on the row below the menu bar, right of the activity bar.
     s.run("click 6 1");
     assert_eq!(s.text(), "fn main() {}\n");
+}
+
+// Typing as other editors do it ------------------------------------------
+
+fn rust(text: &str) -> Session {
+    Session::new(text, Some("main.rs"), 60, 10)
+}
+
+#[test]
+fn brackets_and_quotes_close_themselves_and_are_typed_over() {
+    let mut s = rust("");
+    s.run("type f(");
+    assert_eq!(s.text(), "f()");
+    s.run("type \"a\")\\;");
+    assert_eq!(
+        s.text(),
+        "f(\"a\");",
+        "closers already there are typed over"
+    );
+}
+
+#[test]
+fn quotes_after_words_and_lifetimes_stay_single() {
+    let mut s = rust("");
+    s.run("type don't &'a");
+    assert_eq!(s.text(), "don't &'a");
+}
+
+#[test]
+fn an_opener_before_a_word_doesnt_close() {
+    let mut s = rust("foo");
+    s.run("type (");
+    assert_eq!(s.text(), "(foo");
+}
+
+#[test]
+fn backspace_takes_an_empty_pair_at_once() {
+    let mut s = rust("");
+    s.run("type [; key backspace");
+    assert_eq!(s.text(), "");
+}
+
+#[test]
+fn a_bracket_or_quote_wraps_the_selection() {
+    let mut s = rust("let x = a + b;");
+    s.run("key ctrl+right ctrl+right ctrl+right right shift+end shift+left; type (");
+    assert_eq!(s.text(), "let x = (a + b);");
+    assert_eq!(s.editor.selection().as_deref(), Some("a + b"));
+}
+
+#[test]
+fn a_closing_bracket_alone_on_a_line_goes_back_a_level() {
+    let mut s = rust("fn a() {\n    x\n    ");
+    s.run("key ctrl+end; type }");
+    assert_eq!(s.text(), "fn a() {\n    x\n}");
+}
+
+#[test]
+fn enter_after_a_colon_indents_python() {
+    let mut s = Session::new("", Some("a.py"), 60, 10);
+    s.run("type if x:\\npass");
+    assert_eq!(s.text(), "if x:\n    pass");
+}
+
+#[test]
+fn enter_on_a_blank_indented_line_leaves_no_trailing_spaces() {
+    let mut s = rust("    ");
+    s.run("key end enter");
+    assert_eq!(s.text(), "\n    ");
+}
+
+#[test]
+fn tab_and_backspace_work_in_indent_levels() {
+    let mut s = rust("x");
+    s.run("key home tab");
+    assert_eq!(s.text(), "    x");
+    s.run("key backspace");
+    assert_eq!(s.text(), "x", "backspace in indentation takes a level");
+    s.run("key end space tab");
+    assert_eq!(s.text(), "x   ", "tab goes to the next stop");
+}
+
+#[test]
+fn indentation_follows_the_file() {
+    let mut s = rust("a {\n  b\n}\n");
+    s.run("key down end enter; type c");
+    assert_eq!(s.text(), "a {\n  b\n  c\n}\n");
+    assert!(s.screen().contains("Spaces: 2"), "{}", s.screen());
+    let mut s = rust("a {\n\tb\n}\n");
+    s.run("key down home tab");
+    assert_eq!(s.text(), "a {\n\t\tb\n}\n");
+}
+
+#[test]
+fn ctrl_backspace_and_delete_take_a_word() {
+    let mut s = rust("one two three");
+    s.run("key end ctrl+backspace");
+    assert_eq!(s.text(), "one two ");
+    s.run("key home ctrl+delete");
+    assert_eq!(s.text(), " two ");
+}
+
+// Lines --------------------------------------------------------------------
+
+#[test]
+fn alt_arrows_move_lines_with_the_cursor() {
+    let mut s = rust("a\nb\nc");
+    s.run("key alt+down");
+    assert_eq!(s.text(), "b\na\nc");
+    s.run("key alt+down; type !");
+    assert_eq!(s.text(), "b\nc\n!a");
+    s.run("key alt+up alt+up");
+    assert_eq!(s.text(), "!a\nb\nc");
+    s.run("key ctrl+z");
+    assert_eq!(s.text(), "b\n!a\nc", "each move is an undo step");
+}
+
+#[test]
+fn moving_a_selection_moves_all_its_lines() {
+    let mut s = rust("a\nb\nc\nd");
+    s.run("key shift+down shift+right; key alt+down");
+    assert_eq!(s.text(), "c\na\nb\nd");
+    assert_eq!(s.editor.selection().as_deref(), Some("a\nb"));
+    // A selection ending at the start of a line doesn't take that line.
+    s.run("key home shift+up; key alt+up");
+    assert_eq!(s.text(), "a\nc\nb\nd");
+}
+
+#[test]
+fn copy_line_down_puts_the_cursor_on_the_copy() {
+    let mut s = rust("a\nb");
+    s.run("key ctrl+shift+alt+down; type !");
+    assert_eq!(s.text(), "a\n!a\nb");
+}
+
+#[test]
+fn delete_line_and_insert_lines() {
+    let mut s = rust("    a\n    b\nc");
+    s.run("key ctrl+shift+k");
+    assert_eq!(s.text(), "    b\nc");
+    s.run("key ctrl+enter; type x");
+    assert_eq!(s.text(), "    b\n    x\nc");
+    s.run("key ctrl+shift+enter; type y");
+    assert_eq!(s.text(), "    b\n    y\n    x\nc");
+    s.run("key ctrl+end ctrl+shift+k");
+    assert_eq!(s.text(), "    b\n    y\n    x");
+}
+
+#[test]
+fn ctrl_l_selects_lines_one_more_each_time() {
+    let mut s = rust("a\nb\nc");
+    s.run("key ctrl+l");
+    assert_eq!(s.editor.selection().as_deref(), Some("a\n"));
+    s.run("key ctrl+l");
+    assert_eq!(s.editor.selection().as_deref(), Some("a\nb\n"));
+}
+
+#[test]
+fn go_to_bracket_jumps_between_pairs() {
+    let mut s = rust("f(a, [b]) + 1");
+    s.run("key right ctrl+shift+\\");
+    assert_eq!(s.editor.cursor(), 8, "from ( to )");
+    s.run("key ctrl+shift+\\");
+    assert_eq!(s.editor.cursor(), 1, "and back");
+    s.run("key right right right right right ctrl+shift+\\");
+    assert_eq!(s.editor.cursor(), 7, "inside [b], to its closer");
 }

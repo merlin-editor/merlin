@@ -18,6 +18,10 @@ const USER_TEMPLATE: &str = r#"# merlin settings. Saving this file applies them.
 # breadcrumbs = true
 # sticky_scroll = true
 # preview_tabs = true
+# tab_size = 4
+# insert_spaces = true
+# detect_indentation = true    # a file's own indentation wins
+# auto_closing_brackets = true
 # icons = "nerd"      # or "plain"
 # theme = "dark"
 
@@ -181,6 +185,14 @@ pub fn editor(table: &toml::Table) -> Settings {
         breadcrumbs: flag("breadcrumbs", defaults.breadcrumbs),
         sticky_scroll: flag("sticky_scroll", defaults.sticky_scroll),
         preview_tabs: flag("preview_tabs", defaults.preview_tabs),
+        tab_size: editor
+            .and_then(|e| e.get("tab_size"))
+            // A number, or the text the Settings window's choice writes.
+            .and_then(|v| v.as_integer().or_else(|| v.as_str()?.parse().ok()))
+            .map_or(defaults.tab_size, |n| n.clamp(1, 16) as usize),
+        insert_spaces: flag("insert_spaces", defaults.insert_spaces),
+        detect_indentation: flag("detect_indentation", defaults.detect_indentation),
+        auto_closing_brackets: flag("auto_closing_brackets", defaults.auto_closing_brackets),
         keys,
     }
 }

@@ -11,6 +11,7 @@ pub mod editor;
 mod fuzzy;
 pub mod history;
 mod icons;
+pub mod indent;
 pub mod key;
 pub mod lang;
 pub mod layers;

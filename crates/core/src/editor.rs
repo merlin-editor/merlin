@@ -39,10 +39,11 @@ use keys::{EDITOR_KEYS, GLOBAL_KEYS, bound};
 
 use crate::buffer::Buffer;
 use crate::diff::LineKind;
-use crate::doc::{Doc, TAB_WIDTH};
+use crate::doc::Doc;
 use crate::edit::Edit;
 use crate::fuzzy;
 use crate::history::{Kind, Revision};
+use crate::indent::Indent;
 use crate::key::{Key, KeyCode};
 use crate::lang::{Completion, Diagnostic, Language, Mark, PluginSymbol, PluginToken};
 use crate::layers::{DocSymbol, Layer, Token};
@@ -555,6 +556,12 @@ pub struct Editor {
     user_keys: Vec<(Key, String)>,
     /// Whether a click in the Explorer opens a preview tab.
     preview_tabs: bool,
+    /// Indentation for files that have none of their own, or all files
+    /// when it isn't detected.
+    indent: Indent,
+    detect_indentation: bool,
+    /// Brackets and quotes close themselves.
+    auto_close: bool,
     /// Colours plugins gave for diffs and code blocks.
     colours: colours::TextColours,
     /// Languages plugins added, with the plugin that added each.
@@ -626,6 +633,9 @@ impl Editor {
             colours: Default::default(),
             user_keys: Vec::new(),
             preview_tabs: true,
+            indent: Indent::spaces(4),
+            detect_indentation: true,
+            auto_close: true,
             project: "merlin".into(),
             log: Vec::new(),
             problems: Vec::new(),

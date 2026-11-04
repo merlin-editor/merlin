@@ -208,6 +208,7 @@ impl App {
             changed: set_here("editor", &key["editor.".len()..]),
         };
         let icons = settings::editor_text(&merged, "icons").unwrap_or("nerd").to_string();
+        let tab_size = settings::editor(&merged).tab_size.to_string();
         let size = merged
             .get("editor")
             .and_then(|e| e.get("font_size"))
@@ -226,6 +227,16 @@ impl App {
                 "Text",
                 vec![
                     toggle("Word wrap", "Long lines wrap at spaces instead of scrolling sideways. Alt+Z", "editor.word_wrap", false),
+                    toggle("Auto-close brackets", "Typing a bracket or quote adds its closer, and wraps a selection in the pair.", "editor.auto_closing_brackets", true),
+                    toggle("Detect indentation", "A file's own indentation wins over the two settings below.", "editor.detect_indentation", true),
+                    toggle("Insert spaces", "Tab and Enter indent with spaces rather than tabs.", "editor.insert_spaces", true),
+                    Row {
+                        label: "Tab size",
+                        about: "Spaces an indent level takes.",
+                        key: "editor.tab_size",
+                        control: Control::Choice(vec!["2", "4", "8"], tab_size),
+                        changed: set_here("editor", "tab_size"),
+                    },
                     Row {
                         label: "Font size",
                         about: "The code's size, in points. Over what a pack says.",
@@ -345,6 +356,10 @@ impl App {
             "font_size",
             "preview_tabs",
             "icons",
+            "auto_closing_brackets",
+            "detect_indentation",
+            "insert_spaces",
+            "tab_size",
         ]
         .iter()
         .filter(|k| set_here("editor", k))

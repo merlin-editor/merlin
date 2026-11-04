@@ -17,17 +17,19 @@ fn renders_text_gutter_and_status() {
         "  File  Edit  Selection  View  Go  Help\n\
          \x20▫ notes.txt ●\n\
          \x20 1 fn main() {\n\
-         \x20 2 let x = 1;\n\
-         ~\n\
-         \x20⊗ 0  ⚠ 0    Ln 2, Col 11   Plain Text\n"
+         \x20 2 │   let x = 1;\n\
+         \x20 3 }\n\
+         \x20⊗ 0  ⚠ 0    Ln 2, Col 15   Plain Text\n"
     );
 }
 
 #[test]
-fn enter_keeps_indentation() {
+fn enter_keeps_indentation_and_opens_a_block() {
     let mut s = session("");
     s.run("type     if x {\\nbody");
-    assert_eq!(s.text(), "    if x {\n    body");
+    assert_eq!(s.text(), "    if x {\n        body\n    }");
+    s.run("key end enter; type more");
+    assert_eq!(s.text(), "    if x {\n        body\n        more\n    }");
 }
 
 #[test]

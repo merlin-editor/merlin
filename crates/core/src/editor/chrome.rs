@@ -269,12 +269,10 @@ impl Editor {
         }
         let rope = doc.buffer.rope();
         let crlf = rope.len_lines() > 1 && rope.line(0).to_string().ends_with("\r\n");
-        let tabs =
-            (0..rope.len_lines().min(200)).any(|l| rope.line(l).chars().next() == Some('\t'));
-        let indent = if tabs { "Tab Size: 4" } else { "Spaces: 4" };
+        let indent = self.indent().label();
         let mut right: Vec<(String, Option<Action>)> = vec![
             (position, Some(Action::Run("go.line"))),
-            (indent.into(), None),
+            (indent, None),
             ("UTF-8".into(), None),
             ((if crlf { "CRLF" } else { "LF" }).into(), None),
             (self.language(), None),

@@ -15,7 +15,7 @@ pub(super) const GLOBAL_KEYS: &[(&str, &str)] = &[
     ("ctrl+,", "settings.open"),
     ("f1", "palette.open"),
     ("ctrl+f", "find.open"),
-    ("ctrl+r", "find.replace"),
+    ("ctrl+h", "find.replace"),
     ("ctrl+b", "view.sidebar"),
     ("ctrl+alt+b", "panel.toggle"),
     ("ctrl+shift+e", "view.explorer"),
@@ -65,6 +65,18 @@ pub(super) const EDITOR_KEYS: &[(&str, &str)] = &[
     ("ctrl+/", "edit.comment"),
     ("ctrl+d", "edit.add_next"),
     ("ctrl+shift+l", "edit.select_all_matches"),
+    ("alt+up", "edit.move_line_up"),
+    ("alt+down", "edit.move_line_down"),
+    // Shift+Alt+Up and Down add cursors on Linux, as in VS Code.
+    ("ctrl+shift+alt+up", "edit.copy_line_up"),
+    ("ctrl+shift+alt+down", "edit.copy_line_down"),
+    ("ctrl+shift+k", "edit.delete_line"),
+    ("ctrl+enter", "edit.insert_line_below"),
+    ("ctrl+shift+enter", "edit.insert_line_above"),
+    ("ctrl+l", "edit.select_line"),
+    ("ctrl+]", "edit.indent"),
+    ("ctrl+[", "edit.outdent"),
+    ("ctrl+shift+\\", "edit.jump_to_bracket"),
 ];
 
 pub(super) fn bound(table: &[(&str, &'static str)], key: Key) -> Option<&'static str> {

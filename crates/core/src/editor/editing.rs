@@ -3,6 +3,26 @@
 
 use super::*;
 
+/// Brackets and quotes that close themselves, as VS Code's defaults have it.
+const PAIRS: &[(char, char)] = &[
+    ('(', ')'),
+    ('[', ']'),
+    ('{', '}'),
+    ('"', '"'),
+    ('\'', '\''),
+    ('`', '`'),
+];
+
+/// What may follow the cursor for an opener to close itself: VS Code's
+/// `autoCloseBefore`, plus the end of the line.
+fn closes_before(next: Option<char>) -> bool {
+    next.is_none_or(|c| c.is_whitespace() || ";:.,=}])>\"'`".contains(c))
+}
+
+fn is_word(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
 /// Where `pos` ends up after `edits`, given left to right in the original
 /// text's offsets.
 pub(super) fn map_pos(pos: usize, edits: &[Edit]) -> usize {
@@ -33,6 +53,10 @@ impl Editor {
             return;
         }
         if key.alt {
+            // Line moves and copies; Alt alone types nothing.
+            if let Some(id) = bound(EDITOR_KEYS, key) {
+                self.run(id, None, fx);
+            }
             return;
         }
         if self.has_carets() {
@@ -106,6 +130,21 @@ impl Editor {
             }
             return;
         }
+        // Word deletes run at each cursor, so they aren't commands.
+        if key.ctrl && !key.shift && matches!(key.code, Backspace | Delete) {
+            let doc = self.doc();
+            let cursor = doc.cursor;
+            let (start, end) = match (doc.selection(), key.code) {
+                (Some(sel), _) => sel,
+                (None, Backspace) => (doc.word_left(cursor), cursor),
+                (None, _) => (cursor, doc.word_right(cursor)),
+            };
+            if start < end {
+                self.replace(start, end, "", Kind::Other);
+            }
+            self.doc_mut().goal = None;
+            return;
+        }
         if key.ctrl {
             if let Some(id) = bound(EDITOR_KEYS, key) {
                 self.run(id, None, fx);
@@ -116,28 +155,28 @@ impl Editor {
         let cursor = doc.cursor;
         match key.code {
             Esc => self.doc_mut().anchor = None,
-            Char(c) => self.type_text(&c.to_string(), Kind::Typing),
-            Enter => {
-                let at = doc.selection().map_or(cursor, |(start, _)| start);
-                let (line, col) = doc.line_col(at);
-                let indent: String = doc
-                    .line_chars(line)
-                    .into_iter()
-                    .take(col)
-                    .take_while(|c| *c == ' ' || *c == '\t')
-                    .collect();
-                self.type_text(&format!("\n{indent}"), Kind::Other);
-            }
+            Char(c) => self.type_char(c),
+            Enter => self.newline(),
             Tab => match doc.selection() {
                 Some((start, end)) if doc.line_col(start).0 != doc.line_col(end).0 => {
                     self.indent_lines(true)
                 }
-                _ => self.type_text(&" ".repeat(TAB_WIDTH), Kind::Other),
+                _ => {
+                    // To the next tab stop.
+                    let unit = self.indent();
+                    let (line, col) = doc.line_col(doc.selection().map_or(cursor, |s| s.0));
+                    let text = if unit.tabs {
+                        "\t".to_string()
+                    } else {
+                        " ".repeat(unit.width - doc.display_col(line, col) % unit.width)
+                    };
+                    self.type_text(&text, Kind::Other)
+                }
             },
             BackTab => self.indent_lines(false),
             Backspace => match doc.selection() {
                 Some((start, end)) => self.replace(start, end, "", Kind::Other),
-                None if cursor > 0 => self.replace(cursor - 1, cursor, "", Kind::Other),
+                None if cursor > 0 => self.backspace(),
                 None => {}
             },
             Delete => match doc.selection() {
@@ -202,6 +241,8 @@ impl Editor {
         if last > first && end_col == 0 {
             last -= 1;
         }
+        let unit = self.indent();
+        let doc = self.doc();
         let mut edits = Vec::new();
         for line in first..=last {
             let at = doc.line_start(line);
@@ -211,7 +252,7 @@ impl Editor {
                     edits.push(Edit {
                         at,
                         removed: String::new(),
-                        inserted: " ".repeat(TAB_WIDTH),
+                        inserted: unit.unit(),
                     });
                 }
             } else {
@@ -220,7 +261,7 @@ impl Editor {
                 } else {
                     chars
                         .iter()
-                        .take(TAB_WIDTH)
+                        .take(unit.width)
                         .take_while(|c| **c == ' ')
                         .count()
                 };
@@ -442,4 +483,355 @@ impl Editor {
             Focus::Menu => {}
         }
     }
+
+    // Typing as editors do it --------------------------------------------------
+
+    /// The indentation Tab and Enter use here: the file's own when it has
+    /// one and detection is on, else the settings'.
+    pub(crate) fn indent(&self) -> Indent {
+        match self.doc().indent {
+            Some(found) if self.detect_indentation => Indent {
+                // A tab is drawn as wide as the settings say.
+                width: if found.tabs {
+                    self.indent.width
+                } else {
+                    found.width
+                },
+                ..found
+            },
+            _ => self.indent,
+        }
+    }
+
+    fn char_at(&self, pos: usize) -> Option<char> {
+        self.doc().buffer.rope().get_char(pos)
+    }
+
+    /// Types `c`, closing brackets and quotes, typing over closers and
+    /// putting a closing bracket back to its opener's indent.
+    fn type_char(&mut self, c: char) {
+        let doc = self.doc();
+        let cursor = doc.cursor;
+        let selection = doc.selection();
+        let (prev, next) = (
+            cursor.checked_sub(1).and_then(|p| self.char_at(p)),
+            self.char_at(cursor),
+        );
+        let pair = PAIRS.iter().find(|(open, _)| *open == c).copied();
+        if self.auto_close {
+            // Wrap the selection in the pair, keeping it selected.
+            if let (Some((open, close)), Some((start, end))) = (pair, selection) {
+                let inner = self.doc().slice(start, end);
+                self.replace(start, end, &format!("{open}{inner}{close}"), Kind::Other);
+                let doc = self.doc_mut();
+                doc.anchor = Some(start + 1);
+                doc.cursor = end + 1;
+                return;
+            }
+            // Over the closer that's already there.
+            if selection.is_none() && next == Some(c) && PAIRS.iter().any(|(_, close)| *close == c)
+            {
+                self.doc_mut().cursor += 1;
+                return;
+            }
+            if let (Some((open, close)), None) = (pair, selection) {
+                let quote = open == close;
+                // Quotes don't close after a word (it's an apostrophe), or
+                // after `&` and `<`, where `'` starts a Rust lifetime.
+                let after_word = prev.is_some_and(|p| is_word(p) || (quote && "&<".contains(p)));
+                if closes_before(next) && !(quote && (after_word || prev == Some(c))) {
+                    self.replace(cursor, cursor, &format!("{open}{close}"), Kind::Typing);
+                    self.doc_mut().cursor -= 1;
+                    return;
+                }
+            }
+        }
+        // A closing bracket alone on its line goes back a level.
+        if selection.is_none() && "}])".contains(c) {
+            let doc = self.doc();
+            let (line, col) = doc.line_col(cursor);
+            let before = &doc.line_chars(line)[..col];
+            if col > 0 && before.iter().all(|ch| *ch == ' ' || *ch == '\t') {
+                let unit = self.indent();
+                let width = doc.display_col(line, col);
+                let back = unit.to_column(width.saturating_sub(1) / unit.width * unit.width);
+                let start = doc.line_start(line);
+                return self.replace(start, cursor, &format!("{back}{c}"), Kind::Other);
+            }
+        }
+        self.type_text(&c.to_string(), Kind::Typing);
+    }
+
+    /// Enter: the line's indent again, a level more after an opener, and
+    /// between a pair of brackets a line of its own for what goes inside.
+    fn newline(&mut self) {
+        let doc = self.doc();
+        let (start, end) = doc.selection().unwrap_or((doc.cursor, doc.cursor));
+        let (line, col) = doc.line_col(start);
+        let chars = doc.line_chars(line);
+        let indent: String = chars[..col]
+            .iter()
+            .take_while(|c| **c == ' ' || **c == '\t')
+            .collect();
+        let last = chars[..col]
+            .iter()
+            .rev()
+            .find(|c| !c.is_whitespace())
+            .copied();
+        let python = self.extension() == "py";
+        let opener = PAIRS
+            .iter()
+            .find(|(open, close)| open != close && Some(*open) == last)
+            .map(|(_, close)| *close);
+        let opens = opener.is_some() || (python && last == Some(':'));
+        let unit = self.indent().unit();
+        // A line of only indentation keeps none of it.
+        let from = if indent.chars().count() == col && col > 0 {
+            doc.line_start(line)
+        } else {
+            start
+        };
+        if opener.is_some() && opener == self.char_at(end) {
+            let text = format!("\n{indent}{unit}\n{indent}");
+            self.replace(from, end, &text, Kind::Other);
+            let doc = self.doc_mut();
+            doc.cursor = from + 1 + indent.chars().count() + unit.chars().count();
+            return;
+        }
+        let more = if opens { unit.as_str() } else { "" };
+        self.replace(from, end, &format!("\n{indent}{more}"), Kind::Other);
+    }
+
+    /// Backspace: an empty pair goes at once, and in indentation a whole
+    /// level goes.
+    fn backspace(&mut self) {
+        let doc = self.doc();
+        let cursor = doc.cursor;
+        let (prev, next) = (self.char_at(cursor - 1), self.char_at(cursor));
+        if self.auto_close
+            && PAIRS
+                .iter()
+                .any(|&(open, close)| Some(open) == prev && Some(close) == next)
+        {
+            return self.replace(cursor - 1, cursor + 1, "", Kind::Other);
+        }
+        let (line, col) = doc.line_col(cursor);
+        let unit = self.indent();
+        let before = &doc.line_chars(line)[..col];
+        if !unit.tabs && before.iter().all(|c| *c == ' ') {
+            let n = col - (col - 1) / unit.width * unit.width;
+            return self.replace(cursor - n, cursor, "", Kind::Other);
+        }
+        self.replace(cursor - 1, cursor, "", Kind::Other);
+    }
+
+    /// The open file's extension, or "".
+    pub(crate) fn extension(&self) -> &str {
+        self.doc()
+            .buffer
+            .path
+            .as_ref()
+            .and_then(|p| p.extension())
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+    }
+
+    // Lines ------------------------------------------------------------------
+
+    /// The first and last lines the selection touches; a selection ending
+    /// at column 0 doesn't touch that line.
+    fn touched_lines(&self) -> (usize, usize) {
+        let doc = self.doc();
+        let (start, end) = doc.selection().unwrap_or((doc.cursor, doc.cursor));
+        let first = doc.line_col(start).0;
+        let (mut last, end_col) = doc.line_col(end);
+        if last > first && end_col == 0 {
+            last -= 1;
+        }
+        (first, last)
+    }
+
+    /// Where `line` ends, before its line break.
+    fn line_end(&self, line: usize) -> usize {
+        let doc = self.doc();
+        doc.line_start(line) + doc.buffer.line_len(line)
+    }
+
+    /// Alt+Up and Down: the lines move past the one above or below, with
+    /// the cursor and selection on them.
+    pub(crate) fn move_lines_by(&mut self, down: bool) {
+        self.clear_carets();
+        let (first, last) = self.touched_lines();
+        let doc = self.doc();
+        if (!down && first == 0) || (down && last >= doc.last_line()) {
+            return;
+        }
+        let other = if down { last + 1 } else { first - 1 };
+        let block = doc.slice(doc.line_start(first), self.line_end(last));
+        let neighbour = doc.slice(doc.line_start(other), self.line_end(other));
+        let (from, to, text) = if down {
+            (
+                doc.line_start(first),
+                self.line_end(other),
+                format!("{neighbour}\n{block}"),
+            )
+        } else {
+            (
+                doc.line_start(other),
+                self.line_end(last),
+                format!("{block}\n{neighbour}"),
+            )
+        };
+        let shift = neighbour.chars().count() as isize + 1;
+        let shift = if down { shift } else { -shift };
+        let (cursor, anchor) = (doc.cursor, doc.anchor);
+        self.replace(from, to, &text, Kind::Other);
+        let moved = |p: usize| (p as isize + shift) as usize;
+        let doc = self.doc_mut();
+        doc.cursor = moved(cursor);
+        doc.anchor = anchor.map(moved);
+    }
+
+    /// Shift+Alt+Up and Down: a copy of the lines above or below, with the
+    /// cursor on the copy.
+    pub(crate) fn copy_lines(&mut self, down: bool) {
+        self.clear_carets();
+        let (first, last) = self.touched_lines();
+        let doc = self.doc();
+        let block = doc.slice(doc.line_start(first), self.line_end(last));
+        let (cursor, anchor) = (doc.cursor, doc.anchor);
+        let at = doc.line_start(first);
+        self.replace(at, at, &format!("{block}\n"), Kind::Other);
+        let shift = if down { block.chars().count() + 1 } else { 0 };
+        let doc = self.doc_mut();
+        doc.cursor = cursor + shift;
+        doc.anchor = anchor.map(|a| a + shift);
+    }
+
+    /// Ctrl+Shift+K: the lines go, and the cursor stays in its column.
+    pub(crate) fn delete_lines(&mut self) {
+        let (first, last) = self.touched_lines();
+        let doc = self.doc();
+        let goal = doc.display_col(doc.line_col(doc.cursor).0, doc.line_col(doc.cursor).1);
+        let (from, to) = if last < doc.last_line() {
+            (doc.line_start(first), doc.line_start(last + 1))
+        } else {
+            // The last line takes the break before it instead.
+            (doc.line_start(first).saturating_sub(1), doc.buffer.len())
+        };
+        self.replace(from, to, "", Kind::Other);
+        let doc = self.doc_mut();
+        let line = first.min(doc.last_line());
+        doc.cursor = doc.pos_at(line, goal);
+    }
+
+    /// Ctrl+Enter and Ctrl+Shift+Enter: a new line below or above, at this
+    /// one's indent, wherever the cursor is in it.
+    pub(crate) fn insert_line(&mut self, below: bool) {
+        let doc = self.doc();
+        let line = doc.line_col(doc.cursor).0;
+        let indent: String = doc
+            .line_chars(line)
+            .into_iter()
+            .take_while(|c| *c == ' ' || *c == '\t')
+            .collect();
+        if below {
+            let end = self.line_end(line);
+            self.replace(end, end, &format!("\n{indent}"), Kind::Other);
+        } else {
+            let start = doc.line_start(line);
+            self.replace(start, start, &format!("{indent}\n"), Kind::Other);
+            self.doc_mut().cursor = start + indent.chars().count();
+        }
+    }
+
+    /// Ctrl+L: selects the line, and the next each time again.
+    pub(crate) fn select_line(&mut self) {
+        let (first, last) = self.touched_lines();
+        let doc = self.doc();
+        let selected_whole = doc
+            .selection()
+            .is_some_and(|(s, e)| s == doc.line_start(first) && e == doc.line_start(last + 1));
+        let last = if selected_whole { last + 1 } else { last };
+        let end = if last < doc.last_line() {
+            doc.line_start(last + 1)
+        } else {
+            doc.buffer.len()
+        };
+        let start = doc.line_start(first);
+        let doc = self.doc_mut();
+        doc.anchor = Some(start);
+        doc.cursor = end;
+        doc.goal = None;
+    }
+
+    /// Ctrl+Shift+\\: to the bracket that matches the one at or before the
+    /// cursor, or out to the brackets around it.
+    pub(crate) fn jump_to_bracket(&mut self) {
+        let doc = self.doc();
+        let rope = doc.buffer.rope();
+        let cursor = doc.cursor;
+        let brackets = [('(', ')'), ('[', ']'), ('{', '}')];
+        let at = |p: usize| rope.get_char(p);
+        // The bracket next to the cursor, after it first.
+        let here = [Some(cursor), cursor.checked_sub(1)]
+            .into_iter()
+            .flatten()
+            .find(|&p| at(p).is_some_and(|c| "()[]{}".contains(c)));
+        let target = match here {
+            Some(p) => {
+                let c = at(p).unwrap_or(' ');
+                match brackets.iter().find(|(o, cl)| *o == c || *cl == c) {
+                    Some(&(open, close)) if c == open => scan(rope, p + 1, true, open, close),
+                    Some(&(open, close)) => scan(rope, p, false, open, close),
+                    None => None,
+                }
+            }
+            // Inside: to the closer of the innermost pair around.
+            None => brackets
+                .iter()
+                .filter_map(|&(open, close)| scan(rope, cursor, true, open, close))
+                .min(),
+        };
+        if let Some(p) = target {
+            self.set_cursor(p);
+        }
+    }
+}
+
+/// From `from`, the bracket that balances: forward to a `close`, or back
+/// to an `open`. Gives up after a long way, to stay quick.
+fn scan(rope: &ropey::Rope, from: usize, forward: bool, open: char, close: char) -> Option<usize> {
+    const LIMIT: usize = 200_000;
+    let mut depth = 0usize;
+    if forward {
+        for (i, c) in rope.chars_at(from).enumerate().take(LIMIT) {
+            if c == open {
+                depth += 1;
+            } else if c == close {
+                if depth == 0 {
+                    return Some(from + i);
+                }
+                depth -= 1;
+            }
+        }
+    } else {
+        let mut chars = rope.chars_at(from);
+        let mut p = from;
+        while let Some(c) = chars.prev() {
+            p -= 1;
+            if from - p > LIMIT {
+                break;
+            }
+            if c == close {
+                depth += 1;
+            } else if c == open {
+                if depth == 0 {
+                    return Some(p);
+                }
+                depth -= 1;
+            }
+        }
+    }
+    None
 }
