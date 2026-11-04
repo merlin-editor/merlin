@@ -173,6 +173,14 @@ interface types {
     hint,
   }
 
+  /// A change to a buffer: the range it replaced, in the text as it was
+  /// just before, and what replaced it. As LSP's incremental sync has it.
+  record text-change {
+    start: position,
+    end: position,
+    text: string,
+  }
+
   /// Selected text and where it is.
   record selection {
     start: position,
@@ -209,10 +217,19 @@ interface types {
 /// What the editor offers a plugin. Calls that need a permission check the
 /// plugin's manifest and return an error naming the permission if denied.
 interface host {
-  use types.{framing, pick-item, position, selection, diagnostic, completion, setting, token, token-layer, doc-symbol, line-range, fold-range};
+  use types.{framing, pick-item, position, selection, text-change, diagnostic, completion, setting, token, token-layer, doc-symbol, line-range, fold-range};
 
   /// Text of the active buffer. Needs `editor-read`.
   active-text: func() -> result<string, string>;
+
+  /// The active buffer's version, which every change moves on. Needs
+  /// `editor-read`.
+  active-version: func() -> result<u64, string>;
+
+  /// The changes to the active buffer since `since`, a version from
+  /// `active-version`, oldest first: `none` once they're no longer kept,
+  /// so read the whole text instead. Needs `editor-read`.
+  active-changes: func(since: u64) -> result<option<list<text-change>>, string>;
 
   /// Path of the active buffer, if it has one. Needs `editor-read`.
   active-path: func() -> result<option<string>, string>;

@@ -188,7 +188,9 @@ pub enum BufferEvent {
 #[derive(Clone, Debug, Default)]
 pub struct Snapshot {
     pub path: Option<String>,
-    pub text: String,
+    /// Shared with the editor, not copied: a call that doesn't read it
+    /// costs nothing.
+    pub text: merlin_core::buffer::TextSnapshot,
     pub root: PathBuf,
     /// Line and UTF-16 column.
     pub cursor: (u32, u32),
@@ -279,7 +281,30 @@ impl types::Host for State {}
 impl host::Host for State {
     fn active_text(&mut self) -> Result<String, String> {
         self.need(self.permissions.editor_read, "editor-read")?;
-        Ok(self.snapshot.text.clone())
+        Ok(self.snapshot.text.to_string())
+    }
+
+    fn active_version(&mut self) -> Result<u64, String> {
+        self.need(self.permissions.editor_read, "editor-read")?;
+        self.snapshot
+            .text
+            .version()
+            .ok_or_else(|| "no version for this text".to_string())
+    }
+
+    fn active_changes(&mut self, since: u64) -> Result<Option<Vec<types::TextChange>>, String> {
+        self.need(self.permissions.editor_read, "editor-read")?;
+        let at = |(line, column)| types::Position { line, column };
+        Ok(self.snapshot.text.changes_since(since).map(|changes| {
+            changes
+                .into_iter()
+                .map(|c| types::TextChange {
+                    start: at(c.start),
+                    end: at(c.end),
+                    text: c.text,
+                })
+                .collect()
+        }))
     }
 
     fn active_path(&mut self) -> Result<Option<String>, String> {

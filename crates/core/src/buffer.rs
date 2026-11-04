@@ -1,4 +1,6 @@
+use std::collections::VecDeque;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use merlin_syntax::TextEdit;
 use ropey::Rope;
@@ -28,6 +30,85 @@ impl Change {
     }
 }
 
+/// One change as language servers count it: lines and UTF-16 columns in
+/// the text as it was just before it, and what replaced that range.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TextChange {
+    pub start: (u32, u32),
+    pub end: (u32, u32),
+    pub text: String,
+}
+
+/// Most changes kept for plugins that sync as they go, and most text in
+/// them; past either, the oldest go, and a plugin that's behind reads the
+/// whole text instead.
+const LOG_CHANGES: usize = 512;
+const LOG_BYTES: usize = 1 << 20;
+
+/// The text and its recent changes, shared rather than copied, so taking
+/// one for a plugin call costs the same for any size of file.
+#[derive(Clone, Debug, Default)]
+pub struct TextSnapshot {
+    rope: Rope,
+    version: u64,
+    log: Arc<VecDeque<(u64, Arc<TextChange>)>>,
+    /// The oldest version the log goes back to.
+    log_from: u64,
+    /// From a buffer, rather than made up of some text: only then do
+    /// versions and changes mean anything.
+    versioned: bool,
+}
+
+impl TextSnapshot {
+    /// The buffer's version, if it's from one.
+    pub fn version(&self) -> Option<u64> {
+        self.versioned.then_some(self.version)
+    }
+
+    pub fn rope(&self) -> &Rope {
+        &self.rope
+    }
+
+    /// The changes since `version`, oldest first; `None` if the log no
+    /// longer goes back that far.
+    pub fn changes_since(&self, version: u64) -> Option<Vec<TextChange>> {
+        if !self.versioned || version > self.version || version < self.log_from {
+            return None;
+        }
+        Some(
+            self.log
+                .iter()
+                .filter(|(v, _)| *v > version)
+                .map(|(_, c)| TextChange::clone(c))
+                .collect(),
+        )
+    }
+}
+
+impl std::fmt::Display for TextSnapshot {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        for chunk in self.rope.chunks() {
+            f.write_str(chunk)?;
+        }
+        Ok(())
+    }
+}
+
+impl From<&str> for TextSnapshot {
+    fn from(text: &str) -> Self {
+        Self {
+            rope: Rope::from_str(text),
+            ..Self::default()
+        }
+    }
+}
+
+impl From<String> for TextSnapshot {
+    fn from(text: String) -> Self {
+        Self::from(text.as_str())
+    }
+}
+
 pub struct Buffer {
     rope: Rope,
     pub path: Option<PathBuf>,
@@ -36,17 +117,40 @@ pub struct Buffer {
     version: u64,
     /// Changes since [`Buffer::take_changes`] was last called.
     changes: Vec<Change>,
+    /// Recent changes by the version they made, for plugins.
+    log: Arc<VecDeque<(u64, Arc<TextChange>)>>,
+    log_from: u64,
+    log_bytes: usize,
 }
 
 impl Buffer {
     pub fn new(text: &str, path: Option<PathBuf>) -> Self {
+        // Each buffer counts its versions from a start of its own, so a
+        // version a plugin kept from a file closed since can't be taken
+        // for one of this buffer's.
+        static BUFFERS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let start = BUFFERS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) << 32;
         Self {
             rope: Rope::from_str(text),
             path,
             history: History::default(),
             saved: 0,
-            version: 0,
+            version: start,
             changes: Vec::new(),
+            log: Arc::default(),
+            log_from: start,
+            log_bytes: 0,
+        }
+    }
+
+    /// The text and its recent changes, for a plugin call.
+    pub fn snapshot(&self) -> TextSnapshot {
+        TextSnapshot {
+            rope: self.rope.clone(),
+            version: self.version,
+            log: self.log.clone(),
+            log_from: self.log_from,
+            versioned: true,
         }
     }
 
@@ -112,6 +216,27 @@ impl Buffer {
             Some(i) => (row + text.matches('\n').count(), text.len() - i - 1),
             None => (row, col + text.len()),
         };
+        // As LSP counts: lines, and UTF-16 units into them.
+        let utf16 = |at: usize| {
+            let line = rope.char_to_line(at);
+            let column = rope.char_to_utf16_cu(at) - rope.char_to_utf16_cu(rope.line_to_char(line));
+            (line as u32, column as u32)
+        };
+        let logged = TextChange {
+            start: utf16(edit.at),
+            end: utf16(edit.at + edit.removed.chars().count()),
+            text: edit.inserted.clone(),
+        };
+        self.log_bytes += logged.text.len();
+        // Undo and redo make one version of several edits.
+        let log = Arc::make_mut(&mut self.log);
+        log.push_back((self.version + 1, Arc::new(logged)));
+        while log.len() > LOG_CHANGES || (self.log_bytes > LOG_BYTES && log.len() > 1) {
+            if let Some((version, gone)) = log.pop_front() {
+                self.log_bytes -= gone.text.len();
+                self.log_from = version;
+            }
+        }
         self.changes.push(Change {
             at: edit.at,
             removed: edit.removed.chars().count(),

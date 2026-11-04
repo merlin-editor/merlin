@@ -1150,7 +1150,7 @@ fn snapshot(editor: &Editor, root: &Path) -> Snapshot {
     let buffer = editor.buffer();
     Snapshot {
         path: buffer.path.as_ref().map(|p| p.display().to_string()),
-        text: buffer.text(),
+        text: buffer.snapshot(),
         root: root.to_path_buf(),
         cursor: editor.cursor_utf16(),
         selection: editor

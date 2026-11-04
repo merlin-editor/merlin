@@ -149,6 +149,14 @@ struct Server {
     symbols: bool,
     #[serde(default)]
     folds: bool,
+    /// Whether it takes changes as ranges, rather than the whole text each
+    /// time.
+    #[serde(default)]
+    incremental: bool,
+    /// The editor's version of each open document the server has, to send
+    /// only what changed since.
+    #[serde(default)]
+    synced: HashMap<String, u64>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -214,6 +222,29 @@ impl Server {
                 version,
             },
         );
+    }
+
+    /// Tells the server what changed in a file it has open, as ranges.
+    fn send_changes(&mut self, path: &str, changes: &[TextChange]) {
+        let Some(version) = self.opened.get_mut(path) else {
+            return;
+        };
+        *version += 1;
+        let version = *version;
+        let at = |p: &Position| json!({"line": p.line, "character": p.column});
+        let changes: Vec<Value> = changes
+            .iter()
+            .map(|c| json!({"range": {"start": at(&c.start), "end": at(&c.end)}, "text": c.text}))
+            .collect();
+        self.notify(
+            "textDocument/didChange",
+            json!({
+                "textDocument": {"uri": uri(path), "version": version},
+                "contentChanges": changes,
+            }),
+        );
+        self.pull(path);
+        self.describe(path);
     }
 
     /// Tells the server about the file's current text.
@@ -544,6 +575,8 @@ impl Lsp {
                     legend: Vec::new(),
                     symbols: false,
                     folds: false,
+                    incremental: false,
+                    synced: HashMap::new(),
                 };
                 let i = match found {
                     Some(i) => {
@@ -797,6 +830,9 @@ impl Lsp {
                 let offered = |v: &Value| !v.is_null() && *v != Value::Bool(false);
                 server.symbols = offered(&caps["documentSymbolProvider"]);
                 server.folds = offered(&caps["foldingRangeProvider"]);
+                // 2 is incremental, as a number or as `change` in an object.
+                let sync = &caps["textDocumentSync"];
+                server.incremental = sync.as_u64().or_else(|| sync["change"].as_u64()) == Some(2);
                 server.status = Status::Ready;
                 server.notify("initialized", json!({}));
                 for queued in std::mem::take(&mut server.queue) {
@@ -982,12 +1018,31 @@ impl Plugin for Lsp {
             }
             return;
         }
-        let text = host::active_text().unwrap_or_default();
+        let now = host::active_version().ok();
         let server = self.ensure(spec);
-        if matches!(event, BufferEvent::Switched) && server.opened.contains_key(&path) {
+        let open = server.opened.contains_key(&path);
+        let was = server.synced.get(&path).copied();
+        // Back to a file the server has as it is.
+        if matches!(event, BufferEvent::Switched) && open && (now.is_none() || now == was) {
             return;
         }
-        server.sync(&path, language, &text);
+        // Only what changed, when the server takes ranges and the editor
+        // still has them; else the whole text.
+        let changes = match (server.incremental && open, was) {
+            (true, Some(was)) => host::active_changes(was).ok().flatten(),
+            _ => None,
+        };
+        match changes {
+            Some(changes) if changes.is_empty() => {}
+            Some(changes) => server.send_changes(&path, &changes),
+            None => {
+                let text = host::active_text().unwrap_or_default();
+                server.sync(&path, language, &text);
+            }
+        }
+        if let Some(now) = now {
+            server.synced.insert(path.clone(), now);
+        }
         if matches!(event, BufferEvent::Changed) {
             self.maybe_complete();
         }

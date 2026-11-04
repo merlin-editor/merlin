@@ -57,11 +57,57 @@ fn undo_and_redo_round_trip_replacements() {
 #[test]
 fn version_changes_even_when_typing_merges() {
     let mut buf = Buffer::new("", None);
+    let start = buf.version();
     for (i, c) in ["a", "b"].iter().enumerate() {
         buf.begin(i, Kind::Typing);
         buf.apply(insert(i, c));
         buf.commit(i + 1);
     }
     assert_eq!(buf.revision(), 1, "typing merged into one revision");
-    assert_eq!(buf.version(), 2, "but each keystroke is a new version");
+    assert_eq!(
+        buf.version() - start,
+        2,
+        "but each keystroke is a new version"
+    );
+}
+
+#[test]
+fn changes_are_kept_as_language_servers_count_them() {
+    let mut buf = Buffer::new("ab\ncd\n", None);
+    let start = buf.version();
+    buf.begin(0, Kind::Other);
+    // "é" is one UTF-16 unit, "😀" two.
+    buf.apply(insert(3, "é😀"));
+    buf.commit(5);
+    buf.begin(0, Kind::Other);
+    buf.apply(Edit {
+        at: 5,
+        removed: "c".into(),
+        inserted: "X".into(),
+    });
+    buf.commit(6);
+    let text = buf.snapshot();
+    let changes = text.changes_since(start).expect("kept");
+    assert_eq!(changes.len(), 2);
+    assert_eq!((changes[0].start, changes[0].end), ((1, 0), (1, 0)));
+    // After "é😀": three units in.
+    assert_eq!((changes[1].start, changes[1].end), ((1, 3), (1, 4)));
+    assert_eq!(changes[1].text, "X");
+    let version = text.version().unwrap();
+    assert_eq!(text.changes_since(version).unwrap(), []);
+    // Another buffer's version, or one to come, isn't one of its.
+    let other = Buffer::new("", None).snapshot().version().unwrap();
+    assert!(text.changes_since(other).is_none());
+    assert!(text.changes_since(version + 1).is_none());
+    // Undo is one version of the edits it reverts.
+    buf.undo();
+    let after = buf.snapshot();
+    assert_eq!(after.changes_since(version).unwrap().len(), 1);
+    // Text made up for a test has no versions.
+    assert!(
+        merlin_core::buffer::TextSnapshot::from("x")
+            .changes_since(0)
+            .is_none()
+    );
+    assert_eq!(after.to_string(), "ab\né😀cd\n");
 }
