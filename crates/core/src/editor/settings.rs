@@ -2,7 +2,6 @@
 
 use super::Editor;
 use crate::indent::Indent;
-use crate::key::Key;
 
 /// What the `[editor]` and `[keys]` tables of the settings say, with
 /// VS Code's defaults for what they leave out.
@@ -24,9 +23,10 @@ pub struct Settings {
     pub detect_indentation: bool,
     /// Typing an opening bracket or quote adds its closer.
     pub auto_closing_brackets: bool,
-    /// Keys and the commands they run, such as `("ctrl+k", "view.minimap")`.
-    /// An empty command unbinds the key.
-    pub keys: Vec<(String, String)>,
+    /// Keys and the commands they run, such as `ctrl+k ctrl+m` and
+    /// `view.minimap`, maybe only when a condition holds. An empty command
+    /// unbinds the keys.
+    pub keys: Vec<super::UserKey>,
 }
 
 impl Default for Settings {
@@ -67,14 +67,29 @@ impl Editor {
         }
         self.user_keys.clear();
         let mut bad = Vec::new();
-        for (spec, command) in settings.keys {
-            match Key::parse(&spec) {
-                Some(key) => self.user_keys.push((key, command)),
-                None => bad.push(spec),
-            }
+        for user in settings.keys {
+            let Some(keys) = super::keymap::parse_keys(&user.keys) else {
+                bad.push(format!("unknown keys: {}", user.keys));
+                continue;
+            };
+            let when = match user.when.as_deref().map(super::When::parse) {
+                None => super::When::default(),
+                Some(Ok(when)) => when,
+                Some(Err(err)) => {
+                    bad.push(err);
+                    continue;
+                }
+            };
+            self.user_keys.push(super::keymap::Binding {
+                keys,
+                command: user.command,
+                when,
+                from: super::keymap::From::Settings,
+            });
         }
+        self.rebuild_keymap();
         if !bad.is_empty() {
-            self.error(format!("Settings: unknown keys: {}", bad.join(", ")));
+            self.error(format!("Settings: {}", bad.join("; ")));
         }
     }
 }

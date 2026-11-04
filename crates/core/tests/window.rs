@@ -257,8 +257,8 @@ fn key_bindings_show_the_settings_changes() {
     let mut s = windowed();
     s.send(Event::Settings(Settings {
         keys: vec![
-            ("ctrl+k".into(), "view.minimap".into()),
-            ("ctrl+b".into(), String::new()),
+            merlin_core::UserKey::new("ctrl+k", "view.minimap"),
+            merlin_core::UserKey::new("ctrl+b", ""),
         ],
         ..Settings::default()
     }));

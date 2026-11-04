@@ -178,12 +178,28 @@ pub fn editor(table: &toml::Table) -> Settings {
             .and_then(|v| v.as_bool())
             .unwrap_or(default)
     };
+    // `"ctrl+k ctrl+m" = "view.minimap"`, or with a condition,
+    // `"ctrl+d" = { command = "edit.add_next", when = "editorTextFocus" }`.
     let keys = table
         .get("keys")
         .and_then(|k| k.as_table())
         .map(|keys| {
             keys.iter()
-                .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string())))
+                .filter_map(|(k, v)| {
+                    let (command, when) = match v {
+                        toml::Value::String(command) => (command.clone(), None),
+                        toml::Value::Table(t) => (
+                            t.get("command")?.as_str()?.to_string(),
+                            t.get("when").and_then(|w| w.as_str()).map(str::to_string),
+                        ),
+                        _ => return None,
+                    };
+                    Some(merlin_core::UserKey {
+                        keys: k.clone(),
+                        command,
+                        when,
+                    })
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -267,7 +283,10 @@ mod tests {
         assert!(errors.is_empty());
         let s = editor(&table);
         assert!(s.minimap && !s.word_wrap && s.breadcrumbs);
-        assert_eq!(s.keys, [("ctrl+k".to_string(), "view.minimap".to_string())]);
+        assert_eq!(
+            s.keys,
+            [merlin_core::UserKey::new("ctrl+k", "view.minimap")]
+        );
         let lsp = plugins(&table)["lsp"].as_table().unwrap().clone();
         assert_eq!(lsp["a"].as_integer(), Some(1));
         assert_eq!(lsp["b"].as_integer(), Some(3));

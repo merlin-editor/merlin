@@ -1,5 +1,6 @@
 //! Keys: the built-in bindings, VS Code's, and how a key finds its command.
 
+use super::keymap::{Binding, From, When, spec_of};
 use super::*;
 
 /// Keys that work wherever focus is, as VS Code binds them where the
@@ -101,60 +102,29 @@ pub(super) const CHORDS: &[(&str, &str, &str)] = &[
     ("ctrl+k", "ctrl+w", "file.close_all"),
 ];
 
-pub(super) fn bound(table: &[(&str, &'static str)], key: Key) -> Option<&'static str> {
-    table
-        .iter()
-        .find(|(spec, _)| Key::parse(spec) == Some(key))
-        .map(|(_, id)| *id)
-}
-
 impl Editor {
     pub(crate) fn key(&mut self, key: Key, armed: Option<&'static str>, fx: &mut Vec<Effect>) {
-        // Keys from the settings come first; one bound to nothing does
-        // nothing.
-        if let Some((_, command)) = self.user_keys.iter().find(|(k, _)| *k == key) {
-            if command.is_empty() {
-                return;
-            }
-            let command = command.clone();
-            return self.run(&command, armed, fx);
+        // An open completion list takes the keys it uses first.
+        if self.focus == Focus::Editor && self.popup_key(key) {
+            return;
         }
         if let Some(first) = self.chord.take() {
-            let parse = |spec: &str| Key::parse(spec);
-            let id = CHORDS
-                .iter()
-                .find(|(a, b, _)| parse(a) == Some(first) && parse(b) == Some(key))
-                .map(|(.., id)| *id);
             self.message = None;
-            return match id {
-                Some(id) => self.run(id, armed, fx),
+            return match self.binding_for(&[first, key]).cloned() {
+                Some(binding) => self.run_binding(&binding, armed, fx),
                 None => self.notify(format!(
-                    "The key combination ({}, {}) is not a command",
-                    first, key
+                    "The key combination ({first}, {key}) is not a command"
                 )),
             };
         }
-        if CHORDS.iter().any(|(a, ..)| Key::parse(a) == Some(key)) {
+        if let Some(binding) = self.binding_for(&[key]).cloned() {
+            return self.run_binding(&binding, armed, fx);
+        }
+        if self.starts_chord(key) {
             self.chord = Some(key);
             return self.notify(format!(
-                "({}) was pressed. Waiting for the second key of the chord…",
-                key
+                "({key}) was pressed. Waiting for the second key of the chord…"
             ));
-        }
-        if let Some(id) = bound(GLOBAL_KEYS, key) {
-            return self.run(id, armed, fx);
-        }
-        if matches!(
-            self.focus,
-            Focus::Editor | Focus::Panel | Focus::SideBar | Focus::Bottom
-        ) {
-            let plugin_key = self.plugins.iter().find_map(|p| {
-                let (_, command) = p.keys.iter().find(|(k, _)| *k == key)?;
-                Some((p.name.clone(), command.clone()))
-            });
-            if let Some((plugin, command)) = plugin_key {
-                return fx.push(Effect::PluginCommand { plugin, command });
-            }
         }
         match self.focus {
             Focus::Editor => self.editor_key(key, fx),
@@ -167,60 +137,64 @@ impl Editor {
         }
     }
 
+    /// Runs what a binding says; one to nothing does nothing.
+    fn run_binding(
+        &mut self,
+        binding: &Binding,
+        armed: Option<&'static str>,
+        fx: &mut Vec<Effect>,
+    ) {
+        if binding.command.is_empty() {
+            return;
+        }
+        match &binding.from {
+            From::Plugin(plugin) => fx.push(Effect::PluginCommand {
+                plugin: plugin.clone(),
+                command: binding.command[plugin.len() + 1..].to_string(),
+            }),
+            _ => self.run(&binding.command, armed, fx),
+        }
+    }
+
     /// Every command and the keys that run it, after the settings' changes.
     pub fn key_bindings(&self) -> Vec<KeyBinding> {
-        let defaults: Vec<(Key, &str)> = GLOBAL_KEYS
-            .iter()
-            .chain(EDITOR_KEYS)
-            .filter_map(|(spec, id)| Some((Key::parse(spec)?, *id)))
-            .collect();
-        let user = |key: Key| self.user_keys.iter().find(|(k, _)| *k == key);
+        // A binding counts unless one tried before it has the same keys
+        // and applies at least as often.
+        let live = |i: usize| {
+            let b = &self.keymap[i];
+            !self.keymap[..i]
+                .iter()
+                .any(|e| e.keys == b.keys && (e.when == b.when || e.when == When::default()))
+        };
         let mut out = Vec::new();
         for (id, title) in self.commands() {
-            let mut keys = Vec::new();
-            let mut changed = false;
             let plugin = self.plugins.iter().find(|p| {
                 id.strip_prefix(&p.name)
                     .is_some_and(|rest| rest.starts_with('.'))
             });
-            let from_plugin = plugin.map(|p| {
-                let local = &id[p.name.len() + 1..];
-                p.keys
-                    .iter()
-                    .filter(|(_, c)| c == local)
-                    .map(|(k, _)| *k)
-                    .collect::<Vec<_>>()
-            });
-            let own = from_plugin.unwrap_or_else(|| {
-                defaults
-                    .iter()
-                    .filter(|(_, c)| *c == id)
-                    .map(|(k, _)| *k)
-                    .collect()
-            });
-            for key in own {
-                // A key the settings bind elsewhere, or to nothing, is gone.
-                match user(key) {
-                    Some((_, c)) if *c != id => changed = true,
-                    _ => keys.push(key),
-                }
-            }
-            for (key, c) in &self.user_keys {
-                if *c == id && !keys.contains(key) {
-                    keys.push(*key);
-                    changed = true;
-                }
-            }
-            let defaults = defaults
+            let mine: Vec<usize> = (0..self.keymap.len())
+                .filter(|&i| self.keymap[i].command == id)
+                .collect();
+            let keys: Vec<(String, String)> = mine
                 .iter()
-                .filter(|(_, c)| *c == id)
-                .map(|(k, _)| k.spec())
+                .filter(|&&i| live(i))
+                .map(|&i| spec_of(&self.keymap[i].keys))
+                .collect();
+            // The settings bind it, or take a key it had.
+            let changed = mine.iter().any(|&i| {
+                self.keymap[i].from == From::Settings
+                    || (self.keymap[i].from != From::Settings && !live(i))
+            });
+            let defaults = mine
+                .iter()
+                .filter(|&&i| self.keymap[i].from != From::Settings)
+                .map(|&i| spec_of(&self.keymap[i].keys).0)
                 .collect();
             out.push(KeyBinding {
                 command: id,
                 title,
                 defaults,
-                keys: keys.iter().map(|k| (k.spec(), k.to_string())).collect(),
+                keys,
                 changed,
                 plugin: plugin.map(|p| self.panel_title(Side::Right, &p.name).0),
             });

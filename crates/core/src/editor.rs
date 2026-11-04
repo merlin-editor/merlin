@@ -10,6 +10,7 @@ mod find;
 pub(crate) mod fold;
 mod groups;
 pub(crate) mod guides;
+mod keymap;
 mod keys;
 mod layout;
 mod menu;
@@ -34,6 +35,7 @@ pub use window::{
 pub use context::{ContextItem, ContextView, PopupKind, PopupView};
 pub use files::FileOp;
 pub use find::{FindAction, FindView};
+pub use keymap::{UserKey, When};
 pub use layout::Rect as CellRect;
 pub use menu::MenuView;
 pub use settings::Settings;
@@ -48,7 +50,6 @@ use std::path::PathBuf;
 
 use commands::BUILTIN;
 use find::line_matches;
-use keys::{EDITOR_KEYS, GLOBAL_KEYS, bound};
 
 use crate::buffer::Buffer;
 use crate::diff::LineKind;
@@ -636,7 +637,10 @@ pub struct Editor {
     /// 1, 2 or 3 while handling a single, double or triple click; else 0.
     clicks: u8,
     /// Keys bound in the settings, and the commands they run.
-    user_keys: Vec<(Key, String)>,
+    /// The settings' key bindings.
+    user_keys: Vec<keymap::Binding>,
+    /// Every key binding, in the order they're tried.
+    keymap: Vec<keymap::Binding>,
     /// Whether a click in the Explorer opens a preview tab.
     preview_tabs: bool,
     /// Indentation for files that have none of their own, or all files
@@ -729,6 +733,7 @@ impl Editor {
             languages: Vec::new(),
             colours: Default::default(),
             user_keys: Vec::new(),
+            keymap: keymap::builtin(),
             preview_tabs: true,
             indent: Indent::spaces(4),
             detect_indentation: true,

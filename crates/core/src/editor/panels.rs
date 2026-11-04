@@ -2,7 +2,7 @@
 //! panels on the right. Each side bar shows one panel at a time, with the
 //! others' titles above it, and keeps its own focus and scrolling.
 
-use super::{EDITOR_KEYS, Editor, Effect, Focus, GLOBAL_KEYS, Plugin, Side, bound};
+use super::{Editor, Effect, Focus, Plugin, Side};
 use crate::editor::Command;
 use crate::key::{Key, KeyCode};
 use crate::panel::{self, Panel, Row, Target};
@@ -83,9 +83,9 @@ impl Editor {
             let Some(spec) = &command.key else {
                 continue;
             };
+            let builtin = super::keymap::builtin();
             let taken = |key: Key| {
-                bound(GLOBAL_KEYS, key).is_some()
-                    || bound(EDITOR_KEYS, key).is_some()
+                builtin.iter().any(|b| b.keys == [key])
                     || self
                         .plugins
                         .iter()
@@ -107,25 +107,10 @@ impl Editor {
         entry.commands = commands;
         entry.keys = keys;
         entry.error = None;
+        self.rebuild_keymap();
         if !problems.is_empty() {
             self.error(format!("Plugin {plugin}: {}", problems.join(", ")));
         }
-    }
-
-    /// The key that runs a command, for the palette and menus.
-    pub(crate) fn key_hint(&self, id: &str) -> Option<String> {
-        let builtin = GLOBAL_KEYS
-            .iter()
-            .chain(EDITOR_KEYS)
-            .find(|(_, c)| *c == id);
-        if let Some((spec, _)) = builtin {
-            return Key::parse(spec).map(|k| k.to_string());
-        }
-        self.plugins.iter().find_map(|p| {
-            let local = id.strip_prefix(&p.name)?.strip_prefix('.')?;
-            let (key, _) = p.keys.iter().find(|(_, c)| c == local)?;
-            Some(key.to_string())
-        })
     }
 
     /// A plugin's entry, made on first use. Plugins' panels go on the

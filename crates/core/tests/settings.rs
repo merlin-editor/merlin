@@ -1,7 +1,7 @@
 //! Settings: applying them, keys bound in them, and menus that change them.
 
 use merlin_core::script::Session;
-use merlin_core::{Effect, Event, Settings};
+use merlin_core::{Effect, Event, Settings, UserKey};
 
 #[test]
 fn settings_turn_things_on_and_off() {
@@ -26,8 +26,8 @@ fn keys_in_the_settings_run_commands_or_nothing() {
     let mut s = Session::new("one\n", Some("a.txt"), 80, 12);
     s.send(Event::Settings(Settings {
         keys: vec![
-            ("ctrl+k".into(), "view.minimap".into()),
-            ("ctrl+a".into(), String::new()),
+            UserKey::new("ctrl+k", "view.minimap"),
+            UserKey::new("ctrl+a", ""),
         ],
         ..Settings::default()
     }));
@@ -41,10 +41,82 @@ fn keys_in_the_settings_run_commands_or_nothing() {
 fn unknown_keys_are_reported() {
     let mut s = Session::new("one\n", Some("a.txt"), 80, 12);
     s.send(Event::Settings(Settings {
-        keys: vec![("hyper+q".into(), "view.minimap".into())],
+        keys: vec![UserKey::new("hyper+q", "view.minimap")],
         ..Settings::default()
     }));
     assert!(s.editor.message().unwrap_or_default().contains("hyper+q"));
+}
+
+#[test]
+fn settings_bind_chords_and_keys_that_apply_only_sometimes() {
+    let mut s = Session::new("one two\n", Some("a.txt"), 80, 12);
+    s.send(Event::Settings(Settings {
+        keys: vec![
+            UserKey::new("ctrl+k ctrl+m", "view.minimap"),
+            // Only with something selected: otherwise Ctrl+L is still
+            // VS Code's.
+            UserKey {
+                keys: "ctrl+l".into(),
+                command: "edit.delete_line".into(),
+                when: Some("editorTextFocus && editorHasSelection".into()),
+            },
+        ],
+        ..Settings::default()
+    }));
+    s.run("key ctrl+k; key ctrl+m");
+    assert!(s.editor.minimap(), "the chord ran");
+    s.run("key ctrl+l");
+    assert_eq!(
+        s.text(),
+        "one two\n",
+        "no selection: Ctrl+L selects the line"
+    );
+    assert_eq!(s.editor.selection().as_deref(), Some("one two\n"));
+    s.run("key ctrl+l");
+    assert_eq!(s.text(), "", "with one, it deletes the line");
+    // Menus show the keys the settings gave.
+    let minimap = s
+        .editor
+        .key_bindings()
+        .into_iter()
+        .find(|b| b.command == "view.minimap")
+        .unwrap();
+    assert_eq!(minimap.keys[0].1, "Ctrl+K Ctrl+M");
+    assert!(minimap.changed);
+}
+
+#[test]
+fn bad_conditions_are_reported() {
+    let mut s = Session::new("one\n", Some("a.txt"), 80, 12);
+    s.send(Event::Settings(Settings {
+        keys: vec![UserKey {
+            keys: "ctrl+k".into(),
+            command: "view.minimap".into(),
+            when: Some("editorTextFocus &&".into()),
+        }],
+        ..Settings::default()
+    }));
+    assert!(
+        s.editor
+            .message()
+            .unwrap_or_default()
+            .contains("empty part")
+    );
+}
+
+#[test]
+fn the_keys_list_shows_chords() {
+    let s = Session::new("one\n", Some("a.txt"), 80, 12);
+    let fold_all = s
+        .editor
+        .key_bindings()
+        .into_iter()
+        .find(|b| b.command == "edit.fold_all")
+        .unwrap();
+    assert_eq!(
+        fold_all.keys,
+        [("ctrl+k ctrl+0".into(), "Ctrl+K Ctrl+0".into())]
+    );
 }
 
 #[test]

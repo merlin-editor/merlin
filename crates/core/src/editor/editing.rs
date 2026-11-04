@@ -52,11 +52,9 @@ impl Editor {
         if self.in_review() && self.review_key(key, fx) {
             return;
         }
+        // Bound keys ran before this; Alt with anything else types
+        // nothing.
         if key.alt {
-            // Line moves and copies; Alt alone types nothing.
-            if let Some(id) = bound(EDITOR_KEYS, key) {
-                self.run(id, None, fx);
-            }
             return;
         }
         if self.has_carets() {
@@ -65,19 +63,17 @@ impl Editor {
             if key.code == Esc && !key.ctrl && !key.shift {
                 return self.clear_carets();
             }
-            if !(key.ctrl && bound(EDITOR_KEYS, key).is_some()) {
-                let kind = match key.code {
-                    Char(_) if !key.ctrl => Kind::Typing,
-                    _ => Kind::Other,
-                };
-                return self.each_caret(kind, |e, _| e.caret_key(key, fx));
-            }
+            let kind = match key.code {
+                Char(_) if !key.ctrl => Kind::Typing,
+                _ => Kind::Other,
+            };
+            return self.each_caret(kind, |e, _| e.caret_key(key));
         }
-        self.caret_key(key, fx);
+        self.caret_key(key);
     }
 
     /// A key at one cursor.
-    pub(crate) fn caret_key(&mut self, key: Key, fx: &mut Vec<Effect>) {
+    pub(crate) fn caret_key(&mut self, key: Key) {
         use KeyCode::*;
         let page = self.text_height().max(1) as isize;
         if matches!(
@@ -146,9 +142,6 @@ impl Editor {
             return;
         }
         if key.ctrl {
-            if let Some(id) = bound(EDITOR_KEYS, key) {
-                self.run(id, None, fx);
-            }
             return;
         }
         let doc = self.doc();
