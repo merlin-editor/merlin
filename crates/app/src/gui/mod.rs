@@ -105,6 +105,9 @@ pub fn run(app: &mut App) -> Result<()> {
         context_at: None,
         clicks: Clicks::default(),
         scroll: 0.0,
+        touch: None,
+        touch_drawn: None,
+        touched: false,
         state: State::default(),
         hits: Vec::new(),
         areas: Areas::default(),
@@ -189,8 +192,15 @@ struct Gui<'a> {
     /// from a change of layout.
     last_scroll: Option<(usize, merlin_core::editor::CellRect)>,
     clicks: Clicks,
-    /// Touchpad scrolling not yet turned into wheel steps, in pixels.
+    /// Touchpad scrolling short of a whole line, in physical pixels, and
+    /// the text it's in: the lines are drawn that far down, so the text
+    /// follows the fingers.
     scroll: f64,
+    touch: Option<(merlin_core::editor::CellRect, f32)>,
+    touch_drawn: Option<(merlin_core::editor::CellRect, f32)>,
+    /// The touchpad scrolled whole lines since the last frame, which the
+    /// offset already shows: no glide.
+    touched: bool,
     state: State,
     /// What each clickable part of the last frame does; later ones are on
     /// top.
@@ -330,6 +340,14 @@ impl Gui<'_> {
         let t = self.areas.text;
         let cx = (((x - t.x).max(0.0) * s) as u32 / grid.cell_w).min(u16::MAX as u32) as u16;
         let cy = (((y - t.y).max(0.0) * s) as u32 / grid.cell_h).min(u16::MAX as u32) as u16;
+        // Text a touchpad left part-way down a line is that much lower.
+        if let Some((area, offset)) = self.touch
+            && area.contains(cx, cy)
+        {
+            let py = ((y - t.y) * s - offset).max(0.0);
+            let cy = (py as u32 / grid.cell_h).min(u16::MAX as u32) as u16;
+            return (cx, cy.max(area.y));
+        }
         (cx, cy)
     }
 
@@ -478,6 +496,64 @@ impl Gui<'_> {
         }
     }
 
+    /// A touchpad moved the text by (`dx`, `dy`) physical pixels: whole
+    /// lines scroll, and what's left shows as an offset until it adds up
+    /// to another.
+    fn touch_scroll(&mut self, dx: f64, dy: f64) {
+        let Some(at) = self.pointer else { return };
+        let over_text = matches!(self.hit_at(at), None | Some((_, Hit::Text)));
+        let cell_h = self.grid.as_ref().map_or(20, |g| g.cell_h) as f64;
+        let cell = self.cell_at(at);
+        let area = self
+            .drawn_text
+            .iter()
+            .find(|v| v.area.contains(cell.0, cell.1))
+            .map(|v| (v.area, v.scroll));
+        // Off the text, or sideways: as many wheel steps as it adds up to.
+        let Some((area, top)) = area.filter(|_| over_text && dy.abs() >= dx.abs()) else {
+            self.scroll += if dy.abs() >= dx.abs() { dy } else { dx };
+            let step = cell_h * 3.0;
+            let steps = (self.scroll / step).trunc();
+            if steps != 0.0 {
+                self.scroll -= steps * step;
+                self.wheel(steps, dy.abs() < dx.abs());
+            }
+            return;
+        };
+        if self.touch.is_none_or(|(a, _)| a != area) {
+            self.scroll = 0.0;
+        }
+        self.scroll += dy;
+        let lines = (self.scroll / cell_h).floor();
+        if lines != 0.0 {
+            self.scroll -= lines * cell_h;
+            self.touched = true;
+            let (x, y) = cell;
+            self.dispatch(Event::Mouse(Mouse {
+                kind: MouseKind::ScrollLines(-(lines as i16)),
+                x,
+                y,
+                shift: false,
+                alt: false,
+                ctrl: false,
+                clicks: 1,
+            }));
+        }
+        // At the top, there's nothing above to show.
+        let now = self
+            .app
+            .editor
+            .text_views()
+            .into_iter()
+            .find(|v| v.area == area)
+            .map_or(top, |v| v.scroll);
+        if now == 0 && self.scroll > 0.0 {
+            self.scroll = 0.0;
+        }
+        self.touch = Some((area, self.scroll as f32));
+        self.redraw();
+    }
+
     fn key(&mut self, event: KeyEvent) {
         if event.state != ElementState::Pressed {
             return;
@@ -560,6 +636,7 @@ impl Gui<'_> {
                 && *area == v.area
                 && *was != v.scroll
                 && v.overscan > 0
+                && !self.touched
             {
                 let rows = v.scroll as f32 - *was as f32;
                 let from = self.glide_offset() + rows * cell_h;
@@ -568,6 +645,8 @@ impl Gui<'_> {
             self.last_scroll = Some((v.scroll, v.area));
         }
         let glide = self.glide_offset();
+        self.touched = false;
+        let touch = self.touch;
         let (Some(shown), Some(text), Some(grid)) =
             (&mut self.window, &mut self.text, &mut self.grid)
         else {
@@ -615,6 +694,7 @@ impl Gui<'_> {
             .map(|t| t.1.clone());
         let tip_changed = tip != self.tip_drawn;
         if self.drawn == drawn
+            && self.touch_drawn == touch
             && !tip_changed
             && self.drawn_text == texts
             && caret_on == self.caret_drawn
@@ -662,8 +742,12 @@ impl Gui<'_> {
         let t = areas.text;
         let origin = ((t.x * s) as usize, (t.y * s) as usize);
         let last = texts.len().saturating_sub(1);
+        self.touch_drawn = touch;
         for (i, text) in texts.iter().enumerate() {
-            let glide = if i == last { glide } else { 0.0 };
+            let glide = if i == last { glide } else { 0.0 }
+                + touch
+                    .filter(|(a, _)| *a == text.area)
+                    .map_or(0.0, |(_, o)| o);
             grid.draw_code(
                 text,
                 &mut f.canvas,
@@ -953,6 +1037,12 @@ impl ApplicationHandler for Gui<'_> {
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => match delta {
+                // A high-resolution wheel sends parts of a step: those
+                // scroll smoothly, as a touchpad does.
+                MouseScrollDelta::LineDelta(x, y) if y.fract() != 0.0 && x == 0.0 => {
+                    let cell_h = self.grid.as_ref().map_or(20, |g| g.cell_h) as f64;
+                    self.touch_scroll(0.0, y as f64 * 3.0 * cell_h);
+                }
                 MouseScrollDelta::LineDelta(x, y) => {
                     if y != 0.0 {
                         self.wheel(y as f64, false);
@@ -960,16 +1050,7 @@ impl ApplicationHandler for Gui<'_> {
                         self.wheel(x as f64, true);
                     }
                 }
-                MouseScrollDelta::PixelDelta(p) => {
-                    // A wheel step scrolls three rows.
-                    let step = self.grid.as_ref().map_or(60, |g| g.cell_h * 3) as f64;
-                    self.scroll += p.y;
-                    let steps = (self.scroll / step).trunc();
-                    if steps != 0.0 {
-                        self.scroll -= steps * step;
-                        self.wheel(steps, false);
-                    }
-                }
+                MouseScrollDelta::PixelDelta(p) => self.touch_scroll(p.x, p.y),
             },
             _ => {}
         }

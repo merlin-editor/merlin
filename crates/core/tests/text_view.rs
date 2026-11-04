@@ -106,3 +106,28 @@ fn a_review_side_by_side_is_two_views_old_then_new() {
     );
     assert!(!s.screen().contains("fn B()"), "not in the cells too");
 }
+
+#[test]
+fn a_touchpad_scrolls_by_exact_lines() {
+    use merlin_core::{Event, Mouse, MouseKind};
+    let text: String = (1..=100).map(|i| format!("line {i}\n")).collect();
+    let mut s = rust(&text);
+    let area = s.editor.text_views().last().unwrap().area;
+    let scroll = |s: &mut Session, lines: i16| {
+        s.editor.update(Event::Mouse(Mouse {
+            kind: MouseKind::ScrollLines(lines),
+            x: area.x + 10,
+            y: area.y + 2,
+            shift: false,
+            alt: false,
+            ctrl: false,
+            clicks: 1,
+        }));
+        s.editor.text_views().last().unwrap().scroll
+    };
+    assert_eq!(scroll(&mut s, 1), 1);
+    assert_eq!(scroll(&mut s, 4), 5);
+    assert_eq!(scroll(&mut s, -2), 3);
+    // No further up than the top.
+    assert_eq!(scroll(&mut s, -10), 0);
+}

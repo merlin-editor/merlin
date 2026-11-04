@@ -43,7 +43,8 @@ impl Editor {
                 MouseKind::ScrollUp
                 | MouseKind::ScrollDown
                 | MouseKind::ScrollLeft
-                | MouseKind::ScrollRight => {
+                | MouseKind::ScrollRight
+                | MouseKind::ScrollLines(_) => {
                     let back = self.group;
                     self.focus_group(g);
                     self.mouse(m, fx);
@@ -112,17 +113,14 @@ impl Editor {
                 return self.panel_mouse(side, m, fx);
             }
         }
-        let wheel = |doc: &mut Doc, up: bool| {
-            doc.scroll = if up {
-                doc.scroll.saturating_sub(WHEEL_LINES)
-            } else {
-                (doc.scroll + WHEEL_LINES).min(doc.last_line())
-            };
+        let scroll = |doc: &mut Doc, lines: isize| {
+            doc.scroll = doc.scroll.saturating_add_signed(lines).min(doc.last_line());
         };
         let text = layout.text;
         match m.kind {
-            MouseKind::ScrollUp => wheel(self.doc_mut(), true),
-            MouseKind::ScrollDown => wheel(self.doc_mut(), false),
+            MouseKind::ScrollUp => scroll(self.doc_mut(), -(WHEEL_LINES as isize)),
+            MouseKind::ScrollDown => scroll(self.doc_mut(), WHEEL_LINES as isize),
+            MouseKind::ScrollLines(lines) => scroll(self.doc_mut(), lines as isize),
             MouseKind::ScrollLeft | MouseKind::ScrollRight if self.wrapping() => {}
             MouseKind::ScrollLeft => {
                 let doc = self.doc_mut();
@@ -328,6 +326,7 @@ impl Editor {
     fn panel_mouse(&mut self, side: Side, m: Mouse, fx: &mut Vec<Effect>) {
         match m.kind {
             MouseKind::ScrollUp => self.scroll_panel(side, true, WHEEL_LINES),
+            MouseKind::ScrollLines(n) => self.scroll_panel(side, n < 0, n.unsigned_abs() as usize),
             MouseKind::ScrollDown => self.scroll_panel(side, false, WHEEL_LINES),
             MouseKind::Down => {
                 let Some(view) = self.panel_view(side) else {
@@ -376,7 +375,12 @@ impl Editor {
             return;
         };
         match m.kind {
-            MouseKind::ScrollUp => palette.selected = palette.selected.saturating_sub(1),
+            MouseKind::ScrollUp | MouseKind::ScrollLines(..=-1) => {
+                palette.selected = palette.selected.saturating_sub(1)
+            }
+            MouseKind::ScrollLines(1..) => {
+                palette.selected = (palette.selected + 1).min(count.saturating_sub(1))
+            }
             MouseKind::ScrollDown => {
                 palette.selected = (palette.selected + 1).min(count.saturating_sub(1))
             }

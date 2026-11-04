@@ -84,6 +84,9 @@ pub enum MouseKind {
     /// The wheel sideways, or Shift with the wheel.
     ScrollLeft,
     ScrollRight,
+    /// Scrolls the text by exactly this many lines, down for more than
+    /// none, as a touchpad does as it goes.
+    ScrollLines(i16),
     /// The mouse moved with no button down.
     Move,
 }
