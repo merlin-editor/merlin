@@ -1,8 +1,8 @@
 //! The text as data, for windows that draw it themselves: lines with their
 //! colours and styles, and the cursors in columns.
 
-use merlin_core::screen::Style;
 use merlin_core::script::Session;
+use merlin_core::style::Style;
 
 fn rust(text: &str) -> Session {
     Session::new(text, Some("main.rs"), 60, 10)
@@ -60,8 +60,10 @@ fn scrolled_and_folded_views_start_and_skip_where_the_screen_does() {
     s.run("key ctrl+end");
     let views = s.editor.text_views();
     let view = views.last().unwrap();
-    assert_eq!(view.lines[0].line, view.scroll);
+    let top = view.lines.iter().find(|l| l.row == 0).unwrap();
+    assert_eq!(top.line, view.scroll);
     assert!(view.scroll > 0);
+    assert!(view.lines[0].row < 0, "rows above, to glide into");
 
     let mut s = rust("fn a() {\n    x\n    y\n}\nz\n");
     s.run("key ctrl+shift+[");
@@ -77,8 +79,6 @@ fn scrolled_and_folded_views_start_and_skip_where_the_screen_does() {
 #[test]
 fn a_review_side_by_side_is_two_views_old_then_new() {
     let mut s = Session::new("fn a() {}\nfn b() {}\n", Some("src/main.rs"), 150, 14);
-    s.editor.set_windowed(true);
-    s.editor.set_own_text(true);
     s.send(merlin_core::Event::Resize(150, 14));
     s.send(merlin_core::Event::ShowReview {
         plugin: "agent".into(),
@@ -104,40 +104,12 @@ fn a_review_side_by_side_is_two_views_old_then_new() {
         views[0].area.right() < views[1].area.x + 1,
         "left, then right"
     );
-    assert!(!s.screen().contains("fn B()"), "not in the cells too");
-}
-
-#[test]
-fn a_touchpad_scrolls_by_exact_lines() {
-    use merlin_core::{Event, Mouse, MouseKind};
-    let text: String = (1..=100).map(|i| format!("line {i}\n")).collect();
-    let mut s = rust(&text);
-    let area = s.editor.text_views().last().unwrap().area;
-    let scroll = |s: &mut Session, lines: i16| {
-        s.editor.update(Event::Mouse(Mouse {
-            kind: MouseKind::ScrollLines(lines),
-            x: area.x + 10,
-            y: area.y + 2,
-            shift: false,
-            alt: false,
-            ctrl: false,
-            clicks: 1,
-        }));
-        s.editor.text_views().last().unwrap().scroll
-    };
-    assert_eq!(scroll(&mut s, 1), 1);
-    assert_eq!(scroll(&mut s, 4), 5);
-    assert_eq!(scroll(&mut s, -2), 3);
-    // No further up than the top.
-    assert_eq!(scroll(&mut s, -10), 0);
 }
 
 /// A window drawing the text itself, `rows` high, as the GUI has it.
 fn window(text: &str, rows: u16) -> Session {
     use merlin_core::Event;
     let mut s = Session::new(text, Some("notes.txt"), 60, rows);
-    s.editor.set_windowed(true);
-    s.editor.set_own_text(true);
     s.send(Event::Viewports(vec![(60, rows)]));
     s
 }

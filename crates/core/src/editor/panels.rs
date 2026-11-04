@@ -5,8 +5,7 @@
 use super::{Editor, Effect, Focus, Plugin, Side};
 use crate::editor::Command;
 use crate::key::{Key, KeyCode};
-use crate::panel::{self, Panel, Row, Target};
-use crate::screen::str_width;
+use crate::panel::{Panel, Target};
 
 /// One side bar's state.
 #[derive(Default)]
@@ -19,30 +18,6 @@ pub(crate) struct Bar {
     pub target: Option<Target>,
     /// Where the focused element was, for when it goes away.
     pub index: usize,
-    /// Rows scrolled: down from the top on the left, where views read like
-    /// lists, and up from the newest content on the right, where plugin
-    /// panels read like chats.
-    pub scroll: usize,
-    /// Whether it scrolls to keep the focused element in view. The wheel
-    /// turns it off until the next key.
-    pub follow: bool,
-}
-
-/// A laid-out panel, for drawing and for mouse clicks.
-pub(crate) struct PanelView {
-    /// Where its content starts, and how wide it is.
-    pub x: u16,
-    pub inner: u16,
-    pub active: String,
-    /// Each panel's title: start and end column, and its name.
-    pub titles: Vec<(u16, u16, String)>,
-    pub title_row: u16,
-    /// Rows by screen row.
-    pub rows: Vec<(u16, Row)>,
-    /// Rows hidden above the body.
-    pub overflow: usize,
-    /// The bar's scroll, after following focus.
-    pub scroll: usize,
 }
 
 impl Side {
@@ -210,8 +185,6 @@ impl Editor {
     pub(crate) fn focus_panel(&mut self, side: Side) {
         let bar = self.bar_mut(side);
         bar.visible = true;
-        bar.scroll = 0;
-        bar.follow = true;
         self.focus = side.focus();
         if let Some(i) = self
             .panel_targets(side)
@@ -260,26 +233,7 @@ impl Editor {
         }
     }
 
-    pub(crate) fn scroll_panel(&mut self, side: Side, up: bool, rows: usize) {
-        let view = self.panel_view(side);
-        let overflow = view.as_ref().map_or(0, |v| v.overflow);
-        let now = view.as_ref().map(|v| v.scroll);
-        let bar = self.bar_mut(side);
-        // Scroll from where the view is now, even if it followed focus there.
-        bar.scroll = now.unwrap_or(bar.scroll);
-        bar.follow = false;
-        // On the left, scrolling up goes towards the top; on the right,
-        // towards older content. Both move the view up.
-        let away = (side == Side::Right) == up;
-        bar.scroll = if away {
-            (bar.scroll + rows).min(overflow)
-        } else {
-            bar.scroll.saturating_sub(rows)
-        };
-    }
-
     pub(crate) fn panel_key(&mut self, side: Side, key: Key, fx: &mut Vec<Effect>) {
-        self.bar_mut(side).follow = true;
         if side == Side::Left && self.explorer_key(key, fx) {
             return;
         }
@@ -293,8 +247,8 @@ impl Editor {
             KeyCode::Down | KeyCode::Tab => {
                 self.select(side, (index + 1).min(count.saturating_sub(1)))
             }
-            KeyCode::PageUp => self.scroll_panel(side, true, page),
-            KeyCode::PageDown => self.scroll_panel(side, false, page),
+            KeyCode::PageUp => self.select(side, index.saturating_sub(page)),
+            KeyCode::PageDown => self.select(side, (index + page).min(count.saturating_sub(1))),
             KeyCode::Enter => match input {
                 Some(key) => {
                     // The built-in views keep what was typed, as a query.
@@ -304,7 +258,6 @@ impl Editor {
                         self.inputs.remove(&key).unwrap_or_default()
                     };
                     if !text.trim().is_empty() {
-                        self.bar_mut(side).scroll = 0;
                         if side != Side::Right {
                             self.view_submit(&key.0, &text, fx);
                         } else {
@@ -347,95 +300,5 @@ impl Editor {
         let badge = (name == super::views::PROBLEMS && !self.problems.is_empty())
             .then(|| self.problems.len().to_string());
         (title.to_uppercase(), badge)
-    }
-
-    /// Lays out a side bar's active panel where it's drawn.
-    pub(crate) fn panel_view(&self, side: Side) -> Option<PanelView> {
-        let area = self.layout().side(side)?;
-        let (x, inner) = (area.x + 1, area.w.saturating_sub(2));
-        let (title_row, top, bottom) = (area.y, area.y + 1, area.bottom());
-        let (active, panel) = self.active(side)?;
-
-        // The side bar names only the view shown; the activity bar picks it.
-        let names = match side {
-            Side::Left => vec![active.to_string()],
-            _ => self.panel_names(side),
-        };
-        let mut titles = Vec::new();
-        let mut tx = 0;
-        for name in names {
-            let (title, badge) = self.panel_title(side, &name);
-            // A badge is a space, then the count padded in a pill.
-            let full = str_width(&title) + badge.map_or(0, |b| str_width(&b) + 3);
-            let w = (full as u16).min(inner.saturating_sub(tx));
-            titles.push((x + tx, x + tx + w, name));
-            tx += w + 3;
-        }
-
-        let bar = self.bar(side);
-        let focused = (self.focus == side.focus()).then_some(self.selected_index(side));
-        let colour = |lang: &str, text: &str| self.colours.get(lang, text);
-        let layout = panel::layout(
-            panel,
-            inner as usize,
-            focused,
-            |id| {
-                self.inputs
-                    .get(&(active.to_string(), id.to_string()))
-                    .cloned()
-                    .unwrap_or_default()
-            },
-            &colour,
-        );
-        let rows_h = bottom.saturating_sub(top) as usize;
-        let skip = layout.footer.len().saturating_sub(rows_h);
-        let footer: Vec<Row> = layout.footer.into_iter().skip(skip).collect();
-        let body_h = rows_h - footer.len();
-        let overflow = layout.body.len().saturating_sub(body_h);
-        let mut start = match side {
-            Side::Right => overflow - bar.scroll.min(overflow),
-            _ => bar.scroll.min(overflow),
-        };
-        // Keep the focused element in view.
-        if let Some(target) = focused.filter(|_| bar.follow)
-            && let Some(row) = layout
-                .body
-                .iter()
-                .position(|r| r.hits.iter().any(|h| h.2 == target))
-        {
-            if row < start {
-                start = row;
-            } else if row >= start + body_h {
-                start = row + 1 - body_h;
-            }
-        }
-        let scroll = match side {
-            Side::Right => overflow - start.min(overflow),
-            _ => start,
-        };
-        let rows = layout
-            .body
-            .into_iter()
-            .skip(start)
-            .take(body_h)
-            .enumerate()
-            .map(|(i, r)| (top + i as u16, r))
-            .chain(
-                footer
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, r)| (top + (body_h + i) as u16, r)),
-            )
-            .collect();
-        Some(PanelView {
-            x,
-            inner,
-            active: active.to_string(),
-            titles,
-            title_row,
-            rows,
-            overflow,
-            scroll,
-        })
     }
 }

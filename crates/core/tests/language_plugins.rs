@@ -3,8 +3,8 @@
 
 use merlin_core::lang::{Language, PluginSymbol, PluginToken};
 use merlin_core::layers::Layer;
-use merlin_core::screen::Style;
 use merlin_core::script::Session;
+use merlin_core::style::Style;
 use merlin_core::{Event, Syntax};
 
 const CODE: &str = "int main() {\n    return 0;\n}\n";
@@ -32,18 +32,12 @@ fn token(line: u32, a: u32, b: u32, kind: Syntax) -> PluginToken {
     }
 }
 
-/// The colour of the cell where `text` starts.
+/// The colour of the text where `text` starts.
 fn syntax_at(s: &Session, text: &str) -> Syntax {
-    let screen = s.screen();
-    // Below the tabs, which name the file.
-    let (y, row) = screen
-        .lines()
-        .enumerate()
-        .skip(2)
-        .find(|(_, l)| l.contains(text))
-        .unwrap();
-    let x = row[..row.find(text).unwrap()].chars().count();
-    s.editor.render().cell(x as u16, y as u16).syntax
+    let (x, y) = s
+        .find(text)
+        .unwrap_or_else(|| panic!("no {text:?} in\n{}", s.screen()));
+    s.cell(x, y).unwrap().syntax
 }
 
 #[test]
@@ -128,7 +122,7 @@ fn plugin_symbols_fill_the_outline_and_breadcrumbs() {
     s.run("key down");
     assert!(s.screen().contains("main.cpp › main"), "{}", s.screen());
     s.run("cmd view.outline");
-    assert!(s.screen().contains("ƒ main function"), "{}", s.screen());
+    assert!(s.screen().contains("main  function"), "{}", s.screen());
 }
 
 #[test]
@@ -191,32 +185,4 @@ fn a_review_asks_for_its_files_colours() {
     });
     assert_eq!(syntax_at(&s, "int b"), Syntax::Keyword);
     assert!(s.editor.colour_requests().is_empty(), "asked once");
-}
-
-#[test]
-fn markdown_code_blocks_ask_for_colours() {
-    use merlin_core::{Node, Panel};
-    let mut s = Session::new("", None, 80, 20);
-    s.send(Event::RegisterPlugin {
-        plugin: "chat".into(),
-        commands: Vec::new(),
-    });
-    s.send(Event::SetPanel {
-        plugin: "chat".into(),
-        panel: Some(Panel {
-            title: "Chat".into(),
-            nodes: vec![Node::Markdown("```rust\nfn x() {}\n```".into())],
-        }),
-    });
-    s.run("key ctrl+alt+b");
-    // Code blocks ask while they're drawn.
-    let _ = s.screen();
-    let wanted = s.editor.colour_requests();
-    assert_eq!(wanted, [("rust".to_string(), "fn x() {}".to_string())]);
-    s.send(Event::TextColours {
-        language: "rust".into(),
-        text: "fn x() {}".into(),
-        tokens: vec![token(0, 0, 2, Syntax::Keyword)],
-    });
-    assert_eq!(syntax_at(&s, "fn x"), Syntax::Keyword);
 }

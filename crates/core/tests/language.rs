@@ -22,9 +22,9 @@ fn diagnostic(start: (u32, u32), end: (u32, u32), message: &str) -> Event {
 }
 
 /// The cell at a text position, past the gutter.
-fn cell(s: &Session, col: u16, row: u16) -> merlin_core::screen::Cell {
+fn cell(s: &Session, col: u16, row: u16) -> merlin_core::style::Cell {
     let (x, y) = s.editor.text_origin();
-    s.editor.render().cell(x + col, y + row)
+    s.cell(x + col, y + row).unwrap()
 }
 
 #[test]
@@ -34,11 +34,10 @@ fn diagnostics_underline_colour_the_line_number_and_show_in_the_status() {
     assert_eq!(cell(&s, 8, 0).mark, Some(Severity::Error));
     assert_eq!(cell(&s, 4, 0).mark, None);
     assert_eq!(
-        s.editor
-            .render()
-            .cell(s.editor.text_origin().0 - 2, s.editor.text_origin().1)
+        s.cell(s.editor.text_origin().0 - 2, s.editor.text_origin().1)
+            .unwrap()
             .style,
-        merlin_core::screen::Style::GutterError
+        merlin_core::style::Style::GutterError
     );
     assert!(
         s.screen().contains("cannot find value `y`"),
@@ -66,10 +65,9 @@ fn diagnostic_columns_count_utf16_like_lsp() {
     let mut s = rust("let s = \"😀\"; z\n");
     // The emoji is two UTF-16 units, so `z` is at unit 14 but char 13.
     s.send(diagnostic((0, 14), (0, 15), "z?"));
-    let screen = s.editor.render();
     let y = s.editor.text_origin().1;
-    let x = (4..60).find(|x| screen.cell(*x, y).ch == 'z').unwrap();
-    assert_eq!(screen.cell(x, y).mark, Some(Severity::Error));
+    let x = (4..60).find(|x| s.cell(*x, y).unwrap().ch == 'z').unwrap();
+    assert_eq!(s.cell(x, y).unwrap().mark, Some(Severity::Error));
 }
 
 #[test]

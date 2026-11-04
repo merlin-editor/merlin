@@ -56,19 +56,12 @@ fn going_to_a_folded_line_unfolds_it() {
 #[test]
 fn clicking_the_arrow_folds_and_unfolds() {
     let mut s = session();
-    let screen = s.screen();
-    let (y, row) = screen
-        .lines()
-        .enumerate()
-        .find(|(_, l)| l.contains("fn b()"))
-        .unwrap();
-    let x = row[..row.find("fn b()").unwrap()].chars().count() - 1;
+    // The arrow is in the gutter's last column, just left of the text.
+    let (x, y) = s.find("fn b()").unwrap();
+    let x = x - 1;
     s.run(&format!("move {x} {y}"));
-    assert!(
-        s.screen().lines().nth(y).unwrap().contains("▾fn b()"),
-        "{}",
-        s.screen()
-    );
+    let row = &s.editor.text_rows()[y as usize];
+    assert!(row.contains("▾fn b()"), "{}", s.screen());
     s.run(&format!("click {x} {y}"));
     assert!(s.screen().contains("▸fn b() { ⋯"), "{}", s.screen());
     s.run(&format!("click {x} {y}"));

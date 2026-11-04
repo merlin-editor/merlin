@@ -5,7 +5,7 @@
 use anyhow::{Result, bail};
 use merlin_core::Syntax;
 use merlin_core::lang::Severity;
-use merlin_core::screen::{Cell, Hue, Style as Kind, Surface};
+use merlin_core::style::{Cell, Hue, Style as Kind, Surface};
 
 /// How a cell looks, as colours and text attributes.
 #[derive(Clone, Copy, Default)]
@@ -475,32 +475,7 @@ pub fn mix(a: u32, b: u32, t: f32) -> u32 {
     })
 }
 
-impl Look {
-    pub fn css(self) -> String {
-        let mut css = String::new();
-        if let Some(fg) = self.fg {
-            css.push_str(&format!("color:#{fg:06x};"));
-        }
-        if let Some(bg) = self.bg {
-            css.push_str(&format!("background:#{bg:06x};"));
-        }
-        if self.bold {
-            css.push_str("font-weight:bold;");
-        }
-        if self.italic {
-            css.push_str("font-style:italic;");
-        }
-        if self.underline {
-            let wavy = if self.curly { "wavy " } else { "" };
-            let colour = self
-                .underline_colour
-                .map(|c| format!(" #{c:06x}"))
-                .unwrap_or_default();
-            css.push_str(&format!("text-decoration:underline {wavy}{colour};"));
-        }
-        css
-    }
-}
+impl Look {}
 
 #[cfg(test)]
 mod tests {

@@ -10,7 +10,7 @@ use crate::icons::{Icon, file_icon, icon};
 use crate::key::{Key, KeyCode};
 use crate::lang::Severity;
 use crate::panel::{Button, Entry, Node, Panel, Target, Tone};
-use crate::screen::Hue;
+use crate::style::Hue;
 
 pub(crate) const EXPLORER: &str = "merlin.explorer";
 pub(crate) const SEARCH: &str = "merlin.search";
@@ -343,7 +343,7 @@ impl Editor {
                 id: format!("plugin:{}", p.name),
                 label: p.title.clone(),
                 detail: p.what.clone(),
-                icon: Some((icon(Icon::Plugin, self.nerd), crate::screen::Hue::Blue)),
+                icon: Some((icon(Icon::Plugin, self.nerd), crate::style::Hue::Blue)),
                 badge: p.tag.clone(),
                 badge_tone: p.tone,
                 ..Default::default()
@@ -624,14 +624,11 @@ impl Editor {
         }
     }
 
-    /// Shows a view in the panel and focuses it. Output opens at its end.
+    /// Shows a view in the panel and focuses it.
     pub(crate) fn show_bottom(&mut self, name: &str) {
         self.bar_mut(Side::Bottom).active = Some(name.into());
         self.build_views();
         self.focus_panel(Side::Bottom);
-        if name == OUTPUT {
-            self.bar_mut(Side::Bottom).scroll = usize::MAX;
-        }
     }
 
     pub(crate) fn view_click(&mut self, id: &str, fx: &mut Vec<Effect>) {

@@ -11,7 +11,7 @@ use super::menu::MenuView;
 use super::{Editor, Effect, Focus, Side, Source};
 use crate::icons::{Icon, icon};
 use crate::panel::{Node, Target};
-use crate::screen::Hue;
+use crate::style::Hue;
 
 /// Something clicked in a window's frame.
 #[derive(Clone, Debug, PartialEq)]
@@ -33,6 +33,8 @@ pub enum UiEvent {
     Target {
         side: Side,
         index: usize,
+        /// 2 for a double click; a file opens to stay then.
+        clicks: u8,
     },
     /// One of a side's panel titles, to show that panel.
     PanelTitle {
@@ -189,21 +191,6 @@ pub struct ToastView {
 }
 
 impl Editor {
-    /// Has the window draw the frame, leaving the screen to the text.
-    pub fn set_windowed(&mut self, on: bool) {
-        self.windowed = on;
-    }
-
-    /// The window draws the text from [`Editor::text_views`], so the
-    /// screen leaves it out, keeping what floats over it.
-    pub fn set_own_text(&mut self, on: bool) {
-        self.own_text = on;
-    }
-
-    pub fn windowed(&self) -> bool {
-        self.windowed
-    }
-
     /// The activity rail's items: the built-in views, then plugin panels.
     pub(crate) fn rail_items(&self) -> Vec<(RailItem, Action)> {
         use super::views::{CHANGES, EXPLORER, OUTLINE, PLUGINS, SEARCH};
@@ -329,7 +316,7 @@ impl Editor {
                 text: item.text.trim().to_string(),
                 right: item.right,
                 clickable: item.action.is_some(),
-                accent: item.style == crate::screen::Style::StatusAccent,
+                accent: item.style == crate::style::Style::StatusAccent,
             })
             .collect();
         let problem = self.cursor_mark().map(|m| {
@@ -490,7 +477,14 @@ impl Editor {
                     self.act(action, fx);
                 }
             }
-            UiEvent::Target { side, index } => self.click_target(side, index, fx),
+            UiEvent::Target {
+                side,
+                index,
+                clicks,
+            } => {
+                self.clicks = clicks.max(1);
+                self.click_target(side, index, fx)
+            }
             UiEvent::PanelTitle { side, name } => {
                 if side == Side::Bottom {
                     self.show_bottom(&name);

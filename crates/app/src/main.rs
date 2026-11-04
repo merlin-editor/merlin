@@ -17,7 +17,6 @@ use std::{env, fs, io};
 use anyhow::{Context, Result, bail};
 use disk::{Backups, Changes, Watch};
 use jobs::{Jobs, Lane};
-use merlin_core::screen::{Screen, WIDE_TAIL};
 use merlin_core::script::{self, Step};
 use merlin_core::{Editor, Effect, Event, FileOp, GitAction, SearchHit, Workspace};
 use merlin_plugins::{BufferEvent, Config, PluginHost, Selection, Snapshot};
@@ -32,12 +31,12 @@ Options:
   --plugin <dir>     Load the plugin in <dir> (repeatable). Plugins in
                      ~/.config/merlin/plugins load too. Plugins reload when
                      their component file changes.
-  --exec <script>    Run a script headless and print the final screen
-                     (see crates/core/src/script.rs for the format)
-  --size <WxH>       Screen size for --exec (default 80x24)
-  --html <file>      With --exec, also write the final screen, in colour,
-                     as an HTML page. Scripts grant plugins their
-                     permissions without asking, and remember nothing.
+  --exec <script>    Run a script headless and print what the window would
+                     show, as text (see crates/core/src/script.rs for the
+                     format). Scripts grant plugins their permissions
+                     without asking, and remember nothing.
+  --size <WxH>       The text's size for --exec, in columns and rows
+                     (default 80x24)
   -h, --help         Show this help
 ";
 
@@ -46,7 +45,6 @@ struct Args {
     plugins: Vec<PathBuf>,
     exec: Option<String>,
     size: (u16, u16),
-    html: Option<PathBuf>,
 }
 
 fn parse_args() -> Result<Args> {
@@ -55,7 +53,6 @@ fn parse_args() -> Result<Args> {
         plugins: Vec::new(),
         exec: None,
         size: (80, 24),
-        html: None,
     };
     let mut it = env::args().skip(1);
     while let Some(arg) = it.next() {
@@ -68,7 +65,6 @@ fn parse_args() -> Result<Args> {
                 .plugins
                 .push(it.next().context("--plugin needs a folder")?.into()),
             "--exec" => args.exec = Some(it.next().context("--exec needs a script")?),
-            "--html" => args.html = Some(it.next().context("--html needs a file")?.into()),
             "--size" => {
                 let size = it.next().context("--size needs WxH")?;
                 args.size = size
@@ -1358,14 +1354,9 @@ fn main() -> Result<()> {
         app.dispatch(Event::Resize(args.size.0, args.size.1));
         let result = run_script(&mut app, script);
         // Drawing may ask for colours, such as a code block's.
-        app.editor.render();
+        app.editor.dump();
         app.serve_colours();
-        let screen = app.editor.render();
-        print!("{}", screen.to_text());
-        if let Some(path) = &args.html {
-            fs::write(path, screen_html(&screen))
-                .with_context(|| format!("writing {}", path.display()))?;
-        }
+        print!("{}", app.editor.dump());
         return result;
     }
 
@@ -1416,7 +1407,7 @@ fn run_script(app: &mut App, script: &str) -> Result<()> {
             }
             Step::WaitFor { text, timeout_ms } => {
                 let until = Instant::now() + Duration::from_millis(timeout_ms);
-                while !app.editor.render().to_text().contains(&text) {
+                while !app.editor.dump().contains(&text) {
                     if Instant::now() >= until {
                         bail!("timed out waiting for {text:?}");
                     }
@@ -1433,59 +1424,4 @@ fn run_script(app: &mut App, script: &str) -> Result<()> {
         }
     }
     Ok(())
-}
-
-/// The screen as a standalone HTML page, in merlin's own colours. For screenshots and bug reports.
-fn screen_html(screen: &Screen) -> String {
-    let p = theme::DEFAULT;
-    let look = |cell: merlin_core::screen::Cell| theme::cell(&p, &cell).css();
-    let escape = |c: char| match c {
-        '<' => "&lt;".to_string(),
-        '>' => "&gt;".to_string(),
-        '&' => "&amp;".to_string(),
-        c => c.to_string(),
-    };
-    let mut rows = String::new();
-    for y in 0..screen.height {
-        // Runs of text with the same look, as one span each.
-        let mut run: Option<(String, String)> = None;
-        let mut row = String::new();
-        let flush = |run: &mut Option<(String, String)>, row: &mut String| {
-            if let Some((style, text)) = run.take() {
-                row.push_str(&format!("<span style=\"{style}\">{text}</span>"));
-            }
-        };
-        for x in 0..screen.width {
-            let cell = screen.cell(x, y);
-            if cell.ch == WIDE_TAIL {
-                continue;
-            }
-            if screen.cursor == Some((x, y)) {
-                flush(&mut run, &mut row);
-                row.push_str(&format!(
-                    "<span class=\"cursor\">{}</span>",
-                    escape(cell.ch)
-                ));
-                continue;
-            }
-            let style = look(cell);
-            match &mut run {
-                Some((current, text)) if *current == style => text.push_str(&escape(cell.ch)),
-                _ => {
-                    flush(&mut run, &mut row);
-                    run = Some((style, escape(cell.ch)));
-                }
-            }
-        }
-        flush(&mut run, &mut row);
-        rows.push_str(&row);
-        rows.push('\n');
-    }
-    format!(
-        "<!doctype html>\n<meta charset=\"utf-8\">\n<title>merlin</title>\n<style>\n\
-         body {{ margin: 0; background: #17181b; }}\n\
-         pre {{ margin: 0; padding: 14px 16px; display: inline-block; background: #17181b; color: #d4d5da;\n\
-         font: 15px/1.35 'JetBrains Mono', 'JetBrainsMono Nerd Font', 'DejaVu Sans Mono', monospace; }}\n\
-         .cursor {{ background: #7c9cff; color: #17181b; }}\n</style>\n<pre>{rows}</pre>\n"
-    )
 }

@@ -13,14 +13,13 @@ fn renders_text_gutter_and_status() {
     let mut s = session("");
     s.run("type fn main() {\\nlet x = 1\\;");
     assert_eq!(
-        s.screen(),
-        "  File  Edit  Selection  View  Go  Help\n\
-         \x20▫ notes.txt ●\n\
-         \x20 1 fn main() {\n\
-         \x20 2 │   let x = 1;\n\
-         \x20 3 }\n\
-         \x20⊗ 0  ⚠ 0    Ln 2, Col 15   Plain Text\n"
+        s.editor.text_rows(),
+        ["  1 fn main() {", "  2     let x = 1;", "  3 }"]
     );
+    let screen = s.screen();
+    assert!(screen.contains("tabs: [notes.txt ●]"), "{screen}");
+    assert!(screen.contains("Ln 2, Col 15"), "{screen}");
+    assert!(screen.contains("Plain Text"), "{screen}");
 }
 
 #[test]
@@ -322,13 +321,13 @@ fn footer_stays_at_the_bottom_and_the_body_follows_new_content() {
         }),
     });
     s.run("key ctrl+alt+b");
-    let screen = s.screen();
-    let rows: Vec<&str> = screen.lines().collect();
-    assert!(rows[6].contains("› Ask…"), "{screen}");
-    assert!(rows[5].contains("message 20"), "{screen}");
-    assert!(!screen.contains("message 1\n"), "{screen}");
-    s.run("key pageup");
-    assert!(!s.screen().contains("message 20"), "scrolled back");
+    // The window keeps what's after the footer at the bottom and scrolls
+    // the rest; the input after it has the focus.
+    let view = s.editor.window_view();
+    let right = view.right.expect("the panel");
+    let footer = right.nodes.iter().position(|n| *n == Node::Footer).unwrap();
+    assert!(matches!(right.nodes[footer + 1], Node::Input { .. }));
+    assert!(s.screen().contains("› [Ask…]"), "{}", s.screen());
 }
 
 #[test]
@@ -484,7 +483,7 @@ fn secret_inputs_show_dots() {
         }),
     });
     s.run("key ctrl+alt+b; type hunter2");
-    assert!(s.screen().contains("› •••••••"), "{}", s.screen());
+    assert!(s.screen().contains("› [•••••••]"), "{}", s.screen());
     assert!(!s.screen().contains("hunter2"));
     s.run("key enter");
     assert_eq!(

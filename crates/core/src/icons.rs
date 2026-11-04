@@ -3,7 +3,7 @@
 //! takes one cell but may draw into the next, so callers leave a space
 //! after each.
 
-use crate::screen::Hue;
+use crate::style::Hue;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Icon {
@@ -12,8 +12,7 @@ pub(crate) enum Icon {
     SourceControl,
     /// A plugin's panel in the activity bar.
     Plugin,
-    Close,
-    Dirty,
+
     Open,
     Closed,
     Error,
@@ -22,9 +21,6 @@ pub(crate) enum Icon {
     Branch,
     Diff,
     Outline,
-    LayoutLeft,
-    LayoutPanel,
-    LayoutRight,
 }
 
 pub(crate) fn icon(icon: Icon, nerd: bool) -> char {
@@ -35,8 +31,6 @@ pub(crate) fn icon(icon: Icon, nerd: bool) -> char {
             Search => '\u{ea6d}',
             SourceControl => '\u{ea68}',
             Plugin => '\u{eae6}',
-            Close => '\u{ea76}',
-            Dirty => '\u{ea71}',
             Open => '\u{eab4}',
             Closed => '\u{eab6}',
             Error => '\u{ea87}',
@@ -45,9 +39,6 @@ pub(crate) fn icon(icon: Icon, nerd: bool) -> char {
             Branch => '\u{e725}',
             Diff => '\u{eae1}',
             Outline => '\u{eb86}',
-            LayoutLeft => '\u{ebf3}',
-            LayoutPanel => '\u{ebf2}',
-            LayoutRight => '\u{ebf4}',
         }
     } else {
         match icon {
@@ -55,8 +46,6 @@ pub(crate) fn icon(icon: Icon, nerd: bool) -> char {
             Search => '⌕',
             SourceControl => '⑂',
             Plugin => '✦',
-            Close => '×',
-            Dirty => '●',
             Open => '▾',
             Closed => '▸',
             Error => '⊗',
@@ -65,9 +54,6 @@ pub(crate) fn icon(icon: Icon, nerd: bool) -> char {
             Branch => '⎇',
             Diff => '⇆',
             Outline => '≣',
-            LayoutLeft => '◧',
-            LayoutPanel => '⬓',
-            LayoutRight => '◨',
         }
     }
 }

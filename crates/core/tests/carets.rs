@@ -3,7 +3,6 @@
 //! them as one undo step.
 
 use merlin_core::Effect;
-use merlin_core::screen::Style;
 use merlin_core::script::Session;
 
 fn session(text: &str) -> Session {
@@ -46,13 +45,9 @@ fn cursors_above_and_below_type_on_every_line() {
     assert!(s.screen().contains("(3 selections)"), "{}", s.screen());
     s.run("type -x; key end; type .");
     assert_eq!(s.text(), "-xone.\n-xtwo.\n-xthree.\n");
-    // The other cursors are drawn on screen.
-    let render = s.editor.render();
-    let carets = (0..render.height)
-        .flat_map(|y| (0..render.width).map(move |x| (x, y)))
-        .filter(|&(x, y)| render.cell(x, y).style == Style::Caret)
-        .count();
-    assert_eq!(carets, 2);
+    // Every cursor is drawn.
+    let view = s.editor.text_views().pop().unwrap();
+    assert_eq!(view.carets.iter().filter(|c| c.cell.is_some()).count(), 3);
     s.run("key esc; type !");
     assert_eq!(s.text(), "-xone.\n-xtwo.\n-xthree.!\n");
 }

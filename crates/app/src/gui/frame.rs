@@ -873,7 +873,7 @@ impl Frame<'_> {
     fn file_icon(
         &mut self,
         name: &str,
-        core: Option<(char, merlin_core::screen::Hue)>,
+        core: Option<(char, merlin_core::style::Hue)>,
         x: f32,
         y: f32,
         size: f32,
@@ -1319,7 +1319,14 @@ impl Frame<'_> {
                     clip,
                 );
                 if let Some(index) = target {
-                    self.hit(row, Hit::Ui(UiEvent::Target { side, index }));
+                    self.hit(
+                        row,
+                        Hit::Ui(UiEvent::Target {
+                            side,
+                            index,
+                            clicks: 1,
+                        }),
+                    );
                 }
             }
             Node::Entry(e) => {
@@ -1327,7 +1334,14 @@ impl Frame<'_> {
                 row_bg(self, row);
                 self.entry(e, row, clip);
                 if let Some(index) = target {
-                    self.hit(row, Hit::Ui(UiEvent::Target { side, index }));
+                    self.hit(
+                        row,
+                        Hit::Ui(UiEvent::Target {
+                            side,
+                            index,
+                            clicks: 1,
+                        }),
+                    );
                     if e.action.is_some() {
                         let a = Rect::new(row.right() - 50.0, row.y + 3.0, 20.0, 20.0);
                         self.hit(
@@ -1335,6 +1349,7 @@ impl Frame<'_> {
                             Hit::Ui(UiEvent::Target {
                                 side,
                                 index: index + 1,
+                                clicks: 1,
                             }),
                         );
                     }
@@ -1351,7 +1366,11 @@ impl Frame<'_> {
                 if let Some(index) = target {
                     self.hit(
                         Rect::new(r.x + 14.0, r.y + 4.0, bw, 30.0),
-                        Hit::Ui(UiEvent::Target { side, index }),
+                        Hit::Ui(UiEvent::Target {
+                            side,
+                            index,
+                            clicks: 1,
+                        }),
                     );
                 }
             }
@@ -1364,7 +1383,11 @@ impl Frame<'_> {
                     if let Some(index) = index {
                         self.hit(
                             Rect::new(x, r.y + 4.0, bw, 30.0),
-                            Hit::Ui(UiEvent::Target { side, index }),
+                            Hit::Ui(UiEvent::Target {
+                                side,
+                                index,
+                                clicks: 1,
+                            }),
                         );
                     }
                     x += bw + 8.0;
@@ -1416,7 +1439,14 @@ impl Frame<'_> {
                         .fill(Rect::new(cx, b.y + 7.0, 1.5, b.h - 14.0), p.accent);
                 }
                 if let Some(index) = target {
-                    self.hit(b, Hit::Ui(UiEvent::Target { side, index }));
+                    self.hit(
+                        b,
+                        Hit::Ui(UiEvent::Target {
+                            side,
+                            index,
+                            clicks: 1,
+                        }),
+                    );
                 }
             }
             Node::Divider => {

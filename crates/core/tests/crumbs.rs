@@ -19,25 +19,37 @@ fn session() -> Session {
     s
 }
 
+/// The focused group's breadcrumbs.
+fn crumbs(s: &Session) -> Vec<String> {
+    let view = s.editor.window_view();
+    view.groups.into_iter().find(|g| g.focused).unwrap().crumbs
+}
+
 #[test]
 fn breadcrumbs_show_the_path_and_the_symbols_around_the_cursor() {
     let mut s = session();
-    let row = |s: &Session| s.screen().lines().nth(2).unwrap().to_string();
+    let joined = |s: &Session| crumbs(s).join(" › ");
     assert!(
-        row(&s).contains("src › ◆ geo.rs › struct Point"),
+        joined(&s).contains("geo.rs › struct Point"),
         "{}",
-        s.screen()
+        joined(&s)
     );
+    assert!(s.screen().contains("crumbs: src › "), "{}", s.screen());
     s.run("key ctrl+g; type 20; key enter");
     assert!(
-        row(&s).contains("geo.rs › impl Point › fn far"),
+        joined(&s).contains("geo.rs › impl Point › fn far"),
         "{}",
-        s.screen()
+        joined(&s)
     );
     // Clicking a symbol goes to it.
-    let r = row(&s);
-    let x = r[..r.find("impl Point").unwrap()].chars().count();
-    s.run(&format!("click {x} 2"));
+    let index = crumbs(&s)
+        .iter()
+        .position(|c| c.contains("impl Point"))
+        .unwrap();
+    s.send(merlin_core::Event::Ui(merlin_core::UiEvent::GroupCrumb {
+        group: 0,
+        index,
+    }));
     assert!(s.screen().contains("Ln 5, Col 1"), "{}", s.screen());
 }
 
@@ -45,15 +57,15 @@ fn breadcrumbs_show_the_path_and_the_symbols_around_the_cursor() {
 fn sticky_scroll_pins_the_blocks_in_view() {
     let mut s = session();
     s.run("key ctrl+g; type 40; key enter");
-    let screen = s.screen();
-    let lines: Vec<&str> = screen.lines().collect();
-    assert!(lines[3].contains("5 impl Point {"), "{screen}");
-    assert!(
-        lines[4].contains("6     fn far(&self) -> bool {"),
-        "{screen}"
-    );
+    let view = s.editor.text_views().pop().unwrap();
+    let pinned: Vec<String> = view
+        .sticky
+        .iter()
+        .map(|l| l.chars.iter().collect::<String>())
+        .collect();
+    assert_eq!(pinned, ["impl Point {", "    fn far(&self) -> bool {"]);
     // Clicking a pinned line goes there.
-    s.run("click 20 3");
+    s.run("click 20 0");
     assert!(s.screen().contains("Ln 5, Col 1"), "{}", s.screen());
 }
 
@@ -62,16 +74,15 @@ fn sticky_scroll_never_covers_the_cursor() {
     let mut s = session();
     s.run("key ctrl+g; type 40; key enter");
     // Scroll down until the cursor leaves the view: on every row it passes
-    // through, its line shows.
+    // through, it's below the pinned lines.
     let mut seen = 0;
     for _ in 0..20 {
-        s.run("wheel down 30 10");
-        let Some((_, y)) = s.editor.render().cursor else {
+        s.run("wheel down");
+        let Some((_, y)) = s.cursor() else {
             break;
         };
-        let screen = s.screen();
-        let row = screen.lines().nth(y as usize).unwrap();
-        assert!(row.contains("40 "), "{screen}");
+        let pinned = s.editor.text_views().pop().unwrap().sticky.len();
+        assert!(y as usize >= pinned, "{}", s.screen());
         seen += 1;
     }
     assert!(seen > 0);
@@ -88,10 +99,10 @@ fn the_outline_lists_symbols_and_goes_to_them() {
     let mut s = Session::new(&code(), Some("src/geo.rs"), 100, 30);
     s.run("cmd view.outline");
     let screen = s.screen();
-    assert!(screen.contains("OUTLINE"), "{screen}");
-    assert!(screen.contains("◇ Point struct"), "{screen}");
-    assert!(screen.contains("{ impl Point"), "{screen}");
-    assert!(screen.contains("ƒ far fn"), "{screen}");
+    assert!(screen.contains("── left: Outline"), "{screen}");
+    assert!(screen.contains("Point  struct"), "{screen}");
+    assert!(screen.contains("  impl Point"), "{screen}");
+    assert!(screen.contains("    far  fn"), "{screen}");
     s.run("key down; key down; key enter");
     assert!(s.screen().contains("Ln 6, Col 5"), "{}", s.screen());
 }
@@ -108,16 +119,10 @@ fn markdown_headings_are_symbols() {
     let text = "# Title\n\nIntro.\n\n## Usage\n\n```sh\n# not a heading\n```\n\n## Tests\n";
     let mut s = Session::new(text, Some("README.md"), 100, 30);
     s.run("cmd view.outline");
-    // The side bar: the first columns of each row.
-    let screen: String = s
-        .screen()
-        .lines()
-        .map(|l| l.chars().take(28).collect::<String>() + "\n")
-        .collect();
-    assert!(screen.contains("# Title"), "{screen}");
-    assert!(
-        screen.contains("# Usage") && screen.contains("# Tests"),
-        "{screen}"
-    );
-    assert!(!screen.contains("not a heading"), "{screen}");
+    // The side bar, before the text.
+    let screen = s.screen();
+    let side = &screen[..screen.find("── group").unwrap()];
+    assert!(side.contains("Title"), "{screen}");
+    assert!(side.contains("Usage") && side.contains("Tests"), "{screen}");
+    assert!(!side.contains("not a heading"), "{screen}");
 }

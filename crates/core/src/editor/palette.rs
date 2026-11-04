@@ -247,16 +247,4 @@ impl Editor {
         };
         palette
     }
-
-    /// The palette's left edge, width, and first item shown.
-    pub(crate) fn palette_geometry(&self) -> (u16, u16, usize) {
-        // Room for the frame on each side.
-        let width = self.width.saturating_sub(6).min(80);
-        let selected = self.palette.as_ref().map_or(0, |p| p.selected);
-        (
-            (self.width - width) / 2,
-            width,
-            selected.saturating_sub(PALETTE_ROWS - 1),
-        )
-    }
 }

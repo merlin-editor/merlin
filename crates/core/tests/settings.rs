@@ -144,14 +144,7 @@ fn preview_tabs_can_be_turned_off() {
     }));
     s.run("key ctrl+shift+e; key esc");
     for name in ["one.md", "two.md"] {
-        let screen = s.screen();
-        let (y, row) = screen
-            .lines()
-            .enumerate()
-            .find(|(_, l)| l.contains(name))
-            .unwrap();
-        let x = row[..row.find(name).unwrap()].chars().count();
-        s.run(&format!("click {x} {y}"));
+        s.click_entry(name, 1);
     }
     assert_eq!(s.editor.open_files().len(), 3);
 }

@@ -6,10 +6,15 @@
 //! - `key SPEC...` presses keys such as `ctrl+s` or `down`
 //! - `paste TEXT` pastes into whatever has focus
 //! - `cmd ID` runs a command, such as `file.save`
-//! - `click X Y` and `shift-click X Y` press and release the left mouse
-//!   button; `press X Y`, `drag X Y` and `release X Y` do one step at a time;
-//!   `wheel up X Y` and `wheel down X Y` scroll; `move X Y` moves the
-//!   mouse with no button down
+//! - `click COL ROW` and `shift-click COL ROW` press and release the left
+//!   mouse button in a group's text, at a column from its left edge (the
+//!   gutter's included) and a row from the top of the view; `press`, `drag`
+//!   and `release` do one step at a time; `move COL ROW` moves the mouse
+//!   with no button down, `rest COL ROW` rests it there for a hover, and
+//!   `right-click COL ROW` opens the menu there. They're in the focused group, or in group `N`
+//!   (from 1) after `group N`
+//! - `wheel up`, `wheel down`, `wheel left` and `wheel right` scroll the
+//!   first group, or group `N`
 //! - `resize WxH`
 //! - `wait MS` pauses, and `wait-for TEXT [MS]` waits until TEXT is on
 //!   screen, for output from plugin processes (only the app runs these)
@@ -19,8 +24,9 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use crate::editor::{Editor, Effect, Event, Mouse, MouseKind};
+use crate::editor::{Editor, Effect, Event, MouseKind, Pointer};
 use crate::key::{Key, KeyCode};
+use crate::style::Cell;
 
 pub enum Step {
     Event(Event),
@@ -30,6 +36,8 @@ pub enum Step {
 
 pub fn parse(script: &str) -> Result<Vec<Step>, String> {
     let mut events = Vec::new();
+    // The group mouse actions are in: the focused one, until `group N`.
+    let mut group = usize::MAX;
     for action in split(script) {
         let action = action.trim();
         if action.is_empty() {
@@ -55,29 +63,43 @@ pub fn parse(script: &str) -> Result<Vec<Step>, String> {
             }
             "paste" => events.push(Step::Event(Event::Paste(unescape(rest)))),
             "cmd" => events.push(Step::Event(Event::Command(rest.trim().to_string()))),
+            "group" => {
+                let n: usize = rest
+                    .trim()
+                    .parse()
+                    .map_err(|_| format!("bad group: {rest}"))?;
+                group = n.checked_sub(1).ok_or("groups count from 1")?;
+            }
+            "wheel" => {
+                let mut args = rest.split_whitespace();
+                let (rows, cols) = match args.next() {
+                    Some("up") => (-3.0, 0.0),
+                    Some("down") => (3.0, 0.0),
+                    Some("left") => (0.0, -6.0),
+                    Some("right") => (0.0, 6.0),
+                    _ => return Err(format!("bad wheel: {rest}")),
+                };
+                let group = if group == usize::MAX { 0 } else { group };
+                events.push(Step::Event(Event::Scroll { group, rows, cols }));
+            }
             "click" | "shift-click" | "alt-click" | "ctrl-click" | "double-click"
             | "triple-click" | "press" | "box-press" | "double-press" | "drag" | "release"
-            | "wheel" | "move" => {
+            | "move" | "right-click" | "rest" => {
                 let mut args = rest.split_whitespace();
                 let kind = match verb {
-                    "wheel" => match args.next() {
-                        Some("up") => MouseKind::ScrollUp,
-                        Some("down") => MouseKind::ScrollDown,
-                        Some("left") => MouseKind::ScrollLeft,
-                        Some("right") => MouseKind::ScrollRight,
-                        _ => return Err(format!("bad wheel: {rest}")),
-                    },
                     "drag" => MouseKind::Drag,
                     "release" => MouseKind::Up,
                     "move" => MouseKind::Move,
+                    "right-click" => MouseKind::Context,
+                    "rest" => MouseKind::Rest,
                     _ => MouseKind::Down,
                 };
-                let mut number = || -> Result<u16, String> {
+                let mut number = || -> Result<f32, String> {
                     args.next()
                         .and_then(|n| n.parse().ok())
                         .ok_or_else(|| format!("bad position: {action}"))
                 };
-                let (x, y) = (number()?, number()?);
+                let (col, row) = (number()?, number()?);
                 // A box press is Shift+Alt, to drag a box selection.
                 let shift = matches!(verb, "shift-click" | "box-press");
                 let alt = matches!(verb, "alt-click" | "box-press");
@@ -86,26 +108,21 @@ pub fn parse(script: &str) -> Result<Vec<Step>, String> {
                     "triple-click" => 3,
                     _ => 1,
                 };
-                events.push(Step::Event(Event::Mouse(Mouse {
-                    kind,
-                    x,
-                    y,
-                    shift,
-                    alt,
-                    ctrl: verb == "ctrl-click",
-                    clicks,
-                })));
-                if verb.ends_with("click") {
-                    let up = Mouse {
-                        kind: MouseKind::Up,
-                        x,
-                        y,
+                let at = |kind, clicks| {
+                    Step::Event(Event::Pointer(Pointer {
+                        group,
+                        kind,
+                        row,
+                        col,
                         shift,
                         alt,
                         ctrl: verb == "ctrl-click",
-                        clicks: 1,
-                    };
-                    events.push(Step::Event(Event::Mouse(up)));
+                        clicks,
+                    }))
+                };
+                events.push(at(kind, clicks));
+                if verb.ends_with("click") {
+                    events.push(at(MouseKind::Up, 1));
                 }
             }
             "resize" => {
@@ -283,7 +300,135 @@ impl Session {
         self.editor.buffer().text()
     }
 
+    /// What the window shows, as text: see [`Editor::dump`].
     pub fn screen(&self) -> String {
-        self.editor.render().to_text()
+        self.editor.dump()
+    }
+
+    /// What's at column `x` and row `y` of the focused group's grid, the
+    /// gutter's columns first: the character, its style, colour and any
+    /// diagnostic under it. Past a line's end, or off the text, `None`.
+    pub fn cell(&self, x: u16, y: u16) -> Option<Cell> {
+        let view = self.editor.text_views().pop()?;
+        let y = y as i32;
+        let line = view
+            .lines
+            .iter()
+            .find(|l| (l.row..l.row + l.shown as i32).contains(&y))?;
+        if (x as usize) < view.gutter {
+            let gutter: Vec<char> = line
+                .sign
+                .map(|(c, _)| c)
+                .into_iter()
+                .chain(line.number.chars())
+                .collect();
+            let style = match line.sign {
+                Some((_, sign)) if x == 0 => sign,
+                _ => line.number_style,
+            };
+            return Some(Cell {
+                ch: *gutter.get(x as usize)?,
+                style,
+                syntax: crate::Syntax::Plain,
+                mark: None,
+                surface: crate::style::Surface::Editor,
+                tint: None,
+            });
+        }
+        let r = (y - line.row) as usize;
+        let row = line.rows[r];
+        let hscroll = if view.wrapping { 0 } else { view.hscroll };
+        let target = (x as usize - view.gutter + hscroll + row.col).checked_sub(row.indent)?;
+        let end = line
+            .rows
+            .get(r + 1)
+            .map_or(line.chars.len(), |next| next.start);
+        let mut d = row.col;
+        for i in row.start..end {
+            let w = crate::doc::advance(line.chars[i], d);
+            if (d..d + w.max(1)).contains(&target) {
+                return Some(Cell {
+                    ch: line.chars[i],
+                    style: line.styles[i],
+                    syntax: line.syntax[i],
+                    mark: line.marks[i],
+                    surface: crate::style::Surface::Editor,
+                    tint: line.brackets[i],
+                });
+            }
+            d += w;
+        }
+        None
+    }
+
+    /// Where `text` first shows in the focused group's text: its column
+    /// from the group's left edge and its row, as `click` takes them.
+    pub fn find(&self, text: &str) -> Option<(u16, u16)> {
+        let view = self.editor.text_views().pop()?;
+        let want: Vec<char> = text.chars().collect();
+        for line in &view.lines {
+            for (r, row) in line.rows.iter().enumerate() {
+                let y = line.row + r as i32;
+                if !(0..view.area.h as i32).contains(&y) {
+                    continue;
+                }
+                let end = line.rows.get(r + 1).map_or(line.chars.len(), |n| n.start);
+                let chars = &line.chars[row.start..end];
+                let Some(at) = chars.windows(want.len()).position(|w| w == want.as_slice()) else {
+                    continue;
+                };
+                let mut d = row.col;
+                for &c in &line.chars[row.start..row.start + at] {
+                    d += crate::doc::advance(c, d);
+                }
+                let hscroll = if view.wrapping { 0 } else { view.hscroll };
+                let x = (view.gutter + row.indent + d - row.col).checked_sub(hscroll)?;
+                return Some((x as u16, y as u16));
+            }
+        }
+        None
+    }
+
+    /// Clicks the entry, item or button in a side panel whose label holds
+    /// `label`, as a window does: `clicks` 2 for a double click.
+    pub fn click_entry(&mut self, label: &str, clicks: u8) {
+        let view = self.editor.window_view();
+        let sides = [
+            (crate::Side::Left, &view.left),
+            (crate::Side::Right, &view.right),
+            (crate::Side::Bottom, &view.bottom),
+        ];
+        for (side, sv) in sides {
+            let Some(sv) = sv else { continue };
+            for (i, node) in sv.nodes.iter().enumerate() {
+                // Each label, by how far it is after the node's first target.
+                let labels: Vec<String> = match node {
+                    crate::panel::Node::Entry(e) => vec![e.label.clone()],
+                    crate::panel::Node::Item { label, .. } => vec![label.clone()],
+                    crate::panel::Node::Button(b) => vec![b.label.clone()],
+                    crate::panel::Node::Buttons(bs) => bs.iter().map(|b| b.label.clone()).collect(),
+                    _ => continue,
+                };
+                let Some(k) = labels.iter().position(|l| l.contains(label)) else {
+                    continue;
+                };
+                if let Some(first) = sv.targets.get(i).copied().flatten() {
+                    self.send(Event::Ui(crate::UiEvent::Target {
+                        side,
+                        index: first + k,
+                        clicks,
+                    }));
+                    return;
+                }
+            }
+        }
+        panic!("no {label:?} in a side panel:\n{}", self.screen());
+    }
+
+    /// Where the primary cursor is drawn, in the focused group's grid.
+    pub fn cursor(&self) -> Option<(u16, u16)> {
+        let view = self.editor.text_views().pop()?;
+        let (x, y) = view.carets.first()?.cell?;
+        Some((x + view.gutter as u16, y))
     }
 }

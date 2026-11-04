@@ -94,25 +94,24 @@ fn find_starts_from_the_selected_text() {
     assert_eq!(s.editor.cursor(), 8);
 }
 
-/// The screen row showing the first visible line of text, and those after.
+/// The text's rows, from the top of the view.
 fn text_rows(s: &Session) -> Vec<String> {
-    let top = s.editor.text_origin().1 as usize;
-    s.screen().lines().skip(top).map(String::from).collect()
+    s.editor.text_rows()
 }
 
 #[test]
 fn tabs_and_wide_characters_take_their_real_width() {
     let mut s = session("\tx\n日本y");
-    let screen = s.screen();
-    assert!(
-        screen.contains("  1 │   x"),
-        "tab to column 4, with a guide:\n{screen}"
-    );
-    assert!(screen.contains("  2 日本y"), "{screen}");
+    let rows = text_rows(&s);
+    assert_eq!(rows[0], "  1     x", "tab to column 4");
+    assert_eq!(rows[1], "  2 日本y");
+    // The tab's first column has the indent guide.
+    let view = s.editor.text_views().pop().unwrap();
+    assert_eq!(view.lines[0].guides[0], Some(true));
     s.run("key down end");
     // The cursor is drawn after two double-width characters and the y.
     let (x, y) = s.editor.text_origin();
-    assert_eq!(s.editor.render().cursor, Some((x + 5, y + 1)));
+    assert_eq!(s.cursor(), Some((x + 5, y + 1)));
 }
 
 #[test]
@@ -123,9 +122,9 @@ fn long_lines_scroll_sideways() {
     s.run("key end");
     let screen = s.screen();
     assert!(text_rows(&s)[0].ends_with("5859"), "{screen}");
-    assert!(!screen.contains("  1 abc"), "{screen}");
+    assert!(!text_rows(&s)[0].contains(" 000102"), "{screen}");
     s.run("key home");
-    assert!(s.screen().contains("  1 000102"));
+    assert!(text_rows(&s)[0].starts_with("  1 000102"), "{}", s.screen());
 }
 
 fn project() -> Session {
@@ -151,7 +150,7 @@ fn open_files_get_tabs_and_switch() {
     let mut s = project();
     s.run("key ctrl+o; type main; key enter; key ctrl+o; type readme; key enter");
     let screen = s.screen();
-    assert!(screen.contains(" ◆ main.rs    ≡ README.md ×"), "{screen}");
+    assert!(screen.contains("tabs: main.rs [README.md]"), "{screen}");
     s.run("key ctrl+pageup");
     assert_eq!(s.text(), "fn main() {}\n");
     s.run("key ctrl+o; type readme; key enter");
@@ -247,20 +246,7 @@ fn clicking_a_panel_button_presses_it() {
         }),
     });
     s.run("key ctrl+alt+b esc");
-    let screen = s.screen();
-    let (y, row) = screen
-        .lines()
-        .enumerate()
-        .find(|(_, l)| l.contains("Two"))
-        .unwrap();
-    let x = row
-        .chars()
-        .take_while(|_| true)
-        .collect::<String>()
-        .find("Two")
-        .unwrap();
-    let x = row[..x].chars().count();
-    s.run(&format!("click {x} {y}"));
+    s.click_entry("Two", 1);
     assert_eq!(
         s.effects.last(),
         Some(&Effect::PluginClick {
@@ -274,8 +260,8 @@ fn clicking_a_panel_button_presses_it() {
 #[test]
 fn clicking_a_palette_item_runs_it() {
     let mut s = project();
-    // The frame and input take rows 1 and 2; items start on row 3.
-    s.run("key ctrl+o; click 10 4");
+    s.run("key ctrl+o");
+    s.send(merlin_core::Event::Ui(merlin_core::UiEvent::PaletteRow(1)));
     assert_eq!(s.editor.open_files().len(), 1);
     assert_ne!(s.text(), "", "opened the second file in the list");
     assert_eq!(s.editor.focus(), Focus::Editor);
@@ -285,8 +271,11 @@ fn clicking_a_palette_item_runs_it() {
 fn clicking_a_tab_switches_to_it() {
     let mut s = project();
     s.run("key ctrl+o; type main; key enter; key ctrl+o; type readme; key enter");
-    // Tabs are on the row below the menu bar, right of the activity bar.
-    s.run("click 6 1");
+    s.send(merlin_core::Event::Ui(merlin_core::UiEvent::GroupTab {
+        group: 0,
+        index: 0,
+        clicks: 1,
+    }));
     assert_eq!(s.text(), "fn main() {}\n");
 }
 

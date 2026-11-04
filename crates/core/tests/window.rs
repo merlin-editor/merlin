@@ -9,19 +9,8 @@ fn windowed() -> Session {
     s.files.insert("src/main.rs".into(), s.text());
     s.files
         .insert("src/lib.rs".into(), "pub fn b() {}\n".into());
-    s.editor.set_windowed(true);
     s.send(Event::Resize(80, 20));
     s
-}
-
-#[test]
-fn the_screen_is_only_the_text() {
-    let s = windowed();
-    let screen = s.screen();
-    let first = screen.lines().next().unwrap_or_default();
-    assert!(first.contains("fn a()"), "the first row is code:\n{screen}");
-    assert!(!screen.contains("File"), "no menu bar:\n{screen}");
-    assert!(!screen.contains("Ln 1"), "no status bar:\n{screen}");
 }
 
 #[test]
@@ -75,6 +64,7 @@ fn explorer_rows_open_files() {
     s.send(Event::Ui(UiEvent::Target {
         side: Side::Left,
         index,
+        clicks: 1,
     }));
     let view = s.editor.window_view();
     assert!(view.tabs.iter().any(|t| t.name == "lib.rs" && t.active));
@@ -221,6 +211,7 @@ fn the_plugins_view_lists_plugins_and_opens_their_pages() {
     s.send(Event::Ui(UiEvent::Target {
         side: Side::Left,
         index: left.targets[row].unwrap(),
+        clicks: 1,
     }));
     let view = s.editor.window_view();
     assert_eq!(
@@ -238,6 +229,7 @@ fn the_plugins_view_lists_plugins_and_opens_their_pages() {
     s.send(Event::Ui(UiEvent::Target {
         side: Side::Left,
         index: left.targets[row].unwrap(),
+        clicks: 1,
     }));
     assert_eq!(s.editor.window_view().tabs.len(), tabs);
 }
@@ -291,7 +283,7 @@ fn key_bindings_show_the_settings_changes() {
 fn a_right_click_opens_a_menu_that_runs_its_items() {
     let mut s = windowed();
     let (x, y) = s.editor.text_origin();
-    s.send(Event::ContextMenu(x + 4, y + 1));
+    s.run(&format!("right-click {} {}", x + 4, y + 1));
     let view = s.editor.window_view();
     let menu = view.context.expect("a menu");
     let labels: Vec<&str> = menu.items.iter().map(|i| i.label.as_str()).collect();
@@ -319,28 +311,12 @@ fn a_right_click_opens_a_menu_that_runs_its_items() {
 fn the_context_menu_takes_arrows_and_escape() {
     let mut s = windowed();
     let (x, y) = s.editor.text_origin();
-    s.send(Event::ContextMenu(x, y));
+    s.run(&format!("right-click {x} {y}"));
     s.run("key down");
     assert_eq!(s.editor.window_view().context.unwrap().selected, Some(0));
     s.run("key esc");
     assert!(s.editor.window_view().context.is_none());
     assert_eq!(s.editor.focus(), Focus::Editor);
-}
-
-#[test]
-fn a_window_drawing_the_text_leaves_it_out_of_the_screen() {
-    let mut s = windowed();
-    s.editor.set_own_text(true);
-    s.send(Event::Resize(80, 20));
-    assert!(!s.screen().contains("fn a()"), "{}", s.screen());
-    let views = s.editor.text_views();
-    assert_eq!(
-        views.last().unwrap().lines[0]
-            .chars
-            .iter()
-            .collect::<String>(),
-        "fn a() {"
-    );
 }
 
 fn three_tabs() -> Session {

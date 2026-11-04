@@ -2,8 +2,8 @@
 //! files that change on disk, git, the file tree, search, menus, and
 //! Markdown in panels.
 
-use merlin_core::screen::Style;
 use merlin_core::script::Session;
+use merlin_core::style::Style;
 use merlin_core::{Effect, Event, GitAction, Node, Panel};
 
 fn session() -> Session {
@@ -37,18 +37,13 @@ fn a_review_shows_the_change_with_signs_and_line_numbers() {
     let mut s = session();
     s.send(review("e1"));
     let screen = s.screen();
-    assert!(screen.contains(" Review main.rs "), "{screen}");
-    assert!(screen.contains("+  2 fn c() {}"), "{screen}");
-    assert!(screen.contains("   3 fn b() {}"), "{screen}");
+    assert!(screen.contains("[Review main.rs]"), "{screen}");
+    let rows = s.editor.text_rows();
+    assert!(rows.contains(&"+  2 fn c() {}".to_string()), "{rows:?}");
+    assert!(rows.contains(&"   3 fn b() {}".to_string()), "{rows:?}");
     assert!(screen.contains("y accept · n reject"), "{screen}");
-    let render = s.editor.render();
-    let (row, line) = screen
-        .lines()
-        .enumerate()
-        .find(|(_, l)| l.contains("+  2 fn c"))
-        .unwrap();
-    let x = line[..line.find("+  2").unwrap()].chars().count() as u16;
-    assert_eq!(render.cell(x + 6, row as u16).style, Style::DiffAdded);
+    let (x, y) = s.find("fn c").unwrap();
+    assert_eq!(s.cell(x, y).unwrap().style, Style::DiffAdded);
 }
 
 #[test]
@@ -179,12 +174,11 @@ fn git_signs_show_in_their_own_column() {
         text: Some("fn a() {}\n".into()),
     });
     assert_eq!(s.editor.text_origin().0, x + 1, "the gutter grew a column");
-    let render = s.editor.render();
-    assert_eq!(render.cell(x + 1, y).ch, 'f');
-    assert_eq!(render.cell(signs, y).ch, ' ');
-    assert_eq!(render.cell(signs, y + 1).style, Style::GitAdded);
+    assert_eq!(s.cell(x + 1, y).unwrap().ch, 'f');
+    assert_eq!(s.cell(signs, y).unwrap().ch, ' ');
+    assert_eq!(s.cell(signs, y + 1).unwrap().style, Style::GitAdded);
     s.run("key home; type // ");
-    assert_eq!(s.editor.render().cell(signs, y).style, Style::GitChanged);
+    assert_eq!(s.cell(signs, y).unwrap().style, Style::GitChanged);
 }
 
 #[test]
@@ -195,13 +189,16 @@ fn the_explorer_opens_folders_and_files() {
     s.files.insert("docs/guide.md".into(), "guide\n".into());
     s.run("key ctrl+shift+e");
     let screen = s.screen();
-    assert!(screen.contains("EXPLORER"), "{screen}");
-    assert!(screen.contains("▸ docs"), "{screen}");
+    assert!(screen.contains("── left: Explorer"), "{screen}");
+    assert!(screen.contains("  ▸ docs"), "{screen}");
     assert!(
-        screen.contains("▾ src"),
+        screen.contains("  ▾ src"),
         "the open file's folder is open: {screen}"
     );
-    assert!(screen.contains("│   ◆ main.rs"), "{screen}");
+    assert!(
+        screen.contains("›     main.rs"),
+        "focused, inside src: {screen}"
+    );
     // Focus starts on the open file; lib.rs is just above it.
     s.run("key up; key enter");
     assert_eq!(s.text(), "// lib\n");
@@ -227,10 +224,10 @@ fn markdown_in_a_panel() {
         }),
     });
     s.run("key ctrl+alt+b");
-    let screen = s.screen();
-    assert!(screen.contains("Use this:"), "{screen}");
-    assert!(screen.contains(" let x = 1;"), "{screen}");
-    assert!(screen.contains("• two"), "{screen}");
+    // The window draws it; the panel passes it on as it is.
+    let right = s.editor.window_view().right.expect("the panel");
+    assert!(matches!(&right.nodes[0], Node::Markdown(t) if t.contains("```rust")));
+    assert!(s.screen().contains("let x = 1;"), "{}", s.screen());
 }
 
 #[test]
@@ -250,13 +247,13 @@ fn search_finds_lines_across_the_project_and_opens_them() {
     s.run("key ctrl+shift+f; type fn b; key enter");
     let screen = s.screen();
     assert!(screen.contains("2 results in 2 files"), "{screen}");
-    assert!(screen.contains("▾ ◆ lib.rs src"), "{screen}");
+    assert!(screen.contains("▾ lib.rs  src"), "{screen}");
     // Down past the first file's name, to its line.
     s.run("key down; key down; key enter");
     assert_eq!(s.text(), "// lib\npub fn b() {}\n");
     assert_eq!(s.editor.cursor_utf16(), (1, 4));
     s.run("key ctrl+shift+f");
-    assert!(s.screen().contains("› fn b"), "the query stays");
+    assert!(s.screen().contains("› [fn b]"), "the query stays");
 }
 
 #[test]
@@ -270,8 +267,8 @@ fn source_control_lists_changes_and_opens_their_diff() {
     });
     s.run("key ctrl+shift+g");
     let screen = s.screen();
-    assert!(screen.contains("◆ main.rs src    + M"), "{screen}");
-    assert!(screen.contains("▫ new.txt        + U"), "{screen}");
+    assert!(screen.contains("main.rs  src  M"), "{screen}");
+    assert!(screen.contains("new.txt  U"), "{screen}");
     assert!(
         screen.contains("⎇ main"),
         "the status bar names the branch: {screen}"
@@ -287,7 +284,7 @@ fn source_control_lists_changes_and_opens_their_diff() {
         new: "fn a() {}\nfn b() {}\n".into(),
     });
     let screen = s.screen();
-    assert!(screen.contains("main.rs (changes)"), "{screen}");
+    assert!(screen.contains("[main.rs (changes)]"), "{screen}");
     assert!(screen.contains("Enter open the file"), "{screen}");
     s.run("type y");
     assert!(answers(&s).is_empty(), "nothing to answer");
@@ -315,22 +312,21 @@ fn menus_open_with_alt_and_run_commands() {
 
 #[test]
 fn menus_open_and_run_with_the_mouse() {
+    use merlin_core::UiEvent;
     let mut s = Session::new("fn a() {}\nfn b() {}\n", Some("src/main.rs"), 60, 20);
-    let screen = s.screen();
-    let x = screen.lines().next().unwrap().find("Edit").unwrap();
-    s.run(&format!("click {x} 0"));
-    let screen = s.screen();
-    assert!(
-        !screen.contains("Select All"),
-        "that's under Selection: {screen}"
-    );
-    let (y, row) = screen
-        .lines()
-        .enumerate()
-        .find(|(_, l)| l.contains("Toggle Line Comment"))
+    // The menu button opens the menus; a title then shows its own.
+    s.run("key f10");
+    let titles = s.editor.window_view().menu.expect("the menus").titles;
+    let edit = titles.iter().position(|t| t == "Edit").unwrap();
+    s.send(Event::Ui(UiEvent::MenuTitle(edit)));
+    let menu = s.editor.window_view().menu.expect("the Edit menu");
+    let labels: Vec<&str> = menu.items.iter().map(|i| i.label.as_str()).collect();
+    assert!(!labels.contains(&"Select All"), "that's under Selection");
+    let comment = labels
+        .iter()
+        .position(|l| *l == "Toggle Line Comment")
         .unwrap();
-    let x = row.find("Toggle").unwrap();
-    s.run(&format!("click {} {y}", row[..x].chars().count()));
+    s.send(Event::Ui(UiEvent::MenuItem(comment)));
     assert_eq!(s.text(), "// fn a() {}\nfn b() {}\n");
 }
 
@@ -349,14 +345,7 @@ fn clicking_a_file_in_the_explorer_opens_it() {
     s.files.insert("src/main.rs".into(), s.text());
     s.files.insert("README.md".into(), "# hi\n".into());
     s.run("key ctrl+shift+e; key esc");
-    let screen = s.screen();
-    let (y, row) = screen
-        .lines()
-        .enumerate()
-        .find(|(_, l)| l.contains("README.md"))
-        .unwrap();
-    let x = row[..row.find("README.md").unwrap()].chars().count();
-    s.run(&format!("click {x} {y}"));
+    s.click_entry("README.md", 1);
     assert_eq!(s.text(), "# hi\n", "{}", s.screen());
 }
 
@@ -370,14 +359,20 @@ fn wide_windows_show_a_review_side_by_side() {
         old: "fn a() {}\nfn b() {}\nfn c() {}\n".into(),
         new: "fn a() {}\nfn B() {}\nfn c() {}\n".into(),
     });
-    let screen = s.screen();
-    let row = screen.lines().find(|l| l.contains("fn b()")).unwrap();
-    assert!(row.contains("fn B()"), "old and new on one row:\n{screen}");
-    assert!(row.find("fn b()") < row.find("fn B()"), "old on the left");
-    let same = screen.lines().find(|l| l.contains("fn c()")).unwrap();
-    assert_eq!(
-        same.matches("fn c()").count(),
-        2,
+    // Two views of the group: the old text on the left, the new on the
+    // right.
+    let views = s.editor.text_views();
+    assert_eq!(views.len(), 2);
+    assert!(views[0].area.x < views[1].area.x, "old on the left");
+    let text = |v: &merlin_core::TextView| -> String {
+        v.lines
+            .iter()
+            .map(|l| l.chars.iter().collect::<String>() + "\n")
+            .collect()
+    };
+    assert!(text(&views[0]).contains("fn b()") && text(&views[1]).contains("fn B()"));
+    assert!(
+        text(&views[0]).contains("fn c()") && text(&views[1]).contains("fn c()"),
         "unchanged lines on both sides"
     );
     s.run("type y");
@@ -386,10 +381,11 @@ fn wide_windows_show_a_review_side_by_side() {
     // Narrow, it's one column again.
     let mut s = Session::new("", Some("src/main.rs"), 80, 14);
     s.send(review("e2"));
-    let screen = s.screen();
+    assert_eq!(s.editor.text_views().len(), 1);
     assert!(
-        screen.lines().any(|l| l.contains("+  2 fn c() {}")),
-        "{screen}"
+        s.editor.text_rows().contains(&"+  2 fn c() {}".to_string()),
+        "{}",
+        s.screen()
     );
 }
 
@@ -397,13 +393,11 @@ fn wide_windows_show_a_review_side_by_side() {
 fn shift_and_the_wheel_scroll_sideways() {
     let line = (0..60).map(|i| format!("{i:02}")).collect::<String>();
     let mut s = Session::new(&line, Some("n.txt"), 40, 8);
-    let (x, y) = s.editor.text_origin();
-    s.run(&format!("wheel right {x} {y}"));
-    let screen = s.screen();
-    let row = screen.lines().nth(y as usize).unwrap();
-    assert!(row.contains("  1 030405"), "six columns along:\n{screen}");
-    s.run(&format!("wheel left {x} {y}"));
-    assert!(s.screen().contains("  1 000102"));
+    s.run("wheel right");
+    let row = &s.editor.text_rows()[0];
+    assert!(row.starts_with("  1 030405"), "six columns along: {row}");
+    s.run("wheel left");
+    assert!(s.editor.text_rows()[0].starts_with("  1 000102"));
 }
 
 #[test]
@@ -417,30 +411,32 @@ fn source_control_stages_unstages_and_commits() {
     });
     s.run("key ctrl+shift+g");
     let screen = s.screen();
-    assert!(screen.contains("Staged Changes  1"), "{screen}");
-    assert!(screen.contains("Changes  1"), "{screen}");
-    assert!(screen.contains("◆ main.rs src    − M"), "{screen}");
-    // A click on + stages the file.
-    let (x, y) = {
-        let line = screen.lines().position(|l| l.contains("new.txt")).unwrap();
-        let col = screen
-            .lines()
-            .nth(line)
-            .unwrap()
-            .chars()
-            .position(|c| c == '+')
-            .unwrap();
-        (col as u16, line as u16)
+    assert!(screen.contains("STAGED CHANGES  1"), "{screen}");
+    assert!(screen.contains("\n  CHANGES  1"), "{screen}");
+    assert!(screen.contains("main.rs  src  M"), "{screen}");
+    // A click on + stages the file: the target after the file's own.
+    let left = s.editor.window_view().left.unwrap();
+    let row = left
+        .nodes
+        .iter()
+        .position(|n| matches!(n, Node::Entry(e) if e.label == "new.txt"))
+        .unwrap();
+    let plus = left.targets[row].unwrap() + 1;
+    let click = |s: &mut Session, index: usize| {
+        s.send(Event::Ui(merlin_core::UiEvent::Target {
+            side: merlin_core::Side::Left,
+            index,
+            clicks: 1,
+        }))
     };
-    s.run(&format!("click {x} {y}"));
+    click(&mut s, plus);
     assert!(
         s.effects
             .contains(&Effect::Git(GitAction::Stage("new.txt".into())))
     );
     // Enter in the message commits what's staged, and clears it.
-    let screen = s.screen();
-    let row = screen.lines().position(|l| l.contains("Message")).unwrap();
-    s.run(&format!("click 8 {row}; type Fix things; key enter"));
+    click(&mut s, 0);
+    s.run("type Fix things; key enter");
     assert!(
         s.effects
             .contains(&Effect::Git(GitAction::Commit("Fix things".into()))),
@@ -456,7 +452,8 @@ fn source_control_stages_unstages_and_commits() {
         changed: vec![("new.txt".into(), '?')],
     });
     s.effects.clear();
-    s.run(&format!("click 8 {row}; type More; key enter"));
+    click(&mut s, 0);
+    s.run("type More; key enter");
     assert!(s.effects.iter().all(|e| !matches!(e, Effect::Git(_))));
     assert!(s.screen().contains("Nothing staged"), "{}", s.screen());
 }

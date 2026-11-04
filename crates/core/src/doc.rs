@@ -7,7 +7,7 @@ use crate::diff::{self, LineKind, Sign};
 use crate::indent::{self, Indent};
 use crate::lang::Mark;
 use crate::layers::Layers;
-use crate::screen::char_width;
+use crate::style::char_width;
 use merlin_syntax::Syntax;
 
 pub const TAB_WIDTH: usize = 4;

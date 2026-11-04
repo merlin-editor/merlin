@@ -2,18 +2,12 @@
 
 use std::path::PathBuf;
 
-use merlin_core::screen::Style;
 use merlin_core::script::Session;
 
-/// The screen cell where `text` first shows.
-fn find(s: &Session, text: &str) -> (usize, usize) {
-    let screen = s.screen();
-    let (y, row) = screen
-        .lines()
-        .enumerate()
-        .find(|(_, l)| l.contains(text))
-        .unwrap_or_else(|| panic!("no {text:?} in\n{screen}"));
-    (row[..row.find(text).unwrap()].chars().count(), y)
+/// Where `text` first shows in the text.
+fn find(s: &Session, text: &str) -> (u16, u16) {
+    s.find(text)
+        .unwrap_or_else(|| panic!("no {text:?} in\n{}", s.screen()))
 }
 
 #[test]
@@ -53,22 +47,27 @@ fn names(s: &Session) -> Vec<String> {
         .collect()
 }
 
-fn click(s: &mut Session, verb: &str, text: &str) {
-    let (x, y) = find(s, text);
-    s.run(&format!("{verb} {x} {y}"));
+/// The focused group's tabs: (name, active, preview).
+fn tabs(s: &Session) -> Vec<(String, bool, bool)> {
+    let view = s.editor.window_view();
+    let group = view.groups.iter().find(|g| g.focused).unwrap();
+    group
+        .tabs
+        .iter()
+        .map(|t| (t.name.clone(), t.active, t.preview))
+        .collect()
 }
 
 #[test]
 fn a_single_click_opens_a_preview_that_the_next_replaces() {
     let mut s = explorer();
-    click(&mut s, "click", "one.md");
+    s.click_entry("one.md", 1);
     assert_eq!(names(&s), ["main.rs", "one.md"]);
-    let (x, y) = find(&s, "one.md ×");
-    assert_eq!(
-        s.editor.render().cell(x as u16, y as u16).style,
-        Style::TabPreviewActive
+    assert!(
+        tabs(&s).contains(&("one.md".into(), true, true)),
+        "a preview"
     );
-    click(&mut s, "click", "two.md");
+    s.click_entry("two.md", 1);
     assert_eq!(names(&s), ["main.rs", "two.md"], "the preview was replaced");
     assert_eq!(s.text(), "two\n");
 }
@@ -76,24 +75,20 @@ fn a_single_click_opens_a_preview_that_the_next_replaces() {
 #[test]
 fn editing_or_double_clicking_keeps_the_tab() {
     let mut s = explorer();
-    click(&mut s, "click", "one.md");
+    s.click_entry("one.md", 1);
     s.run("type x");
-    click(&mut s, "click", "two.md");
+    s.click_entry("two.md", 1);
     assert_eq!(
         names(&s),
         ["main.rs", "one.md", "two.md"],
         "edited, so kept"
     );
 
-    click(&mut s, "double-click", "two.md");
-    let (x, y) = find(&s, "two.md ×");
-    assert_eq!(
-        s.editor.render().cell(x as u16, y as u16).style,
-        Style::TabActive
-    );
+    s.click_entry("two.md", 2);
+    assert!(tabs(&s).contains(&("two.md".into(), true, false)), "kept");
     s.files.insert("three.md".into(), "three\n".into());
     s.run("key ctrl+shift+e; key esc");
-    click(&mut s, "click", "three.md");
+    s.click_entry("three.md", 1);
     assert_eq!(names(&s).len(), 4);
 }
 

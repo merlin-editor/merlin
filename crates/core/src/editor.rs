@@ -4,6 +4,7 @@ mod colours;
 mod commands;
 mod context;
 mod crumbs;
+mod dump;
 mod editing;
 mod files;
 mod find;
@@ -14,11 +15,9 @@ mod keymap;
 mod keys;
 mod layout;
 mod menu;
-mod minimap;
 mod mouse;
 mod palette;
 mod panels;
-mod render;
 mod scroll;
 mod select;
 mod settings;
@@ -81,14 +80,6 @@ pub enum MouseKind {
     Down,
     Drag,
     Up,
-    ScrollUp,
-    ScrollDown,
-    /// The wheel sideways, or Shift with the wheel.
-    ScrollLeft,
-    ScrollRight,
-    /// Scrolls the text by exactly this many lines, down for more than
-    /// none, as a touchpad does as it goes.
-    ScrollLines(i16),
     /// The mouse moved with no button down.
     Move,
     /// A right click, for the menu there.
@@ -114,9 +105,10 @@ pub struct Pointer {
     pub clicks: u8,
 }
 
-/// A left-button or wheel event, in screen cells.
+/// A [`Pointer`] in cells of its group's grid, as the text's own code
+/// takes it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Mouse {
+pub(crate) struct Mouse {
     pub kind: MouseKind,
     pub x: u16,
     pub y: u16,
@@ -133,11 +125,6 @@ pub struct Mouse {
 pub enum Event {
     Key(Key),
     Paste(String),
-    Mouse(Mouse),
-    /// A right click on cell (x, y), for the window's menu there.
-    ContextMenu(u16, u16),
-    /// The mouse has rested on cell (x, y), for a hover.
-    HoverAt(u16, u16),
     /// A click on the frame of a window that draws its own; see
     /// [`Editor::set_windowed`].
     Ui(UiEvent),
@@ -466,10 +453,8 @@ pub enum Side {
     Bottom,
 }
 
-const PALETTE_ROWS: usize = 10;
 /// Most matches the palette keeps, so a big project stays fast.
 const PALETTE_LIMIT: usize = 500;
-const WHEEL_LINES: usize = 3;
 
 struct Plugin {
     name: String,
@@ -545,10 +530,6 @@ enum Popup {
     },
 }
 
-const POPUP_WIDTH: usize = 72;
-const HOVER_ROWS: usize = 14;
-const COMPLETION_ROWS: usize = 8;
-
 /// The palette lists commands, files, or a plugin's items.
 struct Palette {
     query: String,
@@ -622,12 +603,6 @@ pub struct Editor {
     explorer_row: Option<String>,
     /// The project's folder, for absolute paths.
     root: PathBuf,
-    /// Whether the left button went down on the scrollbar.
-    scrollbar_drag: bool,
-    /// Whether the left button went down on the minimap.
-    minimap_drag: bool,
-    /// A tab being dragged, by document id, to another place or group.
-    tab_drag: Option<u64>,
     popup: Option<Popup>,
     /// The right-click menu.
     context: Option<context::ContextMenu>,
@@ -711,11 +686,6 @@ pub struct Editor {
     log: Vec<(bool, String)>,
     /// Problems as listed in the Problems panel: file, line and column.
     problems: Vec<(PathBuf, u32, u32)>,
-    /// The window draws the frame; the screen holds only the text.
-    windowed: bool,
-    /// The window draws the text and cursors too; see
-    /// [`Editor::set_own_text`].
-    own_text: bool,
     /// The plugins loaded, for the Plugins view.
     plugin_list: Vec<PluginSummary>,
     /// Colour themes and icon themes by name, and the one of each in use.
@@ -753,9 +723,6 @@ impl Editor {
             closed: Vec::new(),
             explorer_row: None,
             root: PathBuf::new(),
-            scrollbar_drag: false,
-            minimap_drag: false,
-            tab_drag: None,
             popup: None,
             context: None,
             probe: None,
@@ -794,8 +761,6 @@ impl Editor {
             project: "merlin".into(),
             log: Vec::new(),
             problems: Vec::new(),
-            windowed: false,
-            own_text: false,
             plugin_list: Vec::new(),
             themes: [Vec::new(), Vec::new()],
             theme: [String::new(), String::new()],
@@ -984,23 +949,10 @@ impl Editor {
         let by_user = matches!(
             event,
             Event::Key(_) | Event::Paste(_) | Event::Command(_) | Event::Ui(_)
-        ) || matches!(event, Event::Mouse(m) if m.kind == MouseKind::Down)
-            || matches!(event, Event::Pointer(p) if p.kind == MouseKind::Down);
+        ) || matches!(event, Event::Pointer(p) if p.kind == MouseKind::Down);
         let armed = if by_user { self.armed.take() } else { None };
-        if let Event::Mouse(m) = &event {
-            self.hover = Some((m.x, m.y));
-        }
         if by_user {
-            // A click on a notice's button runs it before the notice goes.
-            if let Event::Mouse(m) = &event
-                && m.kind == MouseKind::Down
-                && let Some(command) = self.toast_click(m.x, m.y)
-            {
-                self.message = None;
-                self.run(&command, armed, &mut fx);
-                return fx;
-            }
-            // A notice's button in a window needs the notice to run.
+            // A notice's button needs the notice to run.
             if !matches!(event, Event::Ui(UiEvent::ToastButton(_))) {
                 self.message = None;
             }
@@ -1013,13 +965,12 @@ impl Editor {
                 self.key(key, armed, &mut fx)
             }
             Event::Paste(text) => self.paste(&text),
-            Event::Mouse(mouse) => self.mouse(mouse, &mut fx),
-            Event::ContextMenu(x, y) => self.open_context(x, y),
-            Event::HoverAt(x, y) => self.hover_at(x, y, &mut fx),
             Event::Ui(ui) => self.ui(ui, armed, &mut fx),
+            // Every group as big, until the window says otherwise.
             Event::Resize(w, h) => {
                 self.width = w;
                 self.height = h;
+                self.viewports.clear();
             }
             Event::Viewports(sizes) => self.viewports = sizes,
             Event::Pointer(p) => self.pointer(p, &mut fx),
@@ -1070,7 +1021,21 @@ impl Editor {
                 let entry = self.plugin_mut(&plugin);
                 entry.commands.clear();
                 entry.keys.clear();
-                entry.panel = None;
+                // Its panel says what went wrong, until it loads again.
+                let title = entry
+                    .panel
+                    .as_ref()
+                    .map_or(plugin.clone(), |p| p.title.clone());
+                entry.panel = Some(Panel {
+                    title,
+                    nodes: vec![
+                        crate::panel::Node::Styled(
+                            format!("{plugin} failed"),
+                            crate::panel::Tone::Error,
+                        ),
+                        crate::panel::Node::Text(message.clone()),
+                    ],
+                });
                 entry.error = Some(message.clone());
                 self.error(format!("Plugin {plugin} failed: {message}"));
                 self.add_action("Show Output", "view.output");

@@ -149,10 +149,6 @@ pub(crate) struct Drawing {
 
 /// Most groups at once.
 const MAX_GROUPS: usize = 4;
-/// Fewest columns and rows a group needs; with less room, only the focused
-/// one shows.
-const MIN_W: u16 = 12;
-const MIN_H: u16 = 4;
 
 impl Editor {
     /// The group being drawn or worked in.
@@ -455,46 +451,5 @@ impl Editor {
                 _ => {}
             }
         }
-    }
-
-    /// The area of each group, in order, within `editor`: columns left to
-    /// right with a column between them for a divider, and the groups of a
-    /// column top to bottom with a row between them. Too little room gives
-    /// one area, for the focused group.
-    pub(crate) fn pane_rects(&self, editor: super::layout::Rect) -> Vec<super::layout::Rect> {
-        use super::layout::Rect;
-        // A window lays the groups out itself; each is a grid of its own.
-        if self.windowed {
-            return (0..self.groups.len()).map(|g| self.viewport(g)).collect();
-        }
-        let mut columns: Vec<usize> = Vec::new();
-        for group in &self.groups {
-            match columns.last_mut() {
-                Some(rows) if group.below => *rows += 1,
-                _ => columns.push(1),
-            }
-        }
-        let n = columns.len() as u16;
-        let tallest = columns.iter().copied().max().unwrap_or(1) as u16;
-        if self.groups.len() <= 1 || editor.w < n * MIN_W || editor.h < tallest * MIN_H {
-            return vec![editor];
-        }
-        // Splits `size` cells from `start` into `n` parts with one cell
-        // between each.
-        let parts = |start: u16, size: u16, n: u16| {
-            let each = (size - (n - 1)) / n;
-            (0..n).map(move |k| {
-                let at = start + k * (each + 1);
-                let len = if k == n - 1 { start + size - at } else { each };
-                (at, len)
-            })
-        };
-        let mut rects = Vec::new();
-        for ((x, w), &rows) in parts(editor.x, editor.w, n).zip(&columns) {
-            for (y, h) in parts(editor.y, editor.h, rows as u16) {
-                rects.push(Rect { x, y, w, h });
-            }
-        }
-        rects
     }
 }

@@ -6,7 +6,7 @@
 //! Positions stay in columns, as every code editor's do: a window places
 //! column `c` at `c` times its font's advance.
 //!
-//! [`Screen`]: crate::screen::Screen
+//! [`Screen`]: crate::style::Screen
 
 use merlin_syntax::Syntax;
 
@@ -15,7 +15,7 @@ use super::wrap::{self, Row};
 use super::{Editor, Focus, fold, guides, line_matches};
 use crate::diff::{LineKind, Sign};
 use crate::lang::Severity;
-use crate::screen::{Hue, Style};
+use crate::style::{Hue, Style};
 
 /// An editor group's text, as it's on screen now.
 #[derive(Clone, Debug, PartialEq)]
@@ -123,11 +123,8 @@ impl Editor {
     /// [`Editor::render`] draws them.
     pub fn text_views(&self) -> Vec<TextView> {
         let mut views = Vec::new();
-        let panes = self.pane_rects(self.layout().editor);
-        if panes.len() == self.groups.len() && panes.len() > 1 {
-            for g in (0..self.groups.len()).filter(|&g| g != self.group) {
-                self.as_group(g, || views.extend(self.group_views(self.layout().text)));
-            }
+        for g in (0..self.groups.len()).filter(|&g| g != self.group) {
+            self.as_group(g, || views.extend(self.group_views(self.layout().text)));
         }
         views.extend(self.group_views(self.layout().text));
         views
@@ -149,7 +146,7 @@ impl Editor {
         let Some(review) = &doc.review else {
             return Vec::new();
         };
-        let first = super::render::split_first(rows, v.scroll);
+        let first = split_first(rows, v.scroll);
         let shown: Vec<_> = rows.iter().skip(first).take(area.h as usize).collect();
         let digits = review
             .lines
@@ -254,7 +251,7 @@ impl Editor {
         let selection = selections.first().copied();
         let hidden = self.hidden_lines();
         // A window drawing the text gets rows past both edges.
-        let overscan = if self.own_text { OVERSCAN } else { 0 };
+        let overscan = OVERSCAN;
         // The top may be a row part-way down the first line: its rows above
         // that are above the view.
         let (top_row, top_frac) = self.top_sub();
@@ -277,11 +274,7 @@ impl Editor {
         let spans = doc.spans(visible);
         let focused = self.focus == Focus::Editor && !self.drawing_other();
         let highlight_line = focused && selection.is_none();
-        let guides = self.guides(super::render::visible_lines(
-            first,
-            last_shown - first,
-            lines,
-        ));
+        let guides = self.guides(visible_lines(first, last_shown - first, lines));
         // Fold arrows show for folded blocks, and for the others while the
         // mouse is over the gutter.
         let over_gutter = self.hover.is_some_and(|(hx, hy)| {
@@ -301,7 +294,7 @@ impl Editor {
             signs,
             scroll: v.scroll,
             hscroll: if wrapping { 0 } else { v.hscroll },
-            top_frac: if self.own_text { top_frac } else { 0.0 },
+            top_frac,
             wrapping,
             focused,
             lines: Vec::new(),
@@ -592,4 +585,16 @@ impl Editor {
             marks,
         })
     }
+}
+
+/// The lines a text area of `rows` rows shows from `scroll`.
+pub(super) fn visible_lines(scroll: usize, rows: usize, lines: usize) -> std::ops::Range<usize> {
+    scroll.min(lines)..(scroll + rows).min(lines)
+}
+
+/// The first side-by-side row to show, for a view scrolled to `scroll`.
+pub(crate) fn split_first(rows: &[(Option<usize>, Option<usize>)], scroll: usize) -> usize {
+    rows.iter()
+        .position(|(l, r)| (*l).max(*r).is_some_and(|line| line >= scroll))
+        .unwrap_or(0)
 }

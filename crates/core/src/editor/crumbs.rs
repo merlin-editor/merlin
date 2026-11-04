@@ -3,13 +3,10 @@
 //! sticky scroll, which pins the first lines of the blocks in view to the
 //! top of the text.
 
-use merlin_syntax::Syntax;
-
 use super::Editor;
 use super::fold::block_end;
 use super::guides::indent;
 use super::layout::Rect;
-use crate::screen::{Screen, Style, Surface, str_width};
 use crate::symbols::{self, Symbol};
 
 /// Most lines sticky scroll pins.
@@ -51,62 +48,6 @@ impl Editor {
             parts.push((name, Some(s.line)));
         }
         parts
-    }
-
-    /// Each breadcrumb's columns on screen and the line it goes to.
-    pub(crate) fn crumb_spans(&self, area: Rect) -> Vec<(u16, u16, Option<usize>)> {
-        let mut x = area.x + 1;
-        let mut spans = Vec::new();
-        for (i, (text, line)) in self.crumbs().into_iter().enumerate() {
-            if i > 0 {
-                x += 3;
-            }
-            let w = str_width(&text) as u16;
-            spans.push((x, x + w, line));
-            x += w;
-        }
-        spans
-    }
-
-    pub(crate) fn render_crumbs(&self, s: &mut Screen, area: Rect) {
-        if area.h == 0 {
-            return;
-        }
-        let crumbs = self.crumbs();
-        let spans = self.crumb_spans(area);
-        let last = crumbs.len().saturating_sub(1);
-        for (i, ((text, _), (x, end, _))) in crumbs.iter().zip(&spans).enumerate() {
-            if *x >= area.right() {
-                break;
-            }
-            if i > 0 {
-                s.print(x - 3, area.y, " › ", Style::Muted, area.right() - (x - 3));
-            }
-            let style = if i == last {
-                Style::Normal
-            } else {
-                Style::Muted
-            };
-            s.print(*x, area.y, text, style, area.right() - x);
-            if self
-                .hover
-                .is_some_and(|(hx, hy)| hy == area.y && (*x..*end).contains(&hx))
-            {
-                s.hover(*x, area.y, end.min(&area.right()) - x);
-            }
-        }
-    }
-
-    /// Goes to what a click on the breadcrumbs at `x` names.
-    pub(crate) fn crumb_click(&mut self, area: Rect, x: u16) {
-        let hit = self
-            .crumb_spans(area)
-            .into_iter()
-            .find(|(a, b, _)| (*a..*b).contains(&x))
-            .and_then(|(_, _, line)| line);
-        if let Some(line) = hit {
-            self.go_to_block(line);
-        }
     }
 
     /// Puts the cursor at the start of the text on `line`, for a jump back.
@@ -190,53 +131,6 @@ impl Editor {
             lines.truncate(row);
         }
         lines
-    }
-
-    pub(crate) fn render_sticky(&self, s: &mut Screen, area: Rect) {
-        let lines = self.sticky_lines(area);
-        if lines.is_empty() {
-            return;
-        }
-        let doc = self.doc();
-        let gutter = self.gutter();
-        let width = (gutter + self.text_columns()) as u16;
-        for (row, &line) in lines.iter().enumerate() {
-            let y = area.y + row as u16;
-            s.shade(area.x, y, width, 1, Surface::Sticky);
-            let signs = self.has_signs() as usize;
-            let number = format!("{:>w$} ", line + 1, w = gutter - 1 - signs);
-            let x0 = area.x + signs as u16;
-            s.print(x0, y, &number, Style::Gutter, (gutter - signs) as u16);
-            let start = doc.line_start(line);
-            let spans = doc.spans(line..line + 1);
-            let mut x = area.x + gutter as u16;
-            let mut d = 0;
-            for (i, &c) in doc.line_chars(line).iter().enumerate() {
-                if c == '\n' || c == '\r' {
-                    break;
-                }
-                let w = crate::doc::advance(c, d) as u16;
-                d += w as usize;
-                if x + w > area.x + width {
-                    break;
-                }
-                let syntax = spans
-                    .iter()
-                    .find(|(a, b, _)| (*a..*b).contains(&(start + i)))
-                    .map_or(Syntax::Plain, |(_, _, k)| *k);
-                for cx in x..x + w {
-                    s.put(cx, y, if c == '\t' { ' ' } else { c }, Style::Normal);
-                    s.decorate(cx, y, syntax, None);
-                }
-                x += w;
-            }
-            if self
-                .hover
-                .is_some_and(|(hx, hy)| hy == y && hx >= area.x && hx < area.x + width)
-            {
-                s.hover(area.x, y, width);
-            }
-        }
     }
 
     /// The line a click on a sticky row goes to.

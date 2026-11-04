@@ -11,7 +11,7 @@ use std::hash::{Hash, Hasher};
 
 use cosmic_text::{CacheKey, Shaping, Wrap};
 use merlin_core::TextView;
-use merlin_core::screen::{Cell, Style, Surface};
+use merlin_core::style::{Cell, Style, Surface};
 
 use super::canvas::{Canvas, glyph_bitmap};
 use super::grid::{Fonts, attrs};

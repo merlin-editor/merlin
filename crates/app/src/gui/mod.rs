@@ -77,8 +77,6 @@ pub fn run(app: &mut App) -> Result<()> {
         .build()
         .context("opening a window")?;
     let _ = PROXY.set(Mutex::new(event_loop.create_proxy()));
-    app.editor.set_windowed(true);
-    app.editor.set_own_text(true);
     let mut gui = Gui {
         app,
         window: None,
@@ -265,7 +263,14 @@ impl Gui<'_> {
     }
 
     fn dispatch(&mut self, event: Event) {
-        if !matches!(event, Event::HoverAt(..)) {
+        let resting = matches!(
+            event,
+            Event::Pointer(Pointer {
+                kind: MouseKind::Rest | MouseKind::Move,
+                ..
+            })
+        );
+        if !resting {
             self.blink_from = Instant::now();
         }
         self.app.dispatch(event);
@@ -419,6 +424,13 @@ impl Gui<'_> {
                 self.hold_tab(Some(group), index, at);
                 self.dispatch(Event::Ui(UiEvent::GroupTab {
                     group,
+                    index,
+                    clicks,
+                }))
+            }
+            Hit::Ui(UiEvent::Target { side, index, .. }) => {
+                self.dispatch(Event::Ui(UiEvent::Target {
+                    side,
                     index,
                     clicks,
                 }))
@@ -662,10 +674,11 @@ impl Gui<'_> {
         if pw == 0 || ph == 0 {
             return;
         }
-        // Code blocks in hovers ask for their colours as they're laid out.
-        self.app.editor.render();
-        self.app.serve_colours();
-        let view = self.app.editor.window_view();
+        let mut view = self.app.editor.window_view();
+        // Code to colour asks as it's laid out: ask, then lay it out again.
+        if self.app.serve_colours() {
+            view = self.app.editor.window_view();
+        }
         let hovered = self.pointer.and_then(|p| {
             self.hits
                 .iter()
@@ -979,7 +992,7 @@ impl ApplicationHandler for Gui<'_> {
                         }
                     }
                     // An Explorer row's menu, or the menu for its empty space.
-                    Some(Hit::Ui(UiEvent::Target { side, index })) => {
+                    Some(Hit::Ui(UiEvent::Target { side, index, .. })) => {
                         self.context_at = Some(at);
                         self.dispatch(Event::Ui(UiEvent::TargetMenu { side, index }));
                     }
