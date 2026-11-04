@@ -416,9 +416,14 @@ impl Canvas<'_> {
         self.round(r.inset(width), (radius - width).max(0.0), inside);
     }
 
-    /// A soft shadow under a floating box.
-    pub fn shadow(&mut self, r: Rect, radius: f32) {
-        for (grow, alpha) in [(10.0, 18u8), (6.0, 26), (3.0, 34)] {
+    /// A soft shadow under a floating box; lighter for a light theme.
+    pub fn shadow(&mut self, r: Rect, radius: f32, light: bool) {
+        let layers: [(f32, u8); 3] = if light {
+            [(10.0, 6), (6.0, 9), (3.0, 12)]
+        } else {
+            [(10.0, 18), (6.0, 26), (3.0, 34)]
+        };
+        for (grow, alpha) in layers {
             let g = Rect::new(
                 r.x - grow,
                 r.y - grow + 4.0,

@@ -1,0 +1,20 @@
+# Sumi: Ink on charcoal: nearly monochrome, warm greys, one vermilion seal for the accent. For when colour is a distraction.
+
+[ui]
+island = "#1b1a19"
+ground = "#121110"
+text = "#d6d2cb"
+muted = "#948e86"
+faint = "#6a655f"
+accent = "#e0603e"
+on-accent = "#121110"
+
+[code]
+keyword = "#b8b0a5"
+string = "#a9b48f"
+comment = "#8c857c"
+function = "#ece7df"
+type = "#cbbd9f"
+constant = "#e98a6c"
+operator = "#948e86"
+attribute = "#b8b0a5"

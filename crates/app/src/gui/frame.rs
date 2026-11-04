@@ -1117,7 +1117,7 @@ impl Frame<'_> {
         let th = self.text.wrapped_height(&toast.text, face, text_w);
         let h = th + 28.0 + if toast.buttons.is_empty() { 0.0 } else { 40.0 };
         let r = Rect::new(editor.right() - w - 16.0, editor.bottom() - h - 16.0, w, h);
-        self.canvas.shadow(r, 10.0);
+        self.canvas.shadow(r, 10.0, theme::is_light(&p));
         self.canvas.outline(r, 10.0, 1.0, p.border, p.widget);
         // Later hits win, so the box goes under its buttons.
         self.hit(r, Hit::Block);
@@ -1172,7 +1172,7 @@ impl Frame<'_> {
         let list_h = shown as f32 * 34.0 + 12.0;
         let ph = 48.0 + list_h + 34.0;
         let r = Rect::new((w - pw) / 2.0, 56.0, pw, ph);
-        self.canvas.shadow(r, 12.0);
+        self.canvas.shadow(r, 12.0, theme::is_light(&p));
         self.canvas.outline(r, 12.0, 1.0, p.border, p.widget);
         self.hit(r, Hit::Block);
 

@@ -1,0 +1,20 @@
+# Torii: A shrine gate at night: lacquer black, vermilion and gold, mossy stone. The most dramatic of them.
+
+[ui]
+island = "#170d0d"
+ground = "#0e0707"
+text = "#f2e6da"
+muted = "#b49888"
+faint = "#7d5d53"
+accent = "#e8503f"
+on-accent = "#0e0707"
+
+[code]
+keyword = "#f07a63"
+string = "#dcb86e"
+comment = "#987b70"
+function = "#f2cc74"
+type = "#a3b884"
+constant = "#eda27a"
+attribute = "#e6a08c"
+operator = "#c2a898"

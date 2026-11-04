@@ -1,0 +1,19 @@
+# Matcha: The tea room: tatami greens, celadon and raku clay, soft contrast that's easy on tired eyes.
+
+[ui]
+island = "#1a1e18"
+ground = "#121510"
+text = "#d9d6c3"
+muted = "#999a85"
+faint = "#646856"
+accent = "#b5cc8a"
+
+[code]
+keyword = "#dc9f7f"
+string = "#cbbd84"
+comment = "#878a76"
+function = "#a3c9ab"
+type = "#8fbcb4"
+constant = "#e0aa72"
+attribute = "#c9b48f"
+operator = "#a6a592"

@@ -30,6 +30,7 @@ looking at [ttt](https://github.com/eugenioenko/ttt), and merlin keeps both:
 | `plugins/word-count` | Small example plugin: commands, a key, a panel and a button. |
 | `plugins/lsp` | Language servers: diagnostics, hover, go-to-definition, completion. |
 | `plugins/cpp` | C and C++: the languages and their colours. |
+| `plugins/merlin-themes` | Eight colour themes, as data. |
 | `plugins/testbed` | Exercises the plugin API for the host's tests. |
 
 ## The window
@@ -151,8 +152,11 @@ TypeScript, Go and similar languages, and headings in Markdown.
 
 Preferences: Color Theme in the command palette lists the themes; moving
 through the list shows each one, Enter keeps it (as `[editor] theme` in your
-settings) and Esc goes back. merlin Dark is built in. Plugins add more, as
-data: a theme plugin has no component and asks for nothing.
+settings) and Esc goes back. merlin Dark is built in, and
+[`plugins/merlin-themes`](plugins/merlin-themes) adds eight more after
+Japanese scenes, one of them light (the install script installs it).
+Plugins add themes as data: a theme plugin has no component and asks for
+nothing.
 
 ```toml
 # plugin.toml

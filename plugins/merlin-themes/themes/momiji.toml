@@ -1,0 +1,19 @@
+# Momiji: Autumn maple: warm browns and embers, pine green and plum. Cosy, like a fire in the grate.
+
+[ui]
+island = "#211814"
+ground = "#17100d"
+text = "#efdfcc"
+muted = "#b09a86"
+faint = "#76634f"
+accent = "#e8833a"
+
+[code]
+keyword = "#ec7a60"
+string = "#c2c374"
+comment = "#978270"
+function = "#f2b65e"
+type = "#96bca0"
+constant = "#de91a8"
+attribute = "#e3a77a"
+operator = "#bba38c"

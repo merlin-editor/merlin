@@ -1,0 +1,37 @@
+# merlin's own themes. A theme plugin is data only: no component, and
+# nothing to allow.
+name = "merlin-themes"
+title = "merlin Themes"
+api = "0.8"
+
+[[themes]]
+label = "Sumi"
+file = "themes/sumi.toml"
+
+[[themes]]
+label = "Nami"
+file = "themes/nami.toml"
+
+[[themes]]
+label = "Fuji"
+file = "themes/fuji.toml"
+
+[[themes]]
+label = "Sakura"
+file = "themes/sakura.toml"
+
+[[themes]]
+label = "Matcha"
+file = "themes/matcha.toml"
+
+[[themes]]
+label = "Momiji"
+file = "themes/momiji.toml"
+
+[[themes]]
+label = "Torii"
+file = "themes/torii.toml"
+
+[[themes]]
+label = "Yuki"
+file = "themes/yuki.toml"

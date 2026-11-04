@@ -1,0 +1,19 @@
+# Nami: The great wave: deep indigo water, dusty blues and wisteria, with the gold of an autumn sky for the accent.
+
+[ui]
+island = "#161b26"
+ground = "#0f131b"
+text = "#d7dde8"
+muted = "#8f99ab"
+faint = "#5b6477"
+accent = "#e6b450"
+
+[code]
+keyword = "#a594e6"
+string = "#9ec48a"
+comment = "#7a849a"
+function = "#82b8ea"
+type = "#74c7c2"
+constant = "#ea9a72"
+attribute = "#c9a2dc"
+operator = "#a3abbc"

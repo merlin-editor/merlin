@@ -1,0 +1,19 @@
+# Sakura: Cherry blossom at dusk: plum shadows, soft pinks and lilac, gentle contrast for long evenings.
+
+[ui]
+island = "#1e171c"
+ground = "#150f13"
+text = "#ecdde4"
+muted = "#a9959f"
+faint = "#725f69"
+accent = "#f0a6c8"
+
+[code]
+keyword = "#c9a6ea"
+string = "#b9d3a1"
+comment = "#94808b"
+function = "#f2c48d"
+type = "#9fc9d6"
+constant = "#f2a0a0"
+attribute = "#e7b3cf"
+operator = "#b5a3ac"

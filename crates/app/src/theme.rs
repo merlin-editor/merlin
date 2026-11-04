@@ -358,18 +358,32 @@ fn surface(p: &Palette, surface: Surface) -> u32 {
     }
 }
 
+/// Whether the palette is light, with dark text on pale islands.
+pub fn is_light(p: &Palette) -> bool {
+    let c = p.island;
+    ((c >> 16) & 0xff) + ((c >> 8) & 0xff) + (c & 0xff) > 3 * 128
+}
+
 /// Colours for icons, guides and brackets. File icons keep their usual
-/// colours in every theme, so files look the same wherever they're seen.
+/// hues in every theme, so files look the same wherever they're seen,
+/// darkened on light themes to stay readable.
 pub fn hue(p: &Palette, hue: Hue) -> u32 {
+    let file = |c: u32| {
+        if is_light(p) {
+            mix(c, 0x000000, 0.62)
+        } else {
+            c
+        }
+    };
     match hue {
-        Hue::Blue => 0x519aba,
-        Hue::Green => 0x8dc149,
-        Hue::Yellow => 0xcbcb41,
-        Hue::Orange => 0xdea584,
-        Hue::Red => 0xcc3e44,
-        Hue::Purple => 0xa074c4,
-        Hue::Cyan => 0x519aba,
-        Hue::Grey => 0x8a9aa8,
+        Hue::Blue => file(0x519aba),
+        Hue::Green => file(0x8dc149),
+        Hue::Yellow => file(0xcbcb41),
+        Hue::Orange => file(0xdea584),
+        Hue::Red => file(0xcc3e44),
+        Hue::Purple => file(0xa074c4),
+        Hue::Cyan => file(0x519aba),
+        Hue::Grey => file(0x8a9aa8),
         Hue::Guide => p.guide,
         Hue::GuideActive => p.guide_active,
         Hue::TreeGuide => p.guide,
@@ -524,6 +538,54 @@ mod tests {
             p.selection, DEFAULT.selection,
             "selection follows the accent"
         );
+    }
+
+    /// WCAG contrast between two colours.
+    fn contrast(a: u32, b: u32) -> f32 {
+        let lum = |c: u32| {
+            let ch = |s: u32| {
+                let x = ((c >> s) & 0xff) as f32 / 255.0;
+                if x <= 0.03928 {
+                    x / 12.92
+                } else {
+                    ((x + 0.055) / 1.055).powf(2.4)
+                }
+            };
+            0.2126 * ch(16) + 0.7152 * ch(8) + 0.0722 * ch(0)
+        };
+        let (x, y) = (lum(a), lum(b));
+        (x.max(y) + 0.05) / (x.min(y) + 0.05)
+    }
+
+    /// The themes that come with merlin stay comfortable to read: text
+    /// clear but not glaring, comments and code readable, buttons legible.
+    #[test]
+    fn bundled_themes_are_readable() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/merlin-themes/themes");
+        let mut themes: Vec<(String, Palette)> = vec![(DEFAULT_NAME.into(), DEFAULT)];
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            themes.push((path.display().to_string(), Palette::read(&path).unwrap()));
+        }
+        assert!(themes.len() > 8, "the bundled themes are there");
+        for (name, p) in themes {
+            let text = contrast(p.text, p.island);
+            assert!((7.0..=17.0).contains(&text), "{name}: text at {text:.1}:1");
+            for (what, colour) in [
+                ("muted", p.muted),
+                ("comment", p.comment),
+                ("keyword", p.keyword),
+                ("string", p.string),
+                ("function", p.function),
+                ("type", p.type_),
+                ("constant", p.constant),
+            ] {
+                let c = contrast(colour, p.island);
+                assert!(c >= 4.5, "{name}: {what} at {c:.1}:1");
+            }
+            let on = contrast(p.on_accent, p.accent);
+            assert!(on >= 4.5, "{name}: text on the accent at {on:.1}:1");
+        }
     }
 
     #[test]

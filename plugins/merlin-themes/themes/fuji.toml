@@ -1,0 +1,19 @@
+# Fuji: The mountain under moonlight: night blue and cool grey, crisp snow, and an amber lantern for the accent.
+
+[ui]
+island = "#141b24"
+ground = "#0d1218"
+text = "#e3eaf2"
+muted = "#93a0b1"
+faint = "#5f6d7e"
+accent = "#f0b86e"
+
+[code]
+keyword = "#8fb7ea"
+string = "#b9d3a6"
+comment = "#7b8ca2"
+function = "#9ad3dc"
+type = "#b6a9ee"
+constant = "#f0aa8c"
+attribute = "#a9bfe0"
+operator = "#a8b4c4"
