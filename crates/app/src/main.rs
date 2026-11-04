@@ -1,4 +1,5 @@
 mod clipboard;
+mod gui;
 mod settings;
 mod template;
 mod theme;
@@ -12,22 +13,11 @@ use std::{env, fs, io};
 use anyhow::{Context, Result, bail};
 use merlin_core::screen::{Screen, WIDE_TAIL};
 use merlin_core::script::{self, Step};
-use merlin_core::{
-    Editor, Effect, Event, GitAction, Key, KeyCode, Mouse, MouseKind, SearchHit, Workspace,
-};
+use merlin_core::{Editor, Effect, Event, GitAction, SearchHit, Workspace};
 use merlin_plugins::{BufferEvent, Config, PluginHost, Selection, Snapshot};
-use ratatui::buffer::Buffer;
-use ratatui::crossterm::event::{
-    self as ct, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste,
-    EnableMouseCapture, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags, MouseButton,
-    MouseEventKind, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
-};
-use ratatui::crossterm::execute;
-use ratatui::layout::Rect;
-use ratatui::widgets::Widget;
 
 const USAGE: &str = "\
-merlin - a terminal editor with sandboxed plugins
+merlin - a code editor with sandboxed plugins
 
 Usage: merlin [options] [file...]
        merlin plugin new <name>   Start a plugin in a new folder
@@ -125,8 +115,6 @@ struct App {
     /// Where the project is in the repository, as git names paths: empty
     /// at its top, else ending in `/`.
     git_prefix: String,
-    /// `[editor] theme` from the settings: "dark" or "terminal".
-    theme: Option<String>,
     /// The user's and the workspace's settings files.
     settings: settings::Files,
     /// Scripts run with default settings and don't change them.
@@ -328,7 +316,6 @@ impl App {
         {
             self.editor.set_nerd_icons(icons != "plain");
         }
-        self.theme = settings::editor_text(&table, "theme").map(str::to_string);
         self.host.set_settings(settings::plugins(&table));
         self.panels_for = None;
         let mut events = vec![Event::Settings(editor)];
@@ -737,7 +724,6 @@ fn main() -> Result<()> {
         quit: false,
         settings: settings_files,
         scripted: args.exec.is_some(),
-        theme: None,
     };
     // Nerd Font icons, except in scripted runs, whose output should read
     // anywhere. MERLIN_ICONS=nerd or =plain decides either way.
@@ -780,6 +766,9 @@ fn main() -> Result<()> {
     // Loads git signs for the files opened so far; later ones get theirs
     // when they open.
     app.check_disk();
+    if args.exec.is_none() {
+        gui::set_waker(&mut app.host);
+    }
     for dir in plugin_dirs(&args) {
         match app.host.load(&dir) {
             Ok(events) => events.into_iter().for_each(|e| app.dispatch(e)),
@@ -802,23 +791,7 @@ fn main() -> Result<()> {
         return result;
     }
 
-    let mut terminal = ratatui::init();
-    execute!(io::stdout(), EnableBracketedPaste, EnableMouseCapture)?;
-    // Terminals with the kitty keyboard protocol tell Ctrl+Shift+P from
-    // Ctrl+P, which VS Code's keys need.
-    let enhanced = ratatui::crossterm::terminal::supports_keyboard_enhancement().unwrap_or(false);
-    if enhanced {
-        execute!(
-            io::stdout(),
-            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
-        )?;
-    }
-    let result = run(&mut terminal, &mut app);
-    if enhanced {
-        let _ = execute!(io::stdout(), PopKeyboardEnhancementFlags);
-    }
-    let _ = execute!(io::stdout(), DisableBracketedPaste, DisableMouseCapture);
-    ratatui::restore();
+    let result = gui::run(&mut app);
     let _ = fs::create_dir_all(workspace_path.parent().unwrap_or(Path::new(".")))
         .and_then(|()| fs::write(&workspace_path, app.editor.workspace().to_text()));
     result
@@ -876,185 +849,8 @@ fn run_script(app: &mut App, script: &str) -> Result<()> {
     Ok(())
 }
 
-fn run(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
-    let size = terminal.size()?;
-    let true_colour = theme::true_colour(app.theme.as_deref());
-    app.dispatch(Event::Resize(size.width, size.height));
-    let mut idle_ticks = 0u32;
-    let mut clicks = Clicks::default();
-    while !app.quit {
-        let screen = app.editor.render();
-        terminal.draw(|frame| {
-            frame.render_widget(ScreenView(&screen, true_colour), frame.area());
-            if let Some(cursor) = screen.cursor {
-                frame.set_cursor_position(cursor);
-            }
-        })?;
-        // Short polls so process output shows up promptly.
-        if !ct::poll(Duration::from_millis(30))? {
-            if !app.poll_processes() {
-                idle_ticks += 1;
-                if idle_ticks.is_multiple_of(8) {
-                    app.reload_plugins();
-                    app.check_disk();
-                }
-            }
-            continue;
-        }
-        match ct::read()? {
-            ct::Event::Key(key) if key.kind != KeyEventKind::Release => {
-                // MERLIN_KEYLOG=file records what the terminal sends, for
-                // keys that don't arrive as expected.
-                if let Ok(log) = env::var("MERLIN_KEYLOG") {
-                    use std::io::Write;
-                    let _ = fs::OpenOptions::new()
-                        .append(true)
-                        .create(true)
-                        .open(log)
-                        .and_then(|mut f| writeln!(f, "{key:?} -> {:?}", map_key(key)));
-                }
-                if let Some(key) = map_key(key) {
-                    app.dispatch(Event::Key(key));
-                }
-            }
-            ct::Event::Paste(text) => app.dispatch(Event::Paste(text)),
-            ct::Event::Mouse(mouse) => {
-                if let Some(mut mouse) = map_mouse(mouse) {
-                    clicks.count(&mut mouse);
-                    app.dispatch(Event::Mouse(mouse));
-                }
-            }
-            ct::Event::Resize(w, h) => app.dispatch(Event::Resize(w, h)),
-            _ => {}
-        }
-    }
-    Ok(())
-}
-
-fn map_mouse(mouse: ct::MouseEvent) -> Option<Mouse> {
-    let kind = match mouse.kind {
-        MouseEventKind::Down(MouseButton::Left) => MouseKind::Down,
-        MouseEventKind::Drag(MouseButton::Left) => MouseKind::Drag,
-        MouseEventKind::Up(MouseButton::Left) => MouseKind::Up,
-        // Shift turns the wheel sideways, as in most editors.
-        MouseEventKind::ScrollUp if mouse.modifiers.contains(KeyModifiers::SHIFT) => {
-            MouseKind::ScrollLeft
-        }
-        MouseEventKind::ScrollDown if mouse.modifiers.contains(KeyModifiers::SHIFT) => {
-            MouseKind::ScrollRight
-        }
-        MouseEventKind::ScrollUp => MouseKind::ScrollUp,
-        MouseEventKind::ScrollDown => MouseKind::ScrollDown,
-        MouseEventKind::ScrollLeft => MouseKind::ScrollLeft,
-        MouseEventKind::ScrollRight => MouseKind::ScrollRight,
-        MouseEventKind::Moved => MouseKind::Move,
-        _ => return None,
-    };
-    Some(Mouse {
-        kind,
-        x: mouse.column,
-        y: mouse.row,
-        shift: mouse.modifiers.contains(KeyModifiers::SHIFT),
-        alt: mouse.modifiers.contains(KeyModifiers::ALT),
-        clicks: 1,
-    })
-}
-
-/// Counts presses in the same cell in quick succession, so the editor can
-/// tell a double or triple click: a fourth starts again at one.
-#[derive(Default)]
-struct Clicks {
-    last: Option<(Instant, u16, u16, u8)>,
-}
-
-impl Clicks {
-    const GAP: Duration = Duration::from_millis(400);
-
-    fn count(&mut self, m: &mut Mouse) {
-        if m.kind != MouseKind::Down {
-            return;
-        }
-        let now = Instant::now();
-        let clicks = match self.last {
-            Some((at, x, y, n)) if now - at < Self::GAP && (x, y) == (m.x, m.y) => n % 3 + 1,
-            _ => 1,
-        };
-        self.last = Some((now, m.x, m.y, clicks));
-        m.clicks = clicks;
-    }
-}
-
-fn map_key(key: ct::KeyEvent) -> Option<Key> {
-    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-    let alt = key.modifiers.contains(KeyModifiers::ALT);
-    let shifted = key.modifiers.contains(KeyModifiers::SHIFT);
-    // Shift is already in the character for printable keys, except with
-    // Ctrl, as in Ctrl+Shift+P.
-    let shift = match key.code {
-        ct::KeyCode::Char(c) => ctrl && (shifted || c.is_ascii_uppercase()),
-        _ => shifted,
-    };
-    let code = match key.code {
-        // Without the kitty protocol, Ctrl+/ arrives as Ctrl+7 or Ctrl+_.
-        ct::KeyCode::Char('7' | '_') if ctrl => KeyCode::Char('/'),
-        // Some terminals send Ctrl+Shift+[ as the shifted character.
-        ct::KeyCode::Char('{') if ctrl => KeyCode::Char('['),
-        ct::KeyCode::Char('}') if ctrl => KeyCode::Char(']'),
-        ct::KeyCode::Char(c) if ctrl => KeyCode::Char(c.to_ascii_lowercase()),
-        ct::KeyCode::F(n) => KeyCode::F(n),
-        ct::KeyCode::Char(c) => KeyCode::Char(c),
-        ct::KeyCode::Enter => KeyCode::Enter,
-        ct::KeyCode::Backspace => KeyCode::Backspace,
-        ct::KeyCode::Delete => KeyCode::Delete,
-        ct::KeyCode::Left => KeyCode::Left,
-        ct::KeyCode::Right => KeyCode::Right,
-        ct::KeyCode::Up => KeyCode::Up,
-        ct::KeyCode::Down => KeyCode::Down,
-        ct::KeyCode::Home => KeyCode::Home,
-        ct::KeyCode::End => KeyCode::End,
-        ct::KeyCode::PageUp => KeyCode::PageUp,
-        ct::KeyCode::PageDown => KeyCode::PageDown,
-        ct::KeyCode::Tab => KeyCode::Tab,
-        ct::KeyCode::BackTab => KeyCode::BackTab,
-        ct::KeyCode::Esc => KeyCode::Esc,
-        _ => return None,
-    };
-    Some(Key {
-        code,
-        ctrl,
-        alt,
-        shift,
-    })
-}
-
-/// The screen, and whether to draw it in 24-bit colour.
-struct ScreenView<'a>(&'a Screen, bool);
-
-impl Widget for ScreenView<'_> {
-    fn render(self, area: Rect, buf: &mut Buffer) {
-        let (screen, true_colour) = (self.0, self.1);
-        for y in 0..screen.height.min(area.height) {
-            for x in 0..screen.width.min(area.width) {
-                let cell = screen.cell(x, y);
-                // The terminal draws a wide character across both cells.
-                if cell.ch == WIDE_TAIL {
-                    continue;
-                }
-                let look = if true_colour {
-                    theme::dark_cell(&cell).style()
-                } else {
-                    theme::palette_cell(&cell)
-                };
-                buf[(area.x + x, area.y + y)]
-                    .set_char(cell.ch)
-                    .set_style(look);
-            }
-        }
-    }
-}
-
 /// The screen as a standalone HTML page, in the Dark Modern colours the
-/// terminal shows. For screenshots and bug reports.
+/// window shows. For screenshots and bug reports.
 fn screen_html(screen: &Screen) -> String {
     let look = |cell: merlin_core::screen::Cell| theme::dark_cell(&cell).css();
     let escape = |c: char| match c {

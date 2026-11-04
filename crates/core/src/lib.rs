@@ -25,7 +25,7 @@ pub use editor::{
     Command, Editor, Effect, Event, Focus, GitAction, Mouse, MouseKind, SearchHit, Settings, Side,
     Workspace,
 };
-pub use merlin_syntax::Syntax;
 pub use key::{Key, KeyCode};
 pub use lang::{Completion, Diagnostic, Severity};
+pub use merlin_syntax::Syntax;
 pub use panel::{Button, Entry, Node, Panel, PickItem, Tone};

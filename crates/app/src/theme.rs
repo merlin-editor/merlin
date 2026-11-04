@@ -1,11 +1,8 @@
-//! Colours. The default is VS Code's Dark Modern, in 24-bit colour. A
-//! terminal without 24-bit colour gets its own palette instead, so merlin
-//! still follows the terminal's theme there.
+//! Colours: VS Code's Dark Modern.
 
 use merlin_core::Syntax;
 use merlin_core::lang::Severity;
 use merlin_core::screen::{Cell, Hue, Style as Kind, Surface};
-use ratatui::style::{Color, Modifier, Style};
 
 /// How a cell looks, as colours and text attributes.
 #[derive(Clone, Copy, Default)]
@@ -262,34 +259,7 @@ fn mix(a: u32, b: u32, t: f32) -> u32 {
     })
 }
 
-fn rgb(c: u32) -> Color {
-    Color::Rgb((c >> 16) as u8, (c >> 8) as u8, c as u8)
-}
-
 impl Look {
-    pub fn style(self) -> Style {
-        let mut s = Style::default();
-        if let Some(fg) = self.fg {
-            s = s.fg(rgb(fg));
-        }
-        if let Some(bg) = self.bg {
-            s = s.bg(rgb(bg));
-        }
-        if let Some(u) = self.underline_colour {
-            s = s.underline_color(rgb(u));
-        }
-        for (on, m) in [
-            (self.bold, Modifier::BOLD),
-            (self.italic, Modifier::ITALIC),
-            (self.underline, Modifier::UNDERLINED),
-        ] {
-            if on {
-                s = s.add_modifier(m);
-            }
-        }
-        s
-    }
-
     pub fn css(self) -> String {
         let mut css = String::new();
         if let Some(fg) = self.fg {
@@ -314,151 +284,4 @@ impl Look {
         }
         css
     }
-}
-
-/// Terminal palette colours only, for terminals without 24-bit colour.
-/// Focus and selection use reverse video, which reads well in any theme.
-pub fn palette(kind: Kind) -> Style {
-    let s = Style::default();
-    match kind {
-        Kind::Normal | Kind::CurrentLine | Kind::ScrollTrack | Kind::TabBar | Kind::Menu => s,
-        Kind::Gutter
-        | Kind::Muted
-        | Kind::Border
-        | Kind::MenuTitle
-        | Kind::MenuMuted
-        | Kind::Frame
-        | Kind::Activity
-        | Kind::PanelTitle => s.fg(Color::DarkGray),
-        Kind::GutterActive => s.fg(Color::Gray),
-        Kind::GutterError => s.fg(Color::Red).add_modifier(Modifier::BOLD),
-        Kind::GutterWarning => s.fg(Color::Yellow),
-        Kind::Popup | Kind::Widget | Kind::Toast | Kind::WidgetFrame | Kind::CommandCenter => {
-            s.bg(Color::DarkGray)
-        }
-        Kind::PopupMuted | Kind::WidgetMuted => {
-            s.bg(Color::DarkGray).add_modifier(Modifier::ITALIC)
-        }
-        Kind::Match | Kind::ScrollThumb | Kind::WordMatch | Kind::Badge => s.bg(Color::DarkGray),
-        Kind::MatchCurrent => s.bg(Color::Yellow).fg(Color::Black),
-        Kind::Selection => s.add_modifier(Modifier::REVERSED),
-        Kind::Heading | Kind::SideTitle | Kind::ActivityActive => s.add_modifier(Modifier::BOLD),
-        Kind::SideTitleFocused | Kind::PanelTitleActive => {
-            s.add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
-        }
-        Kind::Button => s.bg(Color::DarkGray),
-        Kind::ButtonFocused | Kind::Selected | Kind::MenuSelected | Kind::StatusAccent => {
-            s.add_modifier(Modifier::REVERSED | Modifier::BOLD)
-        }
-        Kind::Tab => s.fg(Color::DarkGray),
-        Kind::TabPreview => s.fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
-        Kind::TabActive => s.add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
-        Kind::TabPreviewActive => {
-            s.add_modifier(Modifier::BOLD | Modifier::UNDERLINED | Modifier::ITALIC)
-        }
-        Kind::Prompt | Kind::Status | Kind::MenuBar => s.add_modifier(Modifier::REVERSED),
-        Kind::MenuOpen => s.add_modifier(Modifier::BOLD),
-        Kind::StatusError | Kind::ToastError => s.bg(Color::Red).fg(Color::White),
-        Kind::Warning => s.fg(Color::Yellow),
-        Kind::Error => s.fg(Color::Red),
-        Kind::Success => s.fg(Color::Green),
-        Kind::Input | Kind::WidgetInput | Kind::CodeBlock => s.bg(Color::Black),
-        Kind::InputPlaceholder => s.bg(Color::Black).fg(Color::DarkGray),
-        Kind::Emphasis => s.add_modifier(Modifier::ITALIC),
-        Kind::Code => s.fg(Color::Cyan),
-        Kind::Link => s.fg(Color::Blue).add_modifier(Modifier::UNDERLINED),
-        Kind::DiffAdded | Kind::GitAdded => s.fg(Color::Green),
-        Kind::DiffRemoved | Kind::GitRemoved => s.fg(Color::Red),
-        Kind::GitChanged => s.fg(Color::Yellow),
-        Kind::ActivityMarker => s.fg(Color::Blue),
-        Kind::ActivityBadge => s.bg(Color::Blue).fg(Color::White),
-        Kind::Minimap => s.fg(Color::DarkGray),
-        Kind::MinimapView => s.bg(Color::DarkGray),
-        Kind::MinimapMatch => s.bg(Color::Yellow).fg(Color::Black),
-        Kind::ScrollMatch => s.fg(Color::Yellow),
-        Kind::Caret => s.add_modifier(Modifier::REVERSED),
-    }
-}
-
-fn palette_hue(hue: Hue) -> Color {
-    match hue {
-        Hue::Blue | Hue::Cyan | Hue::Bracket3 => Color::Blue,
-        Hue::Green | Hue::Untracked => Color::Green,
-        Hue::Yellow | Hue::Bracket1 | Hue::Modified | Hue::Warned => Color::Yellow,
-        Hue::Orange | Hue::Red | Hue::Deleted | Hue::Problem => Color::Red,
-        Hue::Purple | Hue::Bracket2 => Color::Magenta,
-        Hue::Grey | Hue::Guide | Hue::GuideActive | Hue::TreeGuide => Color::DarkGray,
-    }
-}
-
-/// How a cell looks in the terminal's palette. Surfaces show only under the
-/// mouse, as there's no shade to spare.
-pub fn palette_cell(cell: &Cell) -> Style {
-    let mut s = palette(cell.style);
-    if cell.surface == Surface::Hover && s.bg.is_none() {
-        s = s.bg(Color::DarkGray);
-    }
-    if shows_code(cell.style, false)
-        && let Some(colour) = palette_code(cell.syntax)
-    {
-        s = s.fg(colour);
-    }
-    if cell.syntax == Syntax::Comment && shows_code(cell.style, false) {
-        s = s.add_modifier(Modifier::ITALIC);
-    }
-    if let Some(h) = cell.tint {
-        s = s.fg(palette_hue(h));
-    }
-    if let Some(sev) = cell.mark {
-        let colour = match sev {
-            Severity::Error => Color::Red,
-            Severity::Warning => Color::Yellow,
-            Severity::Info => Color::Blue,
-            Severity::Hint => Color::DarkGray,
-        };
-        s = s.add_modifier(Modifier::UNDERLINED).underline_color(colour);
-    }
-    s
-}
-
-/// Code colours from the terminal's palette.
-pub fn palette_code(syntax: Syntax) -> Option<Color> {
-    Some(match syntax {
-        Syntax::Keyword => Color::Magenta,
-        Syntax::String => Color::Green,
-        Syntax::Comment => Color::DarkGray,
-        Syntax::Function => Color::Blue,
-        Syntax::Type => Color::Yellow,
-        Syntax::Constant | Syntax::Attribute | Syntax::Escape => Color::Cyan,
-        Syntax::Macro => Color::Magenta,
-        Syntax::Plain
-        | Syntax::Property
-        | Syntax::Variable
-        | Syntax::Operator
-        | Syntax::Punctuation => return None,
-    })
-}
-
-/// Whether the terminal shows 24-bit colour. `MERLIN_THEME=terminal` or
-/// `=dark` overrides the guess.
-/// Whether to draw in 24-bit colour: as MERLIN_THEME says, else the
-/// `theme` setting, else what the terminal says it can do.
-pub fn true_colour(setting: Option<&str>) -> bool {
-    let var = |k: &str| std::env::var(k).unwrap_or_default();
-    let chosen = std::env::var("MERLIN_THEME")
-        .ok()
-        .or(setting.map(str::to_string))
-        .unwrap_or_default();
-    match chosen.as_str() {
-        "terminal" => return false,
-        "dark" => return true,
-        _ => {}
-    }
-    matches!(var("COLORTERM").as_str(), "truecolor" | "24bit")
-        || var("TERM").contains("kitty")
-        || var("TERM").contains("direct")
-        || matches!(
-            var("TERM_PROGRAM").as_str(),
-            "WezTerm" | "iTerm.app" | "vscode" | "ghostty"
-        )
 }

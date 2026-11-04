@@ -10,6 +10,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+use crate::Waker;
+
 use crate::bindings::merlin::plugin::types::{Framing, ProcessEvent};
 
 /// Process output on its way to a plugin.
@@ -31,16 +33,18 @@ pub(crate) struct Processes {
     plugin: String,
     generation: u64,
     tx: Sender<Output>,
+    wake: Option<Waker>,
     running: HashMap<u32, Process>,
     next_id: u32,
 }
 
 impl Processes {
-    pub fn new(plugin: String, generation: u64, tx: Sender<Output>) -> Self {
+    pub fn new(plugin: String, generation: u64, tx: Sender<Output>, wake: Option<Waker>) -> Self {
         Self {
             plugin,
             generation,
             tx,
+            wake,
             running: HashMap::new(),
             next_id: 0,
         }
@@ -117,6 +121,7 @@ impl Processes {
 
     fn sender(&self, process: u32) -> impl Fn(ProcessEvent) + Send + 'static {
         let (tx, plugin, generation) = (self.tx.clone(), self.plugin.clone(), self.generation);
+        let wake = self.wake.clone();
         move |event| {
             let _ = tx.send(Output {
                 plugin: plugin.clone(),
@@ -124,6 +129,9 @@ impl Processes {
                 process,
                 event,
             });
+            if let Some(wake) = &wake {
+                wake();
+            }
         }
     }
 

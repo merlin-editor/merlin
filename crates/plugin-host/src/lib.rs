@@ -494,6 +494,9 @@ pub struct PluginHost {
     plugins: Vec<Loaded>,
     output_tx: Sender<Output>,
     output_rx: Receiver<Output>,
+    /// Called from background threads when process output is queued, so a
+    /// frontend that sleeps between events knows to poll.
+    waker: Option<Waker>,
     config: Config,
     secrets: Arc<Secrets>,
     /// `[plugins]` from the user's and the workspace's settings.
@@ -503,7 +506,16 @@ pub struct PluginHost {
 const ALLOW: &str = "merlin:allow";
 const DENY: &str = "merlin:deny";
 
+/// Wakes the frontend from another thread.
+pub type Waker = Arc<dyn Fn() + Send + Sync>;
+
 impl PluginHost {
+    /// Wakes the frontend when processes of plugins loaded after this have
+    /// output waiting.
+    pub fn set_waker(&mut self, wake: impl Fn() + Send + Sync + 'static) {
+        self.waker = Some(Arc::new(wake));
+    }
+
     pub fn new(config: Config) -> Result<Self> {
         let mut wasm_config = wasmtime::Config::new();
         wasm_config.consume_fuel(true);
@@ -522,6 +534,7 @@ impl PluginHost {
             plugins: Vec::new(),
             output_tx,
             output_rx,
+            waker: None,
             config,
             secrets,
             settings: toml::Table::new(),
@@ -666,7 +679,12 @@ impl PluginHost {
             permissions: manifest.permissions.clone(),
             snapshot: Snapshot::default(),
             events: Vec::new(),
-            processes: Processes::new(manifest.name.clone(), generation, self.output_tx.clone()),
+            processes: Processes::new(
+                manifest.name.clone(),
+                generation,
+                self.output_tx.clone(),
+                self.waker.clone(),
+            ),
             secrets: self.secrets.clone(),
             settings: plugin_settings(manifest, &self.settings),
         };
