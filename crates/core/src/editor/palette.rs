@@ -53,10 +53,10 @@ impl Editor {
                     (name.to_string(), format!("{what} {name}"))
                 }];
             }
-            Source::Trash { .. } => {
+            Source::Trash { ref path } => {
                 return vec![(
                     "yes".into(),
-                    "Enter moves it to the trash; Esc keeps it".into(),
+                    format!("Enter moves {path} to the trash; Esc keeps it"),
                 )];
             }
             Source::SaveAs => {

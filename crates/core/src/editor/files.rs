@@ -125,8 +125,7 @@ impl Editor {
             }
             "explorer.delete" => {
                 if let Some(path) = path {
-                    let title = format!("Move {path} to the trash?");
-                    self.ask(Source::Trash { path }, &title, String::new());
+                    self.ask(Source::Trash { path }, "Delete", String::new());
                 }
             }
             "explorer.copy_path" | "explorer.copy_relative" => {
