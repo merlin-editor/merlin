@@ -2,13 +2,10 @@
 
 use merlin_syntax::Syntax;
 
-use super::fold;
-use super::guides;
 use super::layout::Rect;
-use super::wrap;
 use super::{
     COMPLETION_ROWS, Editor, Find, Focus, HOVER_ROWS, PALETTE_ROWS, POPUP_WIDTH, Palette, Popup,
-    Side, Source, line_matches,
+    Side, Source,
 };
 use crate::diff::{LineKind, Sign};
 use crate::doc::advance;
@@ -175,135 +172,30 @@ impl Editor {
             self.render_scrollbar(s, area);
             return;
         }
-        let doc = self.doc();
-        let v = self.view();
-        let lines = doc.last_line() + 1;
-        let gutter = self.gutter();
+        let view = self.text_view(area);
+        let gutter = view.gutter;
         let x0 = area.x as usize;
         // The last column is the scrollbar, after the minimap if it's on.
-        let right = x0 + self.gutter() + self.text_columns();
-        let (cur_line, _) = doc.line_col(v.cursor);
-        let query = self.query();
-        // Every cursor's selection, when there are several.
-        let selections: Vec<(usize, usize)> =
-            self.carets().iter().filter_map(|c| c.selection()).collect();
-        let selection = selections.first().copied();
-        // The lines on screen, which reach further down past folds.
-        let last_shown = if self.row_based() {
-            self.line_at_row(area.h as usize).0
-        } else {
-            v.scroll + area.h as usize
-        };
-        let visible = v.scroll..last_shown.max(v.scroll + 1);
-        let spans = doc.spans(visible);
-        let focused = self.focus == Focus::Editor && self.drawing.get().is_none();
-        let highlight_line = focused && selection.is_none();
-        let guides = self.guides(visible_lines(v.scroll, last_shown - v.scroll, lines));
-        let hidden = self.hidden_lines();
-        // Fold arrows show for folded blocks, and for the others while the
-        // mouse is over the gutter.
-        let over_gutter = self.hover.is_some_and(|(hx, hy)| {
-            area.contains(hx, hy) && (hx as usize) < x0 + gutter && self.drawing.get().is_none()
-        });
-        let mut depth = guides.depth;
-        let wrapping = self.wrapping();
-        let hscroll = if wrapping { 0 } else { v.hscroll };
-        let mut y = area.y;
-        let mut line = v.scroll;
-        while y < area.bottom() {
-            if line >= lines {
-                s.put(area.x, y, '~', Style::Muted);
-                y += 1;
-                continue;
-            }
-            if let Some(fold) = hidden.iter().find(|r| r.contains(&line)) {
-                line = fold.end;
-                // Brackets in the folded lines still count.
-                if depth.is_some() {
-                    depth = self.bracket_depth(line.min(lines - 1));
-                }
-                continue;
-            }
-            let start = doc.line_start(line);
-            let chars = doc.line_chars(line);
-            let end = start + chars.len();
-            // The screen rows the line takes, more than one if it wraps.
-            let rows = if wrapping {
-                wrap::wrap(&chars, self.text_columns())
-            } else {
-                vec![wrap::Row {
-                    start: 0,
-                    col: 0,
-                    indent: 0,
-                }]
-            };
-            let folded = hidden.iter().any(|r| r.start == line + 1);
-            let shown = rows.len().min((area.bottom() - y) as usize) as u16;
-
-            let mut syntax = vec![Syntax::Plain; chars.len()];
-            for &(a, b, kind) in &spans {
-                for i in a.max(start)..b.min(end) {
-                    syntax[i - start] = kind;
-                }
-            }
-            // An empty mark underlines one character, so it can be seen.
-            let mut marks: Vec<Option<Severity>> = vec![None; chars.len()];
-            let mut worst: Option<Severity> = None;
-            for mark in doc
-                .marks
-                .iter()
-                .filter(|m| m.start <= end && m.end >= start)
-            {
-                worst = Some(worst.map_or(mark.severity, |w| w.min(mark.severity)));
-                let b = mark.end.max(mark.start + 1).min(end);
-                let a = mark.start.max(start).min(b.saturating_sub(1));
-                for i in a.max(start)..b {
-                    let slot = &mut marks[i - start];
-                    *slot = Some(slot.map_or(mark.severity, |s| s.min(mark.severity)));
-                }
-            }
-
-            let signs = self.has_signs() as usize;
-            let review = doc.review.as_ref().and_then(|r| r.lines.get(line)).copied();
-            let git = doc.git_signs.get(line).copied().flatten();
-            let current = highlight_line && line == cur_line && review.is_none();
-            let plain = if current {
-                Style::CurrentLine
-            } else {
-                Style::Normal
-            };
-            let (sign, sign_style, base) = match (review, git) {
-                (Some((LineKind::Added, _)), _) => ('+', Style::DiffAdded, Style::DiffAdded),
-                (Some((LineKind::Removed, _)), _) => ('-', Style::DiffRemoved, Style::DiffRemoved),
-                (Some((LineKind::Gap, _)), _) => (' ', Style::Gutter, Style::Muted),
-                (None, Some(Sign::Added)) => ('▎', Style::GitAdded, plain),
-                (None, Some(Sign::Changed)) => ('▎', Style::GitChanged, plain),
-                (None, Some(Sign::Removed)) => ('‾', Style::GitRemoved, plain),
-                _ => (' ', Style::Gutter, plain),
-            };
-            if base != Style::Normal {
+        let right = x0 + gutter + self.text_columns();
+        let focused = view.focused;
+        let hscroll = view.hscroll;
+        for &row in &view.beyond {
+            s.put(area.x, area.y + row, '~', Style::Muted);
+        }
+        for l in &view.lines {
+            let (y, shown, rows) = (area.y + l.row, l.shown, &l.rows);
+            if l.base != Style::Normal {
                 for r in 0..shown {
                     s.fill(
                         area.x + gutter as u16,
                         y + r,
                         (right - x0).saturating_sub(gutter) as u16,
-                        base,
+                        l.base,
                     );
                 }
             }
-            let number = match review {
-                Some((LineKind::Gap, _)) => String::new(),
-                Some((_, n)) => (n + 1).to_string(),
-                None => (line + 1).to_string(),
-            };
-            let number = format!("{number:>w$} ", w = gutter - 1 - signs);
-            let gutter_style = match worst {
-                Some(Severity::Error) => Style::GutterError,
-                Some(Severity::Warning) => Style::GutterWarning,
-                _ if line == cur_line => Style::GutterActive,
-                _ => Style::Gutter,
-            };
-            if signs > 0 {
+            let signs = view.signs as usize;
+            if let Some((sign, sign_style)) = l.sign {
                 s.put(area.x, y, sign, sign_style);
                 // A changed line's bar runs down its wrapped rows.
                 if sign == '▎' {
@@ -315,11 +207,11 @@ impl Editor {
             s.print(
                 area.x + signs as u16,
                 y,
-                &number,
-                gutter_style,
+                &l.number,
+                l.number_style,
                 (gutter - signs) as u16,
             );
-            if review.is_none() && (folded || over_gutter) && fold::block_end(doc, line).is_some() {
+            if let Some(folded) = l.fold_arrow {
                 use crate::icons::{Icon, icon};
                 let arrow = if folded { Icon::Closed } else { Icon::Open };
                 s.put(
@@ -329,59 +221,11 @@ impl Editor {
                     Style::Gutter,
                 );
             }
-            let mut styles = vec![base; chars.len()];
-            for &(a, b) in &selections {
-                for (i, style) in styles.iter_mut().enumerate() {
-                    if (a..b).contains(&(start + i)) {
-                        *style = Style::Selection;
-                    }
-                }
-            }
-            if let Some((query, fold)) = &query {
-                for m in line_matches(&chars, query, *fold) {
-                    if start + m == v.cursor {
-                        styles[m..m + query.len()].fill(Style::MatchCurrent);
-                    } else if selection.is_none() {
-                        styles[m..m + query.len()].fill(Style::Match);
-                    }
-                }
-            }
-            if let Some(word) = &guides.word {
-                for m in guides::word_matches(&chars, word) {
-                    for style in &mut styles[m..m + word.len()] {
-                        if matches!(*style, Style::Normal | Style::CurrentLine) {
-                            *style = Style::WordMatch;
-                        }
-                    }
-                }
-            }
-            // Bracket colours, counted over the whole line, drawn or not.
-            let brackets: Vec<Option<Hue>> = chars
-                .iter()
-                .enumerate()
-                .map(|(i, &c)| {
-                    let d = depth.as_mut()?;
-                    if matches!(syntax[i], Syntax::String | Syntax::Comment) {
-                        return None;
-                    }
-                    let hue = |k: usize| [Hue::Bracket1, Hue::Bracket2, Hue::Bracket3][k % 3];
-                    match c {
-                        '(' | '[' | '{' => {
-                            *d += 1;
-                            Some(hue(*d - 1))
-                        }
-                        ')' | ']' | '}' => {
-                            *d = d.saturating_sub(1);
-                            Some(hue(*d))
-                        }
-                        _ => None,
-                    }
-                })
-                .collect();
+            let (styles, syntax, marks) = (&l.styles, &l.syntax, &l.marks);
             let left_edge = x0 + gutter;
             let mut d = 0;
             let mut r = 0;
-            for (i, &c) in chars.iter().enumerate() {
+            for (i, &c) in l.chars.iter().enumerate() {
                 while r + 1 < rows.len() && i >= rows[r + 1].start {
                     r += 1;
                 }
@@ -391,21 +235,13 @@ impl Editor {
                 let y = y + r as u16;
                 let w = advance(c, d);
                 let left = (rows[r].indent + d - rows[r].col) as isize - hscroll as isize;
-                let col = d;
                 d += w;
-                // An indent guide on the first cell of a level's whitespace.
-                if r == 0
-                    && matches!(c, ' ' | '\t')
-                    && guides.is_guide(line, v.scroll, col)
+                if let Some(active) = l.guides[i]
                     && left >= 0
                 {
                     let x = left_edge as isize + left;
                     if (x as usize) < right {
-                        let hue = if guides.is_active(line, col) {
-                            Hue::GuideActive
-                        } else {
-                            Hue::Guide
-                        };
+                        let hue = if active { Hue::GuideActive } else { Hue::Guide };
                         for cx in x as usize..(x as usize + w).min(right) {
                             s.put(cx as u16, y, ' ', styles[i]);
                         }
@@ -420,7 +256,7 @@ impl Editor {
                 let x = left_edge as isize + left;
                 if x as usize >= right {
                     // A wrapped row's space may hang past the edge.
-                    if wrapping {
+                    if view.wrapping {
                         continue;
                     }
                     break;
@@ -434,13 +270,12 @@ impl Editor {
                 } else {
                     s.put(x as u16, y, c, styles[i]);
                     s.decorate(x as u16, y, syntax[i], marks[i]);
-                    if let Some(hue) = brackets[i] {
+                    if let Some(hue) = l.brackets[i] {
                         s.tint(x as u16, y, hue);
                     }
                 }
             }
             // A selected line break shows as one selected cell.
-            let eol = start + chars.len();
             let last = rows.len() - 1;
             // The loop stops at the view's last row, so only a line drawn
             // to its end has its width in `d`.
@@ -450,7 +285,7 @@ impl Editor {
                 -1
             };
             // A folded block shows as an ellipsis after its first line.
-            if folded && end_x >= 0 && left_edge + (end_x as usize) + 2 < right {
+            if l.folded && end_x >= 0 && left_edge + (end_x as usize) + 2 < right {
                 s.print(
                     (left_edge + end_x as usize + 1) as u16,
                     y + last as u16,
@@ -459,10 +294,7 @@ impl Editor {
                     1,
                 );
             }
-            if selections.iter().any(|&(a, b)| (a..b).contains(&eol))
-                && end_x >= 0
-                && left_edge + (end_x as usize) < right
-            {
+            if l.eol_selected && end_x >= 0 && left_edge + (end_x as usize) < right {
                 s.put(
                     (left_edge + end_x as usize) as u16,
                     y + last as u16,
@@ -470,8 +302,6 @@ impl Editor {
                     Style::Selection,
                 );
             }
-            y += shown;
-            line += 1;
         }
         self.render_minimap(s);
         self.render_scrollbar(s, area);
@@ -975,7 +805,7 @@ impl Editor {
 }
 
 /// The lines a text area of `rows` rows shows from `scroll`.
-fn visible_lines(scroll: usize, rows: usize, lines: usize) -> std::ops::Range<usize> {
+pub(super) fn visible_lines(scroll: usize, rows: usize, lines: usize) -> std::ops::Range<usize> {
     scroll.min(lines)..(scroll + rows).min(lines)
 }
 

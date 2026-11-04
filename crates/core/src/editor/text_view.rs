@@ -1,0 +1,345 @@
+//! The text of an editor group as plain data: each line on screen with its
+//! colours, selections, matches, marks and guides, and where the cursors
+//! are. The cell renderer paints it into a [`Screen`]; a window draws it in
+//! pixels, with its own font, carets and scrolling.
+//!
+//! Positions stay in columns, as every code editor's do: a window places
+//! column `c` at `c` times its font's advance.
+//!
+//! [`Screen`]: crate::screen::Screen
+
+use merlin_syntax::Syntax;
+
+use super::layout::Rect;
+use super::wrap::{self, Row};
+use super::{Editor, Focus, fold, guides, line_matches};
+use crate::diff::{LineKind, Sign};
+use crate::lang::Severity;
+use crate::screen::{Hue, Style};
+
+/// An editor group's text, as it's on screen now.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextView {
+    /// Where the text is, in cells of the core's grid, scrollbar included.
+    pub area: Rect,
+    /// Cells left of the text: signs, numbers and the fold arrow.
+    pub gutter: usize,
+    /// Whether the gutter's first cell holds git or review signs.
+    pub signs: bool,
+    /// The first line at the top, and how far the view is scrolled sideways,
+    /// in columns.
+    pub scroll: usize,
+    pub hscroll: usize,
+    pub wrapping: bool,
+    /// Whether keys go here, so the cursors and current line show.
+    pub focused: bool,
+    pub lines: Vec<LineView>,
+    /// Lines past the end of the file, drawn as `~`, by screen row.
+    pub beyond: Vec<u16>,
+    /// Every cursor, the primary one first.
+    pub carets: Vec<CaretView>,
+}
+
+/// A line of the file on screen.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LineView {
+    /// The line in the buffer.
+    pub line: usize,
+    /// The screen row, counted from the top of the text, of its first row.
+    pub row: u16,
+    /// How it wraps; one row when it doesn't.
+    pub rows: Vec<Row>,
+    /// Rows it has on screen: fewer than `rows` at the bottom.
+    pub shown: u16,
+    /// Its number as the gutter shows it, padded to the gutter's width.
+    pub number: String,
+    pub number_style: Style,
+    /// A git or review sign, in the gutter's first cell.
+    pub sign: Option<(char, Style)>,
+    /// The line's own background: added or removed in a review, or the
+    /// current line.
+    pub base: Style,
+    /// A fold arrow in the gutter: `Some(true)` when folded.
+    pub fold_arrow: Option<bool>,
+    /// The block it starts is folded: an ellipsis follows it.
+    pub folded: bool,
+    pub chars: Vec<char>,
+    /// For each character: its colour, a diagnostic under it, its style
+    /// (selected, a match), a bracket colour, and an indent guide drawn in
+    /// its place (`Some(active)`).
+    pub syntax: Vec<Syntax>,
+    pub marks: Vec<Option<Severity>>,
+    pub styles: Vec<Style>,
+    pub brackets: Vec<Option<Hue>>,
+    pub guides: Vec<Option<bool>>,
+    /// The line break is selected.
+    pub eol_selected: bool,
+}
+
+/// A cursor: where it is in the text, and on screen in the text's own
+/// rows and columns, if it's in view.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CaretView {
+    pub line: usize,
+    pub col: usize,
+    pub cell: Option<(u16, u16)>,
+}
+
+impl Editor {
+    /// The text of every editor group, the active one last, as
+    /// [`Editor::render`] draws them.
+    pub fn text_views(&self) -> Vec<TextView> {
+        let mut views = Vec::new();
+        let panes = self.pane_rects(self.layout().editor);
+        if panes.len() == self.groups.len() && panes.len() > 1 {
+            for g in (0..self.groups.len()).filter(|&g| g != self.group) {
+                self.as_group(g, || views.push(self.text_view(self.layout().text)));
+            }
+        }
+        views.push(self.text_view(self.layout().text));
+        views
+    }
+
+    /// The text in `area` of the group drawn now.
+    pub(crate) fn text_view(&self, area: Rect) -> TextView {
+        let doc = self.doc();
+        let v = self.view();
+        let lines = doc.last_line() + 1;
+        let gutter = self.gutter();
+        let x0 = area.x as usize;
+        let (cur_line, _) = doc.line_col(v.cursor);
+        let query = self.query();
+        // Every cursor's selection, when there are several.
+        let selections: Vec<(usize, usize)> =
+            self.carets().iter().filter_map(|c| c.selection()).collect();
+        let selection = selections.first().copied();
+        // The lines on screen, which reach further down past folds.
+        let last_shown = if self.row_based() {
+            self.line_at_row(area.h as usize).0
+        } else {
+            v.scroll + area.h as usize
+        };
+        let visible = v.scroll..last_shown.max(v.scroll + 1);
+        let spans = doc.spans(visible);
+        let focused = self.focus == Focus::Editor && self.drawing.get().is_none();
+        let highlight_line = focused && selection.is_none();
+        let guides = self.guides(super::render::visible_lines(
+            v.scroll,
+            last_shown - v.scroll,
+            lines,
+        ));
+        let hidden = self.hidden_lines();
+        // Fold arrows show for folded blocks, and for the others while the
+        // mouse is over the gutter.
+        let over_gutter = self.hover.is_some_and(|(hx, hy)| {
+            area.contains(hx, hy) && (hx as usize) < x0 + gutter && self.drawing.get().is_none()
+        });
+        let mut depth = guides.depth;
+        let wrapping = self.wrapping();
+        let signs = self.has_signs();
+        let mut view = TextView {
+            area,
+            gutter,
+            signs,
+            scroll: v.scroll,
+            hscroll: if wrapping { 0 } else { v.hscroll },
+            wrapping,
+            focused,
+            lines: Vec::new(),
+            beyond: Vec::new(),
+            carets: Vec::new(),
+        };
+        let mut row = 0u16;
+        let mut line = v.scroll;
+        while row < area.h {
+            if line >= lines {
+                view.beyond.push(row);
+                row += 1;
+                continue;
+            }
+            if let Some(fold) = hidden.iter().find(|r| r.contains(&line)) {
+                line = fold.end;
+                // Brackets in the folded lines still count.
+                if depth.is_some() {
+                    depth = self.bracket_depth(line.min(lines - 1));
+                }
+                continue;
+            }
+            let start = doc.line_start(line);
+            let chars = doc.line_chars(line);
+            let end = start + chars.len();
+            // The screen rows the line takes, more than one if it wraps.
+            let rows = if wrapping {
+                wrap::wrap(&chars, self.text_columns())
+            } else {
+                vec![Row {
+                    start: 0,
+                    col: 0,
+                    indent: 0,
+                }]
+            };
+            let folded = hidden.iter().any(|r| r.start == line + 1);
+            let shown = rows.len().min((area.h - row) as usize) as u16;
+
+            let mut syntax = vec![Syntax::Plain; chars.len()];
+            for &(a, b, kind) in &spans {
+                for i in a.max(start)..b.min(end) {
+                    syntax[i - start] = kind;
+                }
+            }
+            // An empty mark underlines one character, so it can be seen.
+            let mut marks: Vec<Option<Severity>> = vec![None; chars.len()];
+            let mut worst: Option<Severity> = None;
+            for mark in doc
+                .marks
+                .iter()
+                .filter(|m| m.start <= end && m.end >= start)
+            {
+                worst = Some(worst.map_or(mark.severity, |w| w.min(mark.severity)));
+                let b = mark.end.max(mark.start + 1).min(end);
+                let a = mark.start.max(start).min(b.saturating_sub(1));
+                for i in a.max(start)..b {
+                    let slot = &mut marks[i - start];
+                    *slot = Some(slot.map_or(mark.severity, |s| s.min(mark.severity)));
+                }
+            }
+
+            let review = doc.review.as_ref().and_then(|r| r.lines.get(line)).copied();
+            let git = doc.git_signs.get(line).copied().flatten();
+            let current = highlight_line && line == cur_line && review.is_none();
+            let plain = if current {
+                Style::CurrentLine
+            } else {
+                Style::Normal
+            };
+            let (sign, sign_style, base) = match (review, git) {
+                (Some((LineKind::Added, _)), _) => ('+', Style::DiffAdded, Style::DiffAdded),
+                (Some((LineKind::Removed, _)), _) => ('-', Style::DiffRemoved, Style::DiffRemoved),
+                (Some((LineKind::Gap, _)), _) => (' ', Style::Gutter, Style::Muted),
+                (None, Some(Sign::Added)) => ('▎', Style::GitAdded, plain),
+                (None, Some(Sign::Changed)) => ('▎', Style::GitChanged, plain),
+                (None, Some(Sign::Removed)) => ('‾', Style::GitRemoved, plain),
+                _ => (' ', Style::Gutter, plain),
+            };
+            let number = match review {
+                Some((LineKind::Gap, _)) => String::new(),
+                Some((_, n)) => (n + 1).to_string(),
+                None => (line + 1).to_string(),
+            };
+            let number = format!("{number:>w$} ", w = gutter - 1 - signs as usize);
+            let number_style = match worst {
+                Some(Severity::Error) => Style::GutterError,
+                Some(Severity::Warning) => Style::GutterWarning,
+                _ if line == cur_line => Style::GutterActive,
+                _ => Style::Gutter,
+            };
+            let fold_arrow = (review.is_none()
+                && (folded || over_gutter)
+                && fold::block_end(doc, line).is_some())
+            .then_some(folded);
+
+            let mut styles = vec![base; chars.len()];
+            for &(a, b) in &selections {
+                for (i, style) in styles.iter_mut().enumerate() {
+                    if (a..b).contains(&(start + i)) {
+                        *style = Style::Selection;
+                    }
+                }
+            }
+            if let Some((query, fold)) = &query {
+                for m in line_matches(&chars, query, *fold) {
+                    if start + m == v.cursor {
+                        styles[m..m + query.len()].fill(Style::MatchCurrent);
+                    } else if selection.is_none() {
+                        styles[m..m + query.len()].fill(Style::Match);
+                    }
+                }
+            }
+            if let Some(word) = &guides.word {
+                for m in guides::word_matches(&chars, word) {
+                    for style in &mut styles[m..m + word.len()] {
+                        if matches!(*style, Style::Normal | Style::CurrentLine) {
+                            *style = Style::WordMatch;
+                        }
+                    }
+                }
+            }
+            // Bracket colours, counted over the whole line, drawn or not.
+            let brackets: Vec<Option<Hue>> = chars
+                .iter()
+                .enumerate()
+                .map(|(i, &c)| {
+                    let d = depth.as_mut()?;
+                    if matches!(syntax[i], Syntax::String | Syntax::Comment) {
+                        return None;
+                    }
+                    let hue = |k: usize| [Hue::Bracket1, Hue::Bracket2, Hue::Bracket3][k % 3];
+                    match c {
+                        '(' | '[' | '{' => {
+                            *d += 1;
+                            Some(hue(*d - 1))
+                        }
+                        ')' | ']' | '}' => {
+                            *d = d.saturating_sub(1);
+                            Some(hue(*d))
+                        }
+                        _ => None,
+                    }
+                })
+                .collect();
+            // Indent guides on the first cell of each level's whitespace,
+            // in the line's first row.
+            let mut col = 0;
+            let first_row_end = rows.get(1).map_or(chars.len(), |r| r.start);
+            let line_guides = chars
+                .iter()
+                .enumerate()
+                .map(|(i, &c)| {
+                    let here = col;
+                    col += crate::doc::advance(c, col);
+                    (i < first_row_end
+                        && matches!(c, ' ' | '\t')
+                        && guides.is_guide(line, v.scroll, here))
+                    .then(|| guides.is_active(line, here))
+                })
+                .collect();
+            let eol_selected = selections.iter().any(|&(a, b)| (a..b).contains(&end));
+            view.lines.push(LineView {
+                line,
+                row,
+                rows,
+                shown,
+                number,
+                number_style,
+                sign: signs.then_some((sign, sign_style)),
+                base,
+                fold_arrow,
+                folded,
+                chars,
+                syntax,
+                marks,
+                styles,
+                brackets,
+                guides: line_guides,
+                eol_selected,
+            });
+            row += shown;
+            line += 1;
+        }
+        view.carets = self
+            .carets()
+            .iter()
+            .map(|c| {
+                let (line, col) = doc.line_col(c.cursor);
+                let cell = self.cell_of(c.cursor).and_then(|(x, y)| {
+                    Some((
+                        x.checked_sub(area.x + gutter as u16)?,
+                        y.checked_sub(area.y)?,
+                    ))
+                });
+                CaretView { line, col, cell }
+            })
+            .collect();
+        view
+    }
+}

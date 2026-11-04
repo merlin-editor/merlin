@@ -10,7 +10,7 @@ use crate::doc::advance;
 
 /// One screen row of a line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Row {
+pub struct Row {
     /// The line's first character on this row.
     pub start: usize,
     /// That character's display column in the whole line.

@@ -6,7 +6,7 @@ use super::{Editor, Side};
 use crate::screen::str_width;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct Rect {
+pub struct Rect {
     pub x: u16,
     pub y: u16,
     pub w: u16,

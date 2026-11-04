@@ -17,6 +17,7 @@ mod palette;
 mod panels;
 mod render;
 mod settings;
+mod text_view;
 mod views;
 mod window;
 mod workspace;
@@ -26,8 +27,11 @@ pub use window::{
     PaletteView, RailItem, SideView, StatusView, TabView, ToastView, UiEvent, WindowView,
 };
 
+pub use layout::Rect as CellRect;
 pub use settings::Settings;
+pub use text_view::{CaretView, LineView, TextView};
 pub use workspace::{GroupState, Tab, Workspace};
+pub use wrap::Row as WrapRow;
 
 use std::cmp::Reverse;
 use std::collections::HashMap;
