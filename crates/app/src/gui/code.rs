@@ -336,8 +336,46 @@ impl Fonts {
             }
         }
 
+        // What an input method is composing: over the text at the cursor,
+        // underlined, with its own cursor, until it's typed.
+        if let Some((text, at)) = &view.preedit
+            && let Some((cx, cy)) = view.carets.first().and_then(|c| c.cell)
+        {
+            let x0 = text_x + cx as f32 * cw;
+            let y = top + cy as f32 * ch + glide;
+            let cells: usize = text
+                .chars()
+                .map(|c| merlin_core::style::char_width(c).max(1))
+                .sum();
+            quad(
+                canvas,
+                [x0, y, x0 + cells as f32 * cw, y + ch],
+                0.0,
+                p.island,
+            );
+            let mut x = x0;
+            let mut caret_x = None;
+            for (i, c) in text.char_indices() {
+                if *at == Some(i) {
+                    caret_x = Some(x);
+                }
+                let w = merlin_core::style::char_width(c).max(1);
+                self.wide_glyph(c, canvas, x, y, w, p.text);
+                x += w as f32 * cw;
+            }
+            underline(canvas, x0, x, y + ch - 2.0 * s, s, p.text, false);
+            let beam = (2.0 * s).round().max(2.0);
+            let cx = caret_x.unwrap_or(x);
+            quad(
+                canvas,
+                [cx, y + s, cx + beam, y + ch - s],
+                beam / 2.0,
+                p.accent,
+            );
+        }
+
         // The cursors: thin bars, every one of them.
-        if view.focused && caret_on {
+        if view.focused && caret_on && view.preedit.is_none() {
             let beam = (2.0 * s).round().max(2.0);
             for caret in &view.carets {
                 let Some((cx, cy)) = caret.cell else { continue };
@@ -491,6 +529,29 @@ impl Fonts {
     }
 
     /// One character in a cell at physical (`x`, `y`), as the gutter has.
+    /// A character `cells` wide at physical (`x`, `y`).
+    fn wide_glyph(
+        &mut self,
+        c: char,
+        canvas: &mut Canvas,
+        x: f32,
+        y: f32,
+        cells: usize,
+        colour: u32,
+    ) {
+        let Some(glyph) = self.glyph(c, false, false, canvas.bitmaps) else {
+            return;
+        };
+        let (cw, ch) = (self.cell_w as i32 * cells as i32, self.cell_h as i32);
+        let (x, y) = (x as i32, y as i32);
+        canvas.scene.prims.push(Prim::Glyph {
+            bitmap: glyph.bitmap,
+            pos: [x + glyph.left, y + self.baseline - glyph.top],
+            colour,
+            clip: [x, y, x + cw, y + ch],
+        });
+    }
+
     fn cell_glyph(&mut self, c: char, canvas: &mut Canvas, x: f32, y: f32, colour: u32) {
         let Some(glyph) = self.glyph(c, false, false, canvas.bitmaps) else {
             return;

@@ -289,3 +289,52 @@ fn the_minimap_is_each_line_in_runs_of_colour() {
     let again = s.editor.text_views().pop().unwrap().minimap.unwrap();
     assert!(std::rc::Rc::ptr_eq(&map.lines, &again.lines));
 }
+
+#[test]
+fn a_selection_goes_to_the_selection_clipboard_and_a_middle_click_pastes() {
+    use merlin_core::{Effect, Event, MouseKind};
+    let mut s = window("alpha beta\n", 10);
+    s.effects.clear();
+    s.run("key shift+ctrl+right");
+    assert!(
+        s.effects.contains(&Effect::SetSelection("alpha".into())),
+        "{:?}",
+        s.effects
+    );
+    // Events that leave it as it is don't send it again.
+    s.effects.clear();
+    s.run("key ctrl+c");
+    assert!(
+        !s.effects
+            .iter()
+            .any(|e| matches!(e, Effect::SetSelection(_)))
+    );
+    // A middle click puts the cursor there and asks for the selection,
+    // which then pastes.
+    let gutter = s.editor.text_views().pop().unwrap().gutter as f32;
+    s.send(pointer(0, MouseKind::Middle, 0.2, gutter + 10.0));
+    assert_eq!(s.effects.last(), Some(&Effect::ReadSelection));
+    s.send(Event::Paste(" gamma".into()));
+    assert_eq!(s.text(), "alpha beta gamma\n");
+}
+
+#[test]
+fn an_input_method_composes_at_the_cursor_then_types() {
+    use merlin_core::Event;
+    let mut s = window("ab\n", 10);
+    s.run("key right");
+    s.send(Event::Preedit {
+        text: "にほ".into(),
+        cursor: Some(6),
+    });
+    let view = s.editor.text_views().pop().unwrap();
+    assert_eq!(view.preedit, Some(("にほ".into(), Some(6))));
+    assert_eq!(s.text(), "ab\n", "not typed yet");
+    s.send(Event::Preedit {
+        text: String::new(),
+        cursor: None,
+    });
+    s.run("type 日本");
+    assert_eq!(s.text(), "a日本b\n");
+    assert!(s.editor.text_views().pop().unwrap().preedit.is_none());
+}

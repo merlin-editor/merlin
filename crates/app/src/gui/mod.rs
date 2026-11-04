@@ -32,7 +32,7 @@ use softbuffer::{Context, Surface};
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalPosition, PhysicalSize};
 use winit::event::{
-    ElementState, KeyEvent, MouseButton, MouseScrollDelta, StartCause, WindowEvent,
+    ElementState, Ime, KeyEvent, MouseButton, MouseScrollDelta, StartCause, WindowEvent,
 };
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
 use winit::keyboard::{Key as WinitKey, ModifiersState, NamedKey};
@@ -97,6 +97,7 @@ pub fn run(app: &mut App) -> Result<()> {
         sash: None,
         group_drag: None,
         bar_drag: None,
+        ime_spot: None,
         bars_until: Vec::new(),
         bars_drawn: Vec::new(),
         viewports: Vec::new(),
@@ -185,6 +186,8 @@ struct Gui<'a> {
     sash: Option<Side>,
     /// A scrollbar thumb or the minimap's slider held.
     bar_drag: Option<BarDrag>,
+    /// Where the input method was last told the cursor is.
+    ime_spot: Option<(i32, i32)>,
     /// Until when each group's scrollbar thumbs show before they fade.
     bars_until: Vec<(usize, Instant)>,
     /// How each group's bars were last drawn.
@@ -1038,6 +1041,23 @@ impl Gui<'_> {
                 .map(|(i, _)| i)
         });
         self.drawn = drawn.map(|d| (d.0, hovered, d.2, d.3, d.4));
+        // The input method's candidates open by the cursor.
+        if let Some(v) = texts.last()
+            && let Some((cx, cy)) = v.carets.first().and_then(|c| c.cell)
+            && let Some(area) = self.areas.groups.get(v.group)
+        {
+            let (cw, ch) = (grid.cell_w as f32 / s, grid.cell_h as f32 / s);
+            let x = area.text.x + (v.gutter as f32 + cx as f32) * cw;
+            let y = area.text.y + (cy as f32 - v.top_frac + 1.0) * ch;
+            let spot = (x.round() as i32, y.round() as i32);
+            if self.ime_spot != Some(spot) {
+                self.ime_spot = Some(spot);
+                shown.window.set_ime_cursor_area(
+                    winit::dpi::LogicalPosition::new(x, y - ch),
+                    winit::dpi::LogicalSize::new(cw, ch),
+                );
+            }
+        }
         self.drawn_text = texts;
         self.bars_drawn = bars;
         self.caret_drawn = caret_on;
@@ -1097,6 +1117,11 @@ impl Gui<'_> {
 }
 
 impl ApplicationHandler for Gui<'_> {
+    fn exiting(&mut self, _: &ActiveEventLoop) {
+        // The clipboards go before the window they share.
+        self.app.clipboard = None;
+    }
+
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
             return;
@@ -1127,6 +1152,10 @@ impl ApplicationHandler for Gui<'_> {
             }
         };
         let size = window.inner_size();
+        // The desktop's clipboards share the window's connection, and an
+        // input method composes text into it.
+        self.app.clipboard = crate::clipboard::Clipboard::for_window(&*window);
+        window.set_ime_allowed(true);
         self.window = Some(Shown { window, backend });
         self.set_fonts(true);
         self.resized(size);
@@ -1269,8 +1298,37 @@ impl ApplicationHandler for Gui<'_> {
                     Some(Hit::Ui(UiEvent::GroupTab { group, index, .. })) => {
                         self.dispatch(Event::Ui(UiEvent::CloseGroupTab { group, index }))
                     }
+                    // In the text, it pastes what's selected anywhere.
+                    Some(Hit::Text) => {
+                        if let Some(g) = self.group_at(at) {
+                            self.pointer_event(g, MouseKind::Middle, at, 1);
+                        }
+                    }
                     _ => {}
                 }
+            }
+            // An input method's text: shown at the cursor while it's
+            // composed, then typed.
+            WindowEvent::Ime(Ime::Preedit(text, cursor)) => {
+                self.dispatch(Event::Preedit {
+                    text,
+                    cursor: cursor.map(|(at, _)| at),
+                });
+            }
+            WindowEvent::Ime(Ime::Commit(text)) => {
+                self.dispatch(Event::Preedit {
+                    text: String::new(),
+                    cursor: None,
+                });
+                for c in text.chars() {
+                    self.dispatch(Event::Key(Key::plain(KeyCode::Char(c))));
+                }
+            }
+            WindowEvent::Ime(Ime::Disabled) => {
+                self.dispatch(Event::Preedit {
+                    text: String::new(),
+                    cursor: None,
+                });
             }
             WindowEvent::MouseWheel { delta, .. } => match delta {
                 // A high-resolution wheel sends parts of a step: those
@@ -1293,6 +1351,8 @@ impl ApplicationHandler for Gui<'_> {
         if self.app.quit {
             // Saves still being written finish first.
             self.app.finish_all();
+            // The clipboards go before the window they share.
+            self.app.clipboard = None;
             event_loop.exit();
         }
     }

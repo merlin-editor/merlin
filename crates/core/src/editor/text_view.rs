@@ -50,6 +50,9 @@ pub struct TextView {
     pub overscan: u16,
     /// Every cursor, the primary one first.
     pub carets: Vec<CaretView>,
+    /// Text an input method is composing at the primary cursor, and where
+    /// its own cursor is in it.
+    pub preedit: Option<(String, Option<usize>)>,
     /// Lines sticky scroll pins over the top, from the top row down.
     pub sticky: Vec<LineView>,
     /// The scrollbar's ruler, and the minimap when it's on.
@@ -216,6 +219,7 @@ impl Editor {
                     focused,
                     lines,
                     carets: Vec::new(),
+                    preedit: None,
                     sticky: Vec::new(),
                     scrollbar: self.scrollbar_view(),
                     minimap: None,
@@ -287,6 +291,7 @@ impl Editor {
             focused,
             lines: Vec::new(),
             carets: Vec::new(),
+            preedit: if focused { self.preedit.clone() } else { None },
             sticky: Vec::new(),
             scrollbar: self.scrollbar_view(),
             minimap: self.minimap_view(),

@@ -156,8 +156,9 @@ struct App {
     buffer_seen: Option<(u64, u64)>,
     /// Paths saved since plugins last heard.
     saved: Vec<String>,
-    /// Off for scripts, so they don't touch the user's clipboard.
-    system_clipboard: bool,
+    /// The desktop's clipboards, once the window is open. Scripts have
+    /// none, so they never touch the user's.
+    pub(crate) clipboard: Option<clipboard::Clipboard>,
     /// When each open file last changed on disk, as far as the editor knows.
     disk: HashMap<PathBuf, Option<SystemTime>>,
     /// The repository's git folder, if the project is in one.
@@ -355,13 +356,23 @@ impl App {
                         });
                     }
                     Effect::Copy(text) => {
-                        if self.system_clipboard {
-                            clipboard::copy(&text);
+                        if let Some(clipboard) = &mut self.clipboard {
+                            clipboard.copy(&text);
                         }
                     }
                     Effect::ReadClipboard => {
-                        let text = self.system_clipboard.then(clipboard::paste).flatten();
+                        let text = self.clipboard.as_mut().and_then(|c| c.paste());
                         queue.push_back(Event::Clipboard(text));
+                    }
+                    Effect::SetSelection(text) => {
+                        if let Some(clipboard) = &mut self.clipboard {
+                            clipboard.select(&text);
+                        }
+                    }
+                    Effect::ReadSelection => {
+                        if let Some(text) = self.clipboard.as_mut().and_then(|c| c.selection()) {
+                            queue.push_back(Event::Paste(text));
+                        }
                     }
                     Effect::Quit => self.quit = true,
                     // Scripts can't answer a dialog: it's as if cancelled.
@@ -1290,7 +1301,7 @@ fn main() -> Result<()> {
         panels_for: None,
         buffer_seen: None,
         saved: Vec::new(),
-        system_clipboard: args.exec.is_none(),
+        clipboard: None,
         disk: HashMap::new(),
         git_prefix,
         git_dir,

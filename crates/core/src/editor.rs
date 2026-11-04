@@ -90,6 +90,9 @@ pub enum MouseKind {
     Context,
     /// The mouse has rested a while, for a hover.
     Rest,
+    /// The middle button: the cursor goes there, and what's selected,
+    /// in any app, is pasted, as on Linux.
+    Middle,
 }
 
 /// The mouse over an editor group's text, as a window measures it: rows
@@ -156,6 +159,12 @@ pub enum Event {
         path: PathBuf,
     },
     SaveFailed(String),
+    /// Text an input method is composing, not yet typed, and where its
+    /// cursor is in it; empty once it's typed or given up.
+    Preedit {
+        text: String,
+        cursor: Option<usize>,
+    },
     /// The file or folder picked for [`Effect::PickFile`], or `None` if
     /// the dialog was cancelled.
     Picked {
@@ -398,6 +407,12 @@ pub enum Effect {
     PickFile(FilePick),
     /// Opens a folder in a new window, as this one quits.
     OpenFolder(PathBuf),
+    /// What's selected now, for the selection clipboard a middle click
+    /// pastes.
+    SetSelection(String),
+    /// Asks for the selection clipboard's text, to paste as
+    /// [`Event::Paste`].
+    ReadSelection,
     PluginCommand {
         plugin: String,
         command: String,
@@ -578,6 +593,11 @@ pub struct Editor {
     message: Option<Message>,
     /// A question that needs an answer first.
     dialog: Option<dialog::Dialog>,
+    /// Text an input method is composing, and its cursor in it.
+    preedit: Option<(String, Option<usize>)>,
+    /// The selection last given to the selection clipboard: the file, its
+    /// version and the range.
+    selection_shared: Option<(u64, u64, usize, usize)>,
     /// Files to close once they're saved, by id.
     closing: Vec<u64>,
     /// Quitting once every file is saved.
@@ -722,6 +742,8 @@ impl Editor {
             plugins: Vec::new(),
             message: None,
             dialog: None,
+            preedit: None,
+            selection_shared: None,
             closing: Vec::new(),
             quitting: false,
             open_folder: None,
@@ -1023,6 +1045,9 @@ impl Editor {
                 self.after_save(doc, &mut fx);
             }
             Event::Picked { pick, path } => self.picked(pick, path, &mut fx),
+            Event::Preedit { text, cursor } => {
+                self.preedit = (!text.is_empty()).then_some((text, cursor));
+            }
             Event::SaveFailed(err) => self.error(format!("Save failed: {err}")),
             Event::Opened { path, text } => self.opened(path, &text),
             Event::Restore(ws) => self.restore(ws),
@@ -1270,10 +1295,29 @@ impl Editor {
             }
             self.scroll_to_cursor();
         }
+        self.share_selection(&mut fx);
         for side in [Side::Left, Side::Right, Side::Bottom] {
             self.select(side, self.selected_index(side));
         }
         fx
+    }
+
+    /// A new selection in the text goes to the selection clipboard, for a
+    /// middle click to paste anywhere.
+    fn share_selection(&mut self, fx: &mut Vec<Effect>) {
+        if self.focus != Focus::Editor {
+            return;
+        }
+        let doc = self.doc();
+        let now = doc
+            .selection()
+            .map(|(a, b)| (doc.id, doc.buffer.version(), a, b));
+        if now != self.selection_shared {
+            self.selection_shared = now;
+            if let Some(text) = self.selection().filter(|t| !t.is_empty()) {
+                fx.push(Effect::SetSelection(text));
+            }
+        }
     }
 
     /// What decides whether the view must scroll to the cursor.

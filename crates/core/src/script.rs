@@ -293,7 +293,9 @@ impl Session {
                 | Effect::OpenDiff(_)
                 | Effect::Git(_)
                 | Effect::PickFile(_)
-                | Effect::OpenFolder(_) => {}
+                | Effect::OpenFolder(_)
+                | Effect::SetSelection(_)
+                | Effect::ReadSelection => {}
             }
         }
     }

@@ -40,6 +40,14 @@ impl Editor {
             MouseKind::Rest if here => self.hover_at(x, y, fx),
             MouseKind::Rest => {}
             MouseKind::Context => self.open_context(x, y),
+            MouseKind::Middle => {
+                self.focus_group(g);
+                self.focus = super::Focus::Editor;
+                self.clear_carets();
+                let pos = self.pos_at_screen(x, y);
+                self.set_cursor(pos);
+                fx.push(Effect::ReadSelection);
+            }
             kind => {
                 // A drag goes on in the group it began in.
                 if !here && kind != MouseKind::Down {
