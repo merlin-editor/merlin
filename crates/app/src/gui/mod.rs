@@ -16,6 +16,7 @@ mod cpu;
 mod frame;
 mod gpu;
 mod grid;
+mod overview;
 mod scene;
 
 use std::env;
@@ -95,6 +96,9 @@ pub fn run(app: &mut App) -> Result<()> {
         sizes: frame::Sizes::default(),
         sash: None,
         group_drag: None,
+        bar_drag: None,
+        bars_until: Vec::new(),
+        bars_drawn: Vec::new(),
         viewports: Vec::new(),
         resized_to: (0, 0),
         tab_drag: None,
@@ -179,6 +183,12 @@ struct Gui<'a> {
     sizes: frame::Sizes,
     /// The side whose edge is being dragged.
     sash: Option<Side>,
+    /// A scrollbar thumb or the minimap's slider held.
+    bar_drag: Option<BarDrag>,
+    /// Until when each group's scrollbar thumbs show before they fade.
+    bars_until: Vec<(usize, Instant)>,
+    /// How each group's bars were last drawn.
+    bars_drawn: Vec<(usize, overview::Shown)>,
     /// The edge between groups being dragged: which, where it began, and
     /// the groups' sizes and places then.
     group_drag: Option<(frame::GroupSash, (f32, f32), Vec<frame::GroupArea>)>,
@@ -338,6 +348,182 @@ impl Gui<'_> {
         }
     }
 
+    /// Group `g`'s text as the editor has it now: its last view, the new
+    /// side of a review side by side.
+    fn view_of(&self, g: usize) -> Option<TextView> {
+        self.app
+            .editor
+            .text_views()
+            .into_iter()
+            .rfind(|v| v.group == g)
+    }
+
+    /// The code's cell width in logical pixels.
+    fn cell_w(&self) -> f32 {
+        self.grid.as_ref().map_or(8.0, |g| g.cell_w as f32) / self.scale()
+    }
+
+    /// A press on a scrollbar or the minimap: on the thumb it's held where
+    /// it was grabbed; elsewhere the view jumps there and it's held by its
+    /// middle.
+    fn press_bar(&mut self, g: usize, what: Bar, at: (f32, f32)) {
+        let (Some(area), Some(v)) = (self.areas.groups.get(g).copied(), self.view_of(g)) else {
+            return;
+        };
+        let grab = match what {
+            Bar::Down => {
+                let Some(t) = overview::vthumb(area.bar, &v) else {
+                    return;
+                };
+                if t.rect.contains(at.0, at.1) {
+                    at.1 - t.rect.y
+                } else {
+                    t.rect.h / 2.0
+                }
+            }
+            Bar::Along => {
+                let track = overview::htrack(area.text, &v, self.cell_w());
+                let Some(t) = overview::hthumb(track, &v) else {
+                    return;
+                };
+                if t.rect.contains(at.0, at.1) {
+                    at.0 - t.rect.x
+                } else {
+                    t.rect.w / 2.0
+                }
+            }
+            Bar::Map => {
+                let (Some(map), Some(rect)) = (&v.minimap, area.minimap) else {
+                    return;
+                };
+                let geom = overview::Map::new(rect, &v, map);
+                if geom.slider.contains(at.0, at.1) {
+                    at.1 - geom.slider.y
+                } else {
+                    // A click elsewhere centres the view on that line.
+                    let line = geom.line_at(rect, at.1);
+                    let row = line.saturating_sub(v.area.h as usize / 2) as f64;
+                    self.dispatch(Event::ScrollTo { group: g, row });
+                    self.bar_drag = Some(BarDrag {
+                        group: g,
+                        what,
+                        grab: geom.slider.h / 2.0,
+                    });
+                    return;
+                }
+            }
+        };
+        self.bar_drag = Some(BarDrag {
+            group: g,
+            what,
+            grab,
+        });
+        self.drag_bar(at);
+    }
+
+    /// A held bar follows the mouse.
+    fn drag_bar(&mut self, at: (f32, f32)) {
+        let Some(drag) = self.bar_drag else { return };
+        let g = drag.group;
+        let (Some(area), Some(v)) = (self.areas.groups.get(g).copied(), self.view_of(g)) else {
+            return;
+        };
+        self.show_bars(g);
+        match drag.what {
+            Bar::Down => {
+                if let Some(t) = overview::vthumb(area.bar, &v) {
+                    let row = t.position(at.1 - drag.grab - area.bar.y);
+                    self.dispatch(Event::ScrollTo { group: g, row });
+                }
+            }
+            Bar::Along => {
+                let track = overview::htrack(area.text, &v, self.cell_w());
+                if let Some(t) = overview::hthumb(track, &v) {
+                    let col = t.position(at.0 - drag.grab - track.x).round();
+                    let cols = (col - v.hscroll as f64) as f32;
+                    if cols != 0.0 {
+                        self.dispatch(Event::Scroll {
+                            group: g,
+                            rows: 0.0,
+                            cols,
+                        });
+                    }
+                }
+            }
+            Bar::Map => {
+                if let (Some(map), Some(rect)) = (&v.minimap, area.minimap) {
+                    let geom = overview::Map::new(rect, &v, map);
+                    let row = geom.position(at.1 - drag.grab - rect.y);
+                    self.dispatch(Event::ScrollTo { group: g, row });
+                }
+            }
+        }
+    }
+
+    /// Group `g`'s thumbs show for a while.
+    fn show_bars(&mut self, g: usize) {
+        let until = Instant::now() + BARS_LINGER;
+        match self.bars_until.iter_mut().find(|(group, _)| *group == g) {
+            Some(entry) => entry.1 = until,
+            None => self.bars_until.push((g, until)),
+        }
+    }
+
+    /// The mouse near a group's code or bars shows its thumbs.
+    fn hover_bars(&mut self, at: (f32, f32)) {
+        let near = self.areas.groups.iter().position(|a| {
+            let right = a.bar.right();
+            Rect::new(a.text.x, a.text.y, right - a.text.x, a.text.h).contains(at.0, at.1)
+        });
+        if let Some(g) = near {
+            self.show_bars(g);
+            self.redraw();
+        }
+    }
+
+    /// How group `g`'s bars look now.
+    fn bars_shown(&self, g: usize) -> overview::Shown {
+        let dragging = self.bar_drag.is_some_and(|d| d.group == g);
+        let alpha = match self.bars_until.iter().find(|(group, _)| *group == g) {
+            _ if dragging => 1.0,
+            Some(&(_, until)) => {
+                let now = Instant::now();
+                if now < until {
+                    1.0
+                } else {
+                    1.0 - (now - until).as_secs_f32() / BARS_FADE.as_secs_f32()
+                }
+            }
+            None => 0.0,
+        }
+        .clamp(0.0, 1.0);
+        let area = self.areas.groups.get(g).copied().unwrap_or_default();
+        let on = |r: Rect| self.pointer.is_some_and(|(x, y)| r.contains(x, y));
+        overview::Shown {
+            alpha,
+            thumb_hovered: on(area.bar),
+            dragging,
+            map_hovered: area.minimap.is_some_and(on),
+        }
+    }
+
+    /// When a fading thumb next needs drawing.
+    fn bars_due(&self) -> Option<Instant> {
+        let now = Instant::now();
+        self.bars_until
+            .iter()
+            .map(|&(_, until)| until)
+            .filter(|&until| until + BARS_FADE > now)
+            .map(|until| {
+                if until > now {
+                    until
+                } else {
+                    now + Duration::from_millis(16)
+                }
+            })
+            .min()
+    }
+
     /// The group whose code is under a point.
     fn group_at(&self, (x, y): (f32, f32)) -> Option<usize> {
         self.areas.groups.iter().position(|g| g.text.contains(x, y))
@@ -408,6 +594,11 @@ impl Gui<'_> {
                     self.pointer_event(g, MouseKind::Down, at, clicks);
                 }
             }
+            Hit::Scrollbar { group, horizontal } => {
+                let what = if horizontal { Bar::Along } else { Bar::Down };
+                self.press_bar(group, what, at);
+            }
+            Hit::Minimap(group) => self.press_bar(group, Bar::Map, at),
             // A double click puts the groups back to the same sizes.
             Hit::GroupSash(_) if clicks >= 2 => {
                 let even = vec![(1.0, 1.0); self.areas.groups.len()];
@@ -641,6 +832,7 @@ impl Gui<'_> {
         // A scroll since the last frame glides there from where it was, but
         // a touchpad's follows the fingers already.
         let mut tops = Vec::new();
+        let mut moved_groups = Vec::new();
         for v in &texts {
             if tops.iter().any(|(g, _)| *g == v.group) {
                 continue;
@@ -650,6 +842,10 @@ impl Gui<'_> {
                 .iter()
                 .find(|(g, _)| *g == v.group)
                 .map(|t| t.1);
+            // Scrolling shows the thumbs.
+            if was.is_some_and(|was| was != v.top_row) {
+                moved_groups.push(v.group);
+            }
             if let Some(was) = was
                 && was != v.top_row
                 && !self.touched
@@ -662,6 +858,13 @@ impl Gui<'_> {
             tops.push((v.group, v.top_row));
         }
         self.last_top = tops;
+        for g in moved_groups {
+            self.show_bars(g);
+        }
+        let bars: Vec<(usize, overview::Shown)> = (0..self.areas.groups.len())
+            .map(|g| (g, self.bars_shown(g)))
+            .collect();
+        let fading = bars.iter().any(|(_, b)| b.alpha > 0.0 && b.alpha < 1.0);
         self.touched = false;
         let glide = self.glide.map_or(0.0, |(g, ..)| self.glide_offset(g));
         let (Some(shown), Some(text), Some(grid)) =
@@ -704,6 +907,7 @@ impl Gui<'_> {
             .map(|t| t.1.clone());
         let tip_changed = tip != self.tip_drawn;
         if self.drawn == drawn
+            && self.bars_drawn == bars
             && !tip_changed
             && self.drawn_text == texts
             && caret_on == self.caret_drawn
@@ -766,6 +970,41 @@ impl Gui<'_> {
                 glide,
             );
         }
+        // Beside each group's code, its minimap and scrollbars, and a
+        // shadow under the tabs once it's scrolled; the review side by
+        // side has them on its new side.
+        let p = self.app.look.palette;
+        let cell_w = grid.cell_w as f32 / s;
+        for (g, area) in areas.groups.iter().enumerate() {
+            let Some(v) = texts.iter().rfind(|v| v.group == g) else {
+                continue;
+            };
+            let shown = bars.get(g).map_or_else(Default::default, |b| b.1);
+            if let Some(rect) = area.minimap {
+                overview::draw_minimap(&mut f.canvas, &p, rect, v, shown);
+                f.hits.push((rect, Hit::Minimap(g)));
+            }
+            overview::draw_vbar(&mut f.canvas, &p, area.bar, v, shown);
+            f.hits.push((
+                area.bar,
+                Hit::Scrollbar {
+                    group: g,
+                    horizontal: false,
+                },
+            ));
+            let track = overview::htrack(area.text, v, cell_w);
+            if overview::hthumb(track, v).is_some() {
+                overview::draw_hbar(&mut f.canvas, &p, track, v, shown);
+                f.hits.push((
+                    track,
+                    Hit::Scrollbar {
+                        group: g,
+                        horizontal: true,
+                    },
+                ));
+            }
+            overview::draw_shadow(&mut f.canvas, area.text, v);
+        }
         let cell = (grid.cell_w as f32 / s, grid.cell_h as f32 / s);
         f.floating(&view, &areas, cell, self.context_at, w, h);
         f.overlays(&view, &areas, w, h);
@@ -800,7 +1039,11 @@ impl Gui<'_> {
         });
         self.drawn = drawn.map(|d| (d.0, hovered, d.2, d.3, d.4));
         self.drawn_text = texts;
+        self.bars_drawn = bars;
         self.caret_drawn = caret_on;
+        if fading {
+            self.redraw();
+        }
         // Until the glide ends, every frame moves it on.
         if self.glide.is_some() {
             if glide == 0.0 {
@@ -964,7 +1207,10 @@ impl ApplicationHandler for Gui<'_> {
                 };
                 if state == ElementState::Pressed {
                     self.press(at);
-                } else if self.sash.take().is_some() || self.group_drag.take().is_some() {
+                } else if self.sash.take().is_some()
+                    || self.group_drag.take().is_some()
+                    || self.bar_drag.take().is_some()
+                {
                     self.redraw();
                 } else if let Some(drag) = self.tab_drag.take() {
                     if drag.moved {
@@ -1063,6 +1309,7 @@ impl ApplicationHandler for Gui<'_> {
             self.next_blink(),
             tip,
             self.app.due(),
+            self.bars_due(),
         ]
         .into_iter()
         .flatten()
@@ -1093,6 +1340,11 @@ impl Gui<'_> {
         let at = ((position.x / s) as f32, (position.y / s) as f32);
         let before = self.pointer.and_then(|p| self.hit_at(p).map(|(i, _)| i));
         self.pointer = Some(at);
+        if self.bar_drag.is_some() {
+            self.drag_bar(at);
+            return;
+        }
+        self.hover_bars(at);
         if let Some((sash, from, areas)) = &self.group_drag {
             let sizes = group_sizes(*sash, &areas.clone(), (at.0 - from.0, at.1 - from.1));
             self.dispatch(Event::Ui(UiEvent::GroupSizes(sizes)));
@@ -1176,6 +1428,28 @@ impl Gui<'_> {
         }
     }
 }
+
+/// Which of a group's bars is held.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Bar {
+    Down,
+    Along,
+    Map,
+}
+
+/// A bar held: its group, which, and how far into the thumb it was
+/// grabbed, so the thumb stays under the mouse.
+#[derive(Clone, Copy, Debug)]
+struct BarDrag {
+    group: usize,
+    what: Bar,
+    grab: f32,
+}
+
+/// How long the thumbs show after the mouse leaves or the text stops, and
+/// how long they take to fade.
+const BARS_LINGER: Duration = Duration::from_millis(1000);
+const BARS_FADE: Duration = Duration::from_millis(300);
 
 /// The groups' sizes after the edge `sash` is dragged by `by` logical
 /// pixels from where it was, with the groups where `areas` had them: the

@@ -16,6 +16,7 @@ mod keys;
 mod layout;
 mod menu;
 mod mouse;
+mod overview;
 mod palette;
 mod panels;
 mod scroll;
@@ -38,9 +39,10 @@ pub use find::{FindAction, FindView};
 pub use keymap::{UserKey, When};
 pub use layout::Rect as CellRect;
 pub use menu::MenuView;
+pub use overview::{MINIMAP_COLUMNS, MinimapLine, MinimapView, ScrollbarView};
 pub use settings::Settings;
 pub use tabs::GroupView;
-pub use text_view::{CaretView, LineView, OVERSCAN, ScrollbarView, TextView};
+pub use text_view::{CaretView, LineView, OVERSCAN, TextView};
 pub use workspace::{GroupState, Tab, Workspace};
 pub use wrap::Row as WrapRow;
 
@@ -623,6 +625,12 @@ pub struct Editor {
     /// The lines folded away, for a document, version and set of folds.
     #[allow(clippy::type_complexity)]
     fold_cache: std::cell::RefCell<Option<((u64, u64, Vec<usize>), Vec<std::ops::Range<usize>>)>>,
+    /// The widest line, by document and version.
+    widest_cache: std::cell::Cell<Option<((u64, u64), usize)>>,
+    /// The minimap's lines, by document, version and colours.
+    #[allow(clippy::type_complexity)]
+    minimap_cache:
+        std::cell::RefCell<Option<((u64, u64, u64), std::rc::Rc<Vec<overview::MinimapLine>>)>>,
     /// The rows before each line, by document, version, width and folds.
     #[allow(clippy::type_complexity)]
     row_cache: std::cell::RefCell<
@@ -734,6 +742,8 @@ impl Editor {
             bracket_cache: Default::default(),
             fold_cache: Default::default(),
             row_cache: Default::default(),
+            widest_cache: Default::default(),
+            minimap_cache: Default::default(),
             hover: None,
             nerd: false,
             minimap: false,

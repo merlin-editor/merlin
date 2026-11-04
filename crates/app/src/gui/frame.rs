@@ -44,6 +44,13 @@ pub enum Hit {
     TabStrip(Option<usize>),
     /// An edge between editor groups, to drag.
     GroupSash(GroupSash),
+    /// A group's scrollbar: down the side, or along the bottom.
+    Scrollbar {
+        group: usize,
+        horizontal: bool,
+    },
+    /// A group's minimap.
+    Minimap(usize),
 }
 
 /// An edge between editor groups: after column `n`, or under group `n` in
@@ -59,8 +66,11 @@ pub enum GroupSash {
 pub struct GroupArea {
     pub tabs: Rect,
     pub crumbs: Option<Rect>,
-    /// The code: gutter, text, minimap and scrollbar.
+    /// The code: gutter and text.
     pub text: Rect,
+    /// Right of the code: the minimap, when it's on, then the scrollbar.
+    pub minimap: Option<Rect>,
+    pub bar: Rect,
 }
 
 /// The line between groups, and the room a sash takes on either side.
@@ -178,7 +188,7 @@ pub fn areas(view: &WindowView, w: f32, h: f32, gap: f32, sizes: &Sizes) -> Area
     });
     let editor_h = body_h - bottom.map_or(0.0, |b| b.h + gap);
     let editor = Rect::new(x, top, main_w, editor_h.max(0.0));
-    let (groups, group_sashes) = group_areas(editor, &view.groups);
+    let (groups, group_sashes) = group_areas(editor, &view.groups, view.minimap);
     let text = groups
         .iter()
         .zip(&view.groups)
@@ -199,7 +209,11 @@ pub fn areas(view: &WindowView, w: f32, h: f32, gap: f32, sizes: &Sizes) -> Area
 /// The editor groups' places in `editor`: columns left to right by their
 /// shares of the width, each column's groups top to bottom by theirs of
 /// its height, a divider between each.
-pub fn group_areas(editor: Rect, groups: &[GroupView]) -> (Vec<GroupArea>, Vec<(Rect, GroupSash)>) {
+pub fn group_areas(
+    editor: Rect,
+    groups: &[GroupView],
+    minimap: bool,
+) -> (Vec<GroupArea>, Vec<(Rect, GroupSash)>) {
     let n = groups.len().max(1);
     let heads: Vec<usize> = (0..groups.len())
         .filter(|&g| g == 0 || !groups[g].below)
@@ -233,7 +247,7 @@ pub fn group_areas(editor: Rect, groups: &[GroupView]) -> (Vec<GroupArea>, Vec<(
                 room_h * share(g, false) / total_h
             };
             let crumbs = groups.get(g).is_some_and(|v| !v.crumbs.is_empty());
-            areas.push(GroupArea::of(Rect::new(x, y, w, h), crumbs));
+            areas.push(GroupArea::of(Rect::new(x, y, w, h), crumbs, minimap));
             if g + 1 < end {
                 let r = Rect::new(x, y + h - SASH, w, DIVIDER + 2.0 * SASH);
                 sashes.push((r, GroupSash::Row(g)));
@@ -250,13 +264,23 @@ pub fn group_areas(editor: Rect, groups: &[GroupView]) -> (Vec<GroupArea>, Vec<(
 }
 
 impl GroupArea {
-    /// A group's tabs on top, then its breadcrumbs, then its code.
-    fn of(r: Rect, crumbs: bool) -> Self {
+    /// A group's tabs on top, then its breadcrumbs, then its code with
+    /// the minimap and scrollbar on its right. A narrow group drops the
+    /// minimap first.
+    fn of(r: Rect, crumbs: bool, minimap: bool) -> Self {
+        use super::overview::{MINIMAP_W, SCROLLBAR_W};
         let head = if crumbs { TABS_H + CRUMBS_H } else { TABS_H };
+        let (y, h) = (r.y + head + 4.0, (r.h - head - 4.0).max(0.0));
+        let bar = Rect::new(r.right() - SCROLLBAR_W, y, SCROLLBAR_W, h);
+        let minimap = (minimap && r.w > 3.0 * MINIMAP_W)
+            .then(|| Rect::new(bar.x - MINIMAP_W, y, MINIMAP_W, h));
+        let code_w = (minimap.map_or(bar.x, |m| m.x) - r.x).max(0.0);
         Self {
             tabs: Rect::new(r.x, r.y, r.w, TABS_H.min(r.h)),
             crumbs: crumbs.then(|| Rect::new(r.x, r.y + TABS_H, r.w, CRUMBS_H)),
-            text: Rect::new(r.x, r.y + head + 4.0, r.w, (r.h - head - 4.0).max(0.0)),
+            text: Rect::new(r.x, y, code_w, h),
+            minimap,
+            bar,
         }
     }
 }

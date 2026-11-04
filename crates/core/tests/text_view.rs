@@ -1,6 +1,7 @@
 //! The text as data, for windows that draw it themselves: lines with their
 //! colours and styles, and the cursors in columns.
 
+use merlin_core::Syntax;
 use merlin_core::script::Session;
 use merlin_core::style::Style;
 
@@ -21,7 +22,6 @@ fn lines_on_screen_with_their_numbers() {
     assert_eq!(texts, ["fn main() {", "    let x = 1;", "}", ""]);
     assert_eq!(view.lines[1].number.trim(), "2");
     assert_eq!(view.lines[1].row, 1);
-    assert!(!view.beyond.is_empty(), "rows past the end");
 }
 
 #[test]
@@ -222,4 +222,70 @@ fn a_press_in_another_group_focuses_it() {
         .find(|v| v.group == 1)
         .unwrap();
     assert_eq!(right.scroll, 1);
+}
+
+#[test]
+fn the_scrollbar_marks_rows_of_the_file() {
+    use merlin_core::{Diagnostic, Event, Severity};
+    let text: String = (0..100).map(|i| format!("line {i}\n")).collect();
+    let mut s = window(&text, 10);
+    s.send(Event::SetDiagnostics {
+        plugin: "lsp".into(),
+        path: "notes.txt".into(),
+        diagnostics: vec![Diagnostic {
+            start: (50, 0),
+            end: (50, 4),
+            severity: Severity::Error,
+            message: "bad".into(),
+        }],
+    });
+    s.run("key ctrl+g; type 76; key enter; key shift+end");
+    let view = s.editor.text_views().pop().unwrap();
+    let mark = |style: Style| {
+        view.scrollbar
+            .marks
+            .iter()
+            .find(|(_, st)| *st == style)
+            .map(|(at, _)| *at)
+    };
+    // 101 rows: the last line is empty.
+    assert_eq!(mark(Style::GutterError), Some(50.0 / 101.0));
+    assert_eq!(mark(Style::Selection), Some(75.0 / 101.0), "the selection");
+    assert_eq!(view.scrollbar.widest, Some(7));
+    assert_eq!(view.total_rows, 101);
+}
+
+#[test]
+fn the_minimap_is_each_line_in_runs_of_colour() {
+    use merlin_core::Event;
+    let mut s = window("fn main() {\n    go(1);\n}\n", 10);
+    assert!(
+        s.editor.text_views().pop().unwrap().minimap.is_none(),
+        "off"
+    );
+    s.run("cmd view.minimap");
+    s.send(Event::SetTokens {
+        path: "notes.txt".into(),
+        layer: merlin_core::layers::Layer::Base,
+        lines: None,
+        tokens: vec![merlin_core::lang::PluginToken {
+            start: (0, 0),
+            end: (0, 2),
+            kind: Syntax::Keyword,
+        }],
+    });
+    let map = s.editor.text_views().pop().unwrap().minimap.unwrap();
+    // `fn` a keyword, then `main()` and `{` plain, with the gaps between.
+    assert_eq!(
+        map.lines[0],
+        [
+            (0, 2, Syntax::Keyword),
+            (3, 6, Syntax::Plain),
+            (10, 1, Syntax::Plain)
+        ]
+    );
+    assert_eq!(map.lines[1], [(4, 6, Syntax::Plain)], "indent left out");
+    // The same text and colours: the same lines, not built again.
+    let again = s.editor.text_views().pop().unwrap().minimap.unwrap();
+    assert!(std::rc::Rc::ptr_eq(&map.lines, &again.lines));
 }

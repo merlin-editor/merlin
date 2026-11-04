@@ -52,6 +52,8 @@ pub struct Layers {
     pub symbols: Option<Vec<DocSymbol>>,
     /// Blocks that fold: where their first and last lines start.
     pub folds: Option<Vec<(usize, usize)>>,
+    /// Goes up each time the colours change, for what's kept of them.
+    pub colours: u64,
 }
 
 impl Layers {
@@ -79,6 +81,7 @@ impl Layers {
 
     /// Replaces a layer's tokens within `within`, or all of them.
     pub fn set(&mut self, layer: Layer, within: Option<Range<usize>>, mut tokens: Vec<Token>) {
+        self.colours += 1;
         let list = match layer {
             Layer::Base => self.base.get_or_insert_with(Vec::new),
             Layer::Semantic => &mut self.semantic,

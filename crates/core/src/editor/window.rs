@@ -120,6 +120,8 @@ pub struct WindowView {
     /// The page the active tab shows instead of text, by name, such as a
     /// plugin's.
     pub page: Option<String>,
+    /// Whether the minimap shows beside the code.
+    pub minimap: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -387,6 +389,7 @@ impl Editor {
             groups,
             focus: self.focus,
             page: self.doc().page.as_ref().map(|(name, _)| name.clone()),
+            minimap: self.minimap,
         }
     }
 

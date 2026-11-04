@@ -106,6 +106,7 @@ impl Editor {
                     .map(|&(start, end, kind)| Token { start, end, kind })
                     .collect();
                 doc.layers.base = Some(tokens);
+                doc.layers.colours += 1;
             }
         }
         let mut done = self.colours.done.borrow_mut();
@@ -132,6 +133,7 @@ impl Editor {
                 .map(|(start, end, kind)| Token { start, end, kind })
                 .collect();
             self.docs[i].layers.base = Some(tokens);
+            self.docs[i].layers.colours += 1;
         }
     }
 }

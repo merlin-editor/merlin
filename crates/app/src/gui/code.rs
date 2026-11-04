@@ -336,45 +336,6 @@ impl Fonts {
             }
         }
 
-        // The scrollbar: a slim rounded thumb, with ticks for changes,
-        // matches and problems.
-        if let Some(bar) = &view.scrollbar {
-            let x0 = ox + w - cw;
-            let track = bottom - top;
-            let thumb_h = (bar.len * track).max(20.0 * s);
-            let y = top + bar.top * track;
-            canvas.scene.prims.push(Prim::Quad {
-                rect: [x0 + cw * 0.2, y, x0 + cw * 0.8, (y + thumb_h).min(bottom)],
-                radius: cw * 0.3,
-                fill: p.muted,
-                alpha: 70,
-                border: 0,
-                border_w: 0.0,
-            });
-            for &(at, style) in &bar.marks {
-                let colour = match style {
-                    Style::GitAdded => p.success,
-                    Style::GitChanged => p.info,
-                    Style::GitRemoved => p.error,
-                    Style::ScrollMatch => p.find_current,
-                    Style::GutterError => p.error,
-                    _ => p.warning,
-                };
-                let my = top + at * track;
-                let (a, b) = match style {
-                    Style::GitAdded | Style::GitChanged | Style::GitRemoved => (0.0, 0.3),
-                    Style::ScrollMatch => (0.3, 0.7),
-                    _ => (0.7, 1.0),
-                };
-                quad(
-                    canvas,
-                    [x0 + cw * a, my, x0 + cw * b, my + (2.0 * s).max(2.0)],
-                    0.0,
-                    colour,
-                );
-            }
-        }
-
         // The cursors: thin bars, every one of them.
         if view.focused && caret_on {
             let beam = (2.0 * s).round().max(2.0);
@@ -404,8 +365,7 @@ impl Fonts {
                 carets: Vec::new(),
                 focused: false,
                 sticky: Vec::new(),
-                scrollbar: None,
-                beyond: Vec::new(),
+                minimap: None,
                 top_frac: 0.0,
                 ..view.clone()
             };

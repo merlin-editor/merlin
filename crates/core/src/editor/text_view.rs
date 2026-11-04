@@ -11,6 +11,7 @@
 use merlin_syntax::Syntax;
 
 use super::layout::Rect;
+use super::overview::{MinimapView, ScrollbarView};
 use super::wrap::{self, Row};
 use super::{Editor, Focus, fold, guides, line_matches};
 use crate::diff::{LineKind, Sign};
@@ -47,25 +48,13 @@ pub struct TextView {
     /// Lines just out of view kept above and below, for a window to scroll
     /// smoothly into: see [`OVERSCAN`].
     pub overscan: u16,
-    /// Lines past the end of the file, drawn as `~`, by screen row.
-    pub beyond: Vec<u16>,
     /// Every cursor, the primary one first.
     pub carets: Vec<CaretView>,
     /// Lines sticky scroll pins over the top, from the top row down.
     pub sticky: Vec<LineView>,
-    /// The scrollbar, when the file is longer than the view.
-    pub scrollbar: Option<ScrollbarView>,
-}
-
-/// The scrollbar, in parts of the track from its top: the thumb, and marks
-/// for changes, matches and problems, as VS Code's overview ruler has them.
-#[derive(Clone, Debug, PartialEq)]
-pub struct ScrollbarView {
-    pub top: f32,
-    pub len: f32,
-    /// Where each mark is, and what it is: `GitAdded`, `GitChanged`,
-    /// `GitRemoved`, `ScrollMatch`, `GutterError` or `GutterWarning`.
-    pub marks: Vec<(f32, Style)>,
+    /// The scrollbar's ruler, and the minimap when it's on.
+    pub scrollbar: ScrollbarView,
+    pub minimap: Option<MinimapView>,
 }
 
 /// A line of the file on screen.
@@ -217,8 +206,7 @@ impl Editor {
                     total_rows: rows.len(),
                     area: rect,
                     gutter,
-                    // The right half's last column is the scrollbar.
-                    columns: (rect.w as usize).saturating_sub(gutter + !old as usize),
+                    columns: (rect.w as usize).saturating_sub(gutter),
                     overscan: 0,
                     signs: true,
                     scroll: v.scroll,
@@ -227,10 +215,10 @@ impl Editor {
                     wrapping: false,
                     focused,
                     lines,
-                    beyond: Vec::new(),
                     carets: Vec::new(),
                     sticky: Vec::new(),
-                    scrollbar: if old { None } else { self.scrollbar_view(area) },
+                    scrollbar: self.scrollbar_view(),
+                    minimap: None,
                 }
             })
             .collect()
@@ -298,22 +286,15 @@ impl Editor {
             wrapping,
             focused,
             lines: Vec::new(),
-            beyond: Vec::new(),
             carets: Vec::new(),
             sticky: Vec::new(),
-            scrollbar: None,
+            scrollbar: self.scrollbar_view(),
+            minimap: self.minimap_view(),
         };
         let bottom = area.h as i32 + overscan as i32;
         let mut row = -above;
         let mut line = first;
-        while row < bottom {
-            if line >= lines {
-                if (0..area.h as i32).contains(&row) {
-                    view.beyond.push(row as u16);
-                }
-                row += 1;
-                continue;
-            }
+        while row < bottom && line < lines {
             if let Some(fold) = hidden.iter().find(|r| r.contains(&line)) {
                 line = fold.end;
                 // Brackets in the folded lines still count.
@@ -489,7 +470,6 @@ impl Editor {
             .enumerate()
             .map(|(row, line)| self.plain_line(line, row as i32, gutter, signs))
             .collect();
-        view.scrollbar = self.scrollbar_view(area);
         view.carets = self
             .carets()
             .iter()
@@ -546,44 +526,6 @@ impl Editor {
             guides: vec![None; n],
             eol_selected: false,
         }
-    }
-
-    fn scrollbar_view(&self, area: Rect) -> Option<ScrollbarView> {
-        let doc = self.doc();
-        let lines = doc.last_line() + 1;
-        let h = area.h as usize;
-        if lines <= h || h == 0 {
-            return None;
-        }
-        let at = |line: usize| line as f32 / lines as f32;
-        let mut marks = Vec::new();
-        for (line, sign) in doc.git_signs.iter().enumerate() {
-            let style = match sign {
-                Some(Sign::Added) => Style::GitAdded,
-                Some(Sign::Changed) => Style::GitChanged,
-                Some(Sign::Removed) => Style::GitRemoved,
-                None => continue,
-            };
-            marks.push((at(line), style));
-        }
-        if let Some((query, fold)) = self.query() {
-            for m in self.all_matches(&query, fold) {
-                marks.push((at(doc.line_col(m).0), Style::ScrollMatch));
-            }
-        }
-        for mark in &doc.marks {
-            let style = match mark.severity {
-                Severity::Error => Style::GutterError,
-                Severity::Warning => Style::GutterWarning,
-                _ => continue,
-            };
-            marks.push((at(doc.line_col(mark.start).0), style));
-        }
-        Some(ScrollbarView {
-            top: at(self.view().scroll),
-            len: h as f32 / lines as f32,
-            marks,
-        })
     }
 }
 
