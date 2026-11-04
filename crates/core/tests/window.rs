@@ -112,3 +112,35 @@ fn the_palette_lists_commands_and_runs_a_clicked_one() {
     assert!(s.editor.wrap());
     assert_eq!(s.editor.focus(), Focus::Editor);
 }
+
+#[test]
+fn the_theme_picker_previews_and_esc_puts_the_old_one_back() {
+    use merlin_core::Effect;
+    let mut s = windowed();
+    s.send(Event::Themes {
+        themes: vec!["merlin Dark".into(), "Fuji".into(), "Matcha".into()],
+        current: "merlin Dark".into(),
+    });
+    s.send(Event::Command("theme.pick".into()));
+    let palette = s.editor.window_view().palette.expect("the picker is open");
+    assert_eq!(palette.kind, "Themes");
+    assert_eq!(palette.selected, 0, "the theme in use is selected");
+    s.effects.clear();
+    s.run("key down");
+    assert_eq!(s.effects, [Effect::PreviewTheme("Fuji".into())]);
+    s.effects.clear();
+    s.run("key esc");
+    assert_eq!(s.effects, [Effect::PreviewTheme("merlin Dark".into())]);
+
+    s.send(Event::Command("theme.pick".into()));
+    s.run("type mat");
+    s.effects.clear();
+    s.run("key enter");
+    assert_eq!(s.effects, [Effect::SetTheme("Matcha".into())]);
+    s.send(Event::Command("theme.pick".into()));
+    let palette = s.editor.window_view().palette.expect("the picker is open");
+    assert_eq!(
+        palette.items[palette.selected].0, "Matcha",
+        "it opens on the new one"
+    );
+}

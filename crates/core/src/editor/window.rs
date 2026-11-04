@@ -288,6 +288,7 @@ impl Editor {
                 Source::Line => "Go to Line",
                 Source::Symbols => "Symbols",
                 Source::Picker { .. } => "Pick",
+                Source::Themes { .. } => "Themes",
             },
             items: self
                 .palette_items()

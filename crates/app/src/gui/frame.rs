@@ -7,22 +7,7 @@ use merlin_core::panel::{Entry, Node, Tone};
 use merlin_core::{Key, KeyCode, PaletteView, Side, SideView, ToastView, UiEvent, WindowView};
 
 use super::canvas::{Canvas, Face, Rect, Text};
-use crate::theme;
-
-pub const GROUND: u32 = 0x0f1012;
-pub const ISLAND: u32 = 0x17181b;
-const RAISED: u32 = 0x1f2024;
-const HOVER: u32 = 0x1d1e22;
-const SELECTED: u32 = 0x24262c;
-const LINE: u32 = 0x222328;
-const CHIP: u32 = 0x26272c;
-const TEXT: u32 = 0xd4d5da;
-const BRIGHT: u32 = 0xeef0f3;
-const MUTED: u32 = 0x8e9099;
-const RED: u32 = 0xf0807a;
-const YELLOW: u32 = 0xe3b341;
-const GREEN: u32 = 0x6cc070;
-pub const ACCENT: u32 = 0x7c9cff;
+use crate::theme::{self, Palette, mix};
 
 const TITLE_H: f32 = 40.0;
 const STATUS_H: f32 = 26.0;
@@ -83,6 +68,7 @@ pub struct Frame<'a> {
     pub pointer: Option<(f32, f32)>,
     pub hits: Vec<(Rect, Hit)>,
     pub radius: f32,
+    pub p: Palette,
 }
 
 pub fn areas(view: &WindowView, w: f32, h: f32, gap: f32) -> Areas {
@@ -143,7 +129,8 @@ impl Frame<'_> {
     /// Everything under the code: ground, title bar, rail, islands and
     /// their contents, and the status bar.
     pub fn base(&mut self, view: &WindowView, a: &Areas, state: &mut State, w: f32, h: f32) {
-        self.canvas.fill(Rect::new(0.0, 0.0, w, h), GROUND);
+        let p = self.p;
+        self.canvas.fill(Rect::new(0.0, 0.0, w, h), p.ground);
         self.title_bar(view, w);
         self.rail(view, h);
         for (side, area) in [
@@ -157,11 +144,11 @@ impl Frame<'_> {
                 Side::Bottom => &view.bottom,
             };
             if let (Some(area), Some(sv)) = (area, sv) {
-                self.canvas.round(area, self.radius, ISLAND);
+                self.canvas.round(area, self.radius, p.island);
                 self.side(sv, side, area, state);
             }
         }
-        self.canvas.round(a.editor, self.radius, ISLAND);
+        self.canvas.round(a.editor, self.radius, p.island);
         self.tabs(view, a.editor);
         if !view.crumbs.is_empty() {
             self.crumbs(view, a.editor);
@@ -181,11 +168,13 @@ impl Frame<'_> {
     }
 
     fn icon_button(&mut self, r: Rect, glyph: char, on: bool, hit: Hit) {
+        let p = self.p;
         let hovered = self.hovered(r);
         if hovered || on {
-            self.canvas.round(r, 6.0, if on { RAISED } else { HOVER });
+            self.canvas
+                .round(r, 6.0, if on { p.raised } else { p.hover });
         }
-        let colour = if on || hovered { BRIGHT } else { MUTED };
+        let colour = if on || hovered { p.bright } else { p.muted };
         let face = Face::mono(15.0);
         let gw = self.text.width(&glyph.to_string(), face);
         let clip = r;
@@ -203,6 +192,7 @@ impl Frame<'_> {
     }
 
     fn title_bar(&mut self, view: &WindowView, w: f32) {
+        let p = self.p;
         let bar = Rect::new(0.0, 0.0, w, TITLE_H);
         let ui = Face::ui(13.0);
         // The menus, behind one button.
@@ -218,9 +208,9 @@ impl Frame<'_> {
         let name_w = self.text.width(&view.project, ui.bold());
         let project = Rect::new(x, 6.0, name_w + 40.0, 28.0);
         if self.hovered(project) {
-            self.canvas.round(project, 6.0, HOVER);
+            self.canvas.round(project, 6.0, p.hover);
         }
-        self.canvas.round(mark, 5.0, ACCENT);
+        self.canvas.round(mark, 5.0, p.accent);
         let m = "m";
         let mw = self.text.width(m, Face::ui(11.0).bold());
         self.text.draw_in_row(
@@ -230,7 +220,7 @@ impl Frame<'_> {
             mark.x + (18.0 - mw) / 2.0,
             mark.y,
             18.0,
-            GROUND,
+            p.ground,
             mark,
         );
         self.text.draw_in_row(
@@ -240,7 +230,7 @@ impl Frame<'_> {
             x + 32.0,
             6.0,
             28.0,
-            BRIGHT,
+            p.bright,
             bar,
         );
         self.hit(project, Hit::Command("file.open"));
@@ -250,10 +240,18 @@ impl Frame<'_> {
             let bw = self.text.width(&label, ui);
             let r = Rect::new(x, 6.0, bw + 16.0, 28.0);
             if self.hovered(r) {
-                self.canvas.round(r, 6.0, HOVER);
+                self.canvas.round(r, 6.0, p.hover);
             }
-            self.text
-                .draw_in_row(&mut self.canvas, &label, ui, x + 8.0, 6.0, 28.0, MUTED, bar);
+            self.text.draw_in_row(
+                &mut self.canvas,
+                &label,
+                ui,
+                x + 8.0,
+                6.0,
+                28.0,
+                p.muted,
+                bar,
+            );
             self.hit(r, Hit::Ui(UiEvent::Rail(2)));
         }
         // The one search box.
@@ -261,7 +259,7 @@ impl Frame<'_> {
         let search = Rect::new((w - sw) / 2.0, 6.0, sw, 28.0);
         let hovered = self.hovered(search);
         self.canvas
-            .round(search, 7.0, if hovered { 0x202126 } else { 0x1a1b1f });
+            .round(search, 7.0, if hovered { p.widget } else { p.raised });
         self.text.draw_in_row(
             &mut self.canvas,
             "\u{ea6d}",
@@ -269,7 +267,7 @@ impl Frame<'_> {
             search.x + 10.0,
             search.y,
             28.0,
-            MUTED,
+            p.muted,
             search,
         );
         let hint = self.text.fit(
@@ -284,7 +282,7 @@ impl Frame<'_> {
             search.x + 30.0,
             search.y,
             28.0,
-            MUTED,
+            p.muted,
             search,
         );
         self.chip("Ctrl P", search.right() - 8.0, search.y + 6.0, true);
@@ -311,33 +309,43 @@ impl Frame<'_> {
 
     /// A key or label in a small grey box, ending at `right`.
     fn chip(&mut self, label: &str, right: f32, y: f32, end: bool) -> f32 {
+        let p = self.p;
         let face = Face::ui(11.0);
         let tw = self.text.width(label, face);
         let x = if end { right - tw - 12.0 } else { right };
         let r = Rect::new(x, y, tw + 12.0, 16.0);
-        self.canvas.round(r, 4.0, CHIP);
-        self.text
-            .draw_in_row(&mut self.canvas, label, face, x + 6.0, y, 16.0, 0xb4b6bd, r);
+        self.canvas.round(r, 4.0, p.chip);
+        self.text.draw_in_row(
+            &mut self.canvas,
+            label,
+            face,
+            x + 6.0,
+            y,
+            16.0,
+            p.chip_text,
+            r,
+        );
         r.w
     }
 
     fn rail(&mut self, view: &WindowView, h: f32) {
+        let p = self.p;
         let mut y = TITLE_H + 2.0;
         for (i, item) in view.rail.iter().enumerate() {
             let r = Rect::new(4.0, y, 36.0, 36.0);
             let hovered = self.hovered(r);
             if item.active {
-                self.canvas.round(r, 8.0, RAISED);
+                self.canvas.round(r, 8.0, p.raised);
             } else if hovered {
-                self.canvas.round(r, 8.0, HOVER);
+                self.canvas.round(r, 8.0, p.hover);
             }
             let face = Face::mono(18.0);
             let g = item.glyph.to_string();
             let gw = self.text.width(&g, face);
             let colour = if item.active || hovered {
-                BRIGHT
+                p.bright
             } else {
-                MUTED
+                p.muted
             };
             self.text.draw_in_row(
                 &mut self.canvas,
@@ -358,7 +366,7 @@ impl Frame<'_> {
                 let face = Face::ui(10.0).bold();
                 let bw = self.text.width(&label, face).max(7.0) + 8.0;
                 let b = Rect::new(r.right() - bw + 1.0, y + 3.0, bw, 15.0);
-                self.canvas.round(b, 7.5, ACCENT);
+                self.canvas.round(b, 7.5, p.accent);
                 self.text.draw_in_row(
                     &mut self.canvas,
                     &label,
@@ -366,7 +374,7 @@ impl Frame<'_> {
                     b.x + 4.0,
                     b.y,
                     15.0,
-                    GROUND,
+                    p.ground,
                     b,
                 );
             }
@@ -379,6 +387,7 @@ impl Frame<'_> {
     }
 
     fn side(&mut self, sv: &SideView, side: Side, area: Rect, state: &mut State) {
+        let p = self.p;
         let header = Rect::new(area.x, area.y, area.w, HEADER_H);
         // The rail picks what the side bars show; the panel under the editor
         // has its own tabs: Problems and Output.
@@ -390,11 +399,11 @@ impl Frame<'_> {
                 let tw = self.text.width(title, face);
                 let r = Rect::new(x, area.y + 7.0, tw + 20.0, 24.0);
                 if *on {
-                    self.canvas.round(r, 6.0, RAISED);
+                    self.canvas.round(r, 6.0, p.raised);
                 } else if self.hovered(r) {
-                    self.canvas.round(r, 6.0, HOVER);
+                    self.canvas.round(r, 6.0, p.hover);
                 }
-                let colour = if *on { BRIGHT } else { MUTED };
+                let colour = if *on { p.bright } else { p.muted };
                 self.text.draw_in_row(
                     &mut self.canvas,
                     title,
@@ -423,7 +432,7 @@ impl Frame<'_> {
                 area.x + 14.0,
                 area.y,
                 HEADER_H,
-                BRIGHT,
+                p.bright,
                 header,
             );
         }
@@ -500,14 +509,15 @@ impl Frame<'_> {
         selected: bool,
         clip: Rect,
     ) {
+        let p = self.p;
         let inner = r.w - 28.0;
         let row_bg = |frame: &mut Self, row: Rect| {
             let bg = if selected && sv.focused {
-                0x262b3d
+                p.focus_row
             } else if selected {
-                SELECTED
+                p.selected
             } else if frame.hovered(row) {
-                HOVER
+                p.hover
             } else {
                 return;
             };
@@ -523,7 +533,7 @@ impl Frame<'_> {
                     r.x + 14.0,
                     r.y + 4.0,
                     26.0,
-                    MUTED,
+                    p.muted,
                     clip,
                 );
             }
@@ -534,7 +544,7 @@ impl Frame<'_> {
                     Face::ui(12.5),
                     r.x + 14.0,
                     r.y + 4.0,
-                    TEXT,
+                    p.text,
                     clip,
                     Some(inner),
                 );
@@ -546,7 +556,7 @@ impl Frame<'_> {
                     Face::ui(12.5),
                     r.x + 14.0,
                     r.y + 4.0,
-                    tone_colour(*tone),
+                    tone_colour(&p, *tone),
                     clip,
                     Some(inner),
                 );
@@ -558,7 +568,7 @@ impl Frame<'_> {
                     Face::ui(12.5),
                     r.x + 14.0,
                     r.y + 4.0,
-                    TEXT,
+                    p.text,
                     clip,
                     Some(inner),
                 );
@@ -574,7 +584,7 @@ impl Frame<'_> {
                     r.x + 14.0,
                     r.y,
                     r.h,
-                    tone_colour(*tone),
+                    tone_colour(&p, *tone),
                     clip,
                 );
                 if let Some(index) = target {
@@ -636,8 +646,8 @@ impl Frame<'_> {
             } => {
                 let b = Rect::new(r.x + 10.0, r.y + 5.0, r.w - 20.0, 30.0);
                 let focused = selected && sv.focused;
-                let border = if focused { ACCENT } else { 0x2a2b31 };
-                self.canvas.outline(b, 7.0, 1.0, border, RAISED);
+                let border = if focused { p.accent } else { p.border };
+                self.canvas.outline(b, 7.0, 1.0, border, p.raised);
                 let typed = sv
                     .inputs
                     .iter()
@@ -651,9 +661,9 @@ impl Frame<'_> {
                 };
                 let face = Face::ui(13.0);
                 let (label, colour) = if shown.is_empty() {
-                    (placeholder.as_str(), MUTED)
+                    (placeholder.as_str(), p.muted)
                 } else {
-                    (shown.as_str(), TEXT)
+                    (shown.as_str(), p.text)
                 };
                 let tw = self.text.draw_in_row(
                     &mut self.canvas,
@@ -672,7 +682,7 @@ impl Frame<'_> {
                         b.x + 10.0 + tw
                     };
                     self.canvas
-                        .fill(Rect::new(cx, b.y + 7.0, 1.5, b.h - 14.0), ACCENT);
+                        .fill(Rect::new(cx, b.y + 7.0, 1.5, b.h - 14.0), p.accent);
                 }
                 if let Some(index) = target {
                     self.hit(b, Hit::Ui(UiEvent::Target { side, index }));
@@ -680,7 +690,7 @@ impl Frame<'_> {
             }
             Node::Divider => {
                 self.canvas
-                    .fill(Rect::new(r.x + 14.0, r.y + 6.0, r.w - 28.0, 1.0), LINE);
+                    .fill(Rect::new(r.x + 14.0, r.y + 6.0, r.w - 28.0, 1.0), p.line);
             }
             Node::Footer => {}
         }
@@ -688,13 +698,14 @@ impl Frame<'_> {
 
     /// A tree row: indent, arrow, icon, name, detail, and a badge at the end.
     fn entry(&mut self, e: &Entry, row: Rect, clip: Rect) {
+        let p = self.p;
         let mut x = row.x + 8.0 + e.depth as f32 * 14.0;
         let mid = row.y + row.h / 2.0;
         // Folders have an open or closed arrow; files a blank in its place.
         let folder = match e.twisty {
             Some(t @ ('▾' | '▸' | '\u{eab4}' | '\u{eab6}')) => {
                 let open = matches!(t, '▾' | '\u{eab4}');
-                self.canvas.chevron(x + 5.0, mid, 7.0, open, MUTED);
+                self.canvas.chevron(x + 5.0, mid, 7.0, open, p.muted);
                 x += 16.0;
                 true
             }
@@ -710,7 +721,7 @@ impl Frame<'_> {
                 .rsplit_once('.')
                 .map(|(_, ext)| ext)
                 .filter(|ext| !ext.is_empty() && ext.len() <= 4 && !folder);
-            let colour = theme::hue(hue);
+            let colour = theme::hue(&p, hue);
             match ext {
                 Some(ext) => self.badge(ext, x, mid - 8.0, 16.0, colour),
                 None => {
@@ -739,8 +750,8 @@ impl Frame<'_> {
             .max(0.0);
         let label = self.text.fit(&e.label, face, room);
         let colour = match e.tone {
-            Tone::Normal => 0xc4c6cc,
-            tone => tone_colour(tone),
+            Tone::Normal => p.text,
+            tone => tone_colour(&p, tone),
         };
         let lw = self.text.draw_in_row(
             &mut self.canvas,
@@ -761,7 +772,7 @@ impl Frame<'_> {
                 x + lw + 8.0,
                 row.y,
                 row.h,
-                MUTED,
+                p.muted,
                 clip,
             );
         }
@@ -769,10 +780,10 @@ impl Frame<'_> {
         if !e.badge.is_empty() {
             let face = Face::ui(11.0).bold();
             let bw = self.text.width(&e.badge, face);
-            let colour = tone_colour(e.badge_tone);
+            let colour = tone_colour(&p, e.badge_tone);
             if e.badge_tone == Tone::Badge {
                 let pill = Rect::new(right - bw - 10.0, mid - 8.0, bw + 10.0, 16.0);
-                self.canvas.round(pill, 8.0, CHIP);
+                self.canvas.round(pill, 8.0, p.chip);
                 self.text.draw_in_row(
                     &mut self.canvas,
                     &e.badge,
@@ -780,7 +791,7 @@ impl Frame<'_> {
                     pill.x + 5.0,
                     pill.y,
                     16.0,
-                    TEXT,
+                    p.text,
                     clip,
                 );
             } else {
@@ -801,7 +812,7 @@ impl Frame<'_> {
             && self.hovered(row)
         {
             let a = Rect::new(right - 20.0, row.y + 3.0, 20.0, 20.0);
-            self.canvas.round(a, 5.0, CHIP);
+            self.canvas.round(a, 5.0, p.chip);
             let g = glyph.to_string();
             let gw = self.text.width(&g, Face::mono(13.0));
             self.text.draw_in_row(
@@ -811,7 +822,7 @@ impl Frame<'_> {
                 a.x + (20.0 - gw) / 2.0,
                 a.y,
                 20.0,
-                BRIGHT,
+                p.bright,
                 clip,
             );
         }
@@ -819,8 +830,9 @@ impl Frame<'_> {
 
     /// A file type's letters in a small rounded square of its colour.
     fn badge(&mut self, ext: &str, x: f32, y: f32, size: f32, colour: u32) {
+        let p = self.p;
         let r = Rect::new(x, y, size, size);
-        self.canvas.round(r, 4.0, mix(colour, ISLAND, 0.22));
+        self.canvas.round(r, 4.0, mix(colour, p.island, 0.22));
         let label: String = ext.chars().take(2).collect::<String>().to_uppercase();
         let face = Face::ui(size * 0.5).bold();
         let lw = self.text.width(&label, face);
@@ -837,6 +849,7 @@ impl Frame<'_> {
     }
 
     fn button(&mut self, label: &str, x: f32, y: f32, focused: bool, primary: bool) -> f32 {
+        let p = self.p;
         let face = Face::ui(13.0).medium();
         let tw = self.text.width(label, face);
         let r = Rect::new(x, y, tw + 28.0, 30.0);
@@ -844,22 +857,22 @@ impl Frame<'_> {
         let (bg, fg) = if primary {
             (
                 if hovered {
-                    mix(ACCENT, 0xffffff, 0.88)
+                    mix(p.accent, 0xffffff, 0.88)
                 } else {
-                    ACCENT
+                    p.accent
                 },
-                GROUND,
+                p.ground,
             )
         } else {
-            (if hovered { 0x2c2d33 } else { CHIP }, BRIGHT)
+            (if hovered { p.border } else { p.chip }, p.bright)
         };
         if focused {
             self.canvas.outline(
                 Rect::new(x - 2.0, y - 2.0, r.w + 4.0, 34.0),
                 9.0,
                 1.5,
-                ACCENT,
-                ISLAND,
+                p.accent,
+                p.island,
             );
         }
         self.canvas.round(r, 7.0, bg);
@@ -869,10 +882,11 @@ impl Frame<'_> {
     }
 
     fn tabs(&mut self, view: &WindowView, editor: Rect) {
+        let p = self.p;
         let row = Rect::new(editor.x, editor.y, editor.w, TABS_H);
         self.canvas.fill(
             Rect::new(editor.x, editor.y + TABS_H - 1.0, editor.w, 1.0),
-            LINE,
+            p.line,
         );
         let mut x = editor.x + 6.0;
         let end = editor.right() - 70.0;
@@ -890,17 +904,17 @@ impl Frame<'_> {
             let r = Rect::new(x, editor.y, w, TABS_H - 1.0);
             let hovered = self.hovered(r);
             if tab.active {
-                self.canvas.fill(r, RAISED);
+                self.canvas.fill(r, p.raised);
                 self.canvas.round(
                     Rect::new(r.x + 8.0, r.bottom() - 1.0, r.w - 16.0, 2.0),
                     1.0,
-                    ACCENT,
+                    p.accent,
                 );
             } else if hovered {
-                self.canvas.fill(r, HOVER);
+                self.canvas.fill(r, p.hover);
             }
             let ext = tab.name.rsplit_once('.').map_or("", |(_, e)| e);
-            let colour = theme::hue(tab.icon.1);
+            let colour = theme::hue(&p, tab.icon.1);
             if ext.is_empty() {
                 self.text.draw_in_row(
                     &mut self.canvas,
@@ -915,7 +929,7 @@ impl Frame<'_> {
             } else {
                 self.badge(ext, x + 12.0, r.y + (r.h - 14.0) / 2.0, 14.0, colour);
             }
-            let fg = if tab.active { BRIGHT } else { MUTED };
+            let fg = if tab.active { p.bright } else { p.muted };
             self.text.draw_in_row(
                 &mut self.canvas,
                 &tab.name,
@@ -936,7 +950,7 @@ impl Frame<'_> {
             };
             if let Some(mark) = mark {
                 if mark == '×' && self.hovered(close) {
-                    self.canvas.round(close, 4.0, CHIP);
+                    self.canvas.round(close, 4.0, p.chip);
                 }
                 let face = Face::ui(if mark == '●' { 10.0 } else { 14.0 });
                 let mw = self.text.width(&mark.to_string(), face);
@@ -947,7 +961,7 @@ impl Frame<'_> {
                     close.x + (18.0 - mw) / 2.0,
                     close.y,
                     18.0,
-                    MUTED,
+                    p.muted,
                     row,
                 );
             }
@@ -977,6 +991,7 @@ impl Frame<'_> {
     }
 
     fn crumbs(&mut self, view: &WindowView, editor: Rect) {
+        let p = self.p;
         let row = Rect::new(editor.x, editor.y + TABS_H, editor.w, CRUMBS_H);
         let face = Face::ui(12.0);
         let mut x = editor.x + 16.0;
@@ -986,9 +1001,13 @@ impl Frame<'_> {
             let r = Rect::new(x - 3.0, row.y + 4.0, tw + 6.0, CRUMBS_H - 8.0);
             let hovered = self.hovered(r);
             if hovered {
-                self.canvas.round(r, 4.0, HOVER);
+                self.canvas.round(r, 4.0, p.hover);
             }
-            let colour = if i == last || hovered { TEXT } else { MUTED };
+            let colour = if i == last || hovered {
+                p.text
+            } else {
+                p.muted
+            };
             self.text
                 .draw_in_row(&mut self.canvas, crumb, face, x, row.y, row.h, colour, row);
             self.hit(r, Hit::Ui(UiEvent::Crumb(i)));
@@ -1001,7 +1020,7 @@ impl Frame<'_> {
                     x + 6.0,
                     row.y,
                     row.h,
-                    MUTED,
+                    p.muted,
                     row,
                 );
                 x += 20.0;
@@ -1013,6 +1032,7 @@ impl Frame<'_> {
     }
 
     fn status(&mut self, view: &WindowView, w: f32, h: f32) {
+        let p = self.p;
         let bar = Rect::new(0.0, h - STATUS_H, w, STATUS_H);
         let face = Face::ui(12.0);
         let mut x = RAIL_W + 12.0;
@@ -1026,9 +1046,9 @@ impl Frame<'_> {
             let tw = self.text.width(&item.text, face);
             let r = Rect::new(x - 6.0, bar.y + 3.0, tw + 12.0, STATUS_H - 6.0);
             if item.clickable && self.hovered(r) {
-                self.canvas.round(r, 5.0, HOVER);
+                self.canvas.round(r, 5.0, p.hover);
             }
-            let colour = if item.accent { ACCENT } else { MUTED };
+            let colour = if item.accent { p.accent } else { p.muted };
             self.text.draw_in_row(
                 &mut self.canvas,
                 &item.text,
@@ -1051,10 +1071,10 @@ impl Frame<'_> {
             rx -= tw;
             let r = Rect::new(rx - 6.0, bar.y + 3.0, tw + 12.0, STATUS_H - 6.0);
             if item.clickable && self.hovered(r) {
-                self.canvas.round(r, 5.0, HOVER);
+                self.canvas.round(r, 5.0, p.hover);
             }
             let last = i + 1 == view.status.len();
-            let colour = if last { 0xb4b6bd } else { MUTED };
+            let colour = if last { p.chip_text } else { p.muted };
             self.text.draw_in_row(
                 &mut self.canvas,
                 &item.text,
@@ -1074,7 +1094,7 @@ impl Frame<'_> {
             let room = rx - left_end - 12.0;
             if room > 60.0 {
                 let text = self.text.fit(message, face, room);
-                let colour = if *error { RED } else { YELLOW };
+                let colour = if *error { p.error } else { p.warning };
                 self.text.draw_in_row(
                     &mut self.canvas,
                     &text,
@@ -1090,6 +1110,7 @@ impl Frame<'_> {
     }
 
     fn toast(&mut self, toast: &ToastView, editor: Rect) {
+        let p = self.p;
         let face = Face::ui(13.0);
         let w = 420.0_f32.min(editor.w - 32.0);
         let text_w = w - 56.0;
@@ -1097,10 +1118,10 @@ impl Frame<'_> {
         let h = th + 28.0 + if toast.buttons.is_empty() { 0.0 } else { 40.0 };
         let r = Rect::new(editor.right() - w - 16.0, editor.bottom() - h - 16.0, w, h);
         self.canvas.shadow(r, 10.0);
-        self.canvas.outline(r, 10.0, 1.0, 0x2c2d33, 0x202126);
+        self.canvas.outline(r, 10.0, 1.0, p.border, p.widget);
         // Later hits win, so the box goes under its buttons.
         self.hit(r, Hit::Block);
-        let colour = if toast.error { RED } else { ACCENT };
+        let colour = if toast.error { p.error } else { p.accent };
         let dot = Rect::new(r.x + 16.0, r.y + 17.0, 10.0, 10.0);
         self.canvas.round(dot, 5.0, colour);
         self.text.draw(
@@ -1109,7 +1130,7 @@ impl Frame<'_> {
             face,
             r.x + 38.0,
             r.y + 12.0,
-            TEXT,
+            p.text,
             r,
             Some(text_w),
         );
@@ -1124,14 +1145,14 @@ impl Frame<'_> {
             let (bg, fg) = if primary {
                 (
                     if hovered {
-                        mix(ACCENT, 0xffffff, 0.88)
+                        mix(p.accent, 0xffffff, 0.88)
                     } else {
-                        ACCENT
+                        p.accent
                     },
-                    GROUND,
+                    p.ground,
                 )
             } else {
-                (if hovered { 0x2c2d33 } else { CHIP }, BRIGHT)
+                (if hovered { p.border } else { p.chip }, p.bright)
             };
             self.canvas.round(b, 6.0, bg);
             self.text
@@ -1141,17 +1162,18 @@ impl Frame<'_> {
         }
     }
 
-    fn palette(&mut self, p: &PaletteView, w: f32, h: f32) {
+    fn palette(&mut self, pv: &PaletteView, w: f32, h: f32) {
+        let p = self.p;
         self.canvas
-            .tint(Rect::new(0.0, 0.0, w, h), 0.0, 0x08090b, 140);
+            .tint(Rect::new(0.0, 0.0, w, h), 0.0, p.ground, 140);
         self.hit(Rect::new(0.0, 0.0, w, h), Hit::Ui(UiEvent::ClosePalette));
         let pw = 640.0_f32.min(w - 32.0);
-        let shown = p.items.len().clamp(1, PALETTE_ROWS);
+        let shown = pv.items.len().clamp(1, PALETTE_ROWS);
         let list_h = shown as f32 * 34.0 + 12.0;
         let ph = 48.0 + list_h + 34.0;
         let r = Rect::new((w - pw) / 2.0, 56.0, pw, ph);
         self.canvas.shadow(r, 12.0);
-        self.canvas.outline(r, 12.0, 1.0, 0x2c2d33, 0x1c1d21);
+        self.canvas.outline(r, 12.0, 1.0, p.border, p.widget);
         self.hit(r, Hit::Block);
 
         // The query, with what's being searched.
@@ -1163,11 +1185,11 @@ impl Frame<'_> {
             r.x + 16.0,
             r.y,
             48.0,
-            MUTED,
+            p.muted,
             input,
         );
         let mut qx = r.x + 42.0;
-        if let Some(title) = &p.title {
+        if let Some(title) = &pv.title {
             let face = Face::ui(14.0).medium();
             qx += self.text.draw_in_row(
                 &mut self.canvas,
@@ -1176,33 +1198,33 @@ impl Frame<'_> {
                 qx,
                 r.y,
                 48.0,
-                MUTED,
+                p.muted,
                 input,
             ) + 8.0;
         }
         let face = Face::ui(15.0);
         let qw = self.text.draw_in_row(
             &mut self.canvas,
-            &p.query,
+            &pv.query,
             face,
             qx,
             r.y,
             48.0,
-            BRIGHT,
+            p.bright,
             input,
         );
         self.canvas
-            .fill(Rect::new(qx + qw + 1.0, r.y + 14.0, 1.5, 20.0), ACCENT);
+            .fill(Rect::new(qx + qw + 1.0, r.y + 14.0, 1.5, 20.0), p.accent);
         self.chip("Esc", r.right() - 14.0, r.y + 16.0, true);
-        let kind_w = self.text.width(p.kind, Face::ui(11.0)) + 12.0;
-        self.chip(p.kind, r.right() - 14.0 - 40.0 - kind_w, r.y + 16.0, false);
+        let kind_w = self.text.width(pv.kind, Face::ui(11.0)) + 12.0;
+        self.chip(pv.kind, r.right() - 14.0 - 40.0 - kind_w, r.y + 16.0, false);
         self.canvas
-            .fill(Rect::new(r.x, r.y + 48.0, r.w, 1.0), 0x26272c);
+            .fill(Rect::new(r.x, r.y + 48.0, r.w, 1.0), p.chip);
 
         // The items, scrolled to keep the selection in view.
-        let first = p.selected.saturating_sub(PALETTE_ROWS - 1);
+        let first = pv.selected.saturating_sub(PALETTE_ROWS - 1);
         let list = Rect::new(r.x, r.y + 49.0, r.w, list_h);
-        if p.items.is_empty() {
+        if pv.items.is_empty() {
             self.text.draw_in_row(
                 &mut self.canvas,
                 "Nothing matches",
@@ -1210,20 +1232,20 @@ impl Frame<'_> {
                 r.x + 20.0,
                 list.y + 6.0,
                 34.0,
-                MUTED,
+                p.muted,
                 list,
             );
         }
-        for (k, (label, key)) in p.items.iter().enumerate().skip(first).take(PALETTE_ROWS) {
+        for (k, (label, key)) in pv.items.iter().enumerate().skip(first).take(PALETTE_ROWS) {
             let y = list.y + 6.0 + (k - first) as f32 * 34.0;
             let row = Rect::new(r.x + 6.0, y, r.w - 12.0, 34.0);
-            let on = k == p.selected;
+            let on = k == pv.selected;
             if on {
-                self.canvas.round(row, 7.0, 0x272a33);
+                self.canvas.round(row, 7.0, p.selected);
             } else if self.hovered(row) {
-                self.canvas.round(row, 7.0, HOVER);
+                self.canvas.round(row, 7.0, p.hover);
             }
-            self.matched(label, &p.query, row.x + 12.0, row, row.w - 140.0);
+            self.matched(label, &pv.query, row.x + 12.0, row, row.w - 140.0);
             if let Some(key) = key {
                 self.chip(key, row.right() - 10.0, y + 9.0, true);
             }
@@ -1233,23 +1255,30 @@ impl Frame<'_> {
         // How to use it.
         let foot = Rect::new(r.x, r.bottom() - 34.0, r.w, 34.0);
         self.canvas
-            .fill(Rect::new(r.x + 1.0, foot.y, r.w - 2.0, 1.0), 0x26272c);
+            .fill(Rect::new(r.x + 1.0, foot.y, r.w - 2.0, 1.0), p.chip);
         let mut fx = r.x + 16.0;
         for (keys, what) in [("↑ ↓", "to move"), ("Enter", "to run"), ("Esc", "to close")] {
             let f = Face::ui(11.5);
-            fx +=
-                self.text
-                    .draw_in_row(&mut self.canvas, keys, f, fx, foot.y, 34.0, 0xb4b6bd, foot)
-                    + 5.0;
+            fx += self.text.draw_in_row(
+                &mut self.canvas,
+                keys,
+                f,
+                fx,
+                foot.y,
+                34.0,
+                p.chip_text,
+                foot,
+            ) + 5.0;
             fx += self
                 .text
-                .draw_in_row(&mut self.canvas, what, f, fx, foot.y, 34.0, MUTED, foot)
+                .draw_in_row(&mut self.canvas, what, f, fx, foot.y, 34.0, p.muted, foot)
                 + 18.0;
         }
     }
 
     /// A label with the letters of `query` it matches in the accent.
     fn matched(&mut self, label: &str, query: &str, x: f32, row: Rect, max: f32) {
+        let p = self.p;
         let face = Face::ui(13.5);
         let strong = Face::ui(13.5).bold();
         let label = self.text.fit(label, face, max);
@@ -1266,9 +1295,9 @@ impl Frame<'_> {
                 return;
             }
             let (f, c) = if matched {
-                (strong, ACCENT)
+                (strong, p.accent)
             } else {
-                (face, TEXT)
+                (face, p.text)
             };
             *x += frame
                 .text
@@ -1292,15 +1321,15 @@ impl Frame<'_> {
     }
 }
 
-fn tone_colour(tone: Tone) -> u32 {
+fn tone_colour(p: &Palette, tone: Tone) -> u32 {
     match tone {
-        Tone::Normal => TEXT,
-        Tone::Muted => MUTED,
-        Tone::Strong => BRIGHT,
-        Tone::Warning => YELLOW,
-        Tone::Error => RED,
-        Tone::Success => GREEN,
-        Tone::Badge => TEXT,
+        Tone::Normal => p.text,
+        Tone::Muted => p.muted,
+        Tone::Strong => p.bright,
+        Tone::Warning => p.warning,
+        Tone::Error => p.error,
+        Tone::Success => p.success,
+        Tone::Badge => p.text,
     }
 }
 
@@ -1332,12 +1361,4 @@ fn plain(markdown: &str) -> String {
         .join("\n")
         .replace("**", "")
         .replace('`', "")
-}
-
-fn mix(a: u32, b: u32, t: f32) -> u32 {
-    [16, 8, 0].iter().fold(0, |out, shift| {
-        let (x, y) = ((a >> shift) & 0xff, (b >> shift) & 0xff);
-        let c = (x as f32 * t + y as f32 * (1.0 - t)).round() as u32;
-        out | (c << shift)
-    })
 }

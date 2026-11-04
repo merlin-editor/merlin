@@ -31,6 +31,7 @@ use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
 use winit::window::{Window, WindowId};
 
 use crate::App;
+use crate::theme::Palette;
 use canvas::{Canvas, Rect, Text};
 use frame::{Areas, Frame, Hit, State};
 use grid::Fonts;
@@ -112,6 +113,7 @@ struct Gui<'a> {
         Option<usize>,
         [f32; 3],
         (u32, u32),
+        Palette,
     )>,
     next_check: Instant,
     gap: f32,
@@ -358,6 +360,7 @@ impl Gui<'_> {
             hovered,
             self.state.scroll,
             (size.width, size.height),
+            self.app.palette,
         ));
         if self.drawn == drawn {
             return;
@@ -381,6 +384,7 @@ impl Gui<'_> {
             pointer: self.pointer,
             hits: Vec::new(),
             radius: self.radius,
+            p: self.app.palette,
         };
         f.base(&view, &areas, &mut self.state, w, h);
         let t = areas.text;
@@ -390,8 +394,7 @@ impl Gui<'_> {
             pw,
             ph,
             ((t.x * s) as usize, (t.y * s) as usize),
-            frame::ISLAND,
-            frame::ACCENT,
+            &self.app.palette,
         );
         f.overlays(&view, &areas, w, h);
         self.hits = std::mem::take(&mut f.hits);
@@ -407,7 +410,7 @@ impl Gui<'_> {
                 .find(|(_, (r, _))| r.contains(p.0, p.1))
                 .map(|(i, _)| i)
         });
-        self.drawn = drawn.map(|d| (d.0, d.1, d.2, hovered, d.4, d.5));
+        self.drawn = drawn.map(|d| (d.0, d.1, d.2, hovered, d.4, d.5, d.6));
     }
 
     fn tick(&mut self) {

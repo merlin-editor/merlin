@@ -10,7 +10,7 @@ use cosmic_text::{
 };
 use merlin_core::screen::{Screen, WIDE_TAIL};
 
-use crate::theme;
+use crate::theme::{self, Palette};
 
 /// Points, before the display's scale.
 const FONT_SIZE: f32 = 13.5;
@@ -163,7 +163,7 @@ impl Fonts {
     }
 
     /// Draws `screen` with its top left at physical pixel (`ox`, `oy`) in
-    /// `frame`, `w` by `h` pixels, with the accent for the cursor.
+    /// `frame`, `w` by `h` pixels, in the palette's colours.
     #[allow(clippy::too_many_arguments)]
     pub fn draw(
         &mut self,
@@ -172,8 +172,7 @@ impl Fonts {
         w: usize,
         h: usize,
         (ox, oy): (usize, usize),
-        background: u32,
-        cursor: u32,
+        p: &Palette,
     ) {
         let (cw, ch) = (self.cell_w as usize, self.cell_h as usize);
         let cells = |x: u16, y: u16| (ox + x as usize * cw, oy + y as usize * ch);
@@ -181,9 +180,9 @@ impl Fonts {
         // by the next one's.
         for y in 0..screen.height {
             for x in 0..screen.width {
-                let look = theme::dark_cell(&screen.cell(x, y));
+                let look = theme::cell(p, &screen.cell(x, y));
                 let (px, py) = cells(x, y);
-                fill(frame, w, h, px, py, cw, ch, look.bg.unwrap_or(background));
+                fill(frame, w, h, px, py, cw, ch, look.bg.unwrap_or(p.island));
             }
         }
         for y in 0..screen.height {
@@ -192,7 +191,7 @@ impl Fonts {
                 if cell.ch == ' ' || cell.ch == WIDE_TAIL {
                     continue;
                 }
-                let look = theme::dark_cell(&cell);
+                let look = theme::cell(p, &cell);
                 let fg = look.fg.unwrap_or(TEXT);
                 let (px, py) = cells(x, y);
                 let wide = x + 1 < screen.width && screen.cell(x + 1, y).ch == WIDE_TAIL;
@@ -230,7 +229,7 @@ impl Fonts {
         }
         for y in 0..screen.height {
             for x in 0..screen.width {
-                let look = theme::dark_cell(&screen.cell(x, y));
+                let look = theme::cell(p, &screen.cell(x, y));
                 if !look.underline {
                     continue;
                 }
@@ -254,7 +253,7 @@ impl Fonts {
         if let Some((x, y)) = screen.cursor {
             let (px, py) = cells(x, y);
             let beam = (self.size / 7.0).round().max(2.0) as usize;
-            fill(frame, w, h, px, py, beam, ch, cursor);
+            fill(frame, w, h, px, py, beam, ch, p.accent);
         }
     }
 }

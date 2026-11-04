@@ -59,8 +59,10 @@ pub struct Manifest {
     pub name: String,
     pub title: String,
     pub api: String,
-    /// The component file, relative to the plugin folder.
-    pub component: PathBuf,
+    /// The component file, relative to the plugin folder. A plugin that
+    /// only adds data, such as colour themes, has none.
+    #[serde(default)]
+    pub component: Option<PathBuf>,
     #[serde(default)]
     pub permissions: Permissions,
     /// Default settings, which the user's and the workspace's
@@ -70,6 +72,18 @@ pub struct Manifest {
     /// Languages the plugin adds, as a VS Code extension contributes them.
     #[serde(default)]
     pub languages: Vec<ManifestLanguage>,
+    /// Colour themes the plugin adds.
+    #[serde(default)]
+    pub themes: Vec<ManifestTheme>,
+}
+
+/// A colour theme: its name in the theme picker, and its file, relative to
+/// the plugin folder.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct ManifestTheme {
+    pub label: String,
+    pub file: PathBuf,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -541,12 +555,41 @@ impl PluginHost {
         {
             bail!("a plugin named {} is already loaded", manifest.name);
         }
-        let wasm = dir.join(&manifest.component);
+        let folder = dir.to_path_buf();
         let dir = dir
             .canonicalize()
             .unwrap_or_else(|_| dir.to_path_buf())
             .display()
             .to_string();
+        // Data only: nothing runs, so there's nothing to allow.
+        let Some(component) = &manifest.component else {
+            if !manifest.permissions.is_empty() {
+                bail!(
+                    "{} asks for permissions but has no component to use them",
+                    manifest.name
+                );
+            }
+            let plugin = manifest.name.clone();
+            let languages: Vec<_> = manifest
+                .languages
+                .iter()
+                .map(ManifestLanguage::to_core)
+                .collect();
+            self.plugins.push(Loaded {
+                manifest,
+                dir,
+                modified: None,
+                wasm: PathBuf::new(),
+                instance: None,
+                generation: 0,
+                failed: false,
+            });
+            return Ok((!languages.is_empty())
+                .then_some(Event::RegisterLanguages { plugin, languages })
+                .into_iter()
+                .collect());
+        };
+        let wasm = folder.join(component);
         let ask = self.config.ask
             && !manifest.permissions.is_empty()
             && !self
@@ -580,6 +623,19 @@ impl PluginHost {
             ]);
         }
         Ok(self.activate(index, None))
+    }
+
+    /// Every loaded plugin's colour themes: name and file.
+    pub fn themes(&self) -> Vec<(String, PathBuf)> {
+        self.plugins
+            .iter()
+            .flat_map(|p| {
+                p.manifest
+                    .themes
+                    .iter()
+                    .map(|t| (t.label.clone(), Path::new(&p.dir).join(&t.file)))
+            })
+            .collect()
     }
 
     fn grants(&self) -> Grants {

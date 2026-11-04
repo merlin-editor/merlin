@@ -112,7 +112,9 @@ fn install_plugins(dirs: &[String]) -> Result<()> {
             .canonicalize()
             .with_context(|| format!("no plugin at {dir}"))?;
         let manifest = merlin_plugins::manifest(&dir)?;
-        if !dir.join(&manifest.component).exists() {
+        if let Some(component) = &manifest.component
+            && !dir.join(component).exists()
+        {
             bail!(
                 "{} isn't built: run `cargo build --release` in {}",
                 manifest.name,
@@ -165,6 +167,14 @@ struct App {
     settings: settings::Files,
     /// Scripts run with default settings and don't change them.
     scripted: bool,
+    /// The colours in use, and the theme they're from.
+    palette: theme::Palette,
+    theme: String,
+    /// `[editor] theme` from the settings.
+    wanted_theme: Option<String>,
+    /// The theme file in use and when it last changed, so a theme being
+    /// written shows its changes on save.
+    theme_file: Option<(PathBuf, Option<SystemTime>)>,
     quit: bool,
 }
 
@@ -342,6 +352,23 @@ impl App {
                             queue.push_back(Event::Error(format!("Can't save {key}: {err}")));
                         }
                     }
+                    Effect::PreviewTheme(name) => {
+                        if let Err(err) = self.use_theme(&name) {
+                            queue.push_back(Event::Error(err));
+                        }
+                    }
+                    Effect::SetTheme(name) => match self.use_theme(&name) {
+                        Ok(()) if !self.scripted => {
+                            let value = toml::Value::String(name).to_string();
+                            if let Err(err) = self.settings.set("editor.theme", &value) {
+                                queue.push_back(Event::Error(format!(
+                                    "Can't save the theme: {err}"
+                                )));
+                            }
+                        }
+                        Ok(()) => {}
+                        Err(err) => queue.push_back(Event::Error(err)),
+                    },
                     Effect::OpenSettings { workspace } => match self.settings.ensure(workspace) {
                         Ok(path) => queue.push_back(self.open(&path)),
                         Err(err) => {
@@ -388,7 +415,9 @@ impl App {
         }
         self.host.set_settings(settings::plugins(&table));
         self.panels_for = None;
+        self.wanted_theme = settings::editor_text(&table, "theme").map(str::to_string);
         let mut events = vec![Event::Settings(editor)];
+        events.extend(self.refresh_themes());
         events.extend(
             errors
                 .into_iter()
@@ -527,6 +556,15 @@ impl App {
     /// Reloads open files that changed on disk, such as ones another program
     /// edited, and refreshes git signs after a commit.
     fn check_disk(&mut self) {
+        // A theme being written: show it as it's saved.
+        if let Some((path, when)) = &self.theme_file
+            && modified(path) != *when
+        {
+            let name = self.theme.clone();
+            if let Err(err) = self.use_theme(&name) {
+                self.dispatch(Event::Error(err));
+            }
+        }
         let index = self
             .git_dir
             .as_ref()
@@ -587,6 +625,51 @@ impl App {
             self.refresh_panels();
         }
         delivered
+    }
+
+    /// merlin's own theme, then each plugin's, by name and file.
+    fn themes(&self) -> Vec<(String, Option<PathBuf>)> {
+        std::iter::once((theme::DEFAULT_NAME.to_string(), None))
+            .chain(self.host.themes().into_iter().map(|(n, f)| (n, Some(f))))
+            .collect()
+    }
+
+    /// Uses the theme called `name`, if there is one and it reads.
+    fn use_theme(&mut self, name: &str) -> Result<(), String> {
+        let Some((name, file)) = self.themes().into_iter().find(|(n, _)| n == name) else {
+            return Err(format!("There's no theme called {name}"));
+        };
+        self.palette = match &file {
+            Some(path) => theme::Palette::read(path).map_err(|e| format!("{e:#}"))?,
+            None => theme::DEFAULT,
+        };
+        self.theme_file = file.map(|f| {
+            let when = modified(&f);
+            (f, when)
+        });
+        self.theme = name;
+        Ok(())
+    }
+
+    /// Uses the theme the settings ask for, once it's loaded, and tells the
+    /// editor which themes there are.
+    fn refresh_themes(&mut self) -> Vec<Event> {
+        let mut events = Vec::new();
+        if let Some(wanted) = self.wanted_theme.clone()
+            && wanted != self.theme
+            && self.themes().iter().any(|(n, _)| *n == wanted)
+            && let Err(err) = self.use_theme(&wanted)
+        {
+            events.push(Event::Error(err));
+        }
+        if self.theme.is_empty() {
+            self.theme = theme::DEFAULT_NAME.into();
+        }
+        events.push(Event::Themes {
+            themes: self.themes().into_iter().map(|(n, _)| n).collect(),
+            current: self.theme.clone(),
+        });
+        events
     }
 
     fn reload_plugins(&mut self) {
@@ -801,6 +884,10 @@ fn main() -> Result<()> {
         quit: false,
         settings: settings_files,
         scripted: args.exec.is_some(),
+        palette: theme::DEFAULT,
+        theme: String::new(),
+        wanted_theme: None,
+        theme_file: None,
     };
     // Nerd Font icons, except in scripted runs, whose output should read
     // anywhere. MERLIN_ICONS=nerd or =plain decides either way.
@@ -854,6 +941,11 @@ fn main() -> Result<()> {
                 message: format!("{err:#}"),
             }),
         }
+    }
+    // Plugins' themes are known now, so the one the settings ask for can be
+    // used.
+    for event in app.refresh_themes() {
+        app.dispatch(event);
     }
 
     if let Some(script) = &args.exec {
@@ -929,10 +1021,10 @@ fn run_script(app: &mut App, script: &str) -> Result<()> {
     Ok(())
 }
 
-/// The screen as a standalone HTML page, in the Dark Modern colours the
-/// window shows. For screenshots and bug reports.
+/// The screen as a standalone HTML page, in merlin's own colours. For screenshots and bug reports.
 fn screen_html(screen: &Screen) -> String {
-    let look = |cell: merlin_core::screen::Cell| theme::dark_cell(&cell).css();
+    let p = theme::DEFAULT;
+    let look = |cell: merlin_core::screen::Cell| theme::cell(&p, &cell).css();
     let escape = |c: char| match c {
         '<' => "&lt;".to_string(),
         '>' => "&gt;".to_string(),
@@ -977,9 +1069,9 @@ fn screen_html(screen: &Screen) -> String {
     }
     format!(
         "<!doctype html>\n<meta charset=\"utf-8\">\n<title>merlin</title>\n<style>\n\
-         body {{ margin: 0; background: #1f1f1f; }}\n\
-         pre {{ margin: 0; padding: 14px 16px; display: inline-block; background: #1f1f1f; color: #cccccc;\n\
+         body {{ margin: 0; background: #17181b; }}\n\
+         pre {{ margin: 0; padding: 14px 16px; display: inline-block; background: #17181b; color: #d4d5da;\n\
          font: 15px/1.35 'JetBrains Mono', 'JetBrainsMono Nerd Font', 'DejaVu Sans Mono', monospace; }}\n\
-         .cursor {{ background: #aeafad; color: #1f1f1f; }}\n</style>\n<pre>{rows}</pre>\n"
+         .cursor {{ background: #7c9cff; color: #17181b; }}\n</style>\n<pre>{rows}</pre>\n"
     )
 }

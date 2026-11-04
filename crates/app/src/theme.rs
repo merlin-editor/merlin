@@ -1,5 +1,10 @@
-//! Colours: merlin's quiet dark theme, on the islands' grey.
+//! Colours. A theme is a [`Palette`]: merlin's own, or one read from a theme
+//! file that a plugin adds. A theme file names the colours it cares about;
+//! the rest follow from those, so a theme can be a dozen lines.
 
+use std::path::Path;
+
+use anyhow::{Context, Result, bail};
 use merlin_core::Syntax;
 use merlin_core::lang::Severity;
 use merlin_core::screen::{Cell, Hue, Style as Kind, Surface};
@@ -18,19 +23,221 @@ pub struct Look {
     pub curly: bool,
 }
 
-const EDITOR: u32 = 0x17181b;
-const BAR: u32 = 0x131417;
-const HOVER: u32 = 0x22242a;
-const TEXT: u32 = 0xd4d5da;
-const MUTED: u32 = 0x8e9099;
-/// Fills under white text.
-const BLUE: u32 = 0x3b56c4;
-/// Lines, markers and the cursor.
-const ACCENT: u32 = 0x7c9cff;
-const WIDGET: u32 = 0x202126;
-const INPUT: u32 = 0x26272c;
-const RED: u32 = 0xf0807a;
-const YELLOW: u32 = 0xe3b341;
+/// Every colour the window uses.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Palette {
+    /// Behind the islands: the title bar, rail and status bar.
+    pub ground: u32,
+    /// The side bar, editor and panel.
+    pub island: u32,
+    /// The active tab, inputs, pressed buttons.
+    pub raised: u32,
+    pub hover: u32,
+    /// A selected row.
+    pub selected: u32,
+    /// A selected row where keys go.
+    pub focus_row: u32,
+    /// Lines between parts.
+    pub line: u32,
+    /// Keys, counts and other small boxes, and their text.
+    pub chip: u32,
+    pub chip_text: u32,
+    /// Around inputs and floating boxes.
+    pub border: u32,
+    /// Floating boxes: the palette, notices, hovers, menus.
+    pub widget: u32,
+    pub text: u32,
+    pub bright: u32,
+    pub muted: u32,
+    /// Line numbers.
+    pub faint: u32,
+    /// Lines, markers, the cursor and the main button.
+    pub accent: u32,
+    /// Text on the accent.
+    pub on_accent: u32,
+    pub error: u32,
+    pub warning: u32,
+    pub success: u32,
+    pub info: u32,
+
+    pub current_line: u32,
+    pub selection: u32,
+    /// Other uses of the word under the cursor.
+    pub word_match: u32,
+    pub find_match: u32,
+    pub find_current: u32,
+    pub keyword: u32,
+    pub string: u32,
+    pub comment: u32,
+    pub function: u32,
+    pub type_: u32,
+    pub constant: u32,
+    pub attribute: u32,
+    pub macro_: u32,
+    pub operator: u32,
+    pub variable: u32,
+    pub escape: u32,
+    pub git_added: u32,
+    pub git_changed: u32,
+    pub git_removed: u32,
+    pub diff_added: u32,
+    pub diff_removed: u32,
+    pub brackets: [u32; 3],
+    pub guide: u32,
+    pub guide_active: u32,
+}
+
+/// The name of merlin's own theme, as the theme picker shows it.
+pub const DEFAULT_NAME: &str = "merlin Dark";
+
+/// merlin's own theme: quiet islands on a darker ground, with a blue accent.
+pub const DEFAULT: Palette = Palette {
+    ground: 0x0f1012,
+    island: 0x17181b,
+    raised: 0x1f2024,
+    hover: 0x1d1e22,
+    selected: 0x24262c,
+    focus_row: 0x262b3d,
+    line: 0x222328,
+    chip: 0x26272c,
+    chip_text: 0xb4b6bd,
+    border: 0x2c2d33,
+    widget: 0x1c1d21,
+    text: 0xd4d5da,
+    bright: 0xeef0f3,
+    muted: 0x8e9099,
+    faint: 0x5f626b,
+    accent: 0x7c9cff,
+    on_accent: 0x0f1012,
+    error: 0xf0807a,
+    warning: 0xe3b341,
+    success: 0x6cc070,
+    info: 0x5aa0e6,
+    current_line: 0x1d1e23,
+    selection: 0x2c3a5e,
+    word_match: 0x2a2d36,
+    find_match: 0x4a3a1e,
+    find_current: 0x8a6416,
+    keyword: 0xc4a7e7,
+    string: 0xa6d189,
+    comment: 0x7f8794,
+    function: 0xf0c674,
+    type_: 0x9ccfd8,
+    constant: 0xf5a97f,
+    attribute: 0xe0a8d8,
+    macro_: 0x9ccfd8,
+    operator: 0xa3a6ad,
+    variable: 0xd4d5da,
+    escape: 0xf5a97f,
+    git_added: 0x6cc070,
+    git_changed: 0x5aa0e6,
+    git_removed: 0xe5534b,
+    diff_added: 0x24301f,
+    diff_removed: 0x3a1d1d,
+    brackets: [0xe6c07b, 0xc4a7e7, 0x7fb0ff],
+    guide: 0x2a2b31,
+    guide_active: 0x4a4c55,
+};
+
+impl Palette {
+    /// A theme file: TOML with `[ui]` and `[code]` colours as `"#rrggbb"`.
+    /// Anything left out follows from what's given, then from merlin's own.
+    pub fn read(path: &Path) -> Result<Palette> {
+        let text =
+            std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+        let table: toml::Table =
+            toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+        Self::from_table(&table).with_context(|| format!("in {}", path.display()))
+    }
+
+    pub fn from_table(table: &toml::Table) -> Result<Palette> {
+        let section = |name: &str| table.get(name).and_then(|v| v.as_table());
+        let (ui, code) = (section("ui"), section("code"));
+        for (name, part) in [("ui", ui), ("code", code)] {
+            for (key, value) in part.into_iter().flatten() {
+                if key != "brackets" && parse(value).is_none() {
+                    bail!("[{name}] {key} should be a colour like \"#1a2b3c\"");
+                }
+            }
+        }
+        let get =
+            |part: Option<&toml::Table>, key: &str| part.and_then(|t| t.get(key)).and_then(parse);
+        let d = DEFAULT;
+        let island = get(ui, "island").unwrap_or(d.island);
+        let text = get(ui, "text").unwrap_or(d.text);
+        let accent = get(ui, "accent").unwrap_or(d.accent);
+        let ground = get(ui, "ground").unwrap_or_else(|| mix(island, 0x000000, 0.7));
+        let over = |t: f32| mix(text, island, t);
+        let warning = get(ui, "warning").unwrap_or(d.warning);
+        let error = get(ui, "error").unwrap_or(d.error);
+        let success = get(ui, "success").unwrap_or(d.success);
+        let info = get(ui, "info").unwrap_or(d.info);
+        let ui = |key: &str, or: u32| get(ui, key).unwrap_or(or);
+        let c = |key: &str, or: u32| get(code, key).unwrap_or(or);
+        let keyword = c("keyword", d.keyword);
+        let type_ = c("type", d.type_);
+        let constant = c("constant", d.constant);
+        let brackets = code
+            .and_then(|t| t.get("brackets"))
+            .and_then(|v| v.as_array())
+            .map(|a| a.iter().filter_map(parse).collect::<Vec<_>>())
+            .filter(|a| a.len() == 3)
+            .map_or([warning, keyword, type_], |a| [a[0], a[1], a[2]]);
+        Ok(Palette {
+            ground,
+            island,
+            raised: ui("raised", over(0.06)),
+            hover: ui("hover", over(0.035)),
+            selected: ui("selected", over(0.09)),
+            focus_row: ui("focus-row", mix(accent, island, 0.16)),
+            line: ui("line", over(0.07)),
+            chip: ui("chip", over(0.1)),
+            chip_text: ui("chip-text", over(0.8)),
+            border: ui("border", over(0.13)),
+            widget: ui("widget", mix(text, ground, 0.06)),
+            text,
+            bright: ui("bright", mix(0xffffff, text, 0.5)),
+            muted: ui("muted", over(0.6)),
+            faint: ui("faint", over(0.35)),
+            accent,
+            on_accent: ui("on-accent", ground),
+            error,
+            warning,
+            success,
+            info,
+            current_line: c("current-line", over(0.035)),
+            selection: c("selection", mix(accent, island, 0.25)),
+            word_match: c("word-match", over(0.08)),
+            find_match: c("find-match", mix(warning, island, 0.3)),
+            find_current: c("find-current", mix(warning, island, 0.6)),
+            keyword,
+            string: c("string", d.string),
+            comment: c("comment", over(0.5)),
+            function: c("function", d.function),
+            type_,
+            constant,
+            attribute: c("attribute", keyword),
+            macro_: c("macro", type_),
+            operator: c("operator", over(0.75)),
+            variable: c("variable", text),
+            escape: c("escape", constant),
+            git_added: c("git-added", success),
+            git_changed: c("git-changed", info),
+            git_removed: c("git-removed", error),
+            diff_added: c("diff-added", mix(success, island, 0.14)),
+            diff_removed: c("diff-removed", mix(error, island, 0.14)),
+            brackets,
+            guide: c("guide", over(0.1)),
+            guide_active: c("guide-active", over(0.28)),
+        })
+    }
+}
+
+/// `"#1a2b3c"` as a colour.
+fn parse(value: &toml::Value) -> Option<u32> {
+    let s = value.as_str()?.strip_prefix('#')?;
+    (s.len() == 6).then(|| u32::from_str_radix(s, 16).ok())?
+}
 
 fn look(fg: u32, bg: u32) -> Look {
     Look {
@@ -66,92 +273,94 @@ impl Look {
     }
 }
 
-/// Dark Modern's colours for each kind of cell. Text kinds have no
+/// The palette's colours for each kind of cell. Text kinds have no
 /// background, and show the surface's.
-pub fn dark(kind: Kind) -> Look {
+pub fn kind(p: &Palette, kind: Kind) -> Look {
+    let fill = mix(p.accent, 0x000000, 0.55);
     match kind {
-        Kind::Normal | Kind::ScrollTrack => text(TEXT),
-        Kind::Gutter => text(0x5f626b),
-        Kind::GutterActive => text(TEXT),
-        Kind::GutterError => text(RED).bold(),
-        Kind::GutterWarning => text(YELLOW),
-        Kind::Muted => text(MUTED),
-        Kind::Border => text(0x2a2b31),
-        Kind::Match => look(TEXT, 0x4a3a1e),
-        Kind::MatchCurrent => look(0xffffff, 0x8a6416),
-        Kind::Selection => look(TEXT, 0x2c3a5e),
-        Kind::CurrentLine => look(TEXT, 0x1d1e23),
-        Kind::WordMatch => look(TEXT, 0x2a2d36),
-        Kind::Heading => text(0xe7e7e7).bold(),
-        Kind::Button => look(TEXT, INPUT),
-        Kind::ButtonFocused => look(0xffffff, BLUE),
-        Kind::Prompt | Kind::Widget => look(TEXT, WIDGET),
-        Kind::WidgetInput => look(TEXT, INPUT),
-        Kind::WidgetMuted => look(MUTED, WIDGET),
-        Kind::Status | Kind::MenuBar => look(TEXT, BAR),
-        Kind::TabBar => look(MUTED, BAR),
-        Kind::StatusError => look(RED, BAR),
-        Kind::StatusAccent => look(0xffffff, BLUE),
-        Kind::MenuTitle => text(MUTED),
-        Kind::MenuOpen => look(0xffffff, INPUT),
-        Kind::Menu => look(TEXT, WIDGET),
-        Kind::MenuSelected => look(0xffffff, BLUE),
-        Kind::MenuMuted => look(MUTED, WIDGET),
-        Kind::CommandCenter => look(MUTED, 0x1a1b1f),
-        Kind::Selected => look(0xffffff, 0x272a33),
-        Kind::Warning => text(0xe2c08d),
-        Kind::Error => text(RED),
-        Kind::Success => text(0x73c991),
-        Kind::Input => look(TEXT, INPUT),
-        Kind::InputPlaceholder => look(0x989898, INPUT),
-        Kind::Tab => text(MUTED),
-        Kind::TabActive => look(0xffffff, EDITOR).underline(ACCENT),
-        Kind::TabPreview => text(MUTED).italic(),
-        Kind::TabPreviewActive => look(0xffffff, EDITOR).underline(ACCENT).italic(),
-        Kind::Popup => look(TEXT, WIDGET),
-        Kind::PopupMuted => look(MUTED, WIDGET).italic(),
-        Kind::Emphasis => text(TEXT).italic(),
-        Kind::Code => text(0xd7ba7d),
-        Kind::CodeBlock => look(TEXT, BAR),
-        Kind::Link => text(0x9fb4ff).underline(0x9fb4ff),
-        Kind::DiffAdded => look(TEXT, 0x373d29),
-        Kind::DiffRemoved => look(TEXT, 0x4b1d1d),
-        Kind::GitAdded => text(0x6cc070),
-        Kind::GitChanged => text(0x5aa0e6),
-        Kind::GitRemoved => text(0xe5534b),
-        Kind::ScrollThumb => look(TEXT, 0x2a2b31),
-        Kind::SideTitle => text(0xbbbbbb),
-        Kind::SideTitleFocused => text(0xe7e7e7),
-        Kind::PanelTitle => text(MUTED),
-        Kind::PanelTitleActive => text(0xe7e7e7).underline(ACCENT),
-        Kind::Toast => look(TEXT, WIDGET),
-        Kind::ToastError => look(0xffffff, 0x5a1d1d),
-        Kind::Frame => text(0x2c2d33),
-        Kind::WidgetFrame => look(0x2c2d33, WIDGET),
-        Kind::Badge => look(0xffffff, 0x616161),
-        Kind::Activity => text(0x868686),
-        Kind::ActivityActive => text(0xe7e7e7),
-        Kind::ActivityMarker => text(ACCENT),
-        Kind::ActivityBadge => look(0xffffff, BLUE),
-        Kind::Minimap => text(MUTED),
-        Kind::MinimapView => look(MUTED, 0x24262c),
-        Kind::MinimapMatch => look(MUTED, 0x623315),
-        Kind::ScrollMatch => text(0xd18616),
-        Kind::Caret => look(EDITOR, ACCENT),
+        Kind::Normal | Kind::ScrollTrack => text(p.text),
+        Kind::Gutter => text(p.faint),
+        Kind::GutterActive => text(p.text),
+        Kind::GutterError => text(p.error).bold(),
+        Kind::GutterWarning => text(p.warning),
+        Kind::Muted => text(p.muted),
+        Kind::Border => text(p.border),
+        Kind::Match => look(p.text, p.find_match),
+        Kind::MatchCurrent => look(p.bright, p.find_current),
+        Kind::Selection => look(p.text, p.selection),
+        Kind::CurrentLine => look(p.text, p.current_line),
+        Kind::WordMatch => look(p.text, p.word_match),
+        Kind::Heading => text(p.bright).bold(),
+        Kind::Button => look(p.text, p.chip),
+        Kind::ButtonFocused => look(0xffffff, fill),
+        Kind::Prompt | Kind::Widget => look(p.text, p.widget),
+        Kind::WidgetInput => look(p.text, p.chip),
+        Kind::WidgetMuted => look(p.muted, p.widget),
+        Kind::Status | Kind::MenuBar => look(p.text, p.ground),
+        Kind::TabBar => look(p.muted, p.ground),
+        Kind::StatusError => look(p.error, p.ground),
+        Kind::StatusAccent => look(0xffffff, fill),
+        Kind::MenuTitle => text(p.muted),
+        Kind::MenuOpen => look(p.bright, p.chip),
+        Kind::Menu => look(p.text, p.widget),
+        Kind::MenuSelected => look(0xffffff, fill),
+        Kind::MenuMuted => look(p.muted, p.widget),
+        Kind::CommandCenter => look(p.muted, p.raised),
+        Kind::Selected => look(p.bright, p.selected),
+        Kind::Warning => text(p.warning),
+        Kind::Error => text(p.error),
+        Kind::Success => text(p.success),
+        Kind::Input => look(p.text, p.chip),
+        Kind::InputPlaceholder => look(p.muted, p.chip),
+        Kind::Tab => text(p.muted),
+        Kind::TabActive => look(p.bright, p.island).underline(p.accent),
+        Kind::TabPreview => text(p.muted).italic(),
+        Kind::TabPreviewActive => look(p.bright, p.island).underline(p.accent).italic(),
+        Kind::Popup => look(p.text, p.widget),
+        Kind::PopupMuted => look(p.muted, p.widget).italic(),
+        Kind::Emphasis => text(p.text).italic(),
+        Kind::Code => text(p.constant),
+        Kind::CodeBlock => look(p.text, p.ground),
+        Kind::Link => text(p.accent).underline(p.accent),
+        Kind::DiffAdded => look(p.text, p.diff_added),
+        Kind::DiffRemoved => look(p.text, p.diff_removed),
+        Kind::GitAdded => text(p.git_added),
+        Kind::GitChanged => text(p.git_changed),
+        Kind::GitRemoved => text(p.git_removed),
+        Kind::ScrollThumb => look(p.text, p.border),
+        Kind::SideTitle => text(p.text),
+        Kind::SideTitleFocused => text(p.bright),
+        Kind::PanelTitle => text(p.muted),
+        Kind::PanelTitleActive => text(p.bright).underline(p.accent),
+        Kind::Toast => look(p.text, p.widget),
+        Kind::ToastError => look(0xffffff, mix(p.error, p.island, 0.3)),
+        Kind::Frame => text(p.border),
+        Kind::WidgetFrame => look(p.border, p.widget),
+        Kind::Badge => look(p.bright, p.chip),
+        Kind::Activity => text(p.muted),
+        Kind::ActivityActive => text(p.bright),
+        Kind::ActivityMarker => text(p.accent),
+        Kind::ActivityBadge => look(p.on_accent, p.accent),
+        Kind::Minimap => text(p.muted),
+        Kind::MinimapView => look(p.muted, p.selected),
+        Kind::MinimapMatch => look(p.muted, p.find_match),
+        Kind::ScrollMatch => text(p.warning),
+        Kind::Caret => look(p.island, p.accent),
     }
 }
 
-fn surface(surface: Surface) -> u32 {
+fn surface(p: &Palette, surface: Surface) -> u32 {
     match surface {
-        Surface::Editor => EDITOR,
-        Surface::Bar => BAR,
-        Surface::Hover => HOVER,
-        Surface::Sticky => 0x1c1d21,
+        Surface::Editor => p.island,
+        Surface::Bar => p.ground,
+        Surface::Hover => p.hover,
+        Surface::Sticky => p.widget,
     }
 }
 
-/// Dark Modern's colours for icons, guides and brackets.
-pub fn hue(hue: Hue) -> u32 {
+/// Colours for icons, guides and brackets. File icons keep their usual
+/// colours in every theme, so files look the same wherever they're seen.
+pub fn hue(p: &Palette, hue: Hue) -> u32 {
     match hue {
         Hue::Blue => 0x519aba,
         Hue::Green => 0x8dc149,
@@ -161,75 +370,74 @@ pub fn hue(hue: Hue) -> u32 {
         Hue::Purple => 0xa074c4,
         Hue::Cyan => 0x519aba,
         Hue::Grey => 0x8a9aa8,
-        Hue::Guide => 0x404040,
-        Hue::GuideActive => 0x707070,
-        Hue::TreeGuide => 0x585858,
-        Hue::Bracket1 => 0xe6c07b,
-        Hue::Bracket2 => 0xc4a7e7,
-        Hue::Bracket3 => 0x7fb0ff,
-        Hue::Modified => 0xe2c08d,
-        Hue::Untracked => 0x73c991,
-        Hue::Deleted => 0xc74e39,
-        Hue::Problem => 0xf88070,
-        Hue::Warned => YELLOW,
+        Hue::Guide => p.guide,
+        Hue::GuideActive => p.guide_active,
+        Hue::TreeGuide => p.guide,
+        Hue::Bracket1 => p.brackets[0],
+        Hue::Bracket2 => p.brackets[1],
+        Hue::Bracket3 => p.brackets[2],
+        Hue::Modified => p.git_changed,
+        Hue::Untracked => p.git_added,
+        Hue::Deleted => p.git_removed,
+        Hue::Problem => p.error,
+        Hue::Warned => p.warning,
     }
 }
 
-fn severity(severity: Severity) -> u32 {
+fn severity(p: &Palette, severity: Severity) -> u32 {
     match severity {
-        Severity::Error => RED,
-        Severity::Warning => YELLOW,
-        Severity::Info => 0x3794ff,
-        Severity::Hint => 0x8b949e,
+        Severity::Error => p.error,
+        Severity::Warning => p.warning,
+        Severity::Info => p.info,
+        Severity::Hint => p.muted,
     }
 }
 
-/// Dark Modern's colours for code.
-pub fn code(syntax: Syntax) -> Option<u32> {
+/// The palette's colours for code.
+pub fn code(p: &Palette, syntax: Syntax) -> Option<u32> {
     Some(match syntax {
-        Syntax::Keyword => 0xc4a7e7,
-        Syntax::String => 0xa6d189,
-        Syntax::Comment => 0x7f8794,
-        Syntax::Function => 0xf0c674,
-        Syntax::Type => 0x9ccfd8,
-        Syntax::Constant => 0xf5a97f,
-        Syntax::Attribute => 0xe0a8d8,
-        Syntax::Property | Syntax::Variable => 0xd4d5da,
-        Syntax::Macro => 0x9ccfd8,
-        Syntax::Escape => 0xf5a97f,
-        Syntax::Operator => 0xa3a6ad,
+        Syntax::Keyword => p.keyword,
+        Syntax::String => p.string,
+        Syntax::Comment => p.comment,
+        Syntax::Function => p.function,
+        Syntax::Type => p.type_,
+        Syntax::Constant => p.constant,
+        Syntax::Attribute => p.attribute,
+        Syntax::Property | Syntax::Variable => p.variable,
+        Syntax::Macro => p.macro_,
+        Syntax::Escape => p.escape,
+        Syntax::Operator => p.operator,
         Syntax::Plain | Syntax::Punctuation => return None,
     })
 }
 
-/// Whether code colours show on a cell, in 24-bit colour or not.
-pub fn shows_code(kind: Kind, true_colour: bool) -> bool {
-    match kind {
+/// Whether code colours show on a cell.
+pub fn shows_code(kind: Kind) -> bool {
+    matches!(
+        kind,
         Kind::Normal
-        | Kind::Match
-        | Kind::Selection
-        | Kind::CodeBlock
-        | Kind::CurrentLine
-        | Kind::WordMatch
-        | Kind::Minimap
-        | Kind::MinimapView
-        | Kind::MinimapMatch => true,
-        // Diff lines are tinted in 24-bit colour, and coloured red and green
-        // in the terminal's palette.
-        Kind::DiffAdded | Kind::DiffRemoved => true_colour,
-        _ => false,
-    }
+            | Kind::Match
+            | Kind::Selection
+            | Kind::CodeBlock
+            | Kind::CurrentLine
+            | Kind::WordMatch
+            | Kind::Minimap
+            | Kind::MinimapView
+            | Kind::MinimapMatch
+            | Kind::DiffAdded
+            | Kind::DiffRemoved
+    )
 }
 
-/// How a cell looks in Dark Modern: its kind, on its surface, with code
-/// colours, a tint and a problem's underline.
-pub fn dark_cell(cell: &Cell) -> Look {
-    let mut l = dark(cell.style);
+/// How a cell looks: its kind, on its surface, with code colours, a tint
+/// and a problem's underline.
+pub fn cell(p: &Palette, cell: &Cell) -> Look {
+    let mut l = kind(p, cell.style);
     if l.bg.is_none() {
-        l.bg = Some(surface(cell.surface));
+        l.bg = Some(surface(p, cell.surface));
     }
-    if shows_code(cell.style, true)
-        && let Some(colour) = code(cell.syntax)
+    if shows_code(cell.style)
+        && let Some(colour) = code(p, cell.syntax)
     {
         l.fg = Some(colour);
         l.italic |= cell.syntax == Syntax::Comment;
@@ -244,18 +452,18 @@ pub fn dark_cell(cell: &Cell) -> Look {
         l.italic = false;
     }
     if let Some(h) = cell.tint {
-        l.fg = Some(hue(h));
+        l.fg = Some(hue(p, h));
     }
     if let Some(s) = cell.mark {
         l.underline = true;
         l.curly = true;
-        l.underline_colour = Some(severity(s));
+        l.underline_colour = Some(severity(p, s));
     }
     l
 }
 
 /// `a` with `t` of it kept and the rest `b`, channel by channel.
-fn mix(a: u32, b: u32, t: f32) -> u32 {
+pub fn mix(a: u32, b: u32, t: f32) -> u32 {
     [16, 8, 0].iter().fold(0, |out, shift| {
         let (x, y) = ((a >> shift) & 0xff, (b >> shift) & 0xff);
         let c = (x as f32 * t + y as f32 * (1.0 - t)).round() as u32;
@@ -287,5 +495,41 @@ impl Look {
             css.push_str(&format!("text-decoration:underline {wavy}{colour};"));
         }
         css
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_short_theme_fills_in_the_rest() {
+        let table: toml::Table = toml::from_str(
+            r##"
+            [ui]
+            island = "#141c24"
+            text = "#f1f7fc"
+            accent = "#75b0de"
+            [code]
+            keyword = "#e6a3c8"
+            "##,
+        )
+        .unwrap();
+        let p = Palette::from_table(&table).unwrap();
+        assert_eq!(p.island, 0x141c24);
+        assert_eq!(p.keyword, 0xe6a3c8);
+        assert_eq!(p.attribute, p.keyword, "attributes follow keywords");
+        assert!(p.ground < p.island, "the ground is darker than the islands");
+        assert_ne!(
+            p.selection, DEFAULT.selection,
+            "selection follows the accent"
+        );
+    }
+
+    #[test]
+    fn a_bad_colour_says_where() {
+        let table: toml::Table = toml::from_str("[ui]\naccent = \"blue\"").unwrap();
+        let err = Palette::from_table(&table).unwrap_err().to_string();
+        assert!(err.contains("accent"), "{err}");
     }
 }

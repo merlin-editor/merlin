@@ -147,6 +147,47 @@ The **Outline** view in the side bar lists the file's symbols, and
 and the like by the word that declares them, in Rust, Python, JavaScript,
 TypeScript, Go and similar languages, and headings in Markdown.
 
+## Themes
+
+Preferences: Color Theme in the command palette lists the themes; moving
+through the list shows each one, Enter keeps it (as `[editor] theme` in your
+settings) and Esc goes back. merlin Dark is built in. Plugins add more, as
+data: a theme plugin has no component and asks for nothing.
+
+```toml
+# plugin.toml
+name = "my-themes"
+title = "My Themes"
+api = "0.8"
+
+[[themes]]
+label = "My Theme"
+file = "themes/my-theme.toml"
+```
+
+A theme file names the colours it cares about, and the rest follow from
+them, so a dozen lines make a whole theme:
+
+```toml
+[ui]
+island = "#1b1d24"     # the side bar, editor and panel
+text = "#d8dae0"
+accent = "#8fb3ff"     # lines, markers, the cursor, the main button
+# ground (behind the islands), raised, hover, selected, border, chip,
+# muted, faint, bright, on-accent, error, warning, success, info...
+
+[code]
+keyword = "#c9a7f0"
+string = "#a8d58c"
+comment = "#7c8191"
+# function, type, constant, attribute, macro, operator, variable, escape,
+# selection, current-line, git-added, git-changed, git-removed, brackets...
+```
+
+The theme in use reloads when its file is saved, so you can write one
+while looking at it. The full list of keys is in
+[`crates/app/src/theme.rs`](crates/app/src/theme.rs).
+
 ## Settings
 
 Settings are TOML, as VS Code's are JSON: yours in

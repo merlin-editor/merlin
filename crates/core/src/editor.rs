@@ -206,6 +206,12 @@ pub enum Event {
     /// The project's files for the Explorer, asked for with
     /// [`Effect::ListTree`].
     Tree(Vec<String>),
+    /// The colour themes there are, by name, and the one in use, for the
+    /// theme picker.
+    Themes {
+        themes: Vec<String>,
+        current: String,
+    },
     /// What a project search found, asked for with [`Effect::Search`].
     SearchResults {
         query: String,
@@ -243,6 +249,11 @@ pub enum Effect {
     OpenSettings {
         workspace: bool,
     },
+    /// Show the colours of a theme from the theme picker while it's chosen
+    /// from, without keeping it.
+    PreviewTheme(String),
+    /// Use a theme from now on, and save it in the user's settings.
+    SetTheme(String),
     Save {
         doc: u64,
         path: PathBuf,
@@ -356,6 +367,7 @@ const BUILTIN: &[(&str, &str)] = &[
     ("view.outline", "View: Outline"),
     ("settings.user", "Preferences: Open User Settings"),
     ("settings.workspace", "Preferences: Open Workspace Settings"),
+    ("theme.pick", "Preferences: Color Theme"),
     ("go.symbol", "Go to Symbol in Editor"),
     ("view.changes", "View: Source Control"),
     ("panel.toggle", "View: Focus Secondary Side Bar"),
@@ -503,7 +515,14 @@ enum Source {
     Files,
     Line,
     Symbols,
-    Picker { plugin: String, id: String },
+    Picker {
+        plugin: String,
+        id: String,
+    },
+    /// Colour themes; Esc goes back to the one in use when it opened.
+    Themes {
+        original: String,
+    },
 }
 
 enum Popup {
@@ -639,6 +658,9 @@ pub struct Editor {
     problems: Vec<(PathBuf, u32, u32)>,
     /// The window draws the frame; the screen holds only the text.
     windowed: bool,
+    /// Colour themes by name, and the one in use.
+    themes: Vec<String>,
+    theme: String,
 }
 
 impl Editor {
@@ -695,6 +717,8 @@ impl Editor {
             log: Vec::new(),
             problems: Vec::new(),
             windowed: false,
+            themes: Vec::new(),
+            theme: String::new(),
         };
         editor.add_views();
         editor
@@ -1056,6 +1080,10 @@ impl Editor {
                     }
                 }
             }
+            Event::Themes { themes, current } => {
+                self.themes = themes;
+                self.theme = current;
+            }
             Event::Tree(files) => {
                 let tree = self.tree.get_or_insert_with(Default::default);
                 tree.files = files;
@@ -1315,6 +1343,22 @@ impl Editor {
             "find.replace" => self.open_find(true),
             "palette.open" => {
                 self.palette = Some(Palette::new(Source::Commands, None, Vec::new()));
+                self.focus = Focus::Palette;
+            }
+            "theme.pick" => {
+                let items = self.themes.iter().map(|t| (t.clone(), t.clone())).collect();
+                let original = self.theme.clone();
+                let mut palette = Palette::new(
+                    Source::Themes { original },
+                    Some("Color Theme".into()),
+                    items,
+                );
+                palette.selected = self
+                    .themes
+                    .iter()
+                    .position(|t| *t == self.theme)
+                    .unwrap_or(0);
+                self.palette = Some(palette);
                 self.focus = Focus::Palette;
             }
             // Show and focus, then step through the panels, then hide.
@@ -2538,6 +2582,28 @@ impl Editor {
             self.focus = Focus::Editor;
             return;
         };
+        if let Source::Themes { original } = &palette.source {
+            if key.code == KeyCode::Esc {
+                let original = original.clone();
+                self.close_palette();
+                fx.push(Effect::PreviewTheme(original));
+                return;
+            }
+            if key.code != KeyCode::Enter {
+                self.palette_step(key);
+                if let Some((theme, _)) = self
+                    .palette_items()
+                    .into_iter()
+                    .nth(self.palette.as_ref().map_or(0, |p| p.selected))
+                {
+                    fx.push(Effect::PreviewTheme(theme));
+                }
+                return;
+            }
+        }
+        let Some(palette) = &mut self.palette else {
+            return;
+        };
         match key.code {
             KeyCode::Esc => {
                 self.close_palette();
@@ -2579,8 +2645,34 @@ impl Editor {
                             item,
                         })
                     }
+                    (Some((theme, _)), Source::Themes { .. }) => {
+                        self.theme = theme.clone();
+                        fx.push(Effect::SetTheme(theme));
+                    }
                     (None, _) => {}
                 }
+            }
+            _ => {}
+        }
+    }
+
+    /// Moves the palette's selection or edits its query, for a key that
+    /// doesn't choose or close.
+    fn palette_step(&mut self, key: Key) {
+        let count = self.palette_items().len();
+        let Some(palette) = &mut self.palette else {
+            return;
+        };
+        match key.code {
+            KeyCode::Up => palette.selected = palette.selected.saturating_sub(1),
+            KeyCode::Down => palette.selected = (palette.selected + 1).min(count.saturating_sub(1)),
+            KeyCode::Backspace => {
+                palette.query.pop();
+                palette.selected = 0;
+            }
+            KeyCode::Char(c) if !key.ctrl && !key.alt => {
+                palette.query.push(c);
+                palette.selected = 0;
             }
             _ => {}
         }
