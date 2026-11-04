@@ -38,6 +38,27 @@ impl Editor {
                 };
                 return vec![item];
             }
+            Source::NewFile { .. } | Source::NewFolder { .. } | Source::Rename { .. } => {
+                let name = palette.query.trim();
+                let what = match &palette.source {
+                    Source::NewFile { dir } if dir.is_empty() => "Create".to_string(),
+                    Source::NewFile { dir } | Source::NewFolder { dir } => {
+                        format!("Create in {dir}/")
+                    }
+                    _ => "Rename to".to_string(),
+                };
+                return vec![if name.is_empty() {
+                    (String::new(), "Type a name; a/b makes folders too".into())
+                } else {
+                    (name.to_string(), format!("{what} {name}"))
+                }];
+            }
+            Source::Trash { .. } => {
+                return vec![(
+                    "yes".into(),
+                    "Enter moves it to the trash; Esc keeps it".into(),
+                )];
+            }
             Source::SaveAs => {
                 let path = palette.query.trim();
                 return vec![if path.is_empty() {
@@ -127,6 +148,13 @@ impl Editor {
                             self.go_to_block(line);
                         }
                     }
+                    (
+                        Some((name, _)),
+                        source @ (Source::NewFile { .. }
+                        | Source::NewFolder { .. }
+                        | Source::Rename { .. }
+                        | Source::Trash { .. }),
+                    ) => self.file_prompt(source, &name, fx),
                     (Some((path, _)), Source::SaveAs) => {
                         if !path.is_empty() {
                             self.doc_mut().buffer.path = Some(PathBuf::from(path));

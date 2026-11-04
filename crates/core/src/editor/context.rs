@@ -134,6 +134,7 @@ impl Editor {
                     label: ITEMS
                         .iter()
                         .chain(super::tabs::TAB_ITEMS)
+                        .chain(super::files::EXPLORER_ITEMS)
                         .find(|(i, _)| *i == id)
                         .map_or(id, |(_, l)| l)
                         .to_string(),

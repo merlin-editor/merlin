@@ -110,6 +110,13 @@ impl Tree {
         let mut root = Folder::default();
         for file in &self.files {
             let mut folder = &mut root;
+            // A folder, which may have nothing in it yet.
+            if let Some(dir) = file.strip_suffix('/') {
+                for part in dir.split('/') {
+                    folder = folder.folders.entry(part.to_string()).or_default();
+                }
+                continue;
+            }
             let mut parts: Vec<&str> = file.split('/').collect();
             let name = parts.pop().unwrap_or_default();
             for part in parts {

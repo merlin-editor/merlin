@@ -76,6 +76,12 @@ pub enum UiEvent {
     },
     /// A right click on the focused tab.
     TabMenu,
+    /// A right click on a side's element, or on its empty space.
+    TargetMenu {
+        side: Side,
+        index: usize,
+    },
+    SideMenu(Side),
 }
 
 /// What the window draws around the text.
@@ -341,6 +347,10 @@ impl Editor {
                 Source::Files => "Files",
                 Source::Line => "Go to Line",
                 Source::SaveAs => "Save As",
+                Source::NewFile { .. } => "New File",
+                Source::NewFolder { .. } => "New Folder",
+                Source::Rename { .. } => "Rename",
+                Source::Trash { .. } => "Delete",
                 Source::Symbols => "Symbols",
                 Source::Picker { .. } => "Pick",
                 Source::Themes { .. } => "Themes",
@@ -421,6 +431,24 @@ impl Editor {
             }
             UiEvent::DropTab { group, at } => self.drop_tab_at(group, at),
             UiEvent::TabMenu => self.open_tab_menu(),
+            UiEvent::TargetMenu { side, index } => {
+                if self.active_panel_name(side).as_deref() == Some(super::views::EXPLORER) {
+                    let row = match self.panel_targets(side).into_iter().nth(index) {
+                        Some(crate::panel::Target::Button(id))
+                            if id.starts_with("d:") || id.starts_with("f:") =>
+                        {
+                            Some(id)
+                        }
+                        _ => None,
+                    };
+                    self.open_explorer_menu(row);
+                }
+            }
+            UiEvent::SideMenu(side) => {
+                if self.active_panel_name(side).as_deref() == Some(super::views::EXPLORER) {
+                    self.open_explorer_menu(None);
+                }
+            }
             UiEvent::Rail(i) => {
                 if let Some((_, action)) = self.rail_items().into_iter().nth(i) {
                     self.act(action, fx);

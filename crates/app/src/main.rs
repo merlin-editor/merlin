@@ -15,7 +15,7 @@ use std::{env, fs, io};
 use anyhow::{Context, Result, bail};
 use merlin_core::screen::{Screen, WIDE_TAIL};
 use merlin_core::script::{self, Step};
-use merlin_core::{Editor, Effect, Event, GitAction, SearchHit, Workspace};
+use merlin_core::{Editor, Effect, Event, FileOp, GitAction, SearchHit, Workspace};
 use merlin_plugins::{BufferEvent, Config, PluginHost, Selection, Snapshot};
 
 const USAGE: &str = "\
@@ -283,7 +283,13 @@ impl App {
                         }
                     }
                     Effect::ListFiles => queue.push_back(Event::Files(list_files(&self.root))),
-                    Effect::ListTree => queue.push_back(Event::Tree(list_files(&self.root))),
+                    Effect::ListTree => queue.push_back(Event::Tree(list_tree(&self.root))),
+                    Effect::File(op) => {
+                        let done = self.file_op(op);
+                        queue.extend(done);
+                        queue.push_back(Event::Tree(list_tree(&self.root)));
+                        queue.push_back(self.git_status());
+                    }
                     Effect::Search(query) => {
                         let hits = search(&self.root, &query);
                         queue.push_back(Event::SearchResults { query, hits });
@@ -442,6 +448,64 @@ impl App {
 
     /// Reads a file to open, and starts watching it. A path that doesn't
     /// exist yet opens empty, and is created on save.
+    /// Does a file operation from the Explorer, and says what changed.
+    fn file_op(&mut self, op: FileOp) -> Vec<Event> {
+        let at = |p: &Path| self.root.join(p);
+        let fail = |what: &str, p: &Path, err: io::Error| {
+            vec![Event::Error(format!("Can't {what} {}: {err}", p.display()))]
+        };
+        match op {
+            FileOp::CreateFile(path) => {
+                if at(&path).exists() {
+                    return vec![Event::Error(format!("{} already exists", path.display()))];
+                }
+                if let Some(dir) = at(&path).parent()
+                    && let Err(err) = fs::create_dir_all(dir)
+                {
+                    return fail("create", &path, err);
+                }
+                if let Err(err) = fs::write(at(&path), "") {
+                    return fail("create", &path, err);
+                }
+                vec![self.open(&path)]
+            }
+            FileOp::CreateFolder(path) => match fs::create_dir_all(at(&path)) {
+                Ok(()) => Vec::new(),
+                Err(err) => fail("create", &path, err),
+            },
+            FileOp::Rename { from, to } => {
+                if at(&to).exists() {
+                    return vec![Event::Error(format!("{} already exists", to.display()))];
+                }
+                match fs::rename(at(&from), at(&to)) {
+                    Ok(()) => {
+                        self.disk.retain(|p, _| !p.starts_with(&from));
+                        vec![Event::Renamed { from, to }]
+                    }
+                    Err(err) => fail("rename", &from, err),
+                }
+            }
+            FileOp::Trash(path) => match trash::delete(at(&path)) {
+                Ok(()) => {
+                    self.disk.retain(|p, _| !p.starts_with(&path));
+                    vec![Event::Trashed(path)]
+                }
+                Err(err) => vec![Event::Error(format!(
+                    "Can't move {} to the trash: {err}",
+                    path.display()
+                ))],
+            },
+        }
+    }
+
+    /// A file dropped on the window, from anywhere.
+    pub(crate) fn open_dropped(&mut self, path: &Path) -> Event {
+        if path.is_dir() {
+            return Event::Error(format!("{} is a folder", path.display()));
+        }
+        self.open(path)
+    }
+
     fn open(&mut self, path: &Path) -> Event {
         let path = relative_to(&self.root, path);
         self.disk
@@ -761,6 +825,27 @@ fn git_base(root: &Path, path: &Path) -> Option<String> {
 
 /// The project's files for the open-file picker, skipping hidden and
 /// git-ignored ones.
+/// The project's files and folders for the Explorer, folders ending in
+/// `/` so empty ones show.
+fn list_tree(root: &Path) -> Vec<String> {
+    const MAX: usize = 50_000;
+    let mut paths: Vec<String> = ignore::WalkBuilder::new(root)
+        .build()
+        .flatten()
+        .filter_map(|e| {
+            let rel = e.path().strip_prefix(root).ok()?.display().to_string();
+            if rel.is_empty() {
+                return None;
+            }
+            let dir = e.file_type().is_some_and(|t| t.is_dir());
+            Some(if dir { format!("{rel}/") } else { rel })
+        })
+        .take(MAX)
+        .collect();
+    paths.sort();
+    paths
+}
+
 fn list_files(root: &Path) -> Vec<String> {
     const MAX: usize = 50_000;
     let mut files: Vec<String> = ignore::WalkBuilder::new(root)
@@ -869,6 +954,8 @@ fn main() -> Result<()> {
     if let Some(name) = app.root.file_name() {
         app.editor.set_project(name.to_string_lossy().to_string());
     }
+    let root = app.root.clone();
+    app.editor.set_root(root);
     for file in &args.files {
         let event = app.open(file);
         if let Event::Error(err) = event {

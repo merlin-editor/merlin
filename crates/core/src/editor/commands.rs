@@ -37,6 +37,10 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
     ("edit.jump_to_bracket", "Go: Go to Bracket"),
     ("file.close_others", "View: Close Other Editors"),
     ("file.new", "File: New Untitled File"),
+    ("explorer.new_file", "Explorer: New File…"),
+    ("explorer.new_folder", "Explorer: New Folder…"),
+    ("explorer.rename", "Explorer: Rename…"),
+    ("explorer.delete", "Explorer: Delete"),
     ("file.save_as", "File: Save As…"),
     ("file.reopen", "View: Reopen Closed Editor"),
     ("view.zoom_in", "View: Zoom In"),
@@ -102,6 +106,9 @@ pub(super) fn set_flag(key: &str, on: bool) -> Effect {
 
 impl Editor {
     pub(crate) fn run(&mut self, id: &str, armed: Option<&'static str>, fx: &mut Vec<Effect>) {
+        if id.starts_with("explorer.") && self.explorer_command(id, fx) {
+            return;
+        }
         match id {
             "file.save" => {
                 let doc = self.doc();

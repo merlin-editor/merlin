@@ -5,6 +5,7 @@ mod commands;
 mod context;
 mod crumbs;
 mod editing;
+mod files;
 mod find;
 pub(crate) mod fold;
 mod groups;
@@ -31,6 +32,7 @@ pub use window::{
 };
 
 pub use context::{ContextItem, ContextView, PopupKind, PopupView};
+pub use files::FileOp;
 pub use find::{FindAction, FindView};
 pub use layout::Rect as CellRect;
 pub use menu::MenuView;
@@ -231,8 +233,16 @@ pub enum Event {
         text: Option<String>,
     },
     /// The project's files for the Explorer, asked for with
-    /// [`Effect::ListTree`].
+    /// [`Effect::ListTree`]. Folders end in `/`, so empty ones show too.
     Tree(Vec<String>),
+    /// A file or folder was renamed, by the host after
+    /// [`Effect::File`].
+    Renamed {
+        from: PathBuf,
+        to: PathBuf,
+    },
+    /// A file or folder went to the trash.
+    Trashed(PathBuf),
     /// The plugins loaded, for the Plugins view.
     PluginList(Vec<PluginSummary>),
     /// The colour or icon themes there are, by name, and the one in use,
@@ -321,6 +331,9 @@ pub enum Effect {
     SetTheme(ThemeKind, String),
     /// Open the Settings window, which the window draws.
     OpenSettingsWindow,
+    /// Create, rename or trash a file or folder in the project, then send
+    /// what changed and list the tree again.
+    File(FileOp),
     /// Make the code's font bigger or smaller by `n` steps, or with 0 go
     /// back to its size.
     Zoom(i8),
@@ -447,6 +460,20 @@ enum Source {
     Symbols,
     /// A path to save the file as, typed in.
     SaveAs,
+    /// A name for a new file or folder in `dir`, a new name for `from`, or
+    /// Enter to trash `path`.
+    NewFile {
+        dir: String,
+    },
+    NewFolder {
+        dir: String,
+    },
+    Rename {
+        from: String,
+    },
+    Trash {
+        path: String,
+    },
     Picker {
         plugin: String,
         id: String,
@@ -542,6 +569,10 @@ pub struct Editor {
     chord: Option<Key>,
     /// Files closed, last last, for Ctrl+Shift+T.
     closed: Vec<PathBuf>,
+    /// The Explorer row right-clicked, which its menu's commands are for.
+    explorer_row: Option<String>,
+    /// The project's folder, for absolute paths.
+    root: PathBuf,
     /// Whether the left button went down on the scrollbar.
     scrollbar_drag: bool,
     /// Whether the left button went down on the minimap.
@@ -656,6 +687,8 @@ impl Editor {
             cursor_undo: Vec::new(),
             chord: None,
             closed: Vec::new(),
+            explorer_row: None,
+            root: PathBuf::new(),
             scrollbar_drag: false,
             minimap_drag: false,
             tab_drag: None,
@@ -746,6 +779,11 @@ impl Editor {
     }
 
     /// Names the project, as the title bar shows it.
+    /// The project's folder, for the Explorer's Copy Path.
+    pub fn set_root(&mut self, root: PathBuf) {
+        self.root = root;
+    }
+
     pub fn set_project(&mut self, name: String) {
         self.project = name;
     }
@@ -1079,6 +1117,8 @@ impl Editor {
                 self.themes[i] = themes;
                 self.theme[i] = current;
             }
+            Event::Renamed { from, to } => self.renamed(from, to),
+            Event::Trashed(path) => self.trashed(path),
             Event::Tree(files) => {
                 let tree = self.tree.get_or_insert_with(Default::default);
                 tree.files = files;

@@ -442,3 +442,101 @@ fn a_tab_menu_closes_the_others() {
     s.send(Event::Ui(UiEvent::ContextItem(others)));
     assert_eq!(tab_names(&s), ["lib.rs"]);
 }
+
+/// The Explorer showing `files`, and the target index of the row `label`.
+fn explorer(files: &[&str], label: &str) -> (Session, usize) {
+    let mut s = windowed();
+    s.send(Event::Ui(UiEvent::Rail(0)));
+    s.send(Event::Tree(files.iter().map(|f| f.to_string()).collect()));
+    let left = s.editor.window_view().left.expect("the Explorer shows");
+    let row = left
+        .nodes
+        .iter()
+        .position(|n| matches!(n, Node::Entry(e) if e.label == label))
+        .unwrap_or_else(|| panic!("{label} is listed"));
+    (s, left.targets[row].unwrap())
+}
+
+fn run_item(s: &mut Session, label: &str) {
+    let menu = s.editor.window_view().context.expect("a menu");
+    let i = menu.items.iter().position(|i| i.label == label).unwrap();
+    s.send(Event::Ui(UiEvent::ContextItem(i)));
+}
+
+fn file_ops(s: &Session) -> Vec<merlin_core::FileOp> {
+    s.effects
+        .iter()
+        .filter_map(|e| match e {
+            merlin_core::Effect::File(op) => Some(op.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_new_file_goes_in_the_folder_right_clicked() {
+    let (mut s, index) = explorer(&["src/main.rs", "src/lib.rs"], "src");
+    s.send(Event::Ui(UiEvent::TargetMenu {
+        side: Side::Left,
+        index,
+    }));
+    run_item(&mut s, "New File…");
+    s.run("type util.rs; key enter");
+    assert_eq!(
+        file_ops(&s),
+        [merlin_core::FileOp::CreateFile("src/util.rs".into())]
+    );
+}
+
+#[test]
+fn rename_starts_from_the_name_and_open_files_follow() {
+    let (mut s, index) = explorer(&["src/main.rs", "src/lib.rs"], "main.rs");
+    s.send(Event::Ui(UiEvent::TargetMenu {
+        side: Side::Left,
+        index,
+    }));
+    run_item(&mut s, "Rename…");
+    assert_eq!(s.editor.window_view().palette.unwrap().query, "main.rs");
+    s.run("key backspace backspace backspace; type _old.rs; key enter");
+    assert_eq!(
+        file_ops(&s),
+        [merlin_core::FileOp::Rename {
+            from: "src/main.rs".into(),
+            to: "src/main_old.rs".into()
+        }]
+    );
+    s.send(Event::Renamed {
+        from: "src/main.rs".into(),
+        to: "src/main_old.rs".into(),
+    });
+    assert!(
+        s.editor
+            .window_view()
+            .tabs
+            .iter()
+            .any(|t| t.name == "main_old.rs"),
+        "the open file has its new name"
+    );
+}
+
+#[test]
+fn delete_asks_first_then_trashes() {
+    let (mut s, index) = explorer(&["src/main.rs", "src/lib.rs"], "lib.rs");
+    s.send(Event::Ui(UiEvent::TargetMenu {
+        side: Side::Left,
+        index,
+    }));
+    run_item(&mut s, "Delete");
+    assert!(file_ops(&s).is_empty(), "nothing yet");
+    s.run("key enter");
+    assert_eq!(
+        file_ops(&s),
+        [merlin_core::FileOp::Trash("src/lib.rs".into())]
+    );
+}
+
+#[test]
+fn empty_folders_show_in_the_explorer() {
+    let (s, _) = explorer(&["new/", "src/main.rs"], "new");
+    let _ = s;
+}

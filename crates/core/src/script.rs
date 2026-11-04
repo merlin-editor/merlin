@@ -271,6 +271,7 @@ impl Session {
                 | Effect::SetTheme(..)
                 | Effect::OpenSettingsWindow
                 | Effect::Zoom(_)
+                | Effect::File(_)
                 | Effect::GitStatus
                 | Effect::OpenDiff(_)
                 | Effect::Git(_) => {}

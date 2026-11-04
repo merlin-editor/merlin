@@ -862,6 +862,11 @@ impl ApplicationHandler for Gui<'_> {
                 }
             }
             WindowEvent::RedrawRequested => self.paint(),
+            // Files dropped from the desktop open, as in any editor.
+            WindowEvent::DroppedFile(path) => {
+                let opened = self.app.open_dropped(&path);
+                self.dispatch(opened);
+            }
             WindowEvent::Focused(on) => {
                 self.focused = on;
                 self.blink_from = Instant::now();
@@ -909,6 +914,15 @@ impl ApplicationHandler for Gui<'_> {
                         let (x, y) = self.cell_at(at);
                         self.context_at = Some(at);
                         self.dispatch(Event::ContextMenu(x, y));
+                    }
+                    // An Explorer row's menu, or the menu for its empty space.
+                    Some(Hit::Ui(UiEvent::Target { side, index })) => {
+                        self.context_at = Some(at);
+                        self.dispatch(Event::Ui(UiEvent::TargetMenu { side, index }));
+                    }
+                    Some(Hit::Side(side)) => {
+                        self.context_at = Some(at);
+                        self.dispatch(Event::Ui(UiEvent::SideMenu(side)));
                     }
                     // A tab's menu is about that tab, so it's chosen first.
                     Some(Hit::Ui(tab @ (UiEvent::Tab { .. } | UiEvent::GroupTab { .. }))) => {

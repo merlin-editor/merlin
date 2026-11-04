@@ -23,7 +23,7 @@ pub mod script;
 pub mod symbols;
 
 pub use editor::{
-    Command, ContextItem, ContextView, Editor, Effect, Event, FindAction, FindView, Focus,
+    Command, ContextItem, ContextView, Editor, Effect, Event, FileOp, FindAction, FindView, Focus,
     GitAction, KeyBinding, MenuView, Mouse, MouseKind, PaletteView, PluginSummary, PopupKind,
     PopupView, RailItem, SearchHit, Settings, Side, SideView, StatusView, TabView, TextView,
     ThemeKind, ToastView, UiEvent, WindowView, Workspace,
