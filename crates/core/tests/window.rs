@@ -37,7 +37,7 @@ fn the_view_has_tabs_status_and_rail() {
             .any(|i| i.right && i.text.starts_with("Ln 1"))
     );
     let labels: Vec<_> = view.rail.iter().map(|r| r.label.as_str()).collect();
-    assert_eq!(labels, ["Explorer", "Search", "Source Control", "Outline"]);
+    assert_eq!(labels, ["Explorer", "Search", "Source Control", "Outline", "Plugins"]);
 }
 
 #[test]
@@ -185,5 +185,81 @@ fn icon_themes_have_their_own_picker() {
 fn rail_items_say_what_they_show() {
     let s = windowed();
     let ids: Vec<_> = s.editor.window_view().rail.iter().map(|r| r.id).collect();
-    assert_eq!(ids, ["explorer", "search", "source-control", "outline"]);
+    assert_eq!(ids, ["explorer", "search", "source-control", "outline", "plugins"]);
+}
+
+#[test]
+fn the_plugins_view_lists_plugins_and_opens_their_pages() {
+    use merlin_core::{PluginSummary, Tone};
+    let mut s = windowed();
+    s.send(Event::PluginList(vec![PluginSummary {
+        name: "lsp".into(),
+        title: "Language".into(),
+        what: "Language servers".into(),
+        tag: "runs programs".into(),
+        tone: Tone::Warning,
+    }]));
+    let rail = s.editor.window_view().rail;
+    let i = rail.iter().position(|r| r.id == "plugins").expect("a Plugins rail item");
+    s.send(Event::Ui(UiEvent::Rail(i)));
+    let left = s.editor.window_view().left.expect("the Plugins view shows");
+    assert_eq!(left.title, "Plugins");
+    let row = left
+        .nodes
+        .iter()
+        .position(|n| matches!(n, Node::Entry(e) if e.label == "Language"))
+        .expect("the plugin is listed");
+    s.send(Event::Ui(UiEvent::Target {
+        side: Side::Left,
+        index: left.targets[row].unwrap(),
+    }));
+    let view = s.editor.window_view();
+    assert_eq!(view.page.as_deref(), Some("lsp"), "its page is the active tab");
+    assert!(view.tabs.iter().any(|t| t.name == "Language" && t.active));
+
+    // A page has no text to type into, and opening it again reuses its tab.
+    s.run("type hello");
+    assert_eq!(s.editor.window_view().page.as_deref(), Some("lsp"));
+    assert!(!s.editor.buffer().is_dirty());
+    let tabs = s.editor.window_view().tabs.len();
+    s.send(Event::Ui(UiEvent::Target {
+        side: Side::Left,
+        index: left.targets[row].unwrap(),
+    }));
+    assert_eq!(s.editor.window_view().tabs.len(), tabs);
+}
+
+#[test]
+fn ctrl_comma_opens_settings() {
+    use merlin_core::Effect;
+    let mut s = windowed();
+    s.effects.clear();
+    s.run("key ctrl+,");
+    assert_eq!(s.effects, [Effect::OpenSettingsWindow]);
+}
+
+#[test]
+fn key_bindings_show_the_settings_changes() {
+    use merlin_core::{Key, Settings};
+    let mut s = windowed();
+    s.send(Event::Settings(Settings {
+        keys: vec![
+            ("ctrl+k".into(), "view.minimap".into()),
+            ("ctrl+b".into(), String::new()),
+        ],
+        ..Settings::default()
+    }));
+    let bindings = s.editor.key_bindings();
+    let find = |id: &str| bindings.iter().find(|b| b.command == id).unwrap().clone();
+    let minimap = find("view.minimap");
+    assert_eq!(minimap.keys, [("ctrl+k".to_string(), "Ctrl+K".to_string())]);
+    assert!(minimap.changed);
+    let sidebar = find("view.sidebar");
+    assert!(sidebar.keys.is_empty() && sidebar.changed, "Ctrl+B was unbound");
+    let palette = find("palette.open");
+    assert!(!palette.changed && palette.keys.len() == 2);
+    for spec in ["ctrl+shift+p", "f1", "alt+z", "ctrl+,", "shift+alt+up", "ctrl+pagedown"] {
+        let key = Key::parse(spec).unwrap();
+        assert_eq!(Key::parse(&key.spec()), Some(key), "{spec} reads back");
+    }
 }

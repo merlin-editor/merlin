@@ -22,7 +22,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result, anyhow, bail};
 use merlin_core::{
@@ -223,6 +223,36 @@ struct State {
     secrets: Arc<Secrets>,
     /// The plugin's settings, defaults and all.
     settings: toml::Table,
+    /// How much memory the plugin's instance has, for its page.
+    limits: Limits,
+}
+
+/// Counts the memory an instance grows to. It allows any growth: fuel and
+/// the user's eyes are the limits.
+#[derive(Default)]
+struct Limits {
+    memory: usize,
+}
+
+impl wasmtime::ResourceLimiter for Limits {
+    fn memory_growing(
+        &mut self,
+        current: usize,
+        desired: usize,
+        _maximum: Option<usize>,
+    ) -> wasmtime::Result<bool> {
+        self.memory = self.memory + desired - current.min(desired);
+        Ok(true)
+    }
+
+    fn table_growing(
+        &mut self,
+        _current: usize,
+        _desired: usize,
+        _maximum: Option<usize>,
+    ) -> wasmtime::Result<bool> {
+        Ok(true)
+    }
 }
 
 impl State {
@@ -479,6 +509,39 @@ struct Loaded {
     /// isn't delivered to the new one.
     generation: u64,
     failed: bool,
+    /// Turned off by the user: loaded, but not running.
+    disabled: bool,
+    /// Time spent in the plugin's calls since it loaded.
+    busy: Duration,
+}
+
+/// What a plugin's page shows about it.
+#[derive(Clone, Debug)]
+pub struct PluginInfo {
+    pub name: String,
+    pub title: String,
+    /// Where it was loaded from.
+    pub dir: PathBuf,
+    pub api: String,
+    /// It adds data only, and runs nothing.
+    pub data_only: bool,
+    pub enabled: bool,
+    /// Waiting for the user to allow its permissions.
+    pub waiting: bool,
+    pub failed: bool,
+    pub permissions: Permissions,
+    pub languages: Vec<String>,
+    /// Themes and packs, by name.
+    pub looks: Vec<String>,
+    /// Its settings with the user's over its defaults.
+    pub settings: toml::Table,
+    /// Its manifest's defaults, to tell what the user changed.
+    pub defaults: toml::Table,
+    /// Bytes of memory its instance has.
+    pub memory: usize,
+    pub busy: Duration,
+    /// Programs it's running, with their process ids.
+    pub processes: Vec<(String, u32)>,
 }
 
 pub struct PluginHost {
@@ -494,6 +557,8 @@ pub struct PluginHost {
     secrets: Arc<Secrets>,
     /// `[plugins]` from the user's and the workspace's settings.
     settings: toml::Table,
+    /// Plugins the user turned off, by name, which load without running.
+    disabled: Vec<String>,
 }
 
 const ALLOW: &str = "merlin:allow";
@@ -531,6 +596,7 @@ impl PluginHost {
             config,
             secrets,
             settings: toml::Table::new(),
+            disabled: Vec::new(),
         })
     }
 
@@ -587,6 +653,8 @@ impl PluginHost {
                 instance: None,
                 generation: 0,
                 failed: false,
+                disabled: false,
+                busy: Duration::ZERO,
             });
             return Ok((!languages.is_empty())
                 .then_some(Event::RegisterLanguages { plugin, languages })
@@ -601,7 +669,8 @@ impl PluginHost {
                 .plugins
                 .get(&dir)
                 .is_some_and(|g| g.covers(&manifest.permissions));
-        let instance = if ask {
+        let off = self.disabled.contains(&manifest.name);
+        let instance = if ask || off {
             None
         } else {
             Some(self.instantiate(&manifest, &wasm, 0)?)
@@ -614,8 +683,13 @@ impl PluginHost {
             instance,
             generation: 0,
             failed: false,
+            disabled: off,
+            busy: Duration::ZERO,
         });
         let index = self.plugins.len() - 1;
+        if off {
+            return Ok(Vec::new());
+        }
         if ask {
             let plugin = &self.plugins[index].manifest;
             return Ok(vec![
@@ -746,8 +820,10 @@ impl PluginHost {
             ),
             secrets: self.secrets.clone(),
             settings: plugin_settings(manifest, &self.settings),
+            limits: Limits::default(),
         };
         let mut store = Store::new(&self.engine, state);
+        store.limiter(|s| &mut s.limits);
         store.set_fuel(FUEL_PER_CALL).map_err(wt)?;
         let bindings = Bindings::instantiate(&mut store, &component, &self.linker)
             .map_err(wt)
@@ -809,7 +885,9 @@ impl PluginHost {
         let store = &mut instance.store;
         store.data_mut().snapshot = snapshot;
         let _ = store.set_fuel(FUEL_PER_CALL);
+        let started = std::time::Instant::now();
         let result = f(&instance.bindings, store);
+        plugin.busy += started.elapsed();
         let mut events = std::mem::take(&mut store.data_mut().events);
         match result {
             Ok(value) => (Some(value), events),
@@ -853,8 +931,8 @@ impl PluginHost {
         let Some(i) = self.index(plugin) else {
             return Vec::new();
         };
-        // Data only: nothing to click, and no permission to answer.
-        if self.plugins[i].manifest.component.is_none() {
+        // Data only or turned off: nothing to click or answer.
+        if self.plugins[i].manifest.component.is_none() || self.plugins[i].disabled {
             return Vec::new();
         }
         if self.plugins[i].instance.is_none() {
@@ -949,8 +1027,8 @@ impl PluginHost {
     pub fn render_panels(&mut self, snapshot: &Snapshot) -> Vec<Event> {
         let mut events = Vec::new();
         for i in 0..self.plugins.len() {
-            // Data only: no panel, and nothing to allow.
-            if self.plugins[i].manifest.component.is_none() {
+            // Data only or turned off: no panel, and nothing to allow.
+            if self.plugins[i].manifest.component.is_none() || self.plugins[i].disabled {
                 continue;
             }
             if self.plugins[i].instance.is_none() {
@@ -1016,36 +1094,151 @@ impl PluginHost {
                 continue;
             }
             self.plugins[i].modified = now;
-            let name = self.plugins[i].manifest.name.clone();
-            let (state, mut more) = self.call(i, Snapshot::default(), |b, s| b.call_save_state(s));
-            events.append(&mut more);
-            let state = state.flatten();
-            let plugin = &self.plugins[i];
-            // Output from the old instance's processes goes to the new one
-            // only if they're handed over.
-            let generation = plugin.generation + state.is_none() as u64;
-            match self.instantiate(&plugin.manifest, &plugin.wasm, generation) {
-                Ok(mut instance) => {
-                    let plugin = &mut self.plugins[i];
-                    if let Some(old) = &mut plugin.instance
-                        && state.is_some()
-                    {
-                        std::mem::swap(
-                            &mut old.store.data_mut().processes,
-                            &mut instance.store.data_mut().processes,
-                        );
-                    }
-                    // Dropping the old store stops any processes it still has.
-                    plugin.instance = Some(instance);
-                    plugin.generation = generation;
-                    plugin.failed = false;
-                    events.extend(self.activate(i, state));
-                    events.push(Event::Notify(format!("Reloaded {name}")));
-                }
-                Err(err) => events.push(Event::Notify(format!("Reload of {name} failed: {err:#}"))),
-            }
+            events.extend(self.reload_at(i));
         }
         events
+    }
+
+    /// Starts a plugin again from its component, keeping its state if it
+    /// saves it.
+    pub fn reload(&mut self, name: &str) -> Vec<Event> {
+        match self.index(name) {
+            Some(i) if self.plugins[i].instance.is_some() => self.reload_at(i),
+            _ => Vec::new(),
+        }
+    }
+
+    fn reload_at(&mut self, i: usize) -> Vec<Event> {
+        let mut events = Vec::new();
+        let name = self.plugins[i].manifest.title.clone();
+        let (state, mut more) = self.call(i, Snapshot::default(), |b, s| b.call_save_state(s));
+        events.append(&mut more);
+        let state = state.flatten();
+        let plugin = &self.plugins[i];
+        // Output from the old instance's processes goes to the new one
+        // only if they're handed over.
+        let generation = plugin.generation + state.is_none() as u64;
+        match self.instantiate(&plugin.manifest, &plugin.wasm, generation) {
+            Ok(mut instance) => {
+                let plugin = &mut self.plugins[i];
+                if let Some(old) = &mut plugin.instance
+                    && state.is_some()
+                {
+                    std::mem::swap(
+                        &mut old.store.data_mut().processes,
+                        &mut instance.store.data_mut().processes,
+                    );
+                }
+                // Dropping the old store stops any processes it still has.
+                plugin.instance = Some(instance);
+                plugin.generation = generation;
+                plugin.failed = false;
+                events.extend(self.activate(i, state));
+                events.push(Event::Notify(format!("Reloaded {name}")));
+            }
+            Err(err) => events.push(Event::Notify(format!("Reload of {name} failed: {err:#}"))),
+        }
+        events
+    }
+
+    /// Plugins to load turned off, by name, from the settings.
+    pub fn set_disabled(&mut self, names: Vec<String>) {
+        self.disabled = names;
+    }
+
+    /// Turns a plugin on or off. Off, it stops: its processes end, and its
+    /// panel and commands go.
+    pub fn set_enabled(&mut self, name: &str, on: bool) -> Vec<Event> {
+        let Some(i) = self.index(name) else {
+            return Vec::new();
+        };
+        self.disabled.retain(|n| n != name);
+        if !on {
+            self.disabled.push(name.to_string());
+        }
+        let plugin = &mut self.plugins[i];
+        if plugin.manifest.component.is_none() || plugin.disabled == !on {
+            return Vec::new();
+        }
+        plugin.disabled = !on;
+        if !on {
+            // Dropping the store stops its processes.
+            plugin.instance = None;
+            return vec![
+                Event::SetPanel {
+                    plugin: name.to_string(),
+                    panel: None,
+                },
+                Event::RegisterPlugin {
+                    plugin: name.to_string(),
+                    commands: Vec::new(),
+                },
+            ];
+        }
+        let plugin = &self.plugins[i];
+        match self.instantiate(&plugin.manifest, &plugin.wasm, plugin.generation + 1) {
+            Ok(instance) => {
+                let plugin = &mut self.plugins[i];
+                plugin.instance = Some(instance);
+                plugin.generation += 1;
+                plugin.failed = false;
+                self.activate(i, None)
+            }
+            Err(err) => vec![Event::PluginFailed {
+                plugin: name.to_string(),
+                message: format!("{err:#}"),
+            }],
+        }
+    }
+
+    /// Stops a plugin and forgets it, as uninstalling does.
+    pub fn unload(&mut self, name: &str) -> Vec<Event> {
+        let Some(i) = self.index(name) else {
+            return Vec::new();
+        };
+        self.plugins.remove(i);
+        vec![
+            Event::SetPanel {
+                plugin: name.to_string(),
+                panel: None,
+            },
+            Event::RegisterPlugin {
+                plugin: name.to_string(),
+                commands: Vec::new(),
+            },
+        ]
+    }
+
+    /// What each plugin's page shows.
+    pub fn plugins(&self) -> Vec<PluginInfo> {
+        self.plugins
+            .iter()
+            .map(|p| {
+                let m = &p.manifest;
+                let (memory, processes) = match &p.instance {
+                    Some(i) => (i.store.data().limits.memory, i.store.data().processes.running()),
+                    None => (0, Vec::new()),
+                };
+                PluginInfo {
+                    name: m.name.clone(),
+                    title: m.title.clone(),
+                    dir: PathBuf::from(&p.dir),
+                    api: m.api.clone(),
+                    data_only: m.component.is_none(),
+                    enabled: !p.disabled,
+                    waiting: m.component.is_some() && !p.disabled && p.instance.is_none(),
+                    failed: p.failed,
+                    permissions: m.permissions.clone(),
+                    languages: m.languages.iter().map(|l| l.name.clone()).collect(),
+                    looks: m.themes.iter().chain(&m.packs).map(|t| t.label.clone()).collect(),
+                    settings: plugin_settings(m, &self.settings),
+                    defaults: m.settings.clone(),
+                    memory,
+                    busy: p.busy,
+                    processes,
+                }
+            })
+            .collect()
     }
 }
 

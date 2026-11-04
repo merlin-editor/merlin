@@ -90,10 +90,40 @@ impl Files {
     /// Sets `key` (such as `editor.minimap`) to a TOML value in the user's
     /// settings, keeping the rest of the file as it is.
     pub fn set(&self, key: &str, value: &str) -> Result<(), String> {
-        let text = fs::read_to_string(&self.user).unwrap_or_default();
-        let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e| format!("{e}"))?;
+        self.set_in(false, key, value)
+    }
+
+    /// Sets `key` in the user's settings or the workspace's.
+    pub fn set_in(&self, workspace: bool, key: &str, value: &str) -> Result<(), String> {
         let value: toml_edit::Value = value.parse().map_err(|e| format!("{e}"))?;
-        let mut parts: Vec<&str> = key.split('.').collect();
+        self.edit(workspace, key, |table, last| {
+            table[last] = toml_edit::value(value);
+        })
+    }
+
+    /// Takes `key` out of the user's settings or the workspace's, so the
+    /// default, or the user's under the workspace's, shows through.
+    pub fn remove_in(&self, workspace: bool, key: &str) -> Result<(), String> {
+        self.edit(workspace, key, |table, last| {
+            table.remove(last);
+        })
+    }
+
+    fn edit(
+        &self,
+        workspace: bool,
+        key: &str,
+        change: impl FnOnce(&mut toml_edit::Table, &str),
+    ) -> Result<(), String> {
+        let path = if workspace { &self.workspace } else { &self.user };
+        let text = fs::read_to_string(path).unwrap_or_default();
+        let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e| format!("{e}"))?;
+        // Dots part tables, except in `[keys]`, where the rest is one key
+        // even if it has dots, as "ctrl+." does.
+        let mut parts: Vec<&str> = match key.strip_prefix("keys.") {
+            Some(rest) => vec!["keys", rest],
+            None => key.split('.').collect(),
+        };
         let last = parts.pop().ok_or("empty key")?;
         let mut table = doc.as_table_mut();
         for part in parts {
@@ -104,10 +134,21 @@ impl Files {
                 .as_table_mut()
                 .ok_or_else(|| format!("{part} isn't a table"))?;
         }
-        table[last] = toml_edit::value(value);
-        fs::create_dir_all(self.user.parent().unwrap_or(Path::new(".")))
-            .and_then(|()| fs::write(&self.user, doc.to_string()))
+        change(table, last);
+        fs::create_dir_all(path.parent().unwrap_or(Path::new(".")))
+            .and_then(|()| fs::write(path, doc.to_string()))
             .map_err(|e| e.to_string())
+    }
+
+    /// Each file's settings on their own: the user's, then the workspace's.
+    pub fn each(&self) -> (toml::Table, toml::Table) {
+        let read = |p: &Path| {
+            fs::read_to_string(p)
+                .ok()
+                .and_then(|t| t.parse::<toml::Table>().ok())
+                .unwrap_or_default()
+        };
+        (read(&self.user), read(&self.workspace))
     }
 }
 

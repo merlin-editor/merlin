@@ -206,6 +206,8 @@ pub enum Event {
     /// The project's files for the Explorer, asked for with
     /// [`Effect::ListTree`].
     Tree(Vec<String>),
+    /// The plugins loaded, for the Plugins view.
+    PluginList(Vec<PluginSummary>),
     /// The colour or icon themes there are, by name, and the one in use,
     /// for the theme pickers.
     Themes {
@@ -237,6 +239,34 @@ pub enum Event {
     },
 }
 
+/// A plugin as the Plugins view lists it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PluginSummary {
+    pub name: String,
+    pub title: String,
+    /// What it adds, in a few words.
+    pub what: String,
+    /// How it runs: "runs programs", "sandboxed", "data only", "off".
+    pub tag: String,
+    pub tone: crate::panel::Tone,
+}
+
+/// A command and the keys that run it, for the Keys settings.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeyBinding {
+    pub command: String,
+    pub title: String,
+    /// Each key as settings write it (`ctrl+k`) and as people read it
+    /// (`Ctrl+K`).
+    pub keys: Vec<(String, String)>,
+    /// The settings change its keys.
+    pub changed: bool,
+    /// The keys it has without the settings, as settings write them.
+    pub defaults: Vec<String>,
+    /// The plugin it's from, by title.
+    pub plugin: Option<String>,
+}
+
 /// What a theme picker picks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ThemeKind {
@@ -262,6 +292,8 @@ pub enum Effect {
     PreviewTheme(ThemeKind, String),
     /// Use a theme from now on, and save it in the user's settings.
     SetTheme(ThemeKind, String),
+    /// Open the Settings window, which the window draws.
+    OpenSettingsWindow,
     Save {
         doc: u64,
         path: PathBuf,
@@ -375,6 +407,8 @@ const BUILTIN: &[(&str, &str)] = &[
     ("view.outline", "View: Outline"),
     ("settings.user", "Preferences: Open User Settings"),
     ("settings.workspace", "Preferences: Open Workspace Settings"),
+    ("settings.open", "Preferences: Open Settings"),
+    ("view.plugins", "View: Plugins"),
     ("theme.pick", "Preferences: Color Theme"),
     ("icons.pick", "Preferences: File Icon Theme"),
     ("go.symbol", "Go to Symbol in Editor"),
@@ -415,6 +449,7 @@ const GLOBAL_KEYS: &[(&str, &str)] = &[
     ("ctrl+w", "file.close"),
     ("ctrl+q", "app.quit"),
     ("ctrl+shift+p", "palette.open"),
+    ("ctrl+,", "settings.open"),
     ("f1", "palette.open"),
     ("ctrl+f", "find.open"),
     ("ctrl+r", "find.replace"),
@@ -669,6 +704,8 @@ pub struct Editor {
     problems: Vec<(PathBuf, u32, u32)>,
     /// The window draws the frame; the screen holds only the text.
     windowed: bool,
+    /// The plugins loaded, for the Plugins view.
+    plugin_list: Vec<PluginSummary>,
     /// Colour themes and icon themes by name, and the one of each in use.
     themes: [Vec<String>; 2],
     theme: [String; 2],
@@ -728,6 +765,7 @@ impl Editor {
             log: Vec::new(),
             problems: Vec::new(),
             windowed: false,
+            plugin_list: Vec::new(),
             themes: [Vec::new(), Vec::new()],
             theme: [String::new(), String::new()],
         };
@@ -1091,6 +1129,9 @@ impl Editor {
                     }
                 }
             }
+            Event::PluginList(list) => {
+                self.plugin_list = list;
+            }
             Event::Themes {
                 kind,
                 themes,
@@ -1361,6 +1402,8 @@ impl Editor {
                 self.palette = Some(Palette::new(Source::Commands, None, Vec::new()));
                 self.focus = Focus::Palette;
             }
+            "settings.open" => fx.push(Effect::OpenSettingsWindow),
+            "view.plugins" => self.show_view(views::PLUGINS, fx),
             "theme.pick" => self.pick_theme(ThemeKind::Colours),
             "icons.pick" => self.pick_theme(ThemeKind::Icons),
             // Show and focus, then step through the panels, then hide.
@@ -1579,6 +1622,99 @@ impl Editor {
     }
 
     // Reviews -----------------------------------------------------------------
+
+    /// Opens a page, such as a plugin's, in a tab of its own, or goes to
+    /// the tab it's in.
+    pub(crate) fn open_page(&mut self, name: &str, title: &str) {
+        match self
+            .docs
+            .iter()
+            .position(|d| d.page.as_ref().is_some_and(|(n, _)| n == name))
+        {
+            Some(i) => self.current = i,
+            None => {
+                let doc = Doc::page(self.new_id(), name, title);
+                self.current = (self.current + 1).min(self.docs.len());
+                self.docs.insert(self.current, doc);
+            }
+        }
+        self.focus = Focus::Editor;
+        self.popup = None;
+    }
+
+    /// A plugin's commands, by title, with their keys.
+    pub fn plugin_commands(&self, plugin: &str) -> Vec<(String, Option<String>)> {
+        self.plugins
+            .iter()
+            .filter(|p| p.name == plugin)
+            .flat_map(|p| {
+                p.commands.iter().map(|c| {
+                    let key = p
+                        .keys
+                        .iter()
+                        .find(|(_, id)| *id == c.id)
+                        .map(|(k, _)| k.to_string());
+                    (c.title.clone(), key)
+                })
+            })
+            .collect()
+    }
+
+    /// Every command and the keys that run it, after the settings' changes.
+    pub fn key_bindings(&self) -> Vec<KeyBinding> {
+        let defaults: Vec<(Key, &str)> = GLOBAL_KEYS
+            .iter()
+            .chain(EDITOR_KEYS)
+            .filter_map(|(spec, id)| Some((Key::parse(spec)?, *id)))
+            .collect();
+        let user = |key: Key| self.user_keys.iter().find(|(k, _)| *k == key);
+        let mut out = Vec::new();
+        for (id, title) in self.commands() {
+            let mut keys = Vec::new();
+            let mut changed = false;
+            let plugin = self.plugins.iter().find(|p| {
+                id.strip_prefix(&p.name)
+                    .is_some_and(|rest| rest.starts_with('.'))
+            });
+            let from_plugin = plugin.map(|p| {
+                let local = &id[p.name.len() + 1..];
+                p.keys
+                    .iter()
+                    .filter(|(_, c)| c == local)
+                    .map(|(k, _)| *k)
+                    .collect::<Vec<_>>()
+            });
+            let own = from_plugin
+                .unwrap_or_else(|| defaults.iter().filter(|(_, c)| *c == id).map(|(k, _)| *k).collect());
+            for key in own {
+                // A key the settings bind elsewhere, or to nothing, is gone.
+                match user(key) {
+                    Some((_, c)) if *c != id => changed = true,
+                    _ => keys.push(key),
+                }
+            }
+            for (key, c) in &self.user_keys {
+                if *c == id && !keys.contains(key) {
+                    keys.push(*key);
+                    changed = true;
+                }
+            }
+            let defaults = defaults
+                .iter()
+                .filter(|(_, c)| *c == id)
+                .map(|(k, _)| k.spec())
+                .collect();
+            out.push(KeyBinding {
+                command: id,
+                title,
+                defaults,
+                keys: keys.iter().map(|k| (k.spec(), k.to_string())).collect(),
+                changed,
+                plugin: plugin.map(|p| self.panel_title(Side::Right, &p.name).0),
+            });
+        }
+        out
+    }
 
     fn show_review(&mut self, plugin: String, id: String, path: PathBuf, old: &str, new: &str) {
         let back_to = match &self.doc().review {
@@ -1932,6 +2068,10 @@ impl Editor {
     fn editor_key(&mut self, key: Key, fx: &mut Vec<Effect>) {
         use KeyCode::*;
         if self.popup_key(key) {
+            return;
+        }
+        // A page is drawn by the window; there's no text to type in.
+        if self.doc().page.is_some() {
             return;
         }
         if self.in_review() && self.review_key(key, fx) {

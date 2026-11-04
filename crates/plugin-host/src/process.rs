@@ -23,6 +23,8 @@ pub(crate) struct Output {
 }
 
 struct Process {
+    /// The program, as the manifest names it.
+    program: String,
     child: Arc<Mutex<Child>>,
     stdin: ChildStdin,
     framing: Framing,
@@ -111,6 +113,7 @@ impl Processes {
         self.running.insert(
             id,
             Process {
+                program: program.to_string(),
                 child,
                 stdin,
                 framing,
@@ -133,6 +136,17 @@ impl Processes {
                 wake();
             }
         }
+    }
+
+    /// The programs running, each with its process id.
+    pub fn running(&self) -> Vec<(String, u32)> {
+        let mut running: Vec<_> = self
+            .running
+            .values()
+            .filter_map(|p| Some((p.program.clone(), p.child.lock().ok()?.id())))
+            .collect();
+        running.sort();
+        running
     }
 
     pub fn send(&mut self, id: u32, message: &str) -> Result<(), String> {

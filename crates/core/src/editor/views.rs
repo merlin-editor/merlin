@@ -18,6 +18,7 @@ pub(crate) const CHANGES: &str = "merlin.changes";
 pub(crate) const OUTLINE: &str = "merlin.outline";
 pub(crate) const PROBLEMS: &str = "merlin.problems";
 pub(crate) const OUTPUT: &str = "merlin.output";
+pub(crate) const PLUGINS: &str = "merlin.plugins";
 
 /// Most messages the Output panel keeps.
 const LOG_LINES: usize = 1000;
@@ -216,6 +217,7 @@ impl Editor {
             (SEARCH, "Search", Side::Left),
             (CHANGES, "Source Control", Side::Left),
             (OUTLINE, "Outline", Side::Left),
+            (PLUGINS, "Plugins", Side::Left),
             (PROBLEMS, "Problems", Side::Bottom),
             (OUTPUT, "Output", Side::Bottom),
         ] {
@@ -318,6 +320,26 @@ impl Editor {
         self.set_view(PROBLEMS, problems);
         let output = self.output_nodes();
         self.set_view(OUTPUT, output);
+        let plugins = self.plugins_nodes();
+        self.set_view(PLUGINS, plugins);
+    }
+
+    /// The Plugins view: each plugin, how it runs, and what it adds.
+    fn plugins_nodes(&self) -> Vec<Node> {
+        use crate::icons::{Icon, icon};
+        let mut nodes = vec![Node::Heading(format!("Installed · {}", self.plugin_list.len()))];
+        for p in &self.plugin_list {
+            nodes.push(Node::Entry(crate::panel::Entry {
+                id: format!("plugin:{}", p.name),
+                label: p.title.clone(),
+                detail: p.what.clone(),
+                icon: Some((icon(Icon::Plugin, self.nerd), crate::screen::Hue::Blue)),
+                badge: p.tag.clone(),
+                badge_tone: p.tone,
+                ..Default::default()
+            }));
+        }
+        nodes
     }
 
     /// The Outline view: the open file's symbols, nested, while it shows.
@@ -603,6 +625,14 @@ impl Editor {
     }
 
     pub(crate) fn view_click(&mut self, id: &str, fx: &mut Vec<Effect>) {
+        if let Some(name) = id.strip_prefix("plugin:") {
+            let title = self
+                .plugin_list
+                .iter()
+                .find(|p| p.name == name)
+                .map_or_else(|| name.to_string(), |p| p.title.clone());
+            return self.open_page(name, &title);
+        }
         if let Some(folder) = id.strip_prefix("d:") {
             if let Some(tree) = &mut self.tree {
                 if !tree.expanded.remove(folder) {

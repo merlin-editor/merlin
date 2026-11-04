@@ -22,7 +22,8 @@ pub mod script;
 pub mod symbols;
 
 pub use editor::{
-    Command, Editor, Effect, Event, Focus, GitAction, Mouse, MouseKind, PaletteView, RailItem,
+    Command, Editor, Effect, Event, Focus, GitAction, KeyBinding, Mouse, MouseKind, PaletteView,
+    PluginSummary, RailItem,
     SearchHit, Settings, Side, SideView, StatusView, TabView, ThemeKind, ToastView, UiEvent,
     WindowView, Workspace,
 };

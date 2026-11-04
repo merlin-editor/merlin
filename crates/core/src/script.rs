@@ -265,6 +265,7 @@ impl Session {
                 | Effect::OpenSettings { .. }
                 | Effect::PreviewTheme(..)
                 | Effect::SetTheme(..)
+                | Effect::OpenSettingsWindow
                 | Effect::GitStatus
                 | Effect::OpenDiff(_)
                 | Effect::Git(_) => {}

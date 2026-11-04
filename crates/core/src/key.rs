@@ -53,6 +53,24 @@ impl std::fmt::Display for Key {
 }
 
 impl Key {
+    /// As settings write it, such as `ctrl+shift+p`, which [`Key::parse`]
+    /// reads back.
+    pub fn spec(&self) -> String {
+        let mut s = String::new();
+        for (on, name) in [(self.ctrl, "ctrl+"), (self.alt, "alt+"), (self.shift, "shift+")] {
+            if on {
+                s.push_str(name);
+            }
+        }
+        match self.code {
+            KeyCode::Char(' ') => s.push_str("space"),
+            KeyCode::Char(c) => s.push(c.to_ascii_lowercase()),
+            KeyCode::F(n) => s.push_str(&format!("f{n}")),
+            other => s.push_str(&format!("{other:?}").to_lowercase()),
+        }
+        s
+    }
+
     pub fn plain(code: KeyCode) -> Self {
         Self {
             code,

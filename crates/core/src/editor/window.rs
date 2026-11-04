@@ -64,6 +64,9 @@ pub struct WindowView {
     pub toast: Option<ToastView>,
     /// Where keys go.
     pub focus: Focus,
+    /// The page the active tab shows instead of text, by name, such as a
+    /// plugin's.
+    pub page: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -146,7 +149,7 @@ impl Editor {
 
     /// The activity rail's items: the built-in views, then plugin panels.
     pub(crate) fn rail_items(&self) -> Vec<(RailItem, Action)> {
-        use super::views::{CHANGES, EXPLORER, OUTLINE, SEARCH};
+        use super::views::{CHANGES, EXPLORER, OUTLINE, PLUGINS, SEARCH};
         let left = self
             .bar(Side::Left)
             .visible
@@ -168,6 +171,7 @@ impl Editor {
                 "source-control",
             ),
             (OUTLINE, Icon::Outline, "Outline", "outline"),
+            (PLUGINS, Icon::Plugin, "Plugins", "plugins"),
         ] {
             items.push((
                 RailItem {
@@ -340,6 +344,7 @@ impl Editor {
             palette,
             toast,
             focus: self.focus,
+            page: self.doc().page.as_ref().map(|(name, _)| name.clone()),
         }
     }
 

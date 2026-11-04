@@ -73,6 +73,9 @@ pub struct Doc {
     pub folds: Vec<usize>,
     /// Colours, symbols and folds that plugins sent.
     pub layers: Layers,
+    /// A page the window draws instead of text, such as a plugin's: its
+    /// name and title. Pages can't be edited.
+    pub page: Option<(String, String)>,
 }
 
 impl Doc {
@@ -94,7 +97,15 @@ impl Doc {
             extra_version: 0,
             folds: Vec::new(),
             layers: Layers::default(),
+            page: None,
         }
+    }
+
+    /// A page for the window to draw, such as a plugin's.
+    pub fn page(id: u64, name: &str, title: &str) -> Self {
+        let mut doc = Self::new(id, "", None);
+        doc.page = Some((name.to_string(), title.to_string()));
+        doc
     }
 
     /// A read-only document showing the change from `old` to `new`.
@@ -212,6 +223,9 @@ impl Doc {
     }
 
     pub fn name(&self) -> String {
+        if let Some((_, title)) = &self.page {
+            return title.clone();
+        }
         if let Some(review) = &self.review {
             let name = review.path.file_name().map_or_else(
                 || review.path.display().to_string(),

@@ -371,6 +371,14 @@ impl App {
                             queue.push_back(Event::Error(format!("Can't open settings: {err}")))
                         }
                     },
+                    // Until the window draws the Settings window, the
+                    // user's settings file stands in for it.
+                    Effect::OpenSettingsWindow => match self.settings.ensure(false) {
+                        Ok(path) => queue.push_back(self.open(&path)),
+                        Err(err) => {
+                            queue.push_back(Event::Error(format!("Can't open settings: {err}")))
+                        }
+                    },
                 }
             }
         }
