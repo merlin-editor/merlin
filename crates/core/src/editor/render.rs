@@ -176,7 +176,9 @@ impl Editor {
     }
 
     fn render_text(&self, s: &mut Screen, area: Rect) {
-        if let Some(rows) = self.split_rows() {
+        if let Some(rows) = self.split_rows()
+            && !self.own_text
+        {
             self.render_split(s, area, &rows);
             self.render_scrollbar(s, area);
             return;

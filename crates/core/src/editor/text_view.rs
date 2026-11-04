@@ -119,11 +119,113 @@ impl Editor {
         let panes = self.pane_rects(self.layout().editor);
         if panes.len() == self.groups.len() && panes.len() > 1 {
             for g in (0..self.groups.len()).filter(|&g| g != self.group) {
-                self.as_group(g, || views.push(self.text_view(self.layout().text)));
+                self.as_group(g, || views.extend(self.group_views(self.layout().text)));
             }
         }
-        views.push(self.text_view(self.layout().text));
+        views.extend(self.group_views(self.layout().text));
         views
+    }
+
+    /// A group's text: one view, or two halves for a review side by side.
+    fn group_views(&self, area: Rect) -> Vec<TextView> {
+        match self.split_rows() {
+            Some(rows) => self.split_views(area, &rows),
+            None => vec![self.text_view(area)],
+        }
+    }
+
+    /// A review side by side, as VS Code shows diffs in a wide window: the
+    /// old text on the left, the new on the right, with the scrollbar.
+    fn split_views(&self, area: Rect, rows: &[(Option<usize>, Option<usize>)]) -> Vec<TextView> {
+        let doc = self.doc();
+        let v = self.view();
+        let Some(review) = &doc.review else {
+            return Vec::new();
+        };
+        let first = super::render::split_first(rows, v.scroll);
+        let shown: Vec<_> = rows.iter().skip(first).take(area.h as usize).collect();
+        let digits = review
+            .lines
+            .iter()
+            .map(|(_, n)| n + 1)
+            .chain(review.old_numbers.iter().map(|n| n + 1))
+            .max()
+            .unwrap_or(1)
+            .to_string()
+            .len()
+            .max(3);
+        let gutter = digits + 2;
+        let half = area.w.saturating_sub(2) / 2;
+        let cur = doc.line_col(v.cursor).0;
+        let focused = self.focus == Focus::Editor && self.drawing.get().is_none();
+        let halves = [
+            (Rect { w: half, ..area }, true),
+            (
+                Rect {
+                    x: area.x + half + 1,
+                    w: area.w - half - 1,
+                    ..area
+                },
+                false,
+            ),
+        ];
+        halves
+            .into_iter()
+            .map(|(rect, old)| {
+                let lines = shown
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(row, (l, r))| {
+                        let line = if old { (*l)? } else { (*r)? };
+                        let (kind, new_number) = review.lines[line];
+                        let number = if old {
+                            review.old_numbers[line]
+                        } else {
+                            new_number
+                        };
+                        let (sign, base) = match kind {
+                            LineKind::Added => ('+', Style::DiffAdded),
+                            LineKind::Removed => ('-', Style::DiffRemoved),
+                            LineKind::Gap => (' ', Style::Muted),
+                            LineKind::Same if line == cur && focused => (' ', Style::CurrentLine),
+                            LineKind::Same => (' ', Style::Normal),
+                        };
+                        let mut l = self.plain_line(line, row as i32, gutter, true);
+                        l.number = if kind == LineKind::Gap {
+                            " ".repeat(digits + 1)
+                        } else {
+                            format!("{:>digits$} ", number + 1)
+                        };
+                        l.number_style = if line == cur {
+                            Style::GutterActive
+                        } else {
+                            Style::Gutter
+                        };
+                        l.sign = Some((sign, base));
+                        l.base = base;
+                        l.styles = vec![base; l.chars.len()];
+                        Some(l)
+                    })
+                    .collect();
+                TextView {
+                    area: rect,
+                    gutter,
+                    // The right half's last column is the scrollbar.
+                    columns: (rect.w as usize).saturating_sub(gutter + !old as usize),
+                    overscan: 0,
+                    signs: true,
+                    scroll: v.scroll,
+                    hscroll: v.hscroll,
+                    wrapping: false,
+                    focused,
+                    lines,
+                    beyond: Vec::new(),
+                    carets: Vec::new(),
+                    sticky: Vec::new(),
+                    scrollbar: if old { None } else { self.scrollbar_view(area) },
+                }
+            })
+            .collect()
     }
 
     /// The text in `area` of the group drawn now.

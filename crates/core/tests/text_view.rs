@@ -73,3 +73,36 @@ fn scrolled_and_folded_views_start_and_skip_where_the_screen_does() {
         "the folded lines are skipped to the closer"
     );
 }
+
+#[test]
+fn a_review_side_by_side_is_two_views_old_then_new() {
+    let mut s = Session::new("fn a() {}\nfn b() {}\n", Some("src/main.rs"), 150, 14);
+    s.editor.set_windowed(true);
+    s.editor.set_own_text(true);
+    s.send(merlin_core::Event::Resize(150, 14));
+    s.send(merlin_core::Event::ShowReview {
+        plugin: "agent".into(),
+        id: "e1".into(),
+        path: "src/main.rs".into(),
+        old: "fn a() {}\nfn b() {}\n".into(),
+        new: "fn a() {}\nfn B() {}\n".into(),
+    });
+    let views = s.editor.text_views();
+    assert_eq!(views.len(), 2, "two halves");
+    let text = |v: &merlin_core::TextView| -> Vec<String> {
+        v.lines.iter().map(|l| l.chars.iter().collect()).collect()
+    };
+    assert!(text(&views[0]).contains(&"fn b() {}".to_string()));
+    assert!(text(&views[1]).contains(&"fn B() {}".to_string()));
+    let removed = views[0]
+        .lines
+        .iter()
+        .find(|l| l.chars.contains(&'b'))
+        .unwrap();
+    assert_eq!(removed.base, Style::DiffRemoved);
+    assert!(
+        views[0].area.right() < views[1].area.x + 1,
+        "left, then right"
+    );
+    assert!(!s.screen().contains("fn B()"), "not in the cells too");
+}
