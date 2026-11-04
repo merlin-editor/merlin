@@ -4,7 +4,7 @@
 //! the mouse agree.
 
 use super::layout::Rect;
-use super::views::{CHANGES, EXPLORER, OUTLINE, SEARCH};
+use super::views::CHANGES;
 use super::{Editor, Effect, Focus, Side};
 use crate::icons::{Icon, icon};
 use crate::lang::Severity;
@@ -37,6 +37,8 @@ pub(crate) struct StatusItem {
     pub text: String,
     pub style: Style,
     pub action: Option<Action>,
+    /// Whether it's one of the cursor and file facts at the right end.
+    pub right: bool,
 }
 
 /// Where a notice is: its box and its buttons, each a column, width and
@@ -51,44 +53,15 @@ impl Editor {
         let Some(area) = self.layout().activity else {
             return Vec::new();
         };
-        let left = self
-            .bar(Side::Left)
-            .visible
-            .then(|| self.active_panel_name(Side::Left));
-        let right = self
-            .bar(Side::Right)
-            .visible
-            .then(|| self.active_panel_name(Side::Right));
         let mut items = Vec::new();
         let mut y = area.y + 1;
-        for (view, glyph) in [
-            (EXPLORER, Icon::Explorer),
-            (SEARCH, Icon::Search),
-            (CHANGES, Icon::SourceControl),
-            (OUTLINE, Icon::Outline),
-        ] {
+        for (item, action) in self.rail_items() {
             items.push(ActivityItem {
                 y,
-                glyph: icon(glyph, self.nerd),
-                active: left.as_ref().is_some_and(|a| a.as_deref() == Some(view)),
-                badge: if view == CHANGES {
-                    self.git.files.len()
-                } else {
-                    0
-                },
-                action: Action::View(view),
-            });
-            y += 2;
-        }
-        for name in self.panel_names(Side::Right) {
-            items.push(ActivityItem {
-                y,
-                glyph: icon(Icon::Plugin, self.nerd),
-                active: right
-                    .as_ref()
-                    .is_some_and(|a| a.as_deref() == Some(name.as_str())),
-                badge: 0,
-                action: Action::Plugin(name),
+                glyph: item.glyph,
+                active: item.active,
+                badge: item.badge,
+                action,
             });
             y += 2;
         }
@@ -242,7 +215,12 @@ impl Editor {
     /// The status bar's items, laid out: what needs doing and the branch
     /// and problems on the left, the cursor and file on the right.
     pub(crate) fn status_items(&self) -> Vec<StatusItem> {
-        let width = self.layout().status.w;
+        // A window lays out its own status bar, with room for everything.
+        let width = if self.windowed {
+            u16::MAX / 2
+        } else {
+            self.layout().status.w
+        };
         let doc = self.doc();
         let mut left: Vec<(String, Style, Option<Action>)> = Vec::new();
         let reviews = self
@@ -321,6 +299,7 @@ impl Editor {
                 text,
                 style,
                 action,
+                right: false,
             });
             x += w;
         }
@@ -333,6 +312,7 @@ impl Editor {
                 text: format!(" {text}  "),
                 style: Style::Status,
                 action,
+                right: true,
             });
             x += w;
         }

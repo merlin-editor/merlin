@@ -72,16 +72,21 @@ impl Editor {
         self.render_crumbs(&mut screen, layout.crumbs);
         self.render_text(&mut screen, layout.text);
         self.render_sticky(&mut screen, layout.text);
+        if let Some(find) = &self.find {
+            self.render_find(&mut screen, find, layout.text);
+        }
+        self.render_popup(&mut screen);
+        // A window draws the rest of the frame itself.
+        if self.windowed {
+            self.render_menu(&mut screen);
+            return screen;
+        }
         self.render_activity(&mut screen);
         for side in [Side::Left, Side::Right, Side::Bottom] {
             self.render_side(&mut screen, side);
         }
-        if let Some(find) = &self.find {
-            self.render_find(&mut screen, find, layout.text);
-        }
         self.render_status(&mut screen, layout.status);
         self.render_menu_bar(&mut screen);
-        self.render_popup(&mut screen);
         self.render_toast(&mut screen);
         self.render_menu(&mut screen);
         if let Some(palette) = &self.palette {

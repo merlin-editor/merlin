@@ -13,8 +13,13 @@ mod panels;
 mod render;
 mod settings;
 mod views;
+mod window;
 mod workspace;
 mod wrap;
+
+pub use window::{
+    PaletteView, RailItem, SideView, StatusView, TabView, ToastView, UiEvent, WindowView,
+};
 
 pub use settings::Settings;
 pub use workspace::{GroupState, Tab, Workspace};
@@ -78,6 +83,9 @@ pub enum Event {
     Key(Key),
     Paste(String),
     Mouse(Mouse),
+    /// A click on the frame of a window that draws its own; see
+    /// [`Editor::set_windowed`].
+    Ui(UiEvent),
     Resize(u16, u16),
     Command(String),
     Saved {
@@ -629,6 +637,8 @@ pub struct Editor {
     log: Vec<(bool, String)>,
     /// Problems as listed in the Problems panel: file, line and column.
     problems: Vec<(PathBuf, u32, u32)>,
+    /// The window draws the frame; the screen holds only the text.
+    windowed: bool,
 }
 
 impl Editor {
@@ -684,6 +694,7 @@ impl Editor {
             project: "merlin".into(),
             log: Vec::new(),
             problems: Vec::new(),
+            windowed: false,
         };
         editor.add_views();
         editor
@@ -843,7 +854,10 @@ impl Editor {
         let mut fx = Vec::new();
         self.clicks = 0;
         // Only something the user does cancels a pending confirmation.
-        let by_user = matches!(event, Event::Key(_) | Event::Paste(_) | Event::Command(_))
+        let by_user = matches!(
+            event,
+            Event::Key(_) | Event::Paste(_) | Event::Command(_) | Event::Ui(_)
+        )
             || matches!(event, Event::Mouse(m) if m.kind == MouseKind::Down);
         let armed = if by_user { self.armed.take() } else { None };
         if let Event::Mouse(m) = &event {
@@ -859,13 +873,17 @@ impl Editor {
                 self.run(&command, armed, &mut fx);
                 return fx;
             }
-            self.message = None;
+            // A notice's button in a window needs the notice to run.
+            if !matches!(event, Event::Ui(UiEvent::ToastButton(_))) {
+                self.message = None;
+            }
         }
         let before = self.view_key();
         match event {
             Event::Key(key) => self.key(key, armed, &mut fx),
             Event::Paste(text) => self.paste(&text),
             Event::Mouse(mouse) => self.mouse(mouse, &mut fx),
+            Event::Ui(ui) => self.ui(ui, armed, &mut fx),
             Event::Resize(w, h) => {
                 self.width = w;
                 self.height = h;

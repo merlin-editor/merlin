@@ -67,6 +67,9 @@ impl Layout {
 impl Editor {
     pub(crate) fn layout(&self) -> Layout {
         let (w, h) = (self.width, self.height);
+        if self.windowed {
+            return self.window_layout();
+        }
         let menu_h = (h >= 6) as u16;
         let status_y = h.saturating_sub(1);
         let top = menu_h;
@@ -157,6 +160,28 @@ impl Editor {
                 w,
                 h: (h > 0) as u16,
             },
+        }
+    }
+
+    /// In a window that draws its own frame, the screen is all editor
+    /// groups, without tabs or breadcrumbs: the window draws those.
+    fn window_layout(&self) -> Layout {
+        let (w, h) = (self.width, self.height);
+        let none = Rect::default();
+        let all = Rect { x: 0, y: 0, w, h };
+        let panes = self.pane_rects(all);
+        let editor = panes.get(self.pane()).copied().unwrap_or(all);
+        Layout {
+            menu: none,
+            activity: None,
+            left: None,
+            right: None,
+            bottom: None,
+            tabs: Rect { h: 0, ..editor },
+            crumbs: Rect { h: 0, ..editor },
+            editor: all,
+            text: editor,
+            status: none,
         }
     }
 

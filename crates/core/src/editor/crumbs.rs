@@ -28,7 +28,7 @@ impl Editor {
     }
 
     /// The breadcrumbs: each part's text, and the line it goes to, if any.
-    fn crumbs(&self) -> Vec<(String, Option<usize>)> {
+    pub(crate) fn crumbs(&self) -> Vec<(String, Option<usize>)> {
         let doc = self.doc();
         let Some(path) = &doc.buffer.path else {
             return Vec::new();
