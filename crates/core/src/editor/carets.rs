@@ -108,6 +108,8 @@ impl Editor {
         if doc.cursor == pos || doc.extra.iter().any(|c| c.cursor == pos) {
             return;
         }
+        self.save_cursors();
+        let doc = self.doc_mut();
         let old = Caret {
             cursor: doc.cursor,
             anchor: doc.anchor,
@@ -192,6 +194,7 @@ impl Editor {
         let needle: Vec<char> = self.doc().slice(start, end).chars().collect();
         let hits = self.exact_matches(&needle);
         let len = needle.len();
+        self.save_cursors();
         let doc = self.doc_mut();
         doc.extra = hits
             .iter()
@@ -209,7 +212,7 @@ impl Editor {
     }
 
     /// Where `needle` appears, case and all, left to right.
-    fn exact_matches(&self, needle: &[char]) -> Vec<usize> {
+    pub(crate) fn exact_matches(&self, needle: &[char]) -> Vec<usize> {
         if needle.is_empty() || needle.contains(&'\n') {
             return Vec::new();
         }

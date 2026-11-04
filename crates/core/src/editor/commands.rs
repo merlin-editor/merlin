@@ -35,6 +35,13 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
     ("edit.insert_line_above", "Edit: Insert Line Above"),
     ("edit.select_line", "Selection: Expand Line Selection"),
     ("edit.jump_to_bracket", "Go: Go to Bracket"),
+    ("edit.expand_selection", "Selection: Expand Selection"),
+    ("edit.shrink_selection", "Selection: Shrink Selection"),
+    ("edit.cursor_undo", "Selection: Cursor Undo"),
+    (
+        "edit.skip_next",
+        "Selection: Move Last Selection to Next Find Match",
+    ),
     ("find.open", "Edit: Find"),
     ("find.replace", "Edit: Replace"),
     ("palette.open", "View: Command Palette…"),
@@ -211,6 +218,10 @@ impl Editor {
             "edit.insert_line_above" => self.each_caret(Kind::Other, |e, _| e.insert_line(false)),
             "edit.select_line" => self.each_caret(Kind::Other, |e, _| e.select_line()),
             "edit.jump_to_bracket" => self.jump_to_bracket(),
+            "edit.expand_selection" => self.expand_selection(),
+            "edit.shrink_selection" => self.shrink_selection(),
+            "edit.cursor_undo" => self.undo_cursor(),
+            "edit.skip_next" => self.skip_occurrence(),
             "app.about" => self.notify(format!("merlin {}", env!("CARGO_PKG_VERSION"))),
             menu if menu.starts_with("menu.") => {
                 let title = menu.strip_prefix("menu.").filter(|t| *t != "open");

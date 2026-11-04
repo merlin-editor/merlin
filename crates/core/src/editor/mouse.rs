@@ -59,6 +59,8 @@ impl Editor {
                     self.drop_tab(id, m.x, m.y);
                 }
                 self.dragging = false;
+                self.box_from = None;
+                self.drag_unit = None;
                 self.scrollbar_drag = false;
                 self.minimap_drag = false;
                 return;
@@ -73,6 +75,13 @@ impl Editor {
                     let edge = text.x + (self.gutter() + self.text_columns()) as u16;
                     let x = m.x.clamp(text.x, edge.saturating_sub(1));
                     let pos = self.pos_at_screen(x, m.y);
+                    if self.box_from.is_some() {
+                        let line = self.doc().line_col(pos).0;
+                        return self.select_box((line, self.column_at_screen(x)));
+                    }
+                    if self.drag_unit.is_some() {
+                        return self.drag_units(pos);
+                    }
                     let doc = self.doc_mut();
                     let cursor = doc.cursor;
                     doc.anchor.get_or_insert(cursor);
@@ -190,6 +199,16 @@ impl Editor {
                     doc.goal = None;
                 }
             }
+            // Shift+Alt+drag selects a box, a cursor a line.
+            MouseKind::Down if text.contains(m.x, m.y) && m.alt && m.shift => {
+                self.focus = Focus::Editor;
+                self.clear_carets();
+                let pos = self.pos_at_screen(m.x, m.y);
+                let line = self.doc().line_col(pos).0;
+                self.box_from = Some((line, self.column_at_screen(m.x)));
+                self.set_cursor(pos);
+                self.dragging = true;
+            }
             MouseKind::Down if text.contains(m.x, m.y) && m.alt => {
                 self.focus = Focus::Editor;
                 let pos = self.pos_at_screen(m.x, m.y);
@@ -200,6 +219,9 @@ impl Editor {
                 self.clear_carets();
                 let pos = self.pos_at_screen(m.x, m.y);
                 self.select_unit(pos, m.clicks);
+                let (start, end) = self.unit_at(pos, m.clicks);
+                self.drag_unit = Some((start, end, m.clicks));
+                self.dragging = true;
             }
             MouseKind::Down if text.contains(m.x, m.y) => {
                 self.focus = Focus::Editor;
@@ -251,29 +273,23 @@ impl Editor {
     /// Selects the word at `pos` on a double click, or its line on a triple
     /// click.
     fn select_unit(&mut self, pos: usize, clicks: u8) {
+        let (start, end) = self.unit_at(pos, clicks);
         let doc = self.doc_mut();
-        let (start, end) = if clicks == 2 {
-            let (start, end) = (doc.word_start_at(pos), doc.word_end_at(pos));
-            if start == end {
-                // Not on a word: the character clicked, as VS Code does.
-                let end = (pos + 1).min(doc.buffer.len());
-                let on_newline = doc.slice(pos, end) == "\n";
-                (pos, if on_newline { pos } else { end })
-            } else {
-                (start, end)
-            }
-        } else {
-            let line = doc.line_col(pos).0;
-            let end = if line < doc.last_line() {
-                doc.line_start(line + 1)
-            } else {
-                doc.buffer.len()
-            };
-            (doc.line_start(line), end)
-        };
         doc.anchor = Some(start);
         doc.cursor = end;
         doc.goal = None;
+    }
+
+    /// The text column under screen column `x`, past the line's end too,
+    /// as a box selection needs.
+    fn column_at_screen(&self, x: u16) -> usize {
+        let text = self.layout().text;
+        let hscroll = if self.wrapping() {
+            0
+        } else {
+            self.doc().hscroll
+        };
+        (x.saturating_sub(text.x) as usize).saturating_sub(self.gutter()) + hscroll
     }
 
     /// Scrolls so a click on the scrollbar's row shows that part of the file

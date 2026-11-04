@@ -16,6 +16,7 @@ mod mouse;
 mod palette;
 mod panels;
 mod render;
+mod select;
 mod settings;
 mod text_view;
 mod views;
@@ -510,6 +511,18 @@ pub struct Editor {
     clipboard: String,
     /// Whether the left button went down in the text and is selecting.
     dragging: bool,
+    /// Where a Shift+Alt+drag box selection started: line and column.
+    box_from: Option<(usize, usize)>,
+    /// The word or line a double or triple click selected, and the clicks,
+    /// while dragging from it.
+    drag_unit: Option<(usize, usize, u8)>,
+    /// Selections Shift+Alt+Right grew from, for Shift+Alt+Left.
+    expanded: Vec<(usize, usize)>,
+    /// Cursors before more were added, for Ctrl+U: the document and its
+    /// version, the primary cursor and the others.
+    cursor_undo: Vec<(u64, u64, crate::doc::Caret, Vec<crate::doc::Caret>)>,
+    /// The first key of a chord such as Ctrl+K Ctrl+D, once pressed.
+    chord: Option<Key>,
     /// Whether the left button went down on the scrollbar.
     scrollbar_drag: bool,
     /// Whether the left button went down on the minimap.
@@ -609,6 +622,11 @@ impl Editor {
             armed: None,
             clipboard: String::new(),
             dragging: false,
+            box_from: None,
+            drag_unit: None,
+            expanded: Vec::new(),
+            cursor_undo: Vec::new(),
+            chord: None,
             scrollbar_drag: false,
             minimap_drag: false,
             tab_drag: None,

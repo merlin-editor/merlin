@@ -301,6 +301,11 @@ Keys, as in VS Code:
 | `Ctrl+Z` / `Ctrl+Y` | Undo / redo |
 | `Ctrl+D` / `Ctrl+Shift+L` | Add the next occurrence as a cursor / select them all |
 | `Shift+Alt+Up` / `Down` (or `Ctrl+Alt`) | Add a cursor above / below |
+| `Ctrl+U` | Take back the last cursor added |
+| `Ctrl+K Ctrl+D` | Move the last selection on to the next occurrence |
+| `Shift+Alt+Right` / `Left` | Expand / shrink the selection: word, inside brackets or quotes, the brackets, the line, the file |
+| `Ctrl+K Ctrl+0` / `Ctrl+K Ctrl+J` | Fold / unfold everything |
+| `Ctrl+K Ctrl+T` | Pick a colour theme |
 | `Ctrl+F` / `Ctrl+H` | Find / find and replace. Lowercase queries ignore case. Enter or Down for the next match, Up for the previous; in the replace field Enter replaces one, `Alt+Enter` all |
 | `Alt+Left` | Go back after go-to-definition |
 | `Ctrl+Q` | Quit |
@@ -312,7 +317,8 @@ folders. The mouse does everything: menus, the activity bar, tabs and their
 palette items, status bar items and the scrollbar. It places
 the cursor, selects by dragging (Shift+click extends), and scrolls, sideways
 with Shift or a sideways wheel. Hold Shift to select with the terminal
-instead. Alt+click adds a cursor.
+instead. Alt+click adds a cursor, Shift+Alt+drag selects a box, and
+dragging after a double or triple click selects whole words or lines.
 
 Brackets and quotes close themselves, are typed over, wrap a selection,
 and go together on Backspace. Enter keeps the line's indent, adds a level

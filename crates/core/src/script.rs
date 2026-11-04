@@ -56,7 +56,7 @@ pub fn parse(script: &str) -> Result<Vec<Step>, String> {
             "paste" => events.push(Step::Event(Event::Paste(unescape(rest)))),
             "cmd" => events.push(Step::Event(Event::Command(rest.trim().to_string()))),
             "click" | "shift-click" | "alt-click" | "double-click" | "triple-click" | "press"
-            | "drag" | "release" | "wheel" | "move" => {
+            | "box-press" | "double-press" | "drag" | "release" | "wheel" | "move" => {
                 let mut args = rest.split_whitespace();
                 let kind = match verb {
                     "wheel" => match args.next() {
@@ -77,10 +77,11 @@ pub fn parse(script: &str) -> Result<Vec<Step>, String> {
                         .ok_or_else(|| format!("bad position: {action}"))
                 };
                 let (x, y) = (number()?, number()?);
-                let shift = verb == "shift-click";
-                let alt = verb == "alt-click";
+                // A box press is Shift+Alt, to drag a box selection.
+                let shift = matches!(verb, "shift-click" | "box-press");
+                let alt = matches!(verb, "alt-click" | "box-press");
                 let clicks = match verb {
-                    "double-click" => 2,
+                    "double-click" | "double-press" => 2,
                     "triple-click" => 3,
                     _ => 1,
                 };

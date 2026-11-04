@@ -652,7 +652,7 @@ impl Editor {
     }
 
     /// Where `line` ends, before its line break.
-    fn line_end(&self, line: usize) -> usize {
+    pub(crate) fn line_end(&self, line: usize) -> usize {
         let doc = self.doc();
         doc.line_start(line) + doc.buffer.line_len(line)
     }

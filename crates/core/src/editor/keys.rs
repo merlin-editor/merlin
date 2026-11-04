@@ -77,6 +77,18 @@ pub(super) const EDITOR_KEYS: &[(&str, &str)] = &[
     ("ctrl+]", "edit.indent"),
     ("ctrl+[", "edit.outdent"),
     ("ctrl+shift+\\", "edit.jump_to_bracket"),
+    ("shift+alt+right", "edit.expand_selection"),
+    ("shift+alt+left", "edit.shrink_selection"),
+    ("ctrl+u", "edit.cursor_undo"),
+];
+
+/// Two keys in a row, as VS Code's Ctrl+K chords.
+pub(super) const CHORDS: &[(&str, &str, &str)] = &[
+    ("ctrl+k", "ctrl+d", "edit.skip_next"),
+    ("ctrl+k", "ctrl+0", "edit.fold_all"),
+    ("ctrl+k", "ctrl+j", "edit.unfold_all"),
+    ("ctrl+k", "ctrl+t", "theme.pick"),
+    ("ctrl+k", "ctrl+s", "settings.open"),
 ];
 
 pub(super) fn bound(table: &[(&str, &'static str)], key: Key) -> Option<&'static str> {
@@ -96,6 +108,28 @@ impl Editor {
             }
             let command = command.clone();
             return self.run(&command, armed, fx);
+        }
+        if let Some(first) = self.chord.take() {
+            let parse = |spec: &str| Key::parse(spec);
+            let id = CHORDS
+                .iter()
+                .find(|(a, b, _)| parse(a) == Some(first) && parse(b) == Some(key))
+                .map(|(.., id)| *id);
+            self.message = None;
+            return match id {
+                Some(id) => self.run(id, armed, fx),
+                None => self.notify(format!(
+                    "The key combination ({}, {}) is not a command",
+                    first, key
+                )),
+            };
+        }
+        if CHORDS.iter().any(|(a, ..)| Key::parse(a) == Some(key)) {
+            self.chord = Some(key);
+            return self.notify(format!(
+                "({}) was pressed. Waiting for the second key of the chord…",
+                key
+            ));
         }
         if let Some(id) = bound(GLOBAL_KEYS, key) {
             return self.run(id, armed, fx);

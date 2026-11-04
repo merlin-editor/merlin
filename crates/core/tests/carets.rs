@@ -83,3 +83,86 @@ fn copy_and_paste_spread_one_line_per_cursor() {
     s.send(merlin_core::Event::Clipboard(Some("a\nb".into())));
     assert_eq!(s.text(), "a = 1\nb = 2\na\nb\n");
 }
+
+#[test]
+fn shift_alt_drag_selects_a_box() {
+    let mut s = session("abcdef\nghijkl\nmnopqr\n");
+    let (x, y) = s.editor.text_origin();
+    s.run(&format!(
+        "box-press {} {}; drag {} {}; release {} {}",
+        x + 1,
+        y,
+        x + 3,
+        y + 2,
+        x + 3,
+        y + 2
+    ));
+    s.run("type _");
+    assert_eq!(s.text(), "a_def\ng_jkl\nm_pqr\n");
+}
+
+#[test]
+fn ctrl_u_takes_back_the_last_cursor() {
+    let mut s = session("foo foo foo\n");
+    s.run("key ctrl+d ctrl+d ctrl+d; key ctrl+u");
+    assert!(s.screen().contains("(2 selections)"), "{}", s.screen());
+    s.run("key ctrl+u");
+    assert!(!s.screen().contains("selections"));
+    assert_eq!(s.editor.selection().as_deref(), Some("foo"));
+}
+
+#[test]
+fn ctrl_k_ctrl_d_skips_to_the_next_occurrence() {
+    let mut s = session("a x a x a\n");
+    s.run("key ctrl+d ctrl+d; key ctrl+k ctrl+d; type b");
+    assert_eq!(s.text(), "b x a x b\n", "the middle one was skipped");
+}
+
+#[test]
+fn an_unknown_chord_says_so() {
+    let mut s = session("a\n");
+    s.run("key ctrl+k q");
+    assert_eq!(s.text(), "a\n", "the second key isn't typed");
+    assert!(s.editor.message().unwrap().contains("is not a command"));
+}
+
+#[test]
+fn expanding_grows_by_word_inside_brackets_and_lines() {
+    let mut s = Session::new("fn f() {\n    call(one, two);\n}\n", Some("a.rs"), 60, 12);
+    s.run("key down ctrl+right ctrl+right right");
+    let grow = |s: &mut Session| {
+        s.run("key shift+alt+right");
+        s.editor.selection().unwrap_or_default()
+    };
+    assert_eq!(grow(&mut s), "one");
+    assert_eq!(grow(&mut s), "one, two");
+    assert_eq!(grow(&mut s), "(one, two)");
+    assert_eq!(
+        grow(&mut s),
+        "call(one, two)",
+        "the call, as its word reaches"
+    );
+    assert_eq!(grow(&mut s), "call(one, two);");
+    assert_eq!(grow(&mut s), "    call(one, two);\n");
+    assert_eq!(grow(&mut s), "\n    call(one, two);\n");
+    s.run("key shift+alt+left shift+alt+left");
+    assert_eq!(s.editor.selection().as_deref(), Some("call(one, two);"));
+    s.run("key left; key shift+alt+left");
+    assert_eq!(s.editor.selection(), None, "moving forgets the growing");
+}
+
+#[test]
+fn dragging_after_a_double_click_selects_whole_words() {
+    let mut s = session("alpha beta gamma\n");
+    let (x, y) = s.editor.text_origin();
+    s.run(&format!(
+        "double-press {} {}; drag {} {}; release {} {}",
+        x + 1,
+        y,
+        x + 7,
+        y,
+        x + 7,
+        y
+    ));
+    assert_eq!(s.editor.selection().as_deref(), Some("alpha beta"));
+}
