@@ -61,9 +61,19 @@ impl Gpu {
     /// A renderer for `window`, or why there can't be one: no adapter, or
     /// only a software one, which draws slower than the CPU's backend.
     pub fn new(window: Arc<Window>) -> Result<Self, String> {
-        let instance = wgpu::Instance::new(
-            wgpu::InstanceDescriptor::new_with_display_handle_from_env(Box::new(window.clone())),
-        );
+        let mut desc = wgpu::InstanceDescriptor::new_with_display_handle(Box::new(window.clone()));
+        // On Linux, Mesa's Vulkan labels the window sRGB for the compositor,
+        // which may then convert it (Hyprland lifts dark colours), and wgpu
+        // can't ask for its pass-through instead. GL's windows go unlabelled,
+        // shown as drawn, as the CPU's are. WGPU_BACKEND still decides.
+        if cfg!(all(
+            unix,
+            not(target_os = "macos"),
+            not(target_os = "android")
+        )) {
+            desc.backends = wgpu::Backends::GL;
+        }
+        let instance = wgpu::Instance::new(desc.with_env());
         let surface = instance
             .create_surface(window.clone())
             .map_err(|e| e.to_string())?;
@@ -80,14 +90,23 @@ impl Gpu {
         let (device, queue) = request_device(&adapter)?;
         let size = window.inner_size();
         let caps = surface.get_capabilities(&adapter);
-        // Colours blend in the display's values, as the CPU's do: eight
-        // bits a channel, drawn through a view that isn't sRGB. Float
-        // formats would be read as linear.
-        use wgpu::TextureFormat::{Bgra8Unorm, Bgra8UnormSrgb, Rgba8Unorm, Rgba8UnormSrgb};
-        let format = [Bgra8Unorm, Rgba8Unorm, Bgra8UnormSrgb, Rgba8UnormSrgb]
-            .into_iter()
-            .find(|f| caps.formats.contains(f))
-            .ok_or("the surface has no 8-bit format")?;
+        // Colours blend in the display's values, as the CPU's do, drawn
+        // through a view that isn't sRGB. Ten bits a channel where the
+        // surface has them, for smoother shadows and edges at no more
+        // memory; else eight. Float formats would be read as linear.
+        use wgpu::TextureFormat::{
+            Bgra8Unorm, Bgra8UnormSrgb, Rgb10a2Unorm, Rgba8Unorm, Rgba8UnormSrgb,
+        };
+        let format = [
+            Rgb10a2Unorm,
+            Bgra8Unorm,
+            Rgba8Unorm,
+            Bgra8UnormSrgb,
+            Rgba8UnormSrgb,
+        ]
+        .into_iter()
+        .find(|f| caps.formats.contains(f))
+        .ok_or("the surface has no 8- or 10-bit format")?;
         let view_format = format.remove_srgb_suffix();
         let alpha_mode = if caps.alpha_modes.contains(&wgpu::CompositeAlphaMode::Opaque) {
             wgpu::CompositeAlphaMode::Opaque
@@ -111,6 +130,13 @@ impl Gpu {
                 .get_default_config(&adapter, size.width.max(1), size.height.max(1))
                 .ok_or("the adapter can't draw on the window")?
         };
+        if std::env::var_os("MERLIN_TRACE").is_some() {
+            let info = adapter.get_info();
+            eprintln!(
+                "merlin: {:?} on {}, {:?}",
+                info.backend, info.name, config.format
+            );
+        }
         surface.configure(&device, &config);
         let renderer = Renderer::new(device, queue, view_format);
         Ok(Self {
