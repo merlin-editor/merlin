@@ -1,9 +1,11 @@
-//! Drawing in pixels: filled and rounded rectangles, lines, and text in the
-//! interface's font or the code's, shaped once and kept.
+//! Drawing in logical pixels: filled and rounded rectangles, lines,
+//! pictures, and text in the interface's font or the code's, shaped once
+//! and kept. It's recorded as a [`Scene`] for a backend to draw.
 
 use std::collections::HashMap;
 use std::env;
 
+use super::scene::{Bitmap, BitmapId, Bitmaps, Clip, Edges, Kind, Prim, Scene};
 use cosmic_text::{
     Attrs, Buffer, CacheKey, Family, FontSystem, Metrics, Shaping, Style as FontStyle, SwashCache,
     SwashContent, Weight,
@@ -124,13 +126,12 @@ struct Shaped {
     height: f32,
 }
 
+/// A glyph's bitmap and where it sits from the pen.
+#[derive(Clone, Copy)]
 struct Glyph {
+    bitmap: BitmapId,
     left: i32,
     top: i32,
-    width: usize,
-    height: usize,
-    colour: bool,
-    data: Vec<u8>,
 }
 
 /// Fonts, with every shaped string and glyph picture kept.
@@ -142,6 +143,8 @@ pub struct Text {
     scale: f32,
     shaped: HashMap<(String, Face, Option<u32>), Shaped>,
     glyphs: HashMap<CacheKey, Option<Glyph>>,
+    /// The bitmaps' generation the glyphs belong to.
+    generation: u64,
 }
 
 impl Text {
@@ -182,6 +185,7 @@ impl Text {
             scale,
             shaped: HashMap::new(),
             glyphs: HashMap::new(),
+            generation: u64::MAX,
         }
     }
 
@@ -259,7 +263,11 @@ impl Text {
         chars[..lo].iter().collect::<String>() + "…"
     }
 
-    fn glyph(&mut self, key: CacheKey) -> Option<&Glyph> {
+    fn glyph(&mut self, key: CacheKey, bitmaps: &mut Bitmaps) -> Option<Glyph> {
+        if self.generation != bitmaps.generation() {
+            self.glyphs.clear();
+            self.generation = bitmaps.generation();
+        }
         if !self.glyphs.contains_key(&key) {
             let glyph = self
                 .raster
@@ -267,21 +275,16 @@ impl Text {
                 .map(|image| Glyph {
                     left: image.placement.left,
                     top: image.placement.top,
-                    width: image.placement.width as usize,
-                    height: image.placement.height as usize,
-                    colour: image.content == SwashContent::Color,
-                    data: match image.content {
-                        SwashContent::SubpixelMask => image
-                            .data
-                            .chunks(4)
-                            .map(|p| ((p[0] as u16 + p[1] as u16 + p[2] as u16) / 3) as u8)
-                            .collect(),
-                        _ => image.data,
-                    },
+                    bitmap: bitmaps.add(glyph_bitmap(
+                        image.placement.width,
+                        image.placement.height,
+                        image.content,
+                        image.data,
+                    )),
                 });
             self.glyphs.insert(key, glyph);
         }
-        self.glyphs.get(&key)?.as_ref()
+        self.glyphs[&key]
     }
 
     /// Draws `text` with its top left at (`x`, `y`), clipped to `clip`,
@@ -306,16 +309,15 @@ impl Text {
         let (ox, oy) = ((x * s).round() as i32, (y * s).round() as i32);
         let clip = canvas.physical(clip);
         for (key, gx, gy) in glyphs {
-            let Some(glyph) = self.glyph(key) else {
+            let Some(glyph) = self.glyph(key, canvas.bitmaps) else {
                 continue;
             };
-            canvas.blit(
-                glyph,
-                ox + gx + glyph.left,
-                oy + gy - glyph.top,
+            canvas.scene.prims.push(Prim::Glyph {
+                bitmap: glyph.bitmap,
+                pos: [ox + gx + glyph.left, oy + gy - glyph.top],
                 colour,
                 clip,
-            );
+            });
         }
         width
     }
@@ -347,9 +349,33 @@ impl Text {
     }
 }
 
-/// The window's pixels, drawn on in logical coordinates.
+/// A glyph's picture from swash as a bitmap: coverage, or RGBA for a
+/// colour glyph. Subpixel masks would need the panel's layout; their
+/// average is plain coverage.
+pub fn glyph_bitmap(width: u32, height: u32, content: SwashContent, data: Vec<u8>) -> Bitmap {
+    let (kind, data) = match content {
+        SwashContent::Color => (Kind::Rgba, data),
+        SwashContent::SubpixelMask => (
+            Kind::Mask,
+            data.chunks(4)
+                .map(|p| ((p[0] as u16 + p[1] as u16 + p[2] as u16) / 3) as u8)
+                .collect(),
+        ),
+        SwashContent::Mask => (Kind::Mask, data),
+    };
+    Bitmap {
+        width,
+        height,
+        kind,
+        data,
+    }
+}
+
+/// The window's drawing, recorded in logical coordinates as a scene in
+/// physical pixels.
 pub struct Canvas<'a> {
-    pub pixels: &'a mut [u32],
+    pub scene: &'a mut Scene,
+    pub bitmaps: &'a mut Bitmaps,
     pub width: usize,
     pub height: usize,
     pub scale: f32,
@@ -357,113 +383,79 @@ pub struct Canvas<'a> {
 
 impl Canvas<'_> {
     /// A logical rectangle in whole physical pixels: (x0, y0, x1, y1).
-    fn physical(&self, r: Rect) -> (i32, i32, i32, i32) {
+    fn physical(&self, r: Rect) -> Clip {
         let s = self.scale;
-        (
+        [
             ((r.x * s).round() as i32).clamp(0, self.width as i32),
             ((r.y * s).round() as i32).clamp(0, self.height as i32),
             (((r.x + r.w) * s).round() as i32).clamp(0, self.width as i32),
             (((r.y + r.h) * s).round() as i32).clamp(0, self.height as i32),
-        )
+        ]
+    }
+
+    /// A logical rectangle's edges in physical pixels.
+    fn edges(&self, r: Rect) -> Edges {
+        let s = self.scale;
+        [r.x * s, r.y * s, (r.x + r.w) * s, (r.y + r.h) * s]
     }
 
     pub fn fill(&mut self, r: Rect, colour: u32) {
-        let (x0, y0, x1, y1) = self.physical(r);
-        for y in y0..y1 {
-            let row = y as usize * self.width;
-            self.pixels[row + x0 as usize..row + x1 as usize].fill(colour);
-        }
+        self.round(r, 0.0, colour);
+    }
+
+    /// A rectangle in physical pixels, filled.
+    pub fn fill_px(&mut self, x: usize, y: usize, w: usize, h: usize, colour: u32) {
+        let (x, y) = (x as f32, y as f32);
+        self.scene.prims.push(Prim::Quad {
+            rect: [x, y, x + w as f32, y + h as f32],
+            radius: 0.0,
+            fill: colour,
+            alpha: 255,
+            border: 0,
+            border_w: 0.0,
+        });
     }
 
     /// A rectangle with corners rounded to `radius`, smoothed at the edges.
     pub fn round(&mut self, r: Rect, radius: f32, colour: u32) {
-        if radius <= 0.0 {
-            return self.fill(r, colour);
-        }
-        let s = self.scale;
-        let rad = (radius * s).min(r.w * s / 2.0).min(r.h * s / 2.0);
-        let (x0, y0, x1, y1) = self.physical(r);
-        let (fx0, fy0) = (r.x * s, r.y * s);
-        let (fx1, fy1) = ((r.x + r.w) * s, (r.y + r.h) * s);
-        for y in y0..y1 {
-            let py = y as f32 + 0.5;
-            let dy = if py < fy0 + rad {
-                fy0 + rad - py
-            } else if py > fy1 - rad {
-                py - (fy1 - rad)
-            } else {
-                0.0
-            };
-            let row = y as usize * self.width;
-            if dy == 0.0 {
-                self.pixels[row + x0 as usize..row + x1 as usize].fill(colour);
-                continue;
-            }
-            for x in x0..x1 {
-                let px = x as f32 + 0.5;
-                let dx = if px < fx0 + rad {
-                    fx0 + rad - px
-                } else if px > fx1 - rad {
-                    px - (fx1 - rad)
-                } else {
-                    0.0
-                };
-                let d = (dx * dx + dy * dy).sqrt() - rad;
-                let cover = (0.5 - d).clamp(0.0, 1.0);
-                if cover > 0.0 {
-                    let i = row + x as usize;
-                    self.pixels[i] = blend(self.pixels[i], colour, (cover * 255.0) as u8);
-                }
-            }
-        }
+        self.tint(r, radius, colour, 255);
     }
 
     /// A rounded outline `width` wide.
     pub fn outline(&mut self, r: Rect, radius: f32, width: f32, colour: u32, inside: u32) {
-        self.round(r, radius, colour);
-        self.round(r.inset(width), (radius - width).max(0.0), inside);
+        let s = self.scale;
+        self.scene.prims.push(Prim::Quad {
+            rect: self.edges(r),
+            radius: radius * s,
+            fill: inside,
+            alpha: 255,
+            border: colour,
+            border_w: width * s,
+        });
     }
 
     /// A soft shadow under a floating box; lighter for a light theme.
     pub fn shadow(&mut self, r: Rect, radius: f32, light: bool) {
-        let layers: [(f32, u8); 3] = if light {
-            [(10.0, 6), (6.0, 9), (3.0, 12)]
-        } else {
-            [(10.0, 18), (6.0, 26), (3.0, 34)]
-        };
-        for (grow, alpha) in layers {
-            let g = Rect::new(
-                r.x - grow,
-                r.y - grow + 4.0,
-                r.w + 2.0 * grow,
-                r.h + 2.0 * grow,
-            );
-            self.tint(g, radius + grow, 0x000000, alpha);
-        }
+        let s = self.scale;
+        self.scene.prims.push(Prim::Shadow {
+            rect: self.edges(r),
+            radius: radius * s,
+            blur: 10.0 * s,
+            light,
+        });
     }
 
     /// Darkens or tints what's drawn already, through a rounded shape.
     pub fn tint(&mut self, r: Rect, radius: f32, colour: u32, alpha: u8) {
         let s = self.scale;
-        let rad = (radius * s).min(r.w * s / 2.0).min(r.h * s / 2.0).max(0.0);
-        let (x0, y0, x1, y1) = self.physical(r);
-        let (fx0, fy0) = (r.x * s, r.y * s);
-        let (fx1, fy1) = ((r.x + r.w) * s, (r.y + r.h) * s);
-        for y in y0..y1 {
-            let py = y as f32 + 0.5;
-            let dy = (fy0 + rad - py).max(py - (fy1 - rad)).max(0.0);
-            let row = y as usize * self.width;
-            for x in x0..x1 {
-                let px = x as f32 + 0.5;
-                let dx = (fx0 + rad - px).max(px - (fx1 - rad)).max(0.0);
-                let d = (dx * dx + dy * dy).sqrt() - rad;
-                let cover = (0.5 - d).clamp(0.0, 1.0);
-                if cover > 0.0 {
-                    let i = row + x as usize;
-                    self.pixels[i] = blend(self.pixels[i], colour, (cover * alpha as f32) as u8);
-                }
-            }
-        }
+        self.scene.prims.push(Prim::Quad {
+            rect: self.edges(r),
+            radius: radius.max(0.0) * s,
+            fill: colour,
+            alpha,
+            border: 0,
+            border_w: 0.0,
+        });
     }
 
     /// A chevron pointing right, or down when `open`.
@@ -489,102 +481,69 @@ impl Canvas<'_> {
     /// A straight line, smoothed.
     pub fn line(&mut self, a: (f32, f32), b: (f32, f32), width: f32, colour: u32) {
         let s = self.scale;
-        let (ax, ay, bx, by) = (a.0 * s, a.1 * s, b.0 * s, b.1 * s);
-        let half = width * s / 2.0;
-        let (x0, x1) = (ax.min(bx) - half - 1.0, ax.max(bx) + half + 1.0);
-        let (y0, y1) = (ay.min(by) - half - 1.0, ay.max(by) + half + 1.0);
-        let (dx, dy) = (bx - ax, by - ay);
-        let len2 = (dx * dx + dy * dy).max(1e-6);
-        for y in (y0.max(0.0) as usize)..(y1.min(self.height as f32) as usize) {
-            for x in (x0.max(0.0) as usize)..(x1.min(self.width as f32) as usize) {
-                let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
-                let t = (((px - ax) * dx + (py - ay) * dy) / len2).clamp(0.0, 1.0);
-                let (qx, qy) = (ax + t * dx - px, ay + t * dy - py);
-                let d = (qx * qx + qy * qy).sqrt() - half;
-                let cover = (0.5 - d).clamp(0.0, 1.0);
-                if cover > 0.0 {
-                    let i = y * self.width + x;
-                    self.pixels[i] = blend(self.pixels[i], colour, (cover * 255.0) as u8);
-                }
-            }
-        }
+        self.scene.prims.push(Prim::Line {
+            a: [a.0 * s, a.1 * s],
+            b: [b.0 * s, b.1 * s],
+            width: width * s,
+            colour,
+        });
     }
 
-    fn blit(&mut self, g: &Glyph, gx: i32, gy: i32, fg: u32, clip: (i32, i32, i32, i32)) {
-        let (cx0, cy0, cx1, cy1) = clip;
-        for row in 0..g.height as i32 {
-            let y = gy + row;
-            if y < cy0 || y >= cy1 {
-                continue;
-            }
-            for col in 0..g.width as i32 {
-                let x = gx + col;
-                if x < cx0 || x >= cx1 {
-                    continue;
-                }
-                let i = row as usize * g.width + col as usize;
-                let at = y as usize * self.width + x as usize;
-                self.pixels[at] = if g.colour {
-                    let p = &g.data[i * 4..i * 4 + 4];
-                    let rgb = (p[0] as u32) << 16 | (p[1] as u32) << 8 | p[2] as u32;
-                    blend(self.pixels[at], rgb, p[3])
-                } else {
-                    blend(self.pixels[at], fg, g.data[i])
-                };
-            }
-        }
+    /// Draws a picture with its top left at logical (`x`, `y`): in its own
+    /// colours, or as a shape in `tint`.
+    pub fn picture(&mut self, pic: Picture, x: f32, y: f32, tint: Option<u32>, clip: Rect) {
+        let pos = [
+            (x * self.scale).round() as i32,
+            (y * self.scale).round() as i32,
+        ];
+        let clip = self.physical(clip);
+        self.scene.prims.push(Prim::Image {
+            bitmap: pic.bitmap,
+            pos,
+            tint,
+            clip,
+        });
     }
 }
 
-pub fn blend(bg: u32, fg: u32, alpha: u8) -> u32 {
-    if alpha == 0 {
-        return bg;
-    }
-    if alpha == 255 {
-        return fg;
-    }
-    let a = alpha as u32;
-    [16, 8, 0].iter().fold(0, |out, shift| {
-        let (f, b) = ((fg >> shift) & 0xff, (bg >> shift) & 0xff);
-        out | (((f * a + b * (255 - a)) / 255) << shift)
-    })
-}
-
-/// An SVG drawn at one size: premultiplied RGBA.
+/// An SVG drawn at one size, kept in the bitmaps.
+#[derive(Clone, Copy)]
 pub struct Picture {
-    width: usize,
-    height: usize,
-    rgba: Vec<u8>,
+    bitmap: BitmapId,
 }
 
-/// SVG icons, each drawn once per size and kept.
+/// SVG icons, each drawn once per size and kept until the bitmaps are
+/// cleared.
 #[derive(Default)]
 pub struct Pictures {
     drawn: HashMap<(std::path::PathBuf, u32), Option<Picture>>,
+    generation: u64,
 }
 
 impl Pictures {
     /// `file` drawn to fit a square `px` physical pixels wide, or `None` if
     /// it can't be read.
-    pub fn get(&mut self, file: &std::path::Path, px: u32) -> Option<&Picture> {
+    pub fn get(
+        &mut self,
+        file: &std::path::Path,
+        px: u32,
+        bitmaps: &mut Bitmaps,
+    ) -> Option<Picture> {
+        if self.generation != bitmaps.generation() {
+            self.drawn.clear();
+            self.generation = bitmaps.generation();
+        }
         let key = (file.to_path_buf(), px);
         if !self.drawn.contains_key(&key) {
-            // A pack being edited makes new pictures; don't keep them all.
-            if self.drawn.len() > 2000 {
-                self.drawn.clear();
-            }
-            let picture = Self::draw(file, px);
+            let picture = Self::draw(file, px).map(|bitmap| Picture {
+                bitmap: bitmaps.add(bitmap),
+            });
             self.drawn.insert(key.clone(), picture);
         }
-        self.drawn.get(&key)?.as_ref()
+        *self.drawn.get(&key)?
     }
 
-    /// Forgets every picture, for when packs change on disk.
-    pub fn clear(&mut self) {
-        self.drawn.clear();
-    }
-
-    fn draw(file: &std::path::Path, px: u32) -> Option<Picture> {
+    fn draw(file: &std::path::Path, px: u32) -> Option<Bitmap> {
         use resvg::{tiny_skia, usvg};
         let data = std::fs::read(file).ok()?;
         let tree = usvg::Tree::from_data(&data, &usvg::Options::default()).ok()?;
@@ -597,53 +556,11 @@ impl Pictures {
         let mut pixmap = tiny_skia::Pixmap::new(px.max(1), px.max(1))?;
         let transform = tiny_skia::Transform::from_scale(scale, scale).post_translate(dx, dy);
         resvg::render(&tree, transform, &mut pixmap.as_mut());
-        Some(Picture {
-            width: px as usize,
-            height: px as usize,
-            rgba: pixmap.take(),
+        Some(Bitmap {
+            width: px.max(1),
+            height: px.max(1),
+            kind: Kind::Premul,
+            data: pixmap.take(),
         })
-    }
-}
-
-impl Canvas<'_> {
-    /// Draws a picture with its top left at logical (`x`, `y`): in its own
-    /// colours, or as a shape in `tint`.
-    pub fn picture(&mut self, pic: &Picture, x: f32, y: f32, tint: Option<u32>, clip: Rect) {
-        let (ox, oy) = (
-            (x * self.scale).round() as i32,
-            (y * self.scale).round() as i32,
-        );
-        let (cx0, cy0, cx1, cy1) = self.physical(clip);
-        for row in 0..pic.height as i32 {
-            let py = oy + row;
-            if py < cy0 || py >= cy1 {
-                continue;
-            }
-            for col in 0..pic.width as i32 {
-                let px = ox + col;
-                if px < cx0 || px >= cx1 {
-                    continue;
-                }
-                let i = (row as usize * pic.width + col as usize) * 4;
-                let a = pic.rgba[i + 3];
-                if a == 0 {
-                    continue;
-                }
-                let at = py as usize * self.width + px as usize;
-                self.pixels[at] = match tint {
-                    Some(colour) => blend(self.pixels[at], colour, a),
-                    None => {
-                        // Premultiplied: the colour plus what shows through.
-                        let dst = self.pixels[at];
-                        let keep = 255 - a as u32;
-                        [(16, 0), (8, 1), (0, 2)].iter().fold(0, |out, (shift, k)| {
-                            let s = pic.rgba[i + k] as u32;
-                            let d = (dst >> shift) & 0xff;
-                            out | ((s + d * keep / 255).min(255) << shift)
-                        })
-                    }
-                };
-            }
-        }
     }
 }

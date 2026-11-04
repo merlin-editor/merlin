@@ -115,7 +115,11 @@ impl Files {
         key: &str,
         change: impl FnOnce(&mut toml_edit::Table, &str),
     ) -> Result<(), String> {
-        let path = if workspace { &self.workspace } else { &self.user };
+        let path = if workspace {
+            &self.workspace
+        } else {
+            &self.user
+        };
         let text = fs::read_to_string(path).unwrap_or_default();
         let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e| format!("{e}"))?;
         // Dots part tables, except in `[keys]`, where the rest is one key

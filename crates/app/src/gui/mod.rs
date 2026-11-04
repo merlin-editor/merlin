@@ -3,15 +3,23 @@
 //! island. Clicks on the frame go back as UI events; the mouse in the code
 //! goes back as cells.
 //!
+//! Each frame is recorded as a [`scene::Scene`] and drawn by the GPU
+//! (`gpu.rs`), or by the CPU (`cpu.rs`) when there's no adapter or
+//! `MERLIN_RENDERER=cpu` asks.
+//!
 //! The window sleeps until something happens: a key, the mouse, output
 //! from a plugin's process, or the half-second check for changed files.
 
 mod canvas;
+mod cpu;
 mod frame;
+mod gpu;
 mod grid;
+mod scene;
 
+use std::env;
 use std::num::NonZeroU32;
-use std::rc::Rc;
+use std::sync::Arc;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -34,7 +42,9 @@ use crate::App;
 use crate::packs::{self, Look};
 use canvas::{Canvas, Pictures, Rect, Text};
 use frame::{Areas, Frame, Hit, State};
+use gpu::Gpu;
 use grid::Fonts;
+use scene::{Bitmaps, Scene};
 
 /// How often open files are checked for changes on disk, and plugins for
 /// rebuilds.
@@ -62,6 +72,8 @@ pub fn run(app: &mut App) -> Result<()> {
         drawn: None,
         next_check: Instant::now() + DISK_CHECK,
         pictures: Pictures::default(),
+        bitmaps: Bitmaps::default(),
+        scene: Scene::default(),
         fonts: None,
     };
     event_loop.run_app(&mut gui).context("running the window")?;
@@ -115,14 +127,40 @@ struct Gui<'a> {
     )>,
     next_check: Instant,
     pictures: Pictures,
+    /// The glyphs and pictures drawn so far, as scenes name them.
+    bitmaps: Bitmaps,
+    /// The last frame's drawing, kept for its room.
+    scene: Scene,
     /// The fonts the text and code were set up with, to set them up again
     /// when packs change them.
     fonts: Option<packs::Fonts>,
 }
 
 struct Shown {
-    window: Rc<Window>,
-    surface: Surface<Rc<Window>, Rc<Window>>,
+    window: Arc<Window>,
+    backend: Backend,
+}
+
+enum Backend {
+    Gpu(Box<Gpu>),
+    Cpu(Surface<Arc<Window>, Arc<Window>>),
+}
+
+impl Backend {
+    /// The GPU's, unless `MERLIN_RENDERER=cpu` asks for the CPU's or
+    /// there's no adapter; the CPU's otherwise.
+    fn new(window: &Arc<Window>) -> Result<Self, String> {
+        if env::var("MERLIN_RENDERER").as_deref() != Ok("cpu") {
+            match Gpu::new(window.clone()) {
+                Ok(gpu) => return Ok(Self::Gpu(Box::new(gpu))),
+                Err(err) => eprintln!("merlin: drawing on the CPU: {err}"),
+            }
+        }
+        Context::new(window.clone())
+            .and_then(|context| Surface::new(&context, window.clone()))
+            .map(Self::Cpu)
+            .map_err(|e| e.to_string())
+    }
 }
 
 impl Gui<'_> {
@@ -159,6 +197,8 @@ impl Gui<'_> {
         ));
         self.grid = Some(Fonts::new(scale, wanted.code.as_deref(), wanted.code_size));
         self.fonts = Some(wanted.clone());
+        // The old fonts' glyphs go with them.
+        self.bitmaps.clear();
         self.drawn = None;
     }
 
@@ -384,21 +424,20 @@ impl Gui<'_> {
         if self.drawn == drawn {
             return;
         }
-        // Packs changed: their pictures may have too.
-        if self.drawn.as_ref().map(|d| &d.6) != Some(&self.app.look) {
-            self.pictures.clear();
-        }
-        let Ok(mut buffer) = shown.surface.buffer_mut() else {
-            return;
-        };
-        if buffer.len() != pw * ph {
-            return;
+        // Packs changed: their pictures may have too. Too many bitmaps:
+        // start again.
+        if self.drawn.as_ref().map(|d| &d.6) != Some(&self.app.look)
+            || self.bitmaps.bytes() > Bitmaps::LIMIT
+        {
+            self.bitmaps.clear();
         }
         let (w, h) = (pw as f32 / s, ph as f32 / s);
         let areas = frame::areas(&view, w, h, self.app.look.layout.gap);
+        self.scene.clear();
         let mut f = Frame {
             canvas: Canvas {
-                pixels: &mut buffer,
+                scene: &mut self.scene,
+                bitmaps: &mut self.bitmaps,
                 width: pw,
                 height: ph,
                 scale: s,
@@ -416,17 +455,29 @@ impl Gui<'_> {
         let t = areas.text;
         grid.draw(
             &screen,
-            f.canvas.pixels,
-            pw,
-            ph,
+            &mut f.canvas,
             ((t.x * s) as usize, (t.y * s) as usize),
             &self.app.look.palette,
         );
         f.overlays(&view, &areas, w, h);
         self.hits = std::mem::take(&mut f.hits);
-        shown.window.pre_present_notify();
-        let _ = buffer.present();
+        let shown_ok = match &mut shown.backend {
+            Backend::Gpu(gpu) => gpu.draw(&self.scene, &self.bitmaps, &shown.window),
+            Backend::Cpu(surface) => match surface.buffer_mut() {
+                Ok(mut buffer) if buffer.len() == pw * ph => {
+                    cpu::draw(&self.scene, &self.bitmaps, &mut buffer, pw, ph);
+                    shown.window.pre_present_notify();
+                    buffer.present().is_ok()
+                }
+                _ => false,
+            },
+        };
         self.areas = areas;
+        if !shown_ok {
+            // Not shown: draw again when asked.
+            self.drawn = None;
+            return;
+        }
         // The hover index belongs to the hits just made.
         let hovered = self.pointer.and_then(|p| {
             self.hits
@@ -469,17 +520,15 @@ impl ApplicationHandler for Gui<'_> {
             .with_title(project)
             .with_inner_size(LogicalSize::new(1440.0, 900.0));
         let window = match event_loop.create_window(attributes) {
-            Ok(w) => Rc::new(w),
+            Ok(w) => Arc::new(w),
             Err(err) => {
                 eprintln!("merlin: can't open a window: {err}");
                 event_loop.exit();
                 return;
             }
         };
-        let surface =
-            Context::new(window.clone()).and_then(|context| Surface::new(&context, window.clone()));
-        let surface = match surface {
-            Ok(s) => s,
+        let backend = match Backend::new(&window) {
+            Ok(b) => b,
             Err(err) => {
                 eprintln!("merlin: can't draw in the window: {err}");
                 event_loop.exit();
@@ -487,7 +536,7 @@ impl ApplicationHandler for Gui<'_> {
             }
         };
         let size = window.inner_size();
-        self.window = Some(Shown { window, surface });
+        self.window = Some(Shown { window, backend });
         self.set_fonts(true);
         self.resized(size);
     }
@@ -579,7 +628,12 @@ impl Gui<'_> {
         if let Some(shown) = &mut self.window
             && let (Some(w), Some(h)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height))
         {
-            let _ = shown.surface.resize(w, h);
+            match &mut shown.backend {
+                Backend::Gpu(gpu) => gpu.resize(w.get(), h.get()),
+                Backend::Cpu(surface) => {
+                    let _ = surface.resize(w, h);
+                }
+            }
         }
         self.drawn = None;
         self.fit_text();
