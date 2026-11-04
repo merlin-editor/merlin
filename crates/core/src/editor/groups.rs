@@ -2,23 +2,28 @@
 //! each of which may be split down, and each group with its own tabs. A file open in two groups shares its text, but each group keeps
 //! its own cursor and scroll.
 //!
-//! A document's own cursor and scroll belong to the focused group. Other
-//! groups keep theirs in `saved`, and are drawn from there.
+//! A document's own cursors, scroll and folds belong to the focused group.
+//! Other groups keep theirs in `saved`, and are drawn from there, so each
+//! group has its own extra cursors and its own folds, as VS Code has it.
 
 use std::collections::HashMap;
 
 use super::Editor;
 use crate::buffer::Change;
-use crate::doc::Doc;
+use crate::doc::{Caret, Doc};
 
 /// Where a group is in a document.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct View {
     pub cursor: usize,
     pub anchor: Option<usize>,
     pub goal: Option<usize>,
     pub scroll: usize,
     pub hscroll: usize,
+    /// Cursors besides the primary one.
+    pub extra: Vec<Caret>,
+    /// Folded blocks, by where their first line starts.
+    pub folds: Vec<usize>,
 }
 
 impl View {
@@ -29,6 +34,8 @@ impl View {
             goal: doc.goal,
             scroll: doc.scroll,
             hscroll: doc.hscroll,
+            extra: doc.extra.clone(),
+            folds: doc.folds.clone(),
         }
     }
 
@@ -36,10 +43,22 @@ impl View {
     /// shortened.
     pub fn clamped(self, doc: &Doc) -> Self {
         let len = doc.buffer.len();
+        let rope = doc.buffer.rope();
         Self {
             cursor: self.cursor.min(len),
             anchor: self.anchor.map(|a| a.min(len)),
             scroll: self.scroll.min(doc.last_line()),
+            extra: self
+                .extra
+                .into_iter()
+                .filter(|c| c.cursor <= len && c.anchor.is_none_or(|a| a <= len))
+                .collect(),
+            // Only folds still at the start of a line.
+            folds: self
+                .folds
+                .into_iter()
+                .filter(|&f| f == 0 || (f <= len && rope.char(f - 1) == '\n'))
+                .collect(),
             ..self
         }
     }
@@ -50,6 +69,13 @@ impl View {
         for change in changes {
             self.cursor = change.map(self.cursor);
             self.anchor = self.anchor.map(|a| change.map(a));
+            for caret in &mut self.extra {
+                caret.cursor = change.map(caret.cursor);
+                caret.anchor = caret.anchor.map(|a| change.map(a));
+            }
+            for fold in &mut self.folds {
+                *fold = change.map(*fold);
+            }
             let e = &change.edit;
             // Rows added or removed above the view shift it.
             if e.old_end.0 < self.scroll {
@@ -68,6 +94,9 @@ impl View {
         doc.goal = v.goal;
         doc.scroll = v.scroll;
         doc.hscroll = v.hscroll;
+        doc.extra = v.extra;
+        doc.extra_version = doc.buffer.version();
+        doc.folds = v.folds;
     }
 
     /// The selected range, if it isn't empty.
@@ -101,7 +130,7 @@ impl Group {
 }
 
 /// A group being drawn, other than the focused one.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct Drawing {
     pub group: usize,
     pub doc: usize,
@@ -118,14 +147,22 @@ const MIN_H: u16 = 4;
 impl Editor {
     /// The group being drawn or worked in.
     pub(crate) fn pane(&self) -> usize {
-        self.drawing.get().map_or(self.group, |d| d.group)
+        self.drawing
+            .borrow()
+            .as_ref()
+            .map_or(self.group, |d| d.group)
+    }
+
+    /// Whether another group than the focused one is being drawn.
+    pub(crate) fn drawing_other(&self) -> bool {
+        self.drawing.borrow().is_some()
     }
 
     /// The cursor, selection and scroll of the document shown, in the group
     /// being drawn.
     pub(crate) fn view(&self) -> View {
-        match self.drawing.get() {
-            Some(d) => d.view,
+        match &*self.drawing.borrow() {
+            Some(d) => d.view.clone(),
             None => View::of(self.doc()),
         }
     }
@@ -145,7 +182,10 @@ impl Editor {
 
     /// The document shown in the group being drawn.
     pub(crate) fn pane_doc(&self) -> usize {
-        self.drawing.get().map_or(self.current, |d| d.doc)
+        self.drawing
+            .borrow()
+            .as_ref()
+            .map_or(self.current, |d| d.doc)
     }
 
     /// Draws `draw` as if group `g` were focused, with its own view.
@@ -160,15 +200,15 @@ impl Editor {
         let view = group
             .saved
             .get(&group.active)
-            .map(|v| v.clamped(&self.docs[doc]))
+            .map(|v| v.clone().clamped(&self.docs[doc]))
             .unwrap_or_else(|| View::of(&self.docs[doc]));
-        self.drawing.set(Some(Drawing {
+        *self.drawing.borrow_mut() = Some(Drawing {
             group: g,
             doc,
             view,
-        }));
+        });
         let out = draw();
-        self.drawing.set(None);
+        *self.drawing.borrow_mut() = None;
         out
     }
 
@@ -177,8 +217,6 @@ impl Editor {
         if g == self.group || g >= self.groups.len() {
             return;
         }
-        // Extra cursors belong to the group they were made in.
-        self.doc_mut().extra.clear();
         let id = self.doc().id;
         let view = View::of(self.doc());
         self.groups[self.group].saved.insert(id, view);
@@ -198,7 +236,7 @@ impl Editor {
         let live = View::of(&self.docs[i]);
         for (g, group) in self.groups.iter_mut().enumerate() {
             if g != self.group && group.tabs.contains(&id) {
-                group.saved.entry(id).or_insert(live);
+                group.saved.entry(id).or_insert_with(|| live.clone());
             }
         }
         if let Some(view) = self.groups[self.group].saved.remove(&id) {
@@ -253,7 +291,6 @@ impl Editor {
             tabs.insert(at.unwrap_or(tabs.len()).min(tabs.len()), id);
             return;
         }
-        self.doc_mut().extra.clear();
         let view = View::of(self.doc());
         let src = &mut self.groups[from];
         let pos = src.tabs.iter().position(|&t| t == id).unwrap_or(0);
@@ -402,6 +439,9 @@ impl Editor {
                 .any(|(g, group)| g != self.group && group.saved.get(&current) == Some(&live));
             match self.groups[self.group].saved.remove(&current) {
                 Some(view) if theirs => view.put(&mut self.docs[i]),
+                // Opened here from another group's view: its place and
+                // folds come along, as in VS Code, but not its cursors.
+                None if theirs => self.docs[i].extra.clear(),
                 _ => {}
             }
         }

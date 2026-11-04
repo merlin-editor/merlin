@@ -126,7 +126,7 @@ impl Editor {
                     continue;
                 }
                 let view = match group.saved.get(&id) {
-                    Some(view) if g != self.group || id != self.doc().id => *view,
+                    Some(view) if g != self.group || id != self.doc().id => view.clone(),
                     _ => View::of(doc),
                 }
                 .clamped(doc);
@@ -222,7 +222,7 @@ impl Editor {
         let mut placed: Vec<u64> = Vec::new();
         let order = std::iter::once(focused).chain((0..groups.len()).filter(|&g| g != focused));
         for g in order {
-            for &(id, view) in &views[g] {
+            for (id, view) in views[g].clone() {
                 let Some(i) = self.index_of(id) else { continue };
                 if placed.contains(&id) {
                     groups[g].saved.insert(id, view);

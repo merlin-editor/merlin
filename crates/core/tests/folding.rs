@@ -92,7 +92,7 @@ fn folds_work_with_word_wrap() {
 }
 
 #[test]
-fn a_fold_in_one_group_keeps_the_others_view_in_sight() {
+fn a_fold_in_one_group_leaves_the_others_alone() {
     let text: String = std::iter::once("fn a() {\n".to_string())
         .chain((1..=60).map(|i| format!("    line{i}();\n")))
         .chain(std::iter::once("}\n".to_string()))
@@ -100,16 +100,13 @@ fn a_fold_in_one_group_keeps_the_others_view_in_sight() {
     let mut s = Session::new(&text, Some("a.rs"), 100, 20);
     s.run("key ctrl+g; type 40; key enter; cmd view.split; key ctrl+home; cmd edit.fold_all");
     let screen = s.screen();
-    let row = screen.lines().nth(1).unwrap();
-    let left_text: Vec<&str> = screen
-        .lines()
-        .skip(1)
-        .map(|l| l.split('│').next().unwrap_or(""))
-        .collect();
-    assert!(
-        left_text
-            .iter()
-            .any(|l| l.contains("1") && l.contains("fn a() {")),
-        "the left group shows the fold's first line: {screen}\n{row}"
-    );
+    // Each group has its own folds, as in VS Code: the right one's is
+    // folded, and the left still shows the lines inside.
+    assert_eq!(screen.matches("fn a() { ⋯").count(), 1, "{screen}");
+    assert!(screen.contains("line40();"), "{screen}");
+    // And keeps them when the other is focused.
+    s.run("cmd view.group1");
+    let screen = s.screen();
+    assert_eq!(screen.matches("fn a() { ⋯").count(), 1, "{screen}");
+    assert!(screen.contains("line40();"), "{screen}");
 }

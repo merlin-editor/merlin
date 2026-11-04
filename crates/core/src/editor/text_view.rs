@@ -157,7 +157,7 @@ impl Editor {
         let gutter = digits + 2;
         let half = area.w.saturating_sub(2) / 2;
         let cur = doc.line_col(v.cursor).0;
-        let focused = self.focus == Focus::Editor && self.drawing.get().is_none();
+        let focused = self.focus == Focus::Editor && !self.drawing_other();
         let halves = [
             (Rect { w: half, ..area }, true),
             (
@@ -265,7 +265,7 @@ impl Editor {
         };
         let visible = first..last_shown.max(v.scroll + 1);
         let spans = doc.spans(visible);
-        let focused = self.focus == Focus::Editor && self.drawing.get().is_none();
+        let focused = self.focus == Focus::Editor && !self.drawing_other();
         let highlight_line = focused && selection.is_none();
         let guides = self.guides(super::render::visible_lines(
             first,
@@ -275,7 +275,7 @@ impl Editor {
         // Fold arrows show for folded blocks, and for the others while the
         // mouse is over the gutter.
         let over_gutter = self.hover.is_some_and(|(hx, hy)| {
-            area.contains(hx, hy) && (hx as usize) < x0 + gutter && self.drawing.get().is_none()
+            area.contains(hx, hy) && (hx as usize) < x0 + gutter && !self.drawing_other()
         });
         let mut depth = guides.depth;
         let wrapping = self.wrapping();

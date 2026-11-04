@@ -622,7 +622,7 @@ pub struct Editor {
     groups: Vec<groups::Group>,
     group: usize,
     /// A group other than the focused one, while it's drawn.
-    drawing: std::cell::Cell<Option<groups::Drawing>>,
+    drawing: std::cell::RefCell<Option<groups::Drawing>>,
     /// The group and document shown after the last event.
     shown: (usize, u64),
     /// The preview tab, which the next file opened from the Explorer
@@ -1179,6 +1179,9 @@ impl Editor {
             for group in &mut self.groups {
                 if let Some(view) = group.saved.get_mut(&doc.id) {
                     view.follow(&changes);
+                    // A fold whose first line was joined to another goes.
+                    let rope = doc.buffer.rope();
+                    view.folds.retain(|&f| f == 0 || rope.char(f - 1) == '\n');
                 }
             }
         }

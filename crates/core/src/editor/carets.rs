@@ -22,9 +22,7 @@ impl Editor {
             cursor: v.cursor,
             anchor: v.anchor,
         }];
-        if self.drawing.get().is_none() {
-            all.extend(self.doc().extra.iter().copied());
-        }
+        all.extend(v.extra);
         all
     }
 
@@ -52,7 +50,10 @@ impl Editor {
             .chain(doc.extra.drain(..).map(|c| (c, false)))
             .collect();
         all.sort_by_key(|(c, _)| Reverse(c.start()));
-        doc.buffer.begin(doc.cursor, kind);
+        let before = std::iter::once(primary)
+            .chain(all.iter().filter(|(_, p)| !p).map(|(c, _)| *c))
+            .collect();
+        doc.buffer.begin_at(before, kind);
         let n = all.len();
         let mut done: Vec<(Caret, bool)> = Vec::with_capacity(n);
         let mut primary_goal = goal;
@@ -97,8 +98,30 @@ impl Editor {
         doc.cursor = main.cursor;
         doc.anchor = main.anchor;
         doc.goal = primary_goal;
-        doc.buffer.commit(main.cursor);
+        let after = std::iter::once(main).chain(extra.iter().copied()).collect();
+        doc.buffer.commit_at(after);
         doc.extra = extra;
+        doc.extra_version = doc.buffer.version();
+    }
+
+    /// Puts the cursors and selections back where an undo or redo says
+    /// they were, the primary one first.
+    pub(crate) fn put_cursors(&mut self, cursors: &[Caret]) {
+        let Some((primary, rest)) = cursors.split_first() else {
+            return;
+        };
+        self.set_cursor(primary.cursor);
+        let doc = self.doc_mut();
+        let len = doc.buffer.len();
+        doc.anchor = primary.anchor.map(|a| a.min(len));
+        doc.extra = rest
+            .iter()
+            .map(|c| Caret {
+                cursor: c.cursor.min(len),
+                anchor: c.anchor.map(|a| a.min(len)),
+            })
+            .filter(|c| c.cursor != doc.cursor)
+            .collect();
         doc.extra_version = doc.buffer.version();
     }
 

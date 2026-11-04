@@ -35,6 +35,14 @@ pub struct Caret {
 }
 
 impl Caret {
+    /// A cursor with nothing selected.
+    pub fn at(cursor: usize) -> Self {
+        Self {
+            cursor,
+            anchor: None,
+        }
+    }
+
     pub fn start(&self) -> usize {
         self.anchor.map_or(self.cursor, |a| a.min(self.cursor))
     }

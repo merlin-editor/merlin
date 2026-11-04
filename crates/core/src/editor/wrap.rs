@@ -67,7 +67,7 @@ impl Editor {
     /// Whether lines can take other than one row each: when they wrap, or
     /// some are folded away.
     pub(crate) fn row_based(&self) -> bool {
-        self.wrapping() || !self.doc().folds.is_empty()
+        self.wrapping() || !self.view().folds.is_empty()
     }
 
     /// The rows a line takes on screen: none if it's folded away.

@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use merlin_syntax::TextEdit;
 use ropey::Rope;
 
+use crate::doc::Caret;
 use crate::edit::Edit;
 use crate::history::{History, Kind, Revision};
 
@@ -87,7 +88,12 @@ impl Buffer {
     }
 
     pub fn begin(&mut self, cursor: usize, kind: Kind) {
-        self.history.begin(cursor, kind);
+        self.history.begin(vec![Caret::at(cursor)], kind);
+    }
+
+    /// Starts an undo step at several cursors, the primary one first.
+    pub fn begin_at(&mut self, cursors: Vec<Caret>, kind: Kind) {
+        self.history.begin(cursors, kind);
     }
 
     pub fn apply(&mut self, edit: Edit) {
@@ -127,26 +133,32 @@ impl Buffer {
     }
 
     pub fn commit(&mut self, cursor: usize) {
-        self.history.commit(cursor, self.saved);
+        self.history.commit(vec![Caret::at(cursor)], self.saved);
     }
 
-    /// Reverts the newest change and returns where the cursor was before it.
-    pub fn undo(&mut self) -> Option<usize> {
+    /// Ends an undo step at several cursors, the primary one first.
+    pub fn commit_at(&mut self, cursors: Vec<Caret>) {
+        self.history.commit(cursors, self.saved);
+    }
+
+    /// Reverts the newest change and returns the cursors and selections
+    /// from before it, the primary one first.
+    pub fn undo(&mut self) -> Option<Vec<Caret>> {
         let change = self.history.undo()?;
         for edit in change.edits.iter().rev() {
             self.change(&edit.inverse());
         }
         self.version += 1;
-        Some(change.cursor_before)
+        Some(change.cursors_before)
     }
 
-    pub fn redo(&mut self) -> Option<usize> {
+    pub fn redo(&mut self) -> Option<Vec<Caret>> {
         let change = self.history.redo()?;
         for edit in &change.edits {
             self.change(edit);
         }
         self.version += 1;
-        Some(change.cursor_after)
+        Some(change.cursors_after)
     }
 
     /// Length of a line in chars, without its line break.

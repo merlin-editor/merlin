@@ -35,10 +35,10 @@ pub(crate) fn block_end(doc: &Doc, line: usize) -> Option<usize> {
     end
 }
 
-/// The lines hidden by a document's folds, in order, without overlaps.
-pub(crate) fn hidden(doc: &Doc) -> Vec<Range<usize>> {
+/// The lines `folds` hide in a document, in order, without overlaps.
+pub(crate) fn hidden(doc: &Doc, folds: &[usize]) -> Vec<Range<usize>> {
     let mut ranges: Vec<Range<usize>> = Vec::new();
-    for &f in &doc.folds {
+    for &f in folds {
         let line = doc.line_col(f).0;
         let Some(end) = block_end(doc, line) else {
             continue;
@@ -52,20 +52,22 @@ pub(crate) fn hidden(doc: &Doc) -> Vec<Range<usize>> {
 }
 
 impl Editor {
-    /// The lines folded away in the document drawn, cached per version.
+    /// The lines folded away in the document drawn, in the group drawn,
+    /// cached per version.
     pub(crate) fn hidden_lines(&self) -> Vec<Range<usize>> {
         let doc = self.doc();
-        if doc.folds.is_empty() {
+        let folds = self.view().folds;
+        if folds.is_empty() {
             return Vec::new();
         }
-        let key = (doc.id, doc.buffer.version(), doc.folds.clone());
+        let key = (doc.id, doc.buffer.version(), folds.clone());
         let mut cache = self.fold_cache.borrow_mut();
         if let Some((k, ranges)) = cache.as_ref()
             && *k == key
         {
             return ranges.clone();
         }
-        let ranges = hidden(doc);
+        let ranges = hidden(doc, &folds);
         *cache = Some((key, ranges.clone()));
         ranges
     }
@@ -175,26 +177,27 @@ impl Editor {
     }
 
     /// Keeps every view's top line out of folded blocks: a view scrolled
-    /// into one starts at the block's first line instead. Folds belong to
-    /// the document, so a fold in one group can hide another's top line.
+    /// into one starts at the block's first line instead.
     pub(crate) fn scroll_out_of_folds(&mut self) {
+        let out = |ranges: &[Range<usize>], scroll: usize| {
+            ranges
+                .iter()
+                .find(|r| r.contains(&scroll))
+                .map_or(scroll, |r| r.start - 1)
+        };
         for i in 0..self.docs.len() {
-            if self.docs[i].folds.is_empty() {
-                continue;
+            let doc = &self.docs[i];
+            if !doc.folds.is_empty() {
+                let ranges = hidden(doc, &doc.folds);
+                self.docs[i].scroll = out(&ranges, self.docs[i].scroll);
             }
-            let ranges = hidden(&self.docs[i]);
-            let out = |scroll: usize| {
-                ranges
-                    .iter()
-                    .find(|r| r.contains(&scroll))
-                    .map_or(scroll, |r| r.start - 1)
-            };
-            let doc = &mut self.docs[i];
-            doc.scroll = out(doc.scroll);
-            let id = doc.id;
+            let (doc, id) = (&self.docs[i], self.docs[i].id);
             for group in &mut self.groups {
-                if let Some(view) = group.saved.get_mut(&id) {
-                    view.scroll = out(view.scroll);
+                if let Some(view) = group.saved.get_mut(&id)
+                    && !view.folds.is_empty()
+                {
+                    let ranges = hidden(doc, &view.folds);
+                    view.scroll = out(&ranges, view.scroll);
                 }
             }
         }

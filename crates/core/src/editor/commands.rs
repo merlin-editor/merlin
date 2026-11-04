@@ -276,11 +276,11 @@ impl Editor {
                 self.open_menu(title);
             }
             "edit.undo" => match self.doc_mut().buffer.undo() {
-                Some(cursor) => self.set_cursor(cursor),
+                Some(cursors) => self.put_cursors(&cursors),
                 None => self.notify("Nothing to undo".into()),
             },
             "edit.redo" => match self.doc_mut().buffer.redo() {
-                Some(cursor) => self.set_cursor(cursor),
+                Some(cursors) => self.put_cursors(&cursors),
                 None => self.notify("Nothing to redo".into()),
             },
             "edit.select_all" => {

@@ -25,10 +25,11 @@ fn ctrl_d_selects_the_word_then_adds_the_next_occurrence() {
     assert_eq!(s.text(), "let b = b + bar + b;\n");
     s.run("key ctrl+z");
     assert_eq!(s.text(), "let foo = foo + bar + foo;\n");
-    assert!(
-        !s.screen().contains("selections"),
-        "undo goes back to one cursor"
-    );
+    // As in VS Code, undo puts back all three selections, so typing
+    // again changes all three.
+    assert!(s.screen().contains("(3 selections)"), "{}", s.screen());
+    s.run("type qux");
+    assert_eq!(s.text(), "let qux = qux + bar + qux;\n");
 }
 
 #[test]
@@ -165,4 +166,19 @@ fn dragging_after_a_double_click_selects_whole_words() {
         y
     ));
     assert_eq!(s.editor.selection().as_deref(), Some("alpha beta"));
+}
+
+#[test]
+fn each_group_keeps_its_own_cursors() {
+    let mut s = session("foo foo foo\n");
+    s.run("cmd view.split; key ctrl+d; key ctrl+d; key ctrl+d");
+    assert!(s.screen().contains("(3 selections)"), "{}", s.screen());
+    // The left group never had them.
+    s.run("cmd view.group1");
+    assert!(!s.screen().contains("selections"), "{}", s.screen());
+    // Back on the right, they're still there to type at.
+    s.run("cmd view.group2");
+    assert!(s.screen().contains("(3 selections)"), "{}", s.screen());
+    s.run("type bar");
+    assert_eq!(s.text(), "bar bar bar\n");
 }

@@ -1,3 +1,4 @@
+use crate::doc::Caret;
 use crate::edit::Edit;
 
 /// Identifies a state of the buffer. Revision 0 is the text as loaded, and an
@@ -15,8 +16,10 @@ pub enum Kind {
 pub struct Change {
     pub id: Revision,
     pub edits: Vec<Edit>,
-    pub cursor_before: usize,
-    pub cursor_after: usize,
+    /// Every cursor before and after, the primary one first, so undo puts
+    /// back all of them.
+    pub cursors_before: Vec<Caret>,
+    pub cursors_after: Vec<Caret>,
     kind: Kind,
 }
 
@@ -42,13 +45,13 @@ impl History {
 
     /// Starts a transaction. A nested transaction joins the outermost one,
     /// which becomes a single undo step when it commits.
-    pub fn begin(&mut self, cursor: usize, kind: Kind) {
+    pub fn begin(&mut self, cursors: Vec<Caret>, kind: Kind) {
         if self.depth == 0 {
             self.open = Some(Change {
                 id: 0,
                 edits: Vec::new(),
-                cursor_before: cursor,
-                cursor_after: cursor,
+                cursors_after: cursors.clone(),
+                cursors_before: cursors,
                 kind,
             });
         }
@@ -66,7 +69,7 @@ impl History {
     /// Ends a transaction. `saved` is the revision on disk: typing is never
     /// merged into it, or the buffer would look clean while differing from
     /// the file.
-    pub fn commit(&mut self, cursor: usize, saved: Revision) {
+    pub fn commit(&mut self, cursors: Vec<Caret>, saved: Revision) {
         assert!(self.depth > 0, "commit without begin");
         self.depth -= 1;
         if self.depth > 0 {
@@ -76,16 +79,16 @@ impl History {
         if change.edits.is_empty() {
             return;
         }
-        change.cursor_after = cursor;
         self.redo.clear();
         if let Some(last) = self.undo.last_mut()
             && last.id != saved
             && continues_typing(last, &change)
         {
             last.edits.append(&mut change.edits);
-            last.cursor_after = cursor;
+            last.cursors_after = cursors;
             return;
         }
+        change.cursors_after = cursors;
         self.next_id += 1;
         change.id = self.next_id;
         self.undo.push(change);

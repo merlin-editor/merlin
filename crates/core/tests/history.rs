@@ -22,7 +22,7 @@ fn nested_transactions_are_one_undo_step() {
     buf.apply(insert(2, "c"));
     buf.commit(3);
     assert_eq!(buf.text(), "abc");
-    assert_eq!(buf.undo(), Some(0));
+    assert_eq!(buf.undo().map(|c| c[0].cursor), Some(0));
     assert_eq!(buf.text(), "");
     assert_eq!(buf.undo(), None);
 }
@@ -34,7 +34,7 @@ fn undo_is_refused_inside_a_transaction() {
     buf.apply(insert(0, "a"));
     assert_eq!(buf.undo(), None);
     buf.commit(1);
-    assert_eq!(buf.undo(), Some(0));
+    assert_eq!(buf.undo().map(|c| c[0].cursor), Some(0));
     assert_eq!(buf.text(), "x");
 }
 
@@ -50,7 +50,7 @@ fn undo_and_redo_round_trip_replacements() {
     buf.commit(11);
     buf.undo();
     assert_eq!(buf.text(), "hello world");
-    assert_eq!(buf.redo(), Some(11));
+    assert_eq!(buf.redo().map(|c| c[0].cursor), Some(11));
     assert_eq!(buf.text(), "hello there");
 }
 
