@@ -5,11 +5,12 @@ use std::collections::HashMap;
 use std::env;
 
 use cosmic_text::{
-    Attrs, Buffer, Family, FontSystem, Metrics, Shaping, Style as FontStyle, SwashCache,
-    SwashContent, Weight,
+    Attrs, Buffer, Family, FontSystem, Metrics, Shaping, Style as FontStyle, SwashCache, Weight,
 };
 use merlin_core::screen::{Screen, WIDE_TAIL};
 
+use super::canvas::{Canvas, glyph_bitmap};
+use super::scene::{BitmapId, Bitmaps, Prim};
 use crate::theme::{self, Palette};
 
 /// Points, before the display's scale.
@@ -27,15 +28,13 @@ const FAMILIES: &[&str] = &[
     "DejaVu Sans Mono",
 ];
 
-/// A character's picture, rasterised once and kept.
+/// A character's picture, rasterised once and kept in the bitmaps.
+#[derive(Clone, Copy)]
 struct Glyph {
+    bitmap: BitmapId,
     left: i32,
     top: i32,
     width: usize,
-    height: usize,
-    /// Colour glyphs (emoji) are RGBA; the rest are coverage.
-    colour: bool,
-    data: Vec<u8>,
 }
 
 pub struct Fonts {
@@ -49,6 +48,8 @@ pub struct Fonts {
     baseline: i32,
     line: Buffer,
     glyphs: HashMap<(char, bool, bool), Option<Glyph>>,
+    /// The bitmaps' generation the glyphs belong to.
+    generation: u64,
 }
 
 impl Fonts {
@@ -87,6 +88,7 @@ impl Fonts {
             baseline: 0,
             line,
             glyphs: HashMap::new(),
+            generation: u64::MAX,
         };
         fonts.measure();
         fonts
@@ -124,15 +126,31 @@ impl Fonts {
         }
     }
 
-    fn glyph(&mut self, ch: char, bold: bool, italic: bool) -> Option<&Glyph> {
+    fn glyph(
+        &mut self,
+        ch: char,
+        bold: bool,
+        italic: bool,
+        bitmaps: &mut Bitmaps,
+    ) -> Option<Glyph> {
+        if self.generation != bitmaps.generation() {
+            self.glyphs.clear();
+            self.generation = bitmaps.generation();
+        }
         if !self.glyphs.contains_key(&(ch, bold, italic)) {
-            let glyph = self.rasterise(ch, bold, italic);
+            let glyph = self.rasterise(ch, bold, italic, bitmaps);
             self.glyphs.insert((ch, bold, italic), glyph);
         }
-        self.glyphs.get(&(ch, bold, italic))?.as_ref()
+        self.glyphs[&(ch, bold, italic)]
     }
 
-    fn rasterise(&mut self, ch: char, bold: bool, italic: bool) -> Option<Glyph> {
+    fn rasterise(
+        &mut self,
+        ch: char,
+        bold: bool,
+        italic: bool,
+        bitmaps: &mut Bitmaps,
+    ) -> Option<Glyph> {
         let attrs = attrs(&self.family, bold, italic);
         let line = &mut self.line;
         line.set_text(&ch.to_string(), &attrs, Shaping::Advanced, None);
@@ -146,46 +164,43 @@ impl Fonts {
         let image = self
             .cache
             .get_image_uncached(&mut self.system, physical.cache_key)?;
+        let (width, height) = (image.placement.width, image.placement.height);
         Some(Glyph {
             left: image.placement.left + physical.x,
             top: image.placement.top - physical.y,
-            width: image.placement.width as usize,
-            height: image.placement.height as usize,
-            colour: image.content == SwashContent::Color,
-            data: match image.content {
-                // Subpixel masks would need the panel's layout; their
-                // average is plain coverage.
-                SwashContent::SubpixelMask => image
-                    .data
-                    .chunks(4)
-                    .map(|p| ((p[0] as u16 + p[1] as u16 + p[2] as u16) / 3) as u8)
-                    .collect(),
-                _ => image.data,
-            },
+            width: width as usize,
+            bitmap: bitmaps.add(glyph_bitmap(width, height, image.content, image.data)),
         })
     }
 
-    /// Draws `screen` with its top left at physical pixel (`ox`, `oy`) in
-    /// `frame`, `w` by `h` pixels, in the palette's colours.
-    #[allow(clippy::too_many_arguments)]
+    /// Draws `screen` with its top left at physical pixel (`ox`, `oy`) on
+    /// `canvas`, in the palette's colours.
     pub fn draw(
         &mut self,
         screen: &Screen,
-        frame: &mut [u32],
-        w: usize,
-        h: usize,
+        canvas: &mut Canvas,
         (ox, oy): (usize, usize),
         p: &Palette,
     ) {
+        let (w, h) = (canvas.width, canvas.height);
         let (cw, ch) = (self.cell_w as usize, self.cell_h as usize);
         let cells = |x: u16, y: u16| (ox + x as usize * cw, oy + y as usize * ch);
         // Backgrounds first, so a glyph wider than its cell isn't covered
-        // by the next one's.
+        // by the next one's; a row's run of one colour is one rectangle.
         for y in 0..screen.height {
-            for x in 0..screen.width {
-                let look = theme::cell(p, &screen.cell(x, y));
-                let (px, py) = cells(x, y);
-                fill(frame, w, h, px, py, cw, ch, look.bg.unwrap_or(p.island));
+            let mut run: Option<(u16, u32)> = None;
+            for x in 0..=screen.width {
+                let bg = (x < screen.width)
+                    .then(|| theme::cell(p, &screen.cell(x, y)).bg.unwrap_or(p.island));
+                match run {
+                    Some((_, colour)) if Some(colour) == bg => continue,
+                    Some((from, colour)) => {
+                        let (px, py) = cells(from, y);
+                        canvas.fill_px(px, py, (x - from) as usize * cw, ch, colour);
+                    }
+                    None => {}
+                }
+                run = bg.map(|colour| (x, colour));
             }
         }
         for y in 0..screen.height {
@@ -199,7 +214,7 @@ impl Fonts {
                 let (px, py) = cells(x, y);
                 let wide = x + 1 < screen.width && screen.cell(x + 1, y).ch == WIDE_TAIL;
                 let span = if wide { 2 * cw } else { cw };
-                if box_drawing(cell.ch, frame, w, h, px, py, cw, ch, fg) {
+                if box_drawing(cell.ch, canvas, px, py, cw, ch, fg) {
                     continue;
                 }
                 // Room for an icon wider than its cell, when the next is blank.
@@ -208,8 +223,8 @@ impl Fonts {
                 } else {
                     span
                 };
-                let baseline = self.baseline;
-                let Some(glyph) = self.glyph(cell.ch, look.bold, look.italic) else {
+                let Some(glyph) = self.glyph(cell.ch, look.bold, look.italic, canvas.bitmaps)
+                else {
                     continue;
                 };
                 // Centre glyphs that are narrower than a wide character's
@@ -219,15 +234,20 @@ impl Fonts {
                 } else {
                     0
                 };
-                blit(
-                    frame,
-                    w,
-                    (px, py, room, ch),
-                    px as i32 + glyph.left + offset,
-                    py as i32 + baseline - glyph.top,
-                    glyph,
-                    fg,
-                );
+                canvas.scene.prims.push(Prim::Glyph {
+                    bitmap: glyph.bitmap,
+                    pos: [
+                        px as i32 + glyph.left + offset,
+                        py as i32 + self.baseline - glyph.top,
+                    ],
+                    colour: fg,
+                    clip: [
+                        px as i32,
+                        py as i32,
+                        (px + room).min(w) as i32,
+                        (py + ch).min(h) as i32,
+                    ],
+                });
             }
         }
         for y in 0..screen.height {
@@ -240,84 +260,25 @@ impl Fonts {
                 let (px, py) = cells(x, y);
                 let under = py + (self.baseline as usize + 2).min(ch - 1);
                 let thick = (self.size / 14.0).round().max(1.0) as usize;
+                if !look.curly {
+                    canvas.fill_px(px, under + 2 * thick, cw, thick, colour);
+                    continue;
+                }
                 for dx in 0..cw {
                     // A wave for problems, two pixels up and down.
-                    let lift = if look.curly {
-                        let phase = ((px + dx) as f32 / (cw as f32 / 2.0)) * std::f32::consts::PI;
-                        ((phase.sin() + 1.0) * thick as f32).round() as usize
-                    } else {
-                        0
-                    };
+                    let phase = ((px + dx) as f32 / (cw as f32 / 2.0)) * std::f32::consts::PI;
+                    let lift = ((phase.sin() + 1.0) * thick as f32).round() as usize;
                     let row = (under + 2 * thick).saturating_sub(lift);
-                    fill(frame, w, h, px + dx, row, 1, thick, colour);
+                    canvas.fill_px(px + dx, row, 1, thick, colour);
                 }
             }
         }
         if let Some((x, y)) = screen.cursor {
             let (px, py) = cells(x, y);
             let beam = (self.size / 7.0).round().max(2.0) as usize;
-            fill(frame, w, h, px, py, beam, ch, p.accent);
+            canvas.fill_px(px, py, beam, ch, p.accent);
         }
     }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn fill(frame: &mut [u32], w: usize, h: usize, x: usize, y: usize, fw: usize, fh: usize, c: u32) {
-    for row in y.min(h)..(y + fh).min(h) {
-        let start = row * w;
-        frame[start + x.min(w)..start + (x + fw).min(w)].fill(c);
-    }
-}
-
-/// Draws `glyph` with its origin at (`gx`, `gy`), inside `clip`.
-fn blit(
-    frame: &mut [u32],
-    w: usize,
-    clip: (usize, usize, usize, usize),
-    gx: i32,
-    gy: i32,
-    glyph: &Glyph,
-    fg: u32,
-) {
-    let h = frame.len() / w;
-    let (cx, cy, cw, ch) = clip;
-    let (x0, x1) = (cx as i32, ((cx + cw).min(w)) as i32);
-    let (y0, y1) = (cy as i32, ((cy + ch).min(h)) as i32);
-    for row in 0..glyph.height as i32 {
-        let y = gy + row;
-        if y < y0 || y >= y1 {
-            continue;
-        }
-        for col in 0..glyph.width as i32 {
-            let x = gx + col;
-            if x < x0 || x >= x1 {
-                continue;
-            }
-            let i = (row as usize) * glyph.width + col as usize;
-            let at = y as usize * w + x as usize;
-            frame[at] = if glyph.colour {
-                let p = &glyph.data[i * 4..i * 4 + 4];
-                let rgb = (p[0] as u32) << 16 | (p[1] as u32) << 8 | p[2] as u32;
-                blend(frame[at], rgb, p[3])
-            } else {
-                blend(frame[at], fg, glyph.data[i])
-            };
-        }
-    }
-}
-
-fn blend(bg: u32, fg: u32, alpha: u8) -> u32 {
-    if alpha == 0 {
-        return bg;
-    }
-    if alpha == 255 {
-        return fg;
-    }
-    let a = alpha as u32;
-    [16, 8, 0].iter().fold(0, |out, shift| {
-        let (f, b) = ((fg >> shift) & 0xff, (bg >> shift) & 0xff);
-        out | (((f * a + b * (255 - a)) / 255) << shift)
-    })
 }
 
 /// Lines and blocks that must meet the next cell's, drawn by hand: a font's
@@ -325,9 +286,7 @@ fn blend(bg: u32, fg: u32, alpha: u8) -> u32 {
 #[allow(clippy::too_many_arguments)]
 fn box_drawing(
     c: char,
-    frame: &mut [u32],
-    w: usize,
-    h: usize,
+    canvas: &mut Canvas,
     x: usize,
     y: usize,
     cw: usize,
@@ -350,35 +309,35 @@ fn box_drawing(
         '┬' => (true, true, false, true),
         '┴' => (true, true, true, false),
         '▌' => {
-            fill(frame, w, h, x, y, cw / 2, ch, fg);
+            canvas.fill_px(x, y, cw / 2, ch, fg);
             return true;
         }
         '▐' => {
-            fill(frame, w, h, x + cw / 2, y, cw - cw / 2, ch, fg);
+            canvas.fill_px(x + cw / 2, y, cw - cw / 2, ch, fg);
             return true;
         }
         '▕' => {
-            fill(frame, w, h, x + cw - cw / 8, y, (cw / 8).max(1), ch, fg);
+            canvas.fill_px(x + cw - cw / 8, y, (cw / 8).max(1), ch, fg);
             return true;
         }
         '█' => {
-            fill(frame, w, h, x, y, cw, ch, fg);
+            canvas.fill_px(x, y, cw, ch, fg);
             return true;
         }
         _ => return false,
     };
     let (left, right, up, down) = arms;
     if left {
-        fill(frame, w, h, x, my, mx + t - x, t, fg);
+        canvas.fill_px(x, my, mx + t - x, t, fg);
     }
     if right {
-        fill(frame, w, h, mx, my, x + cw - mx, t, fg);
+        canvas.fill_px(mx, my, x + cw - mx, t, fg);
     }
     if up {
-        fill(frame, w, h, mx, y, t, my + t - y, fg);
+        canvas.fill_px(mx, y, t, my + t - y, fg);
     }
     if down {
-        fill(frame, w, h, mx, my, t, y + ch - my, fg);
+        canvas.fill_px(mx, my, t, y + ch - my, fg);
     }
     true
 }

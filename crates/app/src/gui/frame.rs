@@ -219,7 +219,7 @@ impl Frame<'_> {
         match icon {
             Icon::Svg { file, tint } => {
                 let px = (size * self.canvas.scale).round() as u32;
-                let Some(picture) = self.pictures.get(file, px) else {
+                let Some(picture) = self.pictures.get(file, px, self.canvas.bitmaps) else {
                     return false;
                 };
                 let tint = match tint {
