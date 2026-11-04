@@ -257,8 +257,10 @@ icons = "nerd"        # or "plain"
 theme = "dark"
 
 [keys]
-"ctrl+k" = "view.minimap"   # any command id from the palette
-"ctrl+d" = ""               # unbinds a key
+"ctrl+k ctrl+m" = "view.minimap"   # any command id from the palette; two keys make a chord
+"ctrl+d" = ""                      # unbinds a key
+# Only when a condition holds, with VS Code's `when` context keys:
+"ctrl+l" = { command = "edit.delete_line", when = "editorTextFocus && editorHasSelection" }
 
 [plugins.lsp]               # a plugin's settings, by its name
 ```
