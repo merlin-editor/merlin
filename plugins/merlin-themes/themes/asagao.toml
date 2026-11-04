@@ -1,0 +1,19 @@
+# Asagao: Morning glory: violet and indigo petals, a blue-violet accent, dew-green strings.
+
+[ui]
+island = "#1a1624"
+ground = "#110e19"
+text = "#e2dcef"
+muted = "#9e95b5"
+faint = "#675f7e"
+accent = "#a48cff"
+
+[code]
+keyword = "#c09cff"
+string = "#a8d6a6"
+comment = "#8a819f"
+function = "#8fb8ff"
+type = "#e0a6e8"
+constant = "#f2b08f"
+attribute = "#cdb2f0"
+operator = "#aca5bf"

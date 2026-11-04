@@ -1,0 +1,19 @@
+# Kohaku: Amber: honey and resin on dark wood, with little blue in it, for late nights.
+
+[ui]
+island = "#1d1710"
+ground = "#14100a"
+text = "#f0e2c8"
+muted = "#b29c7c"
+faint = "#7a6850"
+accent = "#f0b44c"
+
+[code]
+keyword = "#e8a35c"
+string = "#d6c780"
+comment = "#978569"
+function = "#f5cf7a"
+type = "#c9b48a"
+constant = "#f09a6c"
+attribute = "#e0b47a"
+operator = "#bda98a"

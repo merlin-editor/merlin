@@ -1,0 +1,5 @@
+# Flat: panes edge to edge, set apart by shade alone, with square corners.
+
+[layout]
+gap = 0
+radius = 0

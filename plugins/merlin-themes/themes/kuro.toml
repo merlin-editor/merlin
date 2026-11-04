@@ -1,0 +1,22 @@
+# Kuro: Black lacquer: the clearest contrast here, for bright rooms, small text or tired eyes, still not pure white on black.
+
+[ui]
+island = "#0e0e10"
+ground = "#070708"
+text = "#ededee"
+muted = "#b0b0b8"
+faint = "#7c7c86"
+accent = "#6fb4ff"
+selected = "#262833"
+focus-row = "#1f3352"
+
+[code]
+keyword = "#ff9e64"
+string = "#9fe08a"
+comment = "#a0a3ad"
+function = "#ffd76a"
+type = "#6fd8e0"
+constant = "#ff8fa8"
+attribute = "#d8a8ff"
+operator = "#c8c8d0"
+selection = "#24406e"

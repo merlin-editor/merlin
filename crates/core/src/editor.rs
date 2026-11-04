@@ -206,9 +206,10 @@ pub enum Event {
     /// The project's files for the Explorer, asked for with
     /// [`Effect::ListTree`].
     Tree(Vec<String>),
-    /// The colour themes there are, by name, and the one in use, for the
-    /// theme picker.
+    /// The colour or icon themes there are, by name, and the one in use,
+    /// for the theme pickers.
     Themes {
+        kind: ThemeKind,
         themes: Vec<String>,
         current: String,
     },
@@ -236,6 +237,13 @@ pub enum Event {
     },
 }
 
+/// What a theme picker picks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ThemeKind {
+    Colours,
+    Icons,
+}
+
 /// Work the editor asks its host to do. Results come back as events.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Effect {
@@ -249,11 +257,11 @@ pub enum Effect {
     OpenSettings {
         workspace: bool,
     },
-    /// Show the colours of a theme from the theme picker while it's chosen
+    /// Show a colour or icon theme from a theme picker while it's chosen
     /// from, without keeping it.
-    PreviewTheme(String),
+    PreviewTheme(ThemeKind, String),
     /// Use a theme from now on, and save it in the user's settings.
-    SetTheme(String),
+    SetTheme(ThemeKind, String),
     Save {
         doc: u64,
         path: PathBuf,
@@ -368,6 +376,7 @@ const BUILTIN: &[(&str, &str)] = &[
     ("settings.user", "Preferences: Open User Settings"),
     ("settings.workspace", "Preferences: Open Workspace Settings"),
     ("theme.pick", "Preferences: Color Theme"),
+    ("icons.pick", "Preferences: File Icon Theme"),
     ("go.symbol", "Go to Symbol in Editor"),
     ("view.changes", "View: Source Control"),
     ("panel.toggle", "View: Focus Secondary Side Bar"),
@@ -519,8 +528,10 @@ enum Source {
         plugin: String,
         id: String,
     },
-    /// Colour themes; Esc goes back to the one in use when it opened.
+    /// Colour or icon themes; Esc goes back to the one in use when it
+    /// opened.
     Themes {
+        kind: ThemeKind,
         original: String,
     },
 }
@@ -658,9 +669,9 @@ pub struct Editor {
     problems: Vec<(PathBuf, u32, u32)>,
     /// The window draws the frame; the screen holds only the text.
     windowed: bool,
-    /// Colour themes by name, and the one in use.
-    themes: Vec<String>,
-    theme: String,
+    /// Colour themes and icon themes by name, and the one of each in use.
+    themes: [Vec<String>; 2],
+    theme: [String; 2],
 }
 
 impl Editor {
@@ -717,8 +728,8 @@ impl Editor {
             log: Vec::new(),
             problems: Vec::new(),
             windowed: false,
-            themes: Vec::new(),
-            theme: String::new(),
+            themes: [Vec::new(), Vec::new()],
+            theme: [String::new(), String::new()],
         };
         editor.add_views();
         editor
@@ -1080,9 +1091,14 @@ impl Editor {
                     }
                 }
             }
-            Event::Themes { themes, current } => {
-                self.themes = themes;
-                self.theme = current;
+            Event::Themes {
+                kind,
+                themes,
+                current,
+            } => {
+                let i = kind as usize;
+                self.themes[i] = themes;
+                self.theme[i] = current;
             }
             Event::Tree(files) => {
                 let tree = self.tree.get_or_insert_with(Default::default);
@@ -1345,22 +1361,8 @@ impl Editor {
                 self.palette = Some(Palette::new(Source::Commands, None, Vec::new()));
                 self.focus = Focus::Palette;
             }
-            "theme.pick" => {
-                let items = self.themes.iter().map(|t| (t.clone(), t.clone())).collect();
-                let original = self.theme.clone();
-                let mut palette = Palette::new(
-                    Source::Themes { original },
-                    Some("Color Theme".into()),
-                    items,
-                );
-                palette.selected = self
-                    .themes
-                    .iter()
-                    .position(|t| *t == self.theme)
-                    .unwrap_or(0);
-                self.palette = Some(palette);
-                self.focus = Focus::Palette;
-            }
+            "theme.pick" => self.pick_theme(ThemeKind::Colours),
+            "icons.pick" => self.pick_theme(ThemeKind::Icons),
             // Show and focus, then step through the panels, then hide.
             "panel.toggle" => self.toggle_plugin_panels(),
             "app.quit" => {
@@ -2582,11 +2584,12 @@ impl Editor {
             self.focus = Focus::Editor;
             return;
         };
-        if let Source::Themes { original } = &palette.source {
+        if let Source::Themes { kind, original } = &palette.source {
+            let kind = *kind;
             if key.code == KeyCode::Esc {
                 let original = original.clone();
                 self.close_palette();
-                fx.push(Effect::PreviewTheme(original));
+                fx.push(Effect::PreviewTheme(kind, original));
                 return;
             }
             if key.code != KeyCode::Enter {
@@ -2596,7 +2599,7 @@ impl Editor {
                     .into_iter()
                     .nth(self.palette.as_ref().map_or(0, |p| p.selected))
                 {
-                    fx.push(Effect::PreviewTheme(theme));
+                    fx.push(Effect::PreviewTheme(kind, theme));
                 }
                 return;
             }
@@ -2645,15 +2648,37 @@ impl Editor {
                             item,
                         })
                     }
-                    (Some((theme, _)), Source::Themes { .. }) => {
-                        self.theme = theme.clone();
-                        fx.push(Effect::SetTheme(theme));
+                    (Some((theme, _)), Source::Themes { kind, .. }) => {
+                        self.theme[kind as usize] = theme.clone();
+                        fx.push(Effect::SetTheme(kind, theme));
                     }
                     (None, _) => {}
                 }
             }
             _ => {}
         }
+    }
+
+    /// Opens the palette on the colour or icon themes, at the one in use.
+    fn pick_theme(&mut self, kind: ThemeKind) {
+        let i = kind as usize;
+        let items = self.themes[i]
+            .iter()
+            .map(|t| (t.clone(), t.clone()))
+            .collect();
+        let title = match kind {
+            ThemeKind::Colours => "Color Theme",
+            ThemeKind::Icons => "File Icon Theme",
+        };
+        let original = self.theme[i].clone();
+        let mut palette =
+            Palette::new(Source::Themes { kind, original }, Some(title.into()), items);
+        palette.selected = self.themes[i]
+            .iter()
+            .position(|t| *t == self.theme[i])
+            .unwrap_or(0);
+        self.palette = Some(palette);
+        self.focus = Focus::Palette;
     }
 
     /// Moves the palette's selection or edits its query, for a key that

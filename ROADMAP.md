@@ -29,6 +29,10 @@ Next:
   tabs for each editor group (only the focused group's show), Markdown in
   panels (shown as plain text), panel footers, dragging tabs, resizing the
   side bar, and one font list shared by the frame and the code.
+- **A Settings window** with categories (Appearance with the theme pickers
+  and packs, Editor, Keys, Plugins), replacing the Theme Packs side panel,
+  and the **Plugins page** from the design: each plugin's permissions,
+  what it adds, and its memory and CPU.
 - **What VS Code users miss first:** an integrated terminal, IME input, a
   blinking cursor (as an option, since blinking costs wakeups), smooth
   scrolling, and debugging (DAP, as a plugin like lsp).

@@ -1,0 +1,5 @@
+# Soft: rounder islands with a little more room between them.
+
+[layout]
+gap = 10
+radius = 16

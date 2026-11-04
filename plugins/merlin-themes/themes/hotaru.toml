@@ -1,0 +1,19 @@
+# Hotaru: Fireflies over a summer paddy: deep night green, and a soft yellow-green glow for the accent.
+
+[ui]
+island = "#121a16"
+ground = "#0b110e"
+text = "#d6e2d8"
+muted = "#8ea596"
+faint = "#5a6e61"
+accent = "#d4e86a"
+
+[code]
+keyword = "#9fd6a0"
+string = "#e3d58f"
+comment = "#7a9384"
+function = "#c8e88a"
+type = "#8ccfc4"
+constant = "#f0b37a"
+attribute = "#b5d6a8"
+operator = "#a5b8aa"

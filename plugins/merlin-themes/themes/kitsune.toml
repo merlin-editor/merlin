@@ -1,0 +1,19 @@
+# Kitsune: The fox: warm charcoal, fox orange and cream, a sly teal. Lively without shouting.
+
+[ui]
+island = "#1c1a19"
+ground = "#131211"
+text = "#eee3d6"
+muted = "#a99c8f"
+faint = "#71675e"
+accent = "#f08a3c"
+
+[code]
+keyword = "#f08a3c"
+string = "#d8c58a"
+comment = "#8f8478"
+function = "#f2d19a"
+type = "#6fc2b6"
+constant = "#e5a3a0"
+attribute = "#e6b98c"
+operator = "#b8aa9c"

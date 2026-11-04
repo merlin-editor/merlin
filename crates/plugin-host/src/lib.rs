@@ -75,10 +75,14 @@ pub struct Manifest {
     /// Colour themes the plugin adds.
     #[serde(default)]
     pub themes: Vec<ManifestTheme>,
+    /// Theme packs the plugin adds: icons, layout, fonts and colours, any
+    /// of them, layered over a theme. A theme is a pack too.
+    #[serde(default)]
+    pub packs: Vec<ManifestTheme>,
 }
 
-/// A colour theme: its name in the theme picker, and its file, relative to
-/// the plugin folder.
+/// A theme or pack: its name in the pickers, and its file, relative to the
+/// plugin folder.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct ManifestTheme {
@@ -625,14 +629,15 @@ impl PluginHost {
         Ok(self.activate(index, None))
     }
 
-    /// Every loaded plugin's colour themes: name and file.
-    pub fn themes(&self) -> Vec<(String, PathBuf)> {
+    /// Every loaded plugin's themes and packs: name and file.
+    pub fn packs(&self) -> Vec<(String, PathBuf)> {
         self.plugins
             .iter()
             .flat_map(|p| {
                 p.manifest
                     .themes
                     .iter()
+                    .chain(&p.manifest.packs)
                     .map(|t| (t.label.clone(), Path::new(&p.dir).join(&t.file)))
             })
             .collect()
@@ -848,6 +853,10 @@ impl PluginHost {
         let Some(i) = self.index(plugin) else {
             return Vec::new();
         };
+        // Data only: nothing to click, and no permission to answer.
+        if self.plugins[i].manifest.component.is_none() {
+            return Vec::new();
+        }
         if self.plugins[i].instance.is_none() {
             return match button {
                 ALLOW => self.answer(i, true),
@@ -940,6 +949,10 @@ impl PluginHost {
     pub fn render_panels(&mut self, snapshot: &Snapshot) -> Vec<Event> {
         let mut events = Vec::new();
         for i in 0..self.plugins.len() {
+            // Data only: no panel, and nothing to allow.
+            if self.plugins[i].manifest.component.is_none() {
+                continue;
+            }
             if self.plugins[i].instance.is_none() {
                 events.push(Event::SetPanel {
                     plugin: self.plugins[i].manifest.name.clone(),

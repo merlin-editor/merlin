@@ -2,9 +2,7 @@
 //! file that a plugin adds. A theme file names the colours it cares about;
 //! the rest follow from those, so a theme can be a dozen lines.
 
-use std::path::Path;
-
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use merlin_core::Syntax;
 use merlin_core::lang::Severity;
 use merlin_core::screen::{Cell, Hue, Style as Kind, Surface};
@@ -140,16 +138,8 @@ pub const DEFAULT: Palette = Palette {
 };
 
 impl Palette {
-    /// A theme file: TOML with `[ui]` and `[code]` colours as `"#rrggbb"`.
+    /// A palette from a pack's `[ui]` and `[code]` colours, as `"#rrggbb"`.
     /// Anything left out follows from what's given, then from merlin's own.
-    pub fn read(path: &Path) -> Result<Palette> {
-        let text =
-            std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-        let table: toml::Table =
-            toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
-        Self::from_table(&table).with_context(|| format!("in {}", path.display()))
-    }
-
     pub fn from_table(table: &toml::Table) -> Result<Palette> {
         let section = |name: &str| table.get(name).and_then(|v| v.as_table());
         let (ui, code) = (section("ui"), section("code"));
@@ -515,6 +505,7 @@ impl Look {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
 
     #[test]
     fn a_short_theme_fills_in_the_rest() {
@@ -565,7 +556,9 @@ mod tests {
         let mut themes: Vec<(String, Palette)> = vec![(DEFAULT_NAME.into(), DEFAULT)];
         for entry in std::fs::read_dir(&dir).unwrap() {
             let path = entry.unwrap().path();
-            themes.push((path.display().to_string(), Palette::read(&path).unwrap()));
+            let pack = crate::packs::Pack::read("test", &path).unwrap();
+            let look = crate::packs::Look::stack(&[&pack]).unwrap();
+            themes.push((path.display().to_string(), look.palette));
         }
         assert!(themes.len() > 8, "the bundled themes are there");
         for (name, p) in themes {

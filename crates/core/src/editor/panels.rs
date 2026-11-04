@@ -156,6 +156,13 @@ impl Editor {
             .collect()
     }
 
+    /// Whether a plugin has a panel to show.
+    pub fn has_panel(&self, plugin: &str) -> bool {
+        self.plugins
+            .iter()
+            .any(|p| p.name == plugin && p.panel.is_some())
+    }
+
     /// The panel shown: the chosen one if it has a panel, else the first.
     pub(crate) fn active_panel_name(&self, side: Side) -> Option<String> {
         let names = self.panel_names(side);

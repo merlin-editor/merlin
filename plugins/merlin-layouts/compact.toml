@@ -1,0 +1,4 @@
+# Compact: shorter rows in the side bar and panel, for more on screen.
+
+[layout]
+density = "compact"

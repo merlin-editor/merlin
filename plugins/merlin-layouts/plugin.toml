@@ -1,0 +1,25 @@
+# Layout and font packs: small layers that change one thing, to stack in
+# Preferences: Theme Packs over any theme. Data only.
+name = "merlin-layouts"
+title = "merlin Layouts"
+api = "0.8"
+
+[[packs]]
+label = "Compact"
+file = "compact.toml"
+
+[[packs]]
+label = "Flat"
+file = "flat.toml"
+
+[[packs]]
+label = "Soft"
+file = "soft.toml"
+
+[[packs]]
+label = "Large Code"
+file = "large-code.toml"
+
+[[packs]]
+label = "Mono Interface"
+file = "mono-interface.toml"

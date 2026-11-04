@@ -148,49 +148,94 @@ The **Outline** view in the side bar lists the file's symbols, and
 and the like by the word that declares them, in Rust, Python, JavaScript,
 TypeScript, Go and similar languages, and headings in Markdown.
 
-## Themes
+## Themes and packs
 
-Preferences: Color Theme in the command palette lists the themes; moving
-through the list shows each one, Enter keeps it (as `[editor] theme` in your
-settings) and Esc goes back. merlin Dark is built in, and
-[`plugins/merlin-themes`](plugins/merlin-themes) adds eight more after
-Japanese scenes, one of them light (the install script installs it).
-Plugins add themes as data: a theme plugin has no component and asks for
-nothing.
+merlin's look is a stack of **packs**, as Minecraft's is of resource packs.
+A pack is a TOML file that sets any of colours, icons, layout and fonts, and
+each layer changes only what it sets. From the bottom up:
+
+1. merlin's own look,
+2. the colour theme (Preferences: Color Theme),
+3. the icon theme (Preferences: File Icon Theme),
+4. the packs in `[editor] packs`, the first of them on top
+   (Preferences: Theme Packs switches them on and off and puts them in
+   order).
+
+The pickers show each choice as you move through them, Enter keeps it and
+Esc goes back. Packs come from plugins, as data: a pack plugin has no
+component and asks for nothing. Saving a pack in use shows the change at
+once, so you can write one while looking at it.
+
+merlin comes with:
+
+- [`plugins/merlin-themes`](plugins/merlin-themes): sixteen colour themes
+  after Japanese scenes, three of them light and one with high contrast.
+- [`plugins/merlin-icons`](plugins/merlin-icons): the Origami and Outline
+  icon themes, and Line Icons, a pack with only the frame's icons.
+- [`plugins/merlin-layouts`](plugins/merlin-layouts): Compact, Flat, Soft,
+  Large Code and Mono Interface, small packs to layer over any theme.
 
 ```toml
 # plugin.toml
-name = "my-themes"
-title = "My Themes"
+name = "my-looks"
+title = "My Looks"
 api = "0.8"
 
-[[themes]]
+[[themes]]          # shows in the colour or icon theme picker
 label = "My Theme"
-file = "themes/my-theme.toml"
+file = "my-theme.toml"
+
+[[packs]]           # a layer for the Theme Packs panel
+label = "My Icons"
+file = "my-icons.toml"
 ```
 
-A theme file names the colours it cares about, and the rest follow from
-them, so a dozen lines make a whole theme:
-
 ```toml
+# my-theme.toml: say what you care about; the rest follows from it.
 [ui]
 island = "#1b1d24"     # the side bar, editor and panel
 text = "#d8dae0"
-accent = "#8fb3ff"     # lines, markers, the cursor, the main button
-# ground (behind the islands), raised, hover, selected, border, chip,
-# muted, faint, bright, on-accent, error, warning, success, info...
+accent = "#8fb3ff"
 
 [code]
 keyword = "#c9a7f0"
 string = "#a8d58c"
-comment = "#7c8191"
-# function, type, constant, attribute, macro, operator, variable, escape,
-# selection, current-line, git-added, git-changed, git-removed, brackets...
+
+[layout]
+radius = 12            # corners of the islands
+gap = 6                # space between them
+density = "compact"    # or "comfortable"
+
+[fonts]
+ui = "Inter"
+code = "JetBrains Mono"
+code-size = 14
+
+[icons]
+style = "badge"        # for files with no icon: "badge", "glyph" or "none"
+
+[icons.files]          # by extension
+"rs" = "icons/rust.svg"                          # an SVG in its own colours
+"toml" = { svg = "icons/gear.svg", tint = "muted" } # as a shape in one colour
+"md" = { badge = "MD", colour = "#7fb0ff" }
+
+[icons.names]          # by file name
+"Cargo.toml" = { glyph = "\ue7a8", colour = "#d77a4f" }
+
+[icons.folders]        # "default", "open", a name, or "<name>-open"
+default = "icons/folder.svg"
+open = "icons/folder-open.svg"
+
+[icons.ui]             # the frame's icons; they follow their buttons' colours
+search = "icons/search.svg"
 ```
 
-The theme in use reloads when its file is saved, so you can write one
-while looking at it. The full list of keys is in
-[`crates/app/src/theme.rs`](crates/app/src/theme.rs).
+The frame's icons are `explorer`, `search`, `source-control`, `outline`,
+`plugin`, `menu`, `layout-left`, `layout-panel`, `layout-right`, `split`
+and `more`. A tint is `"current"` (the colour of the spot), `"own"`, a theme
+colour's name (`text`, `muted`, `accent`, `keyword`…) or `"#rrggbb"`. All
+the colour keys are in [`crates/app/src/theme.rs`](crates/app/src/theme.rs),
+and the pack format in [`crates/app/src/packs.rs`](crates/app/src/packs.rs).
 
 ## Settings
 

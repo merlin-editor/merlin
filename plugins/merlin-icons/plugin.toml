@@ -1,0 +1,19 @@
+# merlin's icon packs. Data only: no component, and nothing to allow.
+name = "merlin-icons"
+title = "merlin Icons"
+api = "0.8"
+
+# Icon themes, for Preferences: File Icon Theme.
+[[packs]]
+label = "Origami"
+file = "origami.toml"
+
+[[packs]]
+label = "Outline"
+file = "outline.toml"
+
+# A pack with only the frame's icons, to layer over any icon theme in
+# Preferences: Theme Packs.
+[[packs]]
+label = "Line Icons"
+file = "line.toml"

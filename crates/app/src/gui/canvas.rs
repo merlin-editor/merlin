@@ -145,7 +145,9 @@ pub struct Text {
 }
 
 impl Text {
-    pub fn new(scale: f32) -> Self {
+    /// Fonts for the interface and for icons from the code's font, as the
+    /// packs ask for them, unless `MERLIN_UI_FONT` or `MERLIN_FONT` say.
+    pub fn new(scale: f32, ui: Option<&str>, code: Option<&str>) -> Self {
         let mut system = FontSystem::new();
         for face in INTER {
             system.db_mut().load_font_data(face.to_vec());
@@ -164,8 +166,14 @@ impl Text {
                 .find(|name| installed(name))
                 .map(str::to_string)
         };
-        let ui = pick(env::var("MERLIN_UI_FONT").ok(), UI_FAMILIES);
-        let mono = pick(env::var("MERLIN_FONT").ok(), MONO_FAMILIES);
+        let ui = pick(
+            env::var("MERLIN_UI_FONT").ok().or(ui.map(str::to_string)),
+            UI_FAMILIES,
+        );
+        let mono = pick(
+            env::var("MERLIN_FONT").ok().or(code.map(str::to_string)),
+            MONO_FAMILIES,
+        );
         Self {
             system,
             raster: SwashCache::new(),
@@ -540,4 +548,102 @@ pub fn blend(bg: u32, fg: u32, alpha: u8) -> u32 {
         let (f, b) = ((fg >> shift) & 0xff, (bg >> shift) & 0xff);
         out | (((f * a + b * (255 - a)) / 255) << shift)
     })
+}
+
+/// An SVG drawn at one size: premultiplied RGBA.
+pub struct Picture {
+    width: usize,
+    height: usize,
+    rgba: Vec<u8>,
+}
+
+/// SVG icons, each drawn once per size and kept.
+#[derive(Default)]
+pub struct Pictures {
+    drawn: HashMap<(std::path::PathBuf, u32), Option<Picture>>,
+}
+
+impl Pictures {
+    /// `file` drawn to fit a square `px` physical pixels wide, or `None` if
+    /// it can't be read.
+    pub fn get(&mut self, file: &std::path::Path, px: u32) -> Option<&Picture> {
+        let key = (file.to_path_buf(), px);
+        if !self.drawn.contains_key(&key) {
+            // A pack being edited makes new pictures; don't keep them all.
+            if self.drawn.len() > 2000 {
+                self.drawn.clear();
+            }
+            let picture = Self::draw(file, px);
+            self.drawn.insert(key.clone(), picture);
+        }
+        self.drawn.get(&key)?.as_ref()
+    }
+
+    /// Forgets every picture, for when packs change on disk.
+    pub fn clear(&mut self) {
+        self.drawn.clear();
+    }
+
+    fn draw(file: &std::path::Path, px: u32) -> Option<Picture> {
+        use resvg::{tiny_skia, usvg};
+        let data = std::fs::read(file).ok()?;
+        let tree = usvg::Tree::from_data(&data, &usvg::Options::default()).ok()?;
+        let size = tree.size();
+        let scale = px as f32 / size.width().max(size.height());
+        let (dx, dy) = (
+            (px as f32 - size.width() * scale) / 2.0,
+            (px as f32 - size.height() * scale) / 2.0,
+        );
+        let mut pixmap = tiny_skia::Pixmap::new(px.max(1), px.max(1))?;
+        let transform = tiny_skia::Transform::from_scale(scale, scale).post_translate(dx, dy);
+        resvg::render(&tree, transform, &mut pixmap.as_mut());
+        Some(Picture {
+            width: px as usize,
+            height: px as usize,
+            rgba: pixmap.take(),
+        })
+    }
+}
+
+impl Canvas<'_> {
+    /// Draws a picture with its top left at logical (`x`, `y`): in its own
+    /// colours, or as a shape in `tint`.
+    pub fn picture(&mut self, pic: &Picture, x: f32, y: f32, tint: Option<u32>, clip: Rect) {
+        let (ox, oy) = (
+            (x * self.scale).round() as i32,
+            (y * self.scale).round() as i32,
+        );
+        let (cx0, cy0, cx1, cy1) = self.physical(clip);
+        for row in 0..pic.height as i32 {
+            let py = oy + row;
+            if py < cy0 || py >= cy1 {
+                continue;
+            }
+            for col in 0..pic.width as i32 {
+                let px = ox + col;
+                if px < cx0 || px >= cx1 {
+                    continue;
+                }
+                let i = (row as usize * pic.width + col as usize) * 4;
+                let a = pic.rgba[i + 3];
+                if a == 0 {
+                    continue;
+                }
+                let at = py as usize * self.width + px as usize;
+                self.pixels[at] = match tint {
+                    Some(colour) => blend(self.pixels[at], colour, a),
+                    None => {
+                        // Premultiplied: the colour plus what shows through.
+                        let dst = self.pixels[at];
+                        let keep = 255 - a as u32;
+                        [(16, 0), (8, 1), (0, 2)].iter().fold(0, |out, (shift, k)| {
+                            let s = pic.rgba[i + k] as u32;
+                            let d = (dst >> shift) & 0xff;
+                            out | ((s + d * keep / 255).min(255) << shift)
+                        })
+                    }
+                };
+            }
+        }
+    }
 }

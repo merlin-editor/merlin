@@ -52,14 +52,17 @@ pub struct Fonts {
 }
 
 impl Fonts {
-    pub fn new(scale: f32) -> Self {
+    /// The code's font: `MERLIN_FONT` and `MERLIN_FONT_SIZE` if set, else
+    /// what the packs ask for, else the first of [`FAMILIES`] installed.
+    pub fn new(scale: f32, family: Option<&str>, size: Option<f32>) -> Self {
         let mut system = FontSystem::new();
         let size = env::var("MERLIN_FONT_SIZE")
             .ok()
             .and_then(|s| s.parse::<f32>().ok())
+            .or(size)
             .unwrap_or(FONT_SIZE)
             * scale;
-        let wanted = env::var("MERLIN_FONT").ok();
+        let wanted = env::var("MERLIN_FONT").ok().or(family.map(str::to_string));
         let installed = |name: &str| {
             system
                 .db()

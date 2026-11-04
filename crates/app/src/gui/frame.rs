@@ -6,7 +6,8 @@
 use merlin_core::panel::{Entry, Node, Tone};
 use merlin_core::{Key, KeyCode, PaletteView, Side, SideView, ToastView, UiEvent, WindowView};
 
-use super::canvas::{Canvas, Face, Rect, Text};
+use super::canvas::{Canvas, Face, Pictures, Rect, Text};
+use crate::packs::{Fallback, Icon, Icons, Tint};
 use crate::theme::{self, Palette, mix};
 
 const TITLE_H: f32 = 40.0;
@@ -69,6 +70,10 @@ pub struct Frame<'a> {
     pub hits: Vec<(Rect, Hit)>,
     pub radius: f32,
     pub p: Palette,
+    pub icons: &'a Icons,
+    pub pictures: &'a mut Pictures,
+    /// Rows a little shorter, for more on screen.
+    pub compact: bool,
 }
 
 pub fn areas(view: &WindowView, w: f32, h: f32, gap: f32) -> Areas {
@@ -167,7 +172,8 @@ impl Frame<'_> {
         }
     }
 
-    fn icon_button(&mut self, r: Rect, glyph: char, on: bool, hit: Hit) {
+    /// A button showing the icon theme's `id` icon, or `glyph`.
+    fn icon_button(&mut self, r: Rect, id: &str, glyph: char, on: bool, hit: Hit) {
         let p = self.p;
         let hovered = self.hovered(r);
         if hovered || on {
@@ -175,6 +181,14 @@ impl Frame<'_> {
                 .round(r, 6.0, if on { p.raised } else { p.hover });
         }
         let colour = if on || hovered { p.bright } else { p.muted };
+        self.hit(r, hit);
+        if let Some(icon) = self.icons.ui(id).cloned() {
+            let size = (r.h - 12.0).max(10.0);
+            let (x, y) = (r.x + (r.w - size) / 2.0, r.y + (r.h - size) / 2.0);
+            if self.draw_icon(&icon, x, y, size, colour, r) {
+                return;
+            }
+        }
         let face = Face::mono(15.0);
         let gw = self.text.width(&glyph.to_string(), face);
         let clip = r;
@@ -188,7 +202,95 @@ impl Frame<'_> {
             colour,
             clip,
         );
-        self.hit(r, hit);
+    }
+
+    /// Draws an icon in a `size` square at (`x`, `y`), in `colour` unless
+    /// it has its own. Returns whether it could be drawn.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_icon(
+        &mut self,
+        icon: &Icon,
+        x: f32,
+        y: f32,
+        size: f32,
+        colour: u32,
+        clip: Rect,
+    ) -> bool {
+        match icon {
+            Icon::Svg { file, tint } => {
+                let px = (size * self.canvas.scale).round() as u32;
+                let Some(picture) = self.pictures.get(file, px) else {
+                    return false;
+                };
+                let tint = match tint {
+                    Tint::Own => None,
+                    Tint::Colour(c) => Some(*c),
+                    Tint::Current => Some(colour),
+                };
+                self.canvas.picture(picture, x, y, tint, clip);
+                true
+            }
+            Icon::Glyph { text, colour: own } => {
+                let face = Face::mono(size * 0.85);
+                let w = self.text.width(text, face);
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    text,
+                    face,
+                    x + (size - w) / 2.0,
+                    y,
+                    size,
+                    own.unwrap_or(colour),
+                    clip,
+                );
+                true
+            }
+            Icon::Badge { text, colour: own } => {
+                self.badge(text, x, y, size, own.unwrap_or(colour));
+                true
+            }
+        }
+    }
+
+    /// A file's icon from the icon theme, else as the theme's fallback has
+    /// it. Returns the room it took.
+    #[allow(clippy::too_many_arguments)]
+    fn file_icon(
+        &mut self,
+        name: &str,
+        core: Option<(char, merlin_core::screen::Hue)>,
+        x: f32,
+        y: f32,
+        size: f32,
+        clip: Rect,
+    ) -> f32 {
+        let p = self.p;
+        let colour = core.map_or(p.muted, |(_, hue)| theme::hue(&p, hue));
+        if let Some(icon) = self.icons.file(name).cloned()
+            && self.draw_icon(&icon, x, y, size, colour, clip)
+        {
+            return size + 6.0;
+        }
+        let ext = name
+            .rsplit_once('.')
+            .map(|(_, ext)| ext)
+            .filter(|ext| !ext.is_empty() && ext.len() <= 4);
+        match (self.icons.fallback, ext, core) {
+            (Fallback::None, ..) => 0.0,
+            (Fallback::Badge, Some(ext), _) => {
+                self.badge(ext, x, y, size, colour);
+                size + 6.0
+            }
+            (_, _, Some((glyph, _))) => {
+                let icon = Icon::Glyph {
+                    text: glyph.to_string(),
+                    colour: Some(colour),
+                };
+                self.draw_icon(&icon, x, y, size, colour, clip);
+                size + 6.0
+            }
+            _ => 0.0,
+        }
     }
 
     fn title_bar(&mut self, view: &WindowView, w: f32) {
@@ -198,6 +300,7 @@ impl Frame<'_> {
         // The menus, behind one button.
         self.icon_button(
             Rect::new(10.0, 6.0, 30.0, 28.0),
+            "menu",
             '\u{f0c9}',
             false,
             Hit::Key(Key::plain(KeyCode::F(10))),
@@ -289,16 +392,17 @@ impl Frame<'_> {
         self.hit(search, Hit::Command("file.open"));
         // Layout toggles: side bar, panel, secondary side bar.
         let mut bx = w - 10.0 - 3.0 * 32.0;
-        for (i, (glyph, command)) in [
-            ('\u{ebf3}', "view.sidebar"),
-            ('\u{ebf2}', "view.panel"),
-            ('\u{ebf4}', "view.secondary"),
+        for (i, (id, glyph, command)) in [
+            ("layout-left", '\u{ebf3}', "view.sidebar"),
+            ("layout-panel", '\u{ebf2}', "view.panel"),
+            ("layout-right", '\u{ebf4}', "view.secondary"),
         ]
         .into_iter()
         .enumerate()
         {
             self.icon_button(
                 Rect::new(bx, 6.0, 30.0, 28.0),
+                id,
                 glyph,
                 view.shown[i],
                 Hit::Command(command),
@@ -347,16 +451,21 @@ impl Frame<'_> {
             } else {
                 p.muted
             };
-            self.text.draw_in_row(
-                &mut self.canvas,
-                &g,
-                face,
-                r.x + (36.0 - gw) / 2.0,
-                y,
-                36.0,
-                colour,
-                r,
-            );
+            let themed = self.icons.ui(item.id).cloned();
+            let drawn = themed
+                .is_some_and(|icon| self.draw_icon(&icon, r.x + 8.0, y + 8.0, 20.0, colour, r));
+            if !drawn {
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    &g,
+                    face,
+                    r.x + (36.0 - gw) / 2.0,
+                    y,
+                    36.0,
+                    colour,
+                    r,
+                );
+            }
             if item.badge > 0 {
                 let label = if item.badge > 99 {
                     "99+".to_string()
@@ -491,7 +600,13 @@ impl Frame<'_> {
             }
             Node::Markdown(t) => self.text.wrapped_height(&plain(t), Face::ui(12.5), inner) + 8.0,
             Node::Button(_) | Node::Buttons(_) => 38.0,
-            Node::Item { .. } | Node::Entry(_) => ROW_H,
+            Node::Item { .. } | Node::Entry(_) => {
+                if self.compact {
+                    22.0
+                } else {
+                    ROW_H
+                }
+            }
             Node::Input { .. } => 40.0,
             Node::Divider => 13.0,
             Node::Footer => 0.0,
@@ -707,38 +822,27 @@ impl Frame<'_> {
                 let open = matches!(t, '▾' | '\u{eab4}');
                 self.canvas.chevron(x + 5.0, mid, 7.0, open, p.muted);
                 x += 16.0;
-                true
+                Some(open)
             }
             Some(_) => {
                 x += 16.0;
-                false
+                None
             }
-            None => false,
+            None => None,
         };
-        if let Some((glyph, hue)) = e.icon {
-            let ext = e
-                .label
-                .rsplit_once('.')
-                .map(|(_, ext)| ext)
-                .filter(|ext| !ext.is_empty() && ext.len() <= 4 && !folder);
-            let colour = theme::hue(&p, hue);
-            match ext {
-                Some(ext) => self.badge(ext, x, mid - 8.0, 16.0, colour),
-                None => {
-                    let g = glyph.to_string();
-                    self.text.draw_in_row(
-                        &mut self.canvas,
-                        &g,
-                        Face::mono(13.0),
-                        x,
-                        row.y,
-                        row.h,
-                        colour,
-                        clip,
-                    );
+        match folder {
+            // Folders get an icon only from an icon theme that has them.
+            Some(open) => {
+                if let Some(icon) = self.icons.folder(&e.label, open).cloned()
+                    && self.draw_icon(&icon, x, mid - 8.0, 16.0, p.muted, clip)
+                {
+                    x += 22.0;
                 }
             }
-            x += 22.0;
+            None if e.icon.is_some() => {
+                x += self.file_icon(&e.label, e.icon, x, mid - 8.0, 16.0, clip);
+            }
+            None => {}
         }
         let face = Face::ui(13.0);
         let badge_w = if e.badge.is_empty() {
@@ -913,22 +1017,14 @@ impl Frame<'_> {
             } else if hovered {
                 self.canvas.fill(r, p.hover);
             }
-            let ext = tab.name.rsplit_once('.').map_or("", |(_, e)| e);
-            let colour = theme::hue(&p, tab.icon.1);
-            if ext.is_empty() {
-                self.text.draw_in_row(
-                    &mut self.canvas,
-                    &tab.icon.0.to_string(),
-                    Face::mono(12.0),
-                    x + 12.0,
-                    r.y,
-                    r.h,
-                    colour,
-                    row,
-                );
-            } else {
-                self.badge(ext, x + 12.0, r.y + (r.h - 14.0) / 2.0, 14.0, colour);
-            }
+            self.file_icon(
+                &tab.name,
+                Some(tab.icon),
+                x + 12.0,
+                r.y + (r.h - 14.0) / 2.0,
+                14.0,
+                row,
+            );
             let fg = if tab.active { p.bright } else { p.muted };
             self.text.draw_in_row(
                 &mut self.canvas,
@@ -978,12 +1074,14 @@ impl Frame<'_> {
         // Split the editor, at the right end.
         self.icon_button(
             Rect::new(editor.right() - 66.0, editor.y + 5.0, 28.0, 28.0),
+            "split",
             '\u{eb56}',
             false,
             Hit::Command("view.split"),
         );
         self.icon_button(
             Rect::new(editor.right() - 34.0, editor.y + 5.0, 28.0, 28.0),
+            "more",
             '\u{ea7c}',
             false,
             Hit::Command("palette.open"),

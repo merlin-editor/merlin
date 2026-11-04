@@ -1,0 +1,16 @@
+# Line: the frame's icons drawn with thin rounded lines. They follow the
+# colours of their buttons. A pack of its own, so it layers over any icon
+# theme.
+
+[icons.ui]
+"explorer" = "line/explorer.svg"
+"search" = "line/search.svg"
+"source-control" = "line/source-control.svg"
+"outline" = "line/outline.svg"
+"plugin" = "line/plugin.svg"
+"menu" = "line/menu.svg"
+"layout-left" = "line/layout-left.svg"
+"layout-panel" = "line/layout-panel.svg"
+"layout-right" = "line/layout-right.svg"
+"split" = "line/split.svg"
+"more" = "line/more.svg"

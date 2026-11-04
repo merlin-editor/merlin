@@ -1,0 +1,19 @@
+# Tsuki: The moon at dusk: blue-grey, silver and lavender, the softest contrast of them all.
+
+[ui]
+island = "#1d2027"
+ground = "#15171c"
+text = "#cfd4de"
+muted = "#9097a5"
+faint = "#626876"
+accent = "#b9c3e8"
+
+[code]
+keyword = "#b5a8e0"
+string = "#a9c4a8"
+comment = "#858c9b"
+function = "#a8c4e8"
+type = "#9ec9cf"
+constant = "#e0b4a0"
+attribute = "#c4b0d8"
+operator = "#a1a7b4"

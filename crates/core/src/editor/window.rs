@@ -68,6 +68,9 @@ pub struct WindowView {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RailItem {
+    /// What it shows, for icon themes: `explorer`, `search`,
+    /// `source-control`, `outline`, or `plugin` for a plugin's panel.
+    pub id: &'static str,
     pub glyph: char,
     pub label: String,
     pub active: bool,
@@ -155,14 +158,20 @@ impl Editor {
             .then(|| self.active_panel_name(Side::Right))
             .flatten();
         let mut items = Vec::new();
-        for (view, glyph, label) in [
-            (EXPLORER, Icon::Explorer, "Explorer"),
-            (SEARCH, Icon::Search, "Search"),
-            (CHANGES, Icon::SourceControl, "Source Control"),
-            (OUTLINE, Icon::Outline, "Outline"),
+        for (view, glyph, label, id) in [
+            (EXPLORER, Icon::Explorer, "Explorer", "explorer"),
+            (SEARCH, Icon::Search, "Search", "search"),
+            (
+                CHANGES,
+                Icon::SourceControl,
+                "Source Control",
+                "source-control",
+            ),
+            (OUTLINE, Icon::Outline, "Outline", "outline"),
         ] {
             items.push((
                 RailItem {
+                    id,
                     glyph: icon(glyph, self.nerd),
                     label: label.into(),
                     active: left.as_deref() == Some(view),
@@ -180,6 +189,7 @@ impl Editor {
             let label = self.panel_title(Side::Right, &name).0;
             items.push((
                 RailItem {
+                    id: "plugin",
                     glyph: icon(Icon::Plugin, self.nerd),
                     label,
                     active: right.as_deref() == Some(name.as_str()),

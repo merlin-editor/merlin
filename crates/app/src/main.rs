@@ -1,5 +1,7 @@
 mod clipboard;
 mod gui;
+mod looks;
+mod packs;
 mod settings;
 mod template;
 mod theme;
@@ -167,14 +169,15 @@ struct App {
     settings: settings::Files,
     /// Scripts run with default settings and don't change them.
     scripted: bool,
-    /// The colours in use, and the theme they're from.
-    palette: theme::Palette,
-    theme: String,
-    /// `[editor] theme` from the settings.
-    wanted_theme: Option<String>,
-    /// The theme file in use and when it last changed, so a theme being
-    /// written shows its changes on save.
-    theme_file: Option<(PathBuf, Option<SystemTime>)>,
+    /// How the window looks, from the packs stacked.
+    look: packs::Look,
+    /// Every pack there is, built in or from plugins.
+    packs: Vec<packs::Pack>,
+    /// The themes and packs chosen.
+    choice: looks::Choice,
+    /// The files of the packs stacked, and when each last changed, so a
+    /// pack being written shows its changes on save.
+    watched: Vec<(PathBuf, Option<SystemTime>)>,
     quit: bool,
 }
 
@@ -308,6 +311,12 @@ impl App {
                         queue.push_back(Event::Clipboard(text));
                     }
                     Effect::Quit => self.quit = true,
+                    Effect::PluginCommand { plugin, command } if plugin == looks::PANEL => {
+                        queue.extend(self.packs_command(&command));
+                    }
+                    Effect::PluginClick { plugin, button } if plugin == looks::PANEL => {
+                        queue.extend(self.packs_click(&button));
+                    }
                     Effect::PluginCommand { plugin, command } => {
                         let snapshot = self.snapshot();
                         queue.extend(self.host.run_command(&plugin, &command, snapshot));
@@ -352,23 +361,10 @@ impl App {
                             queue.push_back(Event::Error(format!("Can't save {key}: {err}")));
                         }
                     }
-                    Effect::PreviewTheme(name) => {
-                        if let Err(err) = self.use_theme(&name) {
-                            queue.push_back(Event::Error(err));
-                        }
+                    Effect::PreviewTheme(kind, name) => {
+                        queue.extend(self.preview(kind, name));
                     }
-                    Effect::SetTheme(name) => match self.use_theme(&name) {
-                        Ok(()) if !self.scripted => {
-                            let value = toml::Value::String(name).to_string();
-                            if let Err(err) = self.settings.set("editor.theme", &value) {
-                                queue.push_back(Event::Error(format!(
-                                    "Can't save the theme: {err}"
-                                )));
-                            }
-                        }
-                        Ok(()) => {}
-                        Err(err) => queue.push_back(Event::Error(err)),
-                    },
+                    Effect::SetTheme(kind, name) => queue.extend(self.choose(kind, name)),
                     Effect::OpenSettings { workspace } => match self.settings.ensure(workspace) {
                         Ok(path) => queue.push_back(self.open(&path)),
                         Err(err) => {
@@ -415,9 +411,11 @@ impl App {
         }
         self.host.set_settings(settings::plugins(&table));
         self.panels_for = None;
-        self.wanted_theme = settings::editor_text(&table, "theme").map(str::to_string);
+        self.choice.colours = settings::editor_text(&table, "theme").map(str::to_string);
+        self.choice.icons = settings::editor_text(&table, "icon_theme").map(str::to_string);
+        self.choice.packs = settings::editor_list(&table, "packs");
         let mut events = vec![Event::Settings(editor)];
-        events.extend(self.refresh_themes());
+        events.extend(self.refresh_looks());
         events.extend(
             errors
                 .into_iter()
@@ -556,14 +554,9 @@ impl App {
     /// Reloads open files that changed on disk, such as ones another program
     /// edited, and refreshes git signs after a commit.
     fn check_disk(&mut self) {
-        // A theme being written: show it as it's saved.
-        if let Some((path, when)) = &self.theme_file
-            && modified(path) != *when
-        {
-            let name = self.theme.clone();
-            if let Err(err) = self.use_theme(&name) {
-                self.dispatch(Event::Error(err));
-            }
+        // A pack being written: show it as it's saved.
+        for event in self.check_packs() {
+            self.dispatch(event);
         }
         let index = self
             .git_dir
@@ -625,51 +618,6 @@ impl App {
             self.refresh_panels();
         }
         delivered
-    }
-
-    /// merlin's own theme, then each plugin's, by name and file.
-    fn themes(&self) -> Vec<(String, Option<PathBuf>)> {
-        std::iter::once((theme::DEFAULT_NAME.to_string(), None))
-            .chain(self.host.themes().into_iter().map(|(n, f)| (n, Some(f))))
-            .collect()
-    }
-
-    /// Uses the theme called `name`, if there is one and it reads.
-    fn use_theme(&mut self, name: &str) -> Result<(), String> {
-        let Some((name, file)) = self.themes().into_iter().find(|(n, _)| n == name) else {
-            return Err(format!("There's no theme called {name}"));
-        };
-        self.palette = match &file {
-            Some(path) => theme::Palette::read(path).map_err(|e| format!("{e:#}"))?,
-            None => theme::DEFAULT,
-        };
-        self.theme_file = file.map(|f| {
-            let when = modified(&f);
-            (f, when)
-        });
-        self.theme = name;
-        Ok(())
-    }
-
-    /// Uses the theme the settings ask for, once it's loaded, and tells the
-    /// editor which themes there are.
-    fn refresh_themes(&mut self) -> Vec<Event> {
-        let mut events = Vec::new();
-        if let Some(wanted) = self.wanted_theme.clone()
-            && wanted != self.theme
-            && self.themes().iter().any(|(n, _)| *n == wanted)
-            && let Err(err) = self.use_theme(&wanted)
-        {
-            events.push(Event::Error(err));
-        }
-        if self.theme.is_empty() {
-            self.theme = theme::DEFAULT_NAME.into();
-        }
-        events.push(Event::Themes {
-            themes: self.themes().into_iter().map(|(n, _)| n).collect(),
-            current: self.theme.clone(),
-        });
-        events
     }
 
     fn reload_plugins(&mut self) {
@@ -884,10 +832,10 @@ fn main() -> Result<()> {
         quit: false,
         settings: settings_files,
         scripted: args.exec.is_some(),
-        palette: theme::DEFAULT,
-        theme: String::new(),
-        wanted_theme: None,
-        theme_file: None,
+        look: packs::Look::stack(&[]).expect("merlin's own look"),
+        packs: Vec::new(),
+        choice: looks::Choice::default(),
+        watched: Vec::new(),
     };
     // Nerd Font icons, except in scripted runs, whose output should read
     // anywhere. MERLIN_ICONS=nerd or =plain decides either way.
@@ -942,9 +890,9 @@ fn main() -> Result<()> {
             }),
         }
     }
-    // Plugins' themes are known now, so the one the settings ask for can be
-    // used.
-    for event in app.refresh_themes() {
+    // Plugins' packs are known now, so the ones the settings ask for can be
+    // stacked.
+    for event in app.refresh_looks() {
         app.dispatch(event);
     }
 

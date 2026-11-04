@@ -1,0 +1,5 @@
+# Mono Interface: the interface in the code's font, for a terminal look by
+# choice.
+
+[fonts]
+ui = "JetBrainsMono Nerd Font"

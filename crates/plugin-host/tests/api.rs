@@ -307,3 +307,33 @@ fn plugins_add_languages_colours_and_folds() {
             .any(|e| matches!(e, Event::SetFolds { ranges, .. } if ranges == &[(0, 2)]))
     );
 }
+
+#[test]
+fn data_only_plugins_have_no_panel_and_ask_nothing() {
+    let root = std::env::temp_dir().join(format!("merlin-api-data-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    let dir = root.join("looks");
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(
+        dir.join("plugin.toml"),
+        "name = \"looks\"\ntitle = \"Looks\"\napi = \"0.8\"\n\n[[packs]]\nlabel = \"Flat\"\nfile = \"flat.toml\"\n",
+    )
+    .unwrap();
+    fs::write(dir.join("flat.toml"), "[layout]\ngap = 0\n").unwrap();
+    let mut host = PluginHost::new(Config {
+        data_dir: root.join("data"),
+        ask: true,
+        keyring: false,
+    })
+    .unwrap();
+    host.load(&dir).unwrap();
+    assert!(
+        host.render_panels(&snapshot()).is_empty(),
+        "no permission card for a plugin that runs nothing"
+    );
+    assert!(host.click("looks", "merlin:allow", snapshot()).is_empty());
+    let packs = host.packs();
+    assert_eq!(packs.len(), 1);
+    assert_eq!(packs[0].0, "Flat");
+    assert!(packs[0].1.ends_with("flat.toml"));
+}

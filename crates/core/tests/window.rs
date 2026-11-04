@@ -115,9 +115,10 @@ fn the_palette_lists_commands_and_runs_a_clicked_one() {
 
 #[test]
 fn the_theme_picker_previews_and_esc_puts_the_old_one_back() {
-    use merlin_core::Effect;
+    use merlin_core::{Effect, ThemeKind};
     let mut s = windowed();
     s.send(Event::Themes {
+        kind: ThemeKind::Colours,
         themes: vec!["merlin Dark".into(), "Fuji".into(), "Matcha".into()],
         current: "merlin Dark".into(),
     });
@@ -127,20 +128,62 @@ fn the_theme_picker_previews_and_esc_puts_the_old_one_back() {
     assert_eq!(palette.selected, 0, "the theme in use is selected");
     s.effects.clear();
     s.run("key down");
-    assert_eq!(s.effects, [Effect::PreviewTheme("Fuji".into())]);
+    assert_eq!(
+        s.effects,
+        [Effect::PreviewTheme(ThemeKind::Colours, "Fuji".into())]
+    );
     s.effects.clear();
     s.run("key esc");
-    assert_eq!(s.effects, [Effect::PreviewTheme("merlin Dark".into())]);
+    assert_eq!(
+        s.effects,
+        [Effect::PreviewTheme(
+            ThemeKind::Colours,
+            "merlin Dark".into()
+        )]
+    );
 
     s.send(Event::Command("theme.pick".into()));
     s.run("type mat");
     s.effects.clear();
     s.run("key enter");
-    assert_eq!(s.effects, [Effect::SetTheme("Matcha".into())]);
+    assert_eq!(
+        s.effects,
+        [Effect::SetTheme(ThemeKind::Colours, "Matcha".into())]
+    );
     s.send(Event::Command("theme.pick".into()));
     let palette = s.editor.window_view().palette.expect("the picker is open");
     assert_eq!(
         palette.items[palette.selected].0, "Matcha",
         "it opens on the new one"
     );
+}
+
+#[test]
+fn icon_themes_have_their_own_picker() {
+    use merlin_core::{Effect, ThemeKind};
+    let mut s = windowed();
+    s.send(Event::Themes {
+        kind: ThemeKind::Icons,
+        themes: vec!["Letters".into(), "Origami".into()],
+        current: "Letters".into(),
+    });
+    s.send(Event::Command("icons.pick".into()));
+    let palette = s.editor.window_view().palette.expect("the picker is open");
+    assert_eq!(palette.title.as_deref(), Some("File Icon Theme"));
+    s.effects.clear();
+    s.run("key down\nkey enter");
+    assert_eq!(
+        s.effects,
+        [
+            Effect::PreviewTheme(ThemeKind::Icons, "Origami".into()),
+            Effect::SetTheme(ThemeKind::Icons, "Origami".into())
+        ]
+    );
+}
+
+#[test]
+fn rail_items_say_what_they_show() {
+    let s = windowed();
+    let ids: Vec<_> = s.editor.window_view().rail.iter().map(|r| r.id).collect();
+    assert_eq!(ids, ["explorer", "search", "source-control", "outline"]);
 }

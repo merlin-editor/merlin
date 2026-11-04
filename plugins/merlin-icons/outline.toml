@@ -1,0 +1,84 @@
+# Outline: thin outlines in the theme's muted colour, one shape for each
+# kind of file. It follows whichever colour theme is in use.
+
+[icons]
+style = "none"
+
+[icons.files]
+"rs" = { svg = "outline/file-code.svg", tint = "muted" }
+"py" = { svg = "outline/file-code.svg", tint = "muted" }
+"js" = { svg = "outline/file-code.svg", tint = "muted" }
+"mjs" = { svg = "outline/file-code.svg", tint = "muted" }
+"cjs" = { svg = "outline/file-code.svg", tint = "muted" }
+"jsx" = { svg = "outline/file-code.svg", tint = "muted" }
+"ts" = { svg = "outline/file-code.svg", tint = "muted" }
+"tsx" = { svg = "outline/file-code.svg", tint = "muted" }
+"go" = { svg = "outline/file-code.svg", tint = "muted" }
+"c" = { svg = "outline/file-code.svg", tint = "muted" }
+"h" = { svg = "outline/file-code.svg", tint = "muted" }
+"cpp" = { svg = "outline/file-code.svg", tint = "muted" }
+"cc" = { svg = "outline/file-code.svg", tint = "muted" }
+"hpp" = { svg = "outline/file-code.svg", tint = "muted" }
+"java" = { svg = "outline/file-code.svg", tint = "muted" }
+"kt" = { svg = "outline/file-code.svg", tint = "muted" }
+"swift" = { svg = "outline/file-code.svg", tint = "muted" }
+"rb" = { svg = "outline/file-code.svg", tint = "muted" }
+"php" = { svg = "outline/file-code.svg", tint = "muted" }
+"lua" = { svg = "outline/file-code.svg", tint = "muted" }
+"zig" = { svg = "outline/file-code.svg", tint = "muted" }
+"hs" = { svg = "outline/file-code.svg", tint = "muted" }
+"ex" = { svg = "outline/file-code.svg", tint = "muted" }
+"exs" = { svg = "outline/file-code.svg", tint = "muted" }
+"dart" = { svg = "outline/file-code.svg", tint = "muted" }
+"vue" = { svg = "outline/file-code.svg", tint = "muted" }
+"svelte" = { svg = "outline/file-code.svg", tint = "muted" }
+"html" = { svg = "outline/file-code.svg", tint = "muted" }
+"css" = { svg = "outline/file-code.svg", tint = "muted" }
+"scss" = { svg = "outline/file-code.svg", tint = "muted" }
+"wit" = { svg = "outline/file-code.svg", tint = "muted" }
+"nix" = { svg = "outline/file-config.svg", tint = "muted" }
+"sql" = { svg = "outline/file-data.svg", tint = "muted" }
+"json" = { svg = "outline/file-data.svg", tint = "muted" }
+"jsonc" = { svg = "outline/file-data.svg", tint = "muted" }
+"csv" = { svg = "outline/file-data.svg", tint = "muted" }
+"xml" = { svg = "outline/file-data.svg", tint = "muted" }
+"md" = { svg = "outline/file-text.svg", tint = "muted" }
+"txt" = { svg = "outline/file-text.svg", tint = "muted" }
+"rst" = { svg = "outline/file-text.svg", tint = "muted" }
+"toml" = { svg = "outline/file-config.svg", tint = "muted" }
+"yaml" = { svg = "outline/file-config.svg", tint = "muted" }
+"yml" = { svg = "outline/file-config.svg", tint = "muted" }
+"ini" = { svg = "outline/file-config.svg", tint = "muted" }
+"conf" = { svg = "outline/file-config.svg", tint = "muted" }
+"sh" = { svg = "outline/file-shell.svg", tint = "muted" }
+"bash" = { svg = "outline/file-shell.svg", tint = "muted" }
+"zsh" = { svg = "outline/file-shell.svg", tint = "muted" }
+"fish" = { svg = "outline/file-shell.svg", tint = "muted" }
+"lock" = { svg = "outline/file-lock.svg", tint = "muted" }
+"png" = { svg = "outline/file-image.svg", tint = "muted" }
+"jpg" = { svg = "outline/file-image.svg", tint = "muted" }
+"jpeg" = { svg = "outline/file-image.svg", tint = "muted" }
+"gif" = { svg = "outline/file-image.svg", tint = "muted" }
+"svg" = { svg = "outline/file-image.svg", tint = "muted" }
+"webp" = { svg = "outline/file-image.svg", tint = "muted" }
+"ttf" = { svg = "outline/file-text.svg", tint = "muted" }
+"wasm" = { svg = "outline/file-box.svg", tint = "muted" }
+
+[icons.names]
+"Cargo.toml" = { svg = "outline/file-box.svg", tint = "muted" }
+"Cargo.lock" = { svg = "outline/file-lock.svg", tint = "muted" }
+"package.json" = { svg = "outline/file-box.svg", tint = "muted" }
+"package-lock.json" = { svg = "outline/file-lock.svg", tint = "muted" }
+"README.md" = { svg = "outline/file-text.svg", tint = "muted" }
+"LICENSE" = { svg = "outline/file-law.svg", tint = "muted" }
+"LICENSE.txt" = { svg = "outline/file-law.svg", tint = "muted" }
+"Makefile" = { svg = "outline/file-shell.svg", tint = "muted" }
+"Dockerfile" = { svg = "outline/file-box.svg", tint = "muted" }
+".gitignore" = { svg = "outline/file-git.svg", tint = "muted" }
+".gitmodules" = { svg = "outline/file-git.svg", tint = "muted" }
+".editorconfig" = { svg = "outline/file-config.svg", tint = "muted" }
+"plugin.toml" = { svg = "outline/file-box.svg", tint = "muted" }
+
+[icons.folders]
+"default" = { svg = "outline/folder.svg", tint = "muted" }
+"open" = { svg = "outline/folder-open.svg", tint = "muted" }

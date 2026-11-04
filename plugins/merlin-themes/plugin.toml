@@ -1,5 +1,5 @@
-# merlin's own themes. A theme plugin is data only: no component, and
-# nothing to allow.
+# merlin's own colour themes. Data only: no component, and nothing to
+# allow.
 name = "merlin-themes"
 title = "merlin Themes"
 api = "0.8"
@@ -17,21 +17,53 @@ label = "Fuji"
 file = "themes/fuji.toml"
 
 [[themes]]
+label = "Tsuki"
+file = "themes/tsuki.toml"
+
+[[themes]]
 label = "Sakura"
 file = "themes/sakura.toml"
+
+[[themes]]
+label = "Asagao"
+file = "themes/asagao.toml"
 
 [[themes]]
 label = "Matcha"
 file = "themes/matcha.toml"
 
 [[themes]]
+label = "Hotaru"
+file = "themes/hotaru.toml"
+
+[[themes]]
 label = "Momiji"
 file = "themes/momiji.toml"
+
+[[themes]]
+label = "Kitsune"
+file = "themes/kitsune.toml"
+
+[[themes]]
+label = "Kohaku"
+file = "themes/kohaku.toml"
 
 [[themes]]
 label = "Torii"
 file = "themes/torii.toml"
 
 [[themes]]
+label = "Kuro"
+file = "themes/kuro.toml"
+
+[[themes]]
 label = "Yuki"
 file = "themes/yuki.toml"
+
+[[themes]]
+label = "Kumo"
+file = "themes/kumo.toml"
+
+[[themes]]
+label = "Ume"
+file = "themes/ume.toml"

@@ -263,8 +263,8 @@ impl Session {
                 | Effect::PluginReview { .. }
                 | Effect::SetSetting { .. }
                 | Effect::OpenSettings { .. }
-                | Effect::PreviewTheme(_)
-                | Effect::SetTheme(_)
+                | Effect::PreviewTheme(..)
+                | Effect::SetTheme(..)
                 | Effect::GitStatus
                 | Effect::OpenDiff(_)
                 | Effect::Git(_) => {}

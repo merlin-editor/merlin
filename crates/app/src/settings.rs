@@ -145,6 +145,22 @@ pub fn editor_text<'a>(table: &'a toml::Table, key: &str) -> Option<&'a str> {
     table.get("editor")?.as_table()?.get(key)?.as_str()
 }
 
+/// A list of strings under `[editor]`, such as the theme packs.
+pub fn editor_list(table: &toml::Table, key: &str) -> Vec<String> {
+    table
+        .get("editor")
+        .and_then(|e| e.as_table())
+        .and_then(|e| e.get(key))
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// The `[plugins]` table, for the plugin host.
 pub fn plugins(table: &toml::Table) -> toml::Table {
     table

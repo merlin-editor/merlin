@@ -31,8 +31,8 @@ use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
 use winit::window::{Window, WindowId};
 
 use crate::App;
-use crate::theme::Palette;
-use canvas::{Canvas, Rect, Text};
+use crate::packs::{self, Look};
+use canvas::{Canvas, Pictures, Rect, Text};
 use frame::{Areas, Frame, Hit, State};
 use grid::Fonts;
 
@@ -46,8 +46,6 @@ pub fn run(app: &mut App) -> Result<()> {
         .context("opening a window")?;
     let _ = PROXY.set(Mutex::new(event_loop.create_proxy()));
     app.editor.set_windowed(true);
-    // Islands with gaps and rounded corners, or flat panes edge to edge.
-    let flat = std::env::var("MERLIN_ISLANDS").is_ok_and(|v| v == "off");
     let mut gui = Gui {
         app,
         window: None,
@@ -63,8 +61,8 @@ pub fn run(app: &mut App) -> Result<()> {
         areas: Areas::default(),
         drawn: None,
         next_check: Instant::now() + DISK_CHECK,
-        gap: if flat { 0.0 } else { 6.0 },
-        radius: if flat { 0.0 } else { 10.0 },
+        pictures: Pictures::default(),
+        fonts: None,
     };
     event_loop.run_app(&mut gui).context("running the window")?;
     Ok(())
@@ -113,11 +111,13 @@ struct Gui<'a> {
         Option<usize>,
         [f32; 3],
         (u32, u32),
-        Palette,
+        Look,
     )>,
     next_check: Instant,
-    gap: f32,
-    radius: f32,
+    pictures: Pictures,
+    /// The fonts the text and code were set up with, to set them up again
+    /// when packs change them.
+    fonts: Option<packs::Fonts>,
 }
 
 struct Shown {
@@ -144,9 +144,28 @@ impl Gui<'_> {
         }
     }
 
+    /// Sets up the fonts for the display's scale and what the packs ask
+    /// for, when they've changed or `now`.
+    fn set_fonts(&mut self, now: bool) {
+        let wanted = &self.app.look.fonts;
+        if !now && self.fonts.as_ref() == Some(wanted) {
+            return;
+        }
+        let scale = self.scale();
+        self.text = Some(Text::new(
+            scale,
+            wanted.ui.as_deref(),
+            wanted.code.as_deref(),
+        ));
+        self.grid = Some(Fonts::new(scale, wanted.code.as_deref(), wanted.code_size));
+        self.fonts = Some(wanted.clone());
+        self.drawn = None;
+    }
+
     /// Lays the frame out for the window's size and what shows, and tells
     /// the editor how many cells the code has room for.
     fn fit_text(&mut self) {
+        self.set_fonts(false);
         let (Some(shown), Some(grid)) = (&self.window, &self.grid) else {
             return;
         };
@@ -154,7 +173,7 @@ impl Gui<'_> {
         let s = self.scale();
         let (w, h) = (size.width as f32 / s, size.height as f32 / s);
         let view = self.app.editor.window_view();
-        self.areas = frame::areas(&view, w, h, self.gap);
+        self.areas = frame::areas(&view, w, h, self.app.look.layout.gap);
         let t = self.areas.text;
         let cols = ((t.w * s) as u32 / grid.cell_w).clamp(1, u16::MAX as u32) as u16;
         let rows = ((t.h * s) as u32 / grid.cell_h).clamp(1, u16::MAX as u32) as u16;
@@ -360,10 +379,14 @@ impl Gui<'_> {
             hovered,
             self.state.scroll,
             (size.width, size.height),
-            self.app.palette,
+            self.app.look.clone(),
         ));
         if self.drawn == drawn {
             return;
+        }
+        // Packs changed: their pictures may have too.
+        if self.drawn.as_ref().map(|d| &d.6) != Some(&self.app.look) {
+            self.pictures.clear();
         }
         let Ok(mut buffer) = shown.surface.buffer_mut() else {
             return;
@@ -372,7 +395,7 @@ impl Gui<'_> {
             return;
         }
         let (w, h) = (pw as f32 / s, ph as f32 / s);
-        let areas = frame::areas(&view, w, h, self.gap);
+        let areas = frame::areas(&view, w, h, self.app.look.layout.gap);
         let mut f = Frame {
             canvas: Canvas {
                 pixels: &mut buffer,
@@ -383,8 +406,11 @@ impl Gui<'_> {
             text,
             pointer: self.pointer,
             hits: Vec::new(),
-            radius: self.radius,
-            p: self.app.palette,
+            radius: self.app.look.layout.radius,
+            p: self.app.look.palette,
+            icons: &self.app.look.icons,
+            pictures: &mut self.pictures,
+            compact: self.app.look.layout.compact,
         };
         f.base(&view, &areas, &mut self.state, w, h);
         let t = areas.text;
@@ -394,7 +420,7 @@ impl Gui<'_> {
             pw,
             ph,
             ((t.x * s) as usize, (t.y * s) as usize),
-            &self.app.palette,
+            &self.app.look.palette,
         );
         f.overlays(&view, &areas, w, h);
         self.hits = std::mem::take(&mut f.hits);
@@ -460,11 +486,9 @@ impl ApplicationHandler for Gui<'_> {
                 return;
             }
         };
-        let scale = window.scale_factor() as f32;
-        self.text = Some(Text::new(scale));
-        self.grid = Some(Fonts::new(scale));
         let size = window.inner_size();
         self.window = Some(Shown { window, surface });
+        self.set_fonts(true);
         self.resized(size);
     }
 
@@ -489,9 +513,8 @@ impl ApplicationHandler for Gui<'_> {
             }
             WindowEvent::Resized(size) => self.resized(size),
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                let scale = scale_factor as f32;
-                self.text = Some(Text::new(scale));
-                self.grid = Some(Fonts::new(scale));
+                let _ = scale_factor;
+                self.set_fonts(true);
                 if let Some(shown) = &self.window {
                     let size = shown.window.inner_size();
                     self.resized(size);
