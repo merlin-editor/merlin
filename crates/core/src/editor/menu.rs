@@ -9,7 +9,19 @@ use crate::screen::{Screen, Style, str_width};
 const MENUS: &[(&str, &[&str])] = &[
     (
         "File",
-        &["file.open", "file.save", "-", "file.close", "-", "app.quit"],
+        &[
+            "file.new",
+            "file.open",
+            "file.reopen",
+            "-",
+            "file.save",
+            "file.save_as",
+            "-",
+            "file.close",
+            "file.close_all",
+            "-",
+            "app.quit",
+        ],
     ),
     (
         "Edit",

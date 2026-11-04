@@ -36,6 +36,12 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
     ("edit.select_line", "Selection: Expand Line Selection"),
     ("edit.jump_to_bracket", "Go: Go to Bracket"),
     ("file.close_others", "View: Close Other Editors"),
+    ("file.new", "File: New Untitled File"),
+    ("file.save_as", "File: Save As…"),
+    ("file.reopen", "View: Reopen Closed Editor"),
+    ("view.zoom_in", "View: Zoom In"),
+    ("view.zoom_out", "View: Zoom Out"),
+    ("view.zoom_reset", "View: Reset Zoom"),
     ("file.close_right", "View: Close Editors to the Right"),
     ("file.close_all", "View: Close All Editors"),
     ("file.copy_path", "File: Copy Path of Active File"),
@@ -106,7 +112,7 @@ impl Editor {
                         text: doc.buffer.text(),
                         revision: doc.buffer.revision(),
                     }),
-                    None => self.error("No file name. Start with `merlin <file>`.".into()),
+                    None => self.run("file.save_as", None, fx),
                 }
             }
             "file.open" => fx.push(Effect::ListFiles),
@@ -223,6 +229,33 @@ impl Editor {
             "edit.select_line" => self.each_caret(Kind::Other, |e, _| e.select_line()),
             "edit.jump_to_bracket" => self.jump_to_bracket(),
             "file.close_others" => self.close_others(),
+            "file.new" => {
+                let id = self.new_id();
+                self.docs.push(Doc::new(id, "", None));
+                self.current = self.docs.len() - 1;
+                self.focus = Focus::Editor;
+                self.sync_groups();
+            }
+            "file.save_as" => {
+                let now = self
+                    .doc()
+                    .buffer
+                    .path
+                    .as_ref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_default();
+                let mut palette = Palette::new(Source::SaveAs, Some("Save as".into()), Vec::new());
+                palette.query = now;
+                self.palette = Some(palette);
+                self.focus = Focus::Palette;
+            }
+            "file.reopen" => match self.closed.pop() {
+                Some(path) => self.open(path, fx),
+                None => self.notify("No closed files to reopen".into()),
+            },
+            "view.zoom_in" => fx.push(Effect::Zoom(1)),
+            "view.zoom_out" => fx.push(Effect::Zoom(-1)),
+            "view.zoom_reset" => fx.push(Effect::Zoom(0)),
             "file.close_right" => self.close_right(),
             "file.close_all" => self.close_all(),
             "file.copy_path" => self.copy_path(fx),

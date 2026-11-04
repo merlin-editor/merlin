@@ -16,6 +16,15 @@ pub(super) const GLOBAL_KEYS: &[(&str, &str)] = &[
     ("f1", "palette.open"),
     ("ctrl+f", "find.open"),
     ("ctrl+h", "find.replace"),
+    ("ctrl+n", "file.new"),
+    ("ctrl+shift+s", "file.save_as"),
+    ("ctrl+shift+t", "file.reopen"),
+    ("ctrl+tab", "file.next"),
+    ("ctrl+backtab", "file.prev"),
+    ("ctrl+=", "view.zoom_in"),
+    ("ctrl+shift+=", "view.zoom_in"),
+    ("ctrl+-", "view.zoom_out"),
+    ("ctrl+0", "view.zoom_reset"),
     ("ctrl+b", "view.sidebar"),
     ("ctrl+alt+b", "panel.toggle"),
     ("ctrl+shift+e", "view.explorer"),
@@ -89,6 +98,7 @@ pub(super) const CHORDS: &[(&str, &str, &str)] = &[
     ("ctrl+k", "ctrl+j", "edit.unfold_all"),
     ("ctrl+k", "ctrl+t", "theme.pick"),
     ("ctrl+k", "ctrl+s", "settings.open"),
+    ("ctrl+k", "ctrl+w", "file.close_all"),
 ];
 
 pub(super) fn bound(table: &[(&str, &'static str)], key: Key) -> Option<&'static str> {

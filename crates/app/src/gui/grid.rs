@@ -14,7 +14,7 @@ use super::scene::{BitmapId, Bitmaps, Prim};
 use crate::theme::{self, Palette};
 
 /// Points, before the display's scale.
-const FONT_SIZE: f32 = 13.5;
+pub const FONT_SIZE: f32 = 13.5;
 /// Rows are this many times the font size.
 const LINE_HEIGHT: f32 = 1.55;
 const TEXT: u32 = 0xd4d5da;

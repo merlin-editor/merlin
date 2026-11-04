@@ -146,6 +146,8 @@ fn install_plugins(dirs: &[String]) -> Result<()> {
 /// effects and feeds the results back in as events.
 struct App {
     editor: Editor,
+    /// Points the code's font is zoomed by, from Ctrl+= and Ctrl+-.
+    zoom: f32,
     host: PluginHost,
     root: PathBuf,
     /// The file and buffer version the panels were last rendered for.
@@ -373,6 +375,12 @@ impl App {
                     },
                     // Until the window draws the Settings window, the
                     // user's settings file stands in for it.
+                    Effect::Zoom(step) => {
+                        self.zoom = match step {
+                            0 => 0.0,
+                            n => (self.zoom + n as f32).clamp(-6.0, 18.0),
+                        };
+                    }
                     Effect::OpenSettingsWindow => match self.settings.ensure(false) {
                         Ok(path) => queue.push_back(self.open(&path)),
                         Err(err) => {
@@ -826,6 +834,7 @@ fn main() -> Result<()> {
         let _ = fs::remove_file(&view_path);
     }
     let mut app = App {
+        zoom: 0.0,
         editor: Editor::new("", None),
         host: PluginHost::new(config)?,
         root,

@@ -37,6 +37,8 @@ pub enum Hit {
     Side(Side),
     /// A floating box that takes clicks without doing anything.
     Block,
+    /// The edge between a side bar or the panel and the code, to drag.
+    Sash(Side),
     /// A tab strip, past its tabs: a dragged tab dropped there goes at the
     /// end, of group `n` when there are several.
     TabStrip(Option<usize>),
@@ -82,21 +84,61 @@ pub struct Frame<'a> {
     pub compact: bool,
     /// The name of a tab being dragged.
     pub tab_drag: Option<String>,
+    /// The side edges' hits, added after the code's so they win.
+    pub sash_hits: Vec<(Rect, Hit)>,
+    /// What each icon is, for a tooltip when the mouse rests on it.
+    pub tips: Vec<(Rect, String)>,
+    /// The tooltip showing, under the icon it's for.
+    pub tip: Option<(Rect, String)>,
 }
 
-pub fn areas(view: &WindowView, w: f32, h: f32, gap: f32) -> Areas {
+/// How wide the side bars are and how tall the panel is, as the user last
+/// dragged them.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Sizes {
+    pub left: f32,
+    pub right: f32,
+    pub bottom: f32,
+}
+
+impl Default for Sizes {
+    fn default() -> Self {
+        Self {
+            left: SIDE_W,
+            right: RIGHT_W,
+            bottom: BOTTOM_H,
+        }
+    }
+}
+
+impl Sizes {
+    /// The size `side` takes with its edge dragged to (`x`, `y`) in a
+    /// window `w` by `h`, kept to what leaves the code room.
+    pub fn drag(&mut self, side: Side, (x, y): (f32, f32), w: f32, h: f32) {
+        match side {
+            Side::Left => self.left = (x - RAIL_W).clamp(160.0, w * 0.5),
+            Side::Right => self.right = (w - x).clamp(200.0, w * 0.5),
+            Side::Bottom => {
+                let body = h - STATUS_H - TITLE_H;
+                self.bottom = (h - STATUS_H - y).clamp(100.0, body * 0.75);
+            }
+        }
+    }
+}
+
+pub fn areas(view: &WindowView, w: f32, h: f32, gap: f32, sizes: &Sizes) -> Areas {
     let top = TITLE_H;
     let bottom_y = h - STATUS_H;
     let body_h = (bottom_y - top).max(0.0);
     let mut x = RAIL_W;
     let left = view.left.as_ref().map(|_| {
-        let r = Rect::new(x, top, SIDE_W.min(w * 0.4), body_h);
+        let r = Rect::new(x, top, sizes.left.min(w * 0.5), body_h);
         x += r.w + gap;
         r
     });
     let mut x1 = w - gap;
     let right = view.right.as_ref().map(|_| {
-        let rw = RIGHT_W.min(w * 0.35);
+        let rw = sizes.right.min(w * 0.5);
         x1 -= rw;
         let r = Rect::new(x1, top, rw, body_h);
         x1 -= gap;
@@ -104,7 +146,7 @@ pub fn areas(view: &WindowView, w: f32, h: f32, gap: f32) -> Areas {
     });
     let main_w = (x1 - x).max(0.0);
     let bottom = view.bottom.as_ref().map(|_| {
-        let bh = BOTTOM_H.min(body_h * 0.45);
+        let bh = sizes.bottom.min(body_h * 0.75);
         Rect::new(x, bottom_y - bh, main_w, bh)
     });
     let editor_h = body_h - bottom.map_or(0.0, |b| b.h + gap);
@@ -163,6 +205,30 @@ impl Frame<'_> {
             }
         }
         self.canvas.round(a.editor, self.radius, p.island);
+        // The edges that resize the sides, lit while the mouse is on them.
+        let gap = (a.editor.x - a.left.map_or(a.editor.x, |l| l.right())).max(4.0);
+        let sashes = [
+            a.left
+                .map(|l| (Side::Left, Rect::new(l.right() - 2.0, l.y, gap + 4.0, l.h))),
+            a.right
+                .map(|r| (Side::Right, Rect::new(r.x - gap - 2.0, r.y, gap + 4.0, r.h))),
+            a.bottom.map(|b| {
+                (
+                    Side::Bottom,
+                    Rect::new(b.x, b.y - gap - 2.0, b.w, gap + 4.0),
+                )
+            }),
+        ];
+        for (side, r) in sashes.into_iter().flatten() {
+            if self.hovered(r) {
+                let line = match side {
+                    Side::Bottom => Rect::new(r.x, r.y + r.h / 2.0 - 1.0, r.w, 2.0),
+                    _ => Rect::new(r.x + r.w / 2.0 - 1.0, r.y, 2.0, r.h),
+                };
+                self.canvas.fill(line, p.accent);
+            }
+            self.sash_hits.push((r, Hit::Sash(side)));
+        }
         // Several groups draw their own tabs, over the code's grid.
         if view.groups.is_empty() {
             self.tabs(view, a.editor);
@@ -171,6 +237,9 @@ impl Frame<'_> {
             }
         }
         self.hit(a.text, Hit::Text);
+        // Over the code's edge, the sash wins.
+        let sashes = std::mem::take(&mut self.sash_hits);
+        self.hits.extend(sashes);
         self.status(view, w, h);
     }
 
@@ -209,6 +278,29 @@ impl Frame<'_> {
         if let Some(menu) = &view.menu {
             self.menu(menu, w, h);
         }
+        if let Some((r, tip)) = self.tip.clone() {
+            self.tooltip(r, &tip, w);
+        }
+    }
+
+    /// A small label under `r`, or beside it on the rail.
+    fn tooltip(&mut self, r: Rect, tip: &str, w: f32) {
+        let p = self.p;
+        let face = Face::ui(12.0);
+        let tw = self.text.width(tip, face) + 16.0;
+        let (x, y) = if r.x < RAIL_W {
+            (r.right() + 6.0, r.y + (r.h - 24.0) / 2.0)
+        } else {
+            (
+                (r.x + r.w / 2.0 - tw / 2.0).clamp(6.0, w - tw - 6.0),
+                r.bottom() + 6.0,
+            )
+        };
+        let b = Rect::new(x, y, tw, 24.0);
+        self.canvas.shadow(b, 5.0, theme::is_light(&p));
+        self.canvas.outline(b, 5.0, 1.0, p.border, p.widget);
+        self.text
+            .draw_in_row(&mut self.canvas, tip, face, b.x + 8.0, b.y, b.h, p.text, b);
     }
 
     /// The menus behind the title bar's button: their titles in one card,
@@ -591,6 +683,18 @@ impl Frame<'_> {
 
     /// A button showing the icon theme's `id` icon, or `glyph`.
     fn icon_button(&mut self, r: Rect, id: &str, glyph: char, on: bool, hit: Hit) {
+        let tip = match id {
+            "menu" => Some("Application Menu (F10)"),
+            "layout-left" => Some("Toggle Primary Side Bar (Ctrl+B)"),
+            "layout-panel" => Some("Toggle Panel (Ctrl+J)"),
+            "layout-right" => Some("Toggle Secondary Side Bar"),
+            "split" => Some("Split Editor Right (Ctrl+\\)"),
+            "more" => Some("More Actions…"),
+            _ => None,
+        };
+        if let Some(tip) = tip {
+            self.tips.push((r, tip.to_string()));
+        }
         let p = self.p;
         let hovered = self.hovered(r);
         if hovered || on {
@@ -905,6 +1009,7 @@ impl Frame<'_> {
                 );
             }
             self.hit(r, Hit::Ui(UiEvent::Rail(i)));
+            self.tips.push((r, item.label.clone()));
             y += 40.0;
             if y + 40.0 > h - STATUS_H {
                 break;

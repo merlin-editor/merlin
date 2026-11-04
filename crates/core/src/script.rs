@@ -55,8 +55,9 @@ pub fn parse(script: &str) -> Result<Vec<Step>, String> {
             }
             "paste" => events.push(Step::Event(Event::Paste(unescape(rest)))),
             "cmd" => events.push(Step::Event(Event::Command(rest.trim().to_string()))),
-            "click" | "shift-click" | "alt-click" | "double-click" | "triple-click" | "press"
-            | "box-press" | "double-press" | "drag" | "release" | "wheel" | "move" => {
+            "click" | "shift-click" | "alt-click" | "ctrl-click" | "double-click"
+            | "triple-click" | "press" | "box-press" | "double-press" | "drag" | "release"
+            | "wheel" | "move" => {
                 let mut args = rest.split_whitespace();
                 let kind = match verb {
                     "wheel" => match args.next() {
@@ -91,6 +92,7 @@ pub fn parse(script: &str) -> Result<Vec<Step>, String> {
                     y,
                     shift,
                     alt,
+                    ctrl: verb == "ctrl-click",
                     clicks,
                 })));
                 if verb.ends_with("click") {
@@ -100,6 +102,7 @@ pub fn parse(script: &str) -> Result<Vec<Step>, String> {
                         y,
                         shift,
                         alt,
+                        ctrl: verb == "ctrl-click",
                         clicks: 1,
                     };
                     events.push(Step::Event(Event::Mouse(up)));
@@ -267,6 +270,7 @@ impl Session {
                 | Effect::PreviewTheme(..)
                 | Effect::SetTheme(..)
                 | Effect::OpenSettingsWindow
+                | Effect::Zoom(_)
                 | Effect::GitStatus
                 | Effect::OpenDiff(_)
                 | Effect::Git(_) => {}

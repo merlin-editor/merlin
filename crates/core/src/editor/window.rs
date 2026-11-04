@@ -340,6 +340,7 @@ impl Editor {
                 Source::Commands => "Commands",
                 Source::Files => "Files",
                 Source::Line => "Go to Line",
+                Source::SaveAs => "Save As",
                 Source::Symbols => "Symbols",
                 Source::Picker { .. } => "Pick",
                 Source::Themes { .. } => "Themes",

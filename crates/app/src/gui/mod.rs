@@ -65,6 +65,8 @@ const DRAG_START: f32 = 5.0;
 /// How long the mouse rests on a word before its hover shows, as in VS
 /// Code.
 const HOVER_DELAY: Duration = Duration::from_millis(500);
+/// How long the mouse rests on an icon before its tooltip shows.
+const TIP_DELAY: Duration = Duration::from_millis(600);
 /// The caret's blink, each way, and how long after the last input it
 /// keeps blinking before it stays on and the window sleeps.
 const BLINK: Duration = Duration::from_millis(530);
@@ -88,6 +90,12 @@ pub fn run(app: &mut App) -> Result<()> {
         pointer: None,
         pressed_in_text: false,
         rest: None,
+        tip_drawn: None,
+        tips: Vec::new(),
+        tip: None,
+        zoomed: 0.0,
+        sizes: frame::Sizes::default(),
+        sash: None,
         tab_drag: None,
         cursor_icon: CursorIcon::Default,
         blink_from: Instant::now(),
@@ -143,6 +151,18 @@ struct Gui<'a> {
     rest: Option<(Instant, (u16, u16))>,
     /// Where the right-click menu was opened, in logical pixels.
     context_at: Option<(f32, f32)>,
+    /// Each icon's tooltip, as last drawn.
+    tips: Vec<(Rect, String)>,
+    /// The tooltip the mouse rests for: when it shows, and what.
+    tip: Option<(Instant, (Rect, String))>,
+    /// The tooltip last drawn.
+    tip_drawn: Option<(Rect, String)>,
+    /// The zoom the fonts were made for.
+    zoomed: f32,
+    /// How big the sides are, as last dragged.
+    sizes: frame::Sizes,
+    /// The side whose edge is being dragged.
+    sash: Option<Side>,
     /// A tab pressed on, and whether it's being dragged yet.
     tab_drag: Option<TabDrag>,
     /// The mouse pointer's shape now.
@@ -244,16 +264,19 @@ impl Gui<'_> {
     /// for, when they've changed or `now`.
     fn set_fonts(&mut self, now: bool) {
         let wanted = &self.app.look.fonts;
-        if !now && self.fonts.as_ref() == Some(wanted) {
+        let zoom = self.app.zoom;
+        if !now && self.fonts.as_ref() == Some(wanted) && self.zoomed == zoom {
             return;
         }
+        self.zoomed = zoom;
         let scale = self.scale();
         self.text = Some(Text::new(
             scale,
             wanted.ui.as_deref(),
             wanted.code.as_deref(),
         ));
-        self.grid = Some(Fonts::new(scale, wanted.code.as_deref(), wanted.code_size));
+        let size = (wanted.code_size.unwrap_or(grid::FONT_SIZE) + zoom).max(6.0);
+        self.grid = Some(Fonts::new(scale, wanted.code.as_deref(), Some(size)));
         self.fonts = Some(wanted.clone());
         // The old fonts' glyphs go with them.
         self.bitmaps.clear();
@@ -271,7 +294,7 @@ impl Gui<'_> {
         let s = self.scale();
         let (w, h) = (size.width as f32 / s, size.height as f32 / s);
         let view = self.app.editor.window_view();
-        self.areas = frame::areas(&view, w, h, self.app.look.layout.gap);
+        self.areas = frame::areas(&view, w, h, self.app.look.layout.gap, &self.sizes);
         let t = self.areas.text;
         let cols = ((t.w * s) as u32 / grid.cell_w).clamp(1, u16::MAX as u32) as u16;
         let rows = ((t.h * s) as u32 / grid.cell_h).clamp(1, u16::MAX as u32) as u16;
@@ -325,6 +348,7 @@ impl Gui<'_> {
             y,
             shift: self.modifiers.shift_key(),
             alt: self.modifiers.alt_key(),
+            ctrl: self.modifiers.control_key(),
             clicks,
         }));
     }
@@ -354,6 +378,7 @@ impl Gui<'_> {
             Hit::Ui(event) => self.dispatch(Event::Ui(event)),
             Hit::Command(command) => self.dispatch(Event::Command(command.into())),
             Hit::Key(key) => self.dispatch(Event::Key(key)),
+            Hit::Sash(side) => self.sash = Some(side),
             Hit::Side(_) | Hit::Block | Hit::TabStrip(_) => {}
         }
     }
@@ -575,7 +600,14 @@ impl Gui<'_> {
         let gliding = self.glide.is_some();
         // A dragged tab follows the mouse, so every move draws.
         let dragging = self.tab_drag.as_ref().is_some_and(|d| d.moved);
+        let tip = self
+            .tip
+            .as_ref()
+            .filter(|t| t.0 <= Instant::now())
+            .map(|t| t.1.clone());
+        let tip_changed = tip != self.tip_drawn;
         if self.drawn == drawn
+            && !tip_changed
             && self.drawn_text == texts
             && caret_on == self.caret_drawn
             && !gliding
@@ -591,7 +623,7 @@ impl Gui<'_> {
             self.bitmaps.clear();
         }
         let (w, h) = (pw as f32 / s, ph as f32 / s);
-        let areas = frame::areas(&view, w, h, self.app.look.layout.gap);
+        let areas = frame::areas(&view, w, h, self.app.look.layout.gap, &self.sizes);
         self.scene.clear();
         let mut f = Frame {
             canvas: Canvas {
@@ -609,6 +641,9 @@ impl Gui<'_> {
             icons: &self.app.look.icons,
             pictures: &mut self.pictures,
             compact: self.app.look.layout.compact,
+            sash_hits: Vec::new(),
+            tips: Vec::new(),
+            tip: tip.clone(),
             tab_drag: self
                 .tab_drag
                 .as_ref()
@@ -659,6 +694,8 @@ impl Gui<'_> {
         f.floating(&view, &areas, cell, self.context_at, w, h);
         f.overlays(&view, &areas, w, h);
         self.hits = std::mem::take(&mut f.hits);
+        self.tips = std::mem::take(&mut f.tips);
+        self.tip_drawn = tip;
         let shown_ok = match &mut shown.backend {
             Backend::Gpu(gpu) => gpu.draw(&self.scene, &self.bitmaps, &shown.window),
             Backend::Cpu(surface) => match surface.buffer_mut() {
@@ -788,6 +825,13 @@ impl ApplicationHandler for Gui<'_> {
                 self.rest = None;
                 self.dispatch(Event::HoverAt(x, y));
             }
+            if self
+                .tip
+                .as_ref()
+                .is_some_and(|(when, _)| *when <= Instant::now())
+            {
+                self.redraw();
+            }
             if self.caret_on() != self.caret_drawn {
                 self.redraw();
             }
@@ -840,6 +884,8 @@ impl ApplicationHandler for Gui<'_> {
                 };
                 if state == ElementState::Pressed {
                     self.press(at);
+                } else if self.sash.take().is_some() {
+                    self.redraw();
                 } else if let Some(drag) = self.tab_drag.take() {
                     if drag.moved {
                         self.drop_tab(at);
@@ -917,7 +963,12 @@ impl ApplicationHandler for Gui<'_> {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        let wake = [self.rest.map(|(when, _)| when), self.next_blink()]
+        let tip = self
+            .tip
+            .as_ref()
+            .map(|(when, _)| *when)
+            .filter(|when| *when > Instant::now());
+        let wake = [self.rest.map(|(when, _)| when), self.next_blink(), tip]
             .into_iter()
             .flatten()
             .fold(self.next_check, Instant::min);
@@ -948,6 +999,17 @@ impl Gui<'_> {
         let before = self.pointer.and_then(|p| self.hit_at(p).map(|(i, _)| i));
         let old_cell = self.pointer.map(|p| self.cell_at(p));
         self.pointer = Some(at);
+        if let Some(side) = self.sash {
+            let s = self.scale();
+            if let Some(shown) = &self.window {
+                let size = shown.window.inner_size();
+                let (w, h) = (size.width as f32 / s, size.height as f32 / s);
+                self.sizes.drag(side, at, w, h);
+            }
+            self.fit_text();
+            self.redraw();
+            return;
+        }
         if let Some(drag) = &mut self.tab_drag {
             let (dx, dy) = (at.0 - drag.from.0, at.1 - drag.from.1);
             if !drag.moved && dx.hypot(dy) > DRAG_START {
@@ -966,8 +1028,25 @@ impl Gui<'_> {
             return;
         }
         let over = self.hit_at(at).map(|(i, h)| (i, h.clone()));
+        // Resting on an icon brings up what it is.
+        let tip = self
+            .tips
+            .iter()
+            .find(|(r, _)| r.contains(at.0, at.1))
+            .cloned();
+        match (&self.tip, tip) {
+            (Some((_, (r, _))), Some((now, _))) if *r == now => {}
+            (_, Some(tip)) => self.tip = Some((Instant::now() + TIP_DELAY, tip)),
+            (Some(_), None) => {
+                self.tip = None;
+                self.redraw();
+            }
+            (None, None) => {}
+        }
         let icon = match over {
             Some((_, Hit::Text)) => CursorIcon::Text,
+            Some((_, Hit::Sash(Side::Bottom))) => CursorIcon::RowResize,
+            Some((_, Hit::Sash(_))) => CursorIcon::ColResize,
             _ => CursorIcon::Default,
         };
         self.set_pointer(icon);

@@ -95,6 +95,8 @@ pub struct Mouse {
     pub shift: bool,
     /// Alt+click adds a cursor.
     pub alt: bool,
+    /// Ctrl+click goes to the definition of what's clicked.
+    pub ctrl: bool,
     /// 2 for a double click and 3 for a triple click, on presses; else 1.
     pub clicks: u8,
 }
@@ -319,6 +321,9 @@ pub enum Effect {
     SetTheme(ThemeKind, String),
     /// Open the Settings window, which the window draws.
     OpenSettingsWindow,
+    /// Make the code's font bigger or smaller by `n` steps, or with 0 go
+    /// back to its size.
+    Zoom(i8),
     Save {
         doc: u64,
         path: PathBuf,
@@ -440,6 +445,8 @@ enum Source {
     Files,
     Line,
     Symbols,
+    /// A path to save the file as, typed in.
+    SaveAs,
     Picker {
         plugin: String,
         id: String,
@@ -533,6 +540,8 @@ pub struct Editor {
     cursor_undo: Vec<(u64, u64, crate::doc::Caret, Vec<crate::doc::Caret>)>,
     /// The first key of a chord such as Ctrl+K Ctrl+D, once pressed.
     chord: Option<Key>,
+    /// Files closed, last last, for Ctrl+Shift+T.
+    closed: Vec<PathBuf>,
     /// Whether the left button went down on the scrollbar.
     scrollbar_drag: bool,
     /// Whether the left button went down on the minimap.
@@ -646,6 +655,7 @@ impl Editor {
             expanded: Vec::new(),
             cursor_undo: Vec::new(),
             chord: None,
+            closed: Vec::new(),
             scrollbar_drag: false,
             minimap_drag: false,
             tab_drag: None,
@@ -1708,7 +1718,14 @@ impl Editor {
             ));
             return;
         }
-        self.docs.remove(self.current);
+        let gone = self.docs.remove(self.current);
+        if let Some(path) = gone.buffer.path {
+            self.closed.retain(|p| *p != path);
+            self.closed.push(path);
+            if self.closed.len() > 50 {
+                self.closed.remove(0);
+            }
+        }
         if self.docs.is_empty() {
             let id = self.new_id();
             self.docs.push(Doc::new(id, "", None));

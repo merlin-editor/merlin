@@ -212,6 +212,24 @@ impl Editor {
                 self.set_cursor(pos);
                 self.dragging = true;
             }
+            // Ctrl+click goes to the definition, as in every editor with a
+            // language server.
+            MouseKind::Down if text.contains(m.x, m.y) && m.ctrl => {
+                self.focus = Focus::Editor;
+                self.clear_carets();
+                let pos = self.pos_at_screen(m.x, m.y);
+                self.set_cursor(pos);
+                let has = self
+                    .plugins
+                    .iter()
+                    .any(|p| p.name == "lsp" && p.commands.iter().any(|c| c.id == "definition"));
+                if has {
+                    fx.push(Effect::PluginCommand {
+                        plugin: "lsp".into(),
+                        command: "definition".into(),
+                    });
+                }
+            }
             MouseKind::Down if text.contains(m.x, m.y) && m.alt => {
                 self.focus = Focus::Editor;
                 let pos = self.pos_at_screen(m.x, m.y);

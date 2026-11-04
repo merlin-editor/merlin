@@ -455,3 +455,44 @@ fn go_to_bracket_jumps_between_pairs() {
     s.run("key right right right right right ctrl+shift+\\");
     assert_eq!(s.editor.cursor(), 7, "inside [b], to its closer");
 }
+
+#[test]
+fn new_files_save_as_a_path_typed_in() {
+    let mut s = project();
+    s.run("key ctrl+n; type hello");
+    assert_eq!(s.text(), "hello");
+    s.run("key ctrl+s");
+    assert_eq!(
+        s.editor.focus(),
+        Focus::Palette,
+        "an untitled file asks for a name"
+    );
+    s.run("type notes/new.txt; key enter");
+    assert_eq!(
+        s.files.get("notes/new.txt").map(String::as_str),
+        Some("hello")
+    );
+}
+
+#[test]
+fn ctrl_shift_t_reopens_the_last_closed_file() {
+    let mut s = project();
+    s.run("key ctrl+p; type main; key enter");
+    assert_eq!(s.text(), "fn main() {}\n");
+    s.run("key ctrl+w");
+    assert_ne!(s.text(), "fn main() {}\n");
+    s.run("key ctrl+shift+t");
+    assert_eq!(s.text(), "fn main() {}\n");
+}
+
+#[test]
+fn ctrl_k_ctrl_w_closes_every_saved_file() {
+    let mut s = project();
+    s.run("key ctrl+p; type main; key enter");
+    s.run("key ctrl+k ctrl+w");
+    assert!(
+        s.editor.open_files().iter().all(|p| p.is_none()),
+        "{:?}",
+        s.editor.open_files()
+    );
+}

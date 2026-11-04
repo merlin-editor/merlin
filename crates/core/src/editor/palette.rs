@@ -38,6 +38,17 @@ impl Editor {
                 };
                 return vec![item];
             }
+            Source::SaveAs => {
+                let path = palette.query.trim();
+                return vec![if path.is_empty() {
+                    (
+                        String::new(),
+                        "Type a path in the project, such as src/new.rs".into(),
+                    )
+                } else {
+                    (path.to_string(), format!("Save as {path}"))
+                }];
+            }
             _ => &palette.items,
         };
         let query = palette.query.to_lowercase();
@@ -114,6 +125,12 @@ impl Editor {
                     (Some((line, _)), Source::Symbols) => {
                         if let Ok(line) = line.parse() {
                             self.go_to_block(line);
+                        }
+                    }
+                    (Some((path, _)), Source::SaveAs) => {
+                        if !path.is_empty() {
+                            self.doc_mut().buffer.path = Some(PathBuf::from(path));
+                            self.run("file.save", None, fx);
                         }
                     }
                     (Some((line, _)), Source::Line) => {
