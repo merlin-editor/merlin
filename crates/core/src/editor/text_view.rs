@@ -24,6 +24,8 @@ pub struct TextView {
     pub area: Rect,
     /// Cells left of the text: signs, numbers and the fold arrow.
     pub gutter: usize,
+    /// Columns of text, between the gutter and the minimap or scrollbar.
+    pub columns: usize,
     /// Whether the gutter's first cell holds git or review signs.
     pub signs: bool,
     /// The first line at the top, and how far the view is scrolled sideways,
@@ -34,6 +36,9 @@ pub struct TextView {
     /// Whether keys go here, so the cursors and current line show.
     pub focused: bool,
     pub lines: Vec<LineView>,
+    /// Lines just out of view kept above and below, for a window to scroll
+    /// smoothly into: see [`OVERSCAN`].
+    pub overscan: u16,
     /// Lines past the end of the file, drawn as `~`, by screen row.
     pub beyond: Vec<u16>,
     /// Every cursor, the primary one first.
@@ -45,8 +50,9 @@ pub struct TextView {
 pub struct LineView {
     /// The line in the buffer.
     pub line: usize,
-    /// The screen row, counted from the top of the text, of its first row.
-    pub row: u16,
+    /// The screen row, counted from the top of the text, of its first row:
+    /// below zero or past the bottom for the lines just out of view.
+    pub row: i32,
     /// How it wraps; one row when it doesn't.
     pub rows: Vec<Row>,
     /// Rows it has on screen: fewer than `rows` at the bottom.
@@ -85,6 +91,11 @@ pub struct CaretView {
     pub cell: Option<(u16, u16)>,
 }
 
+/// Lines a window gets above and below the view, so scrolling can glide
+/// as far as a page step without a gap. Not while wrapping, where rows and
+/// lines differ.
+pub const OVERSCAN: u16 = 8;
+
 impl Editor {
     /// The text of every editor group, the active one last, as
     /// [`Editor::render`] draws them.
@@ -113,22 +124,37 @@ impl Editor {
         let selections: Vec<(usize, usize)> =
             self.carets().iter().filter_map(|c| c.selection()).collect();
         let selection = selections.first().copied();
+        let hidden = self.hidden_lines();
+        // A window drawing the text gets lines past both edges.
+        let overscan = if self.own_text && !self.row_based() {
+            OVERSCAN
+        } else {
+            0
+        };
+        let mut first = v.scroll;
+        let mut above = 0i32;
+        while above < overscan as i32 && first > 0 {
+            first -= 1;
+            match hidden.iter().find(|r| r.contains(&first)) {
+                Some(fold) => first = fold.start.min(first),
+                None => above += 1,
+            }
+        }
         // The lines on screen, which reach further down past folds.
         let last_shown = if self.row_based() {
             self.line_at_row(area.h as usize).0
         } else {
-            v.scroll + area.h as usize
+            v.scroll + area.h as usize + overscan as usize
         };
-        let visible = v.scroll..last_shown.max(v.scroll + 1);
+        let visible = first..last_shown.max(v.scroll + 1);
         let spans = doc.spans(visible);
         let focused = self.focus == Focus::Editor && self.drawing.get().is_none();
         let highlight_line = focused && selection.is_none();
         let guides = self.guides(super::render::visible_lines(
-            v.scroll,
-            last_shown - v.scroll,
+            first,
+            last_shown - first,
             lines,
         ));
-        let hidden = self.hidden_lines();
         // Fold arrows show for folded blocks, and for the others while the
         // mouse is over the gutter.
         let over_gutter = self.hover.is_some_and(|(hx, hy)| {
@@ -140,6 +166,8 @@ impl Editor {
         let mut view = TextView {
             area,
             gutter,
+            columns: self.text_columns(),
+            overscan,
             signs,
             scroll: v.scroll,
             hscroll: if wrapping { 0 } else { v.hscroll },
@@ -149,11 +177,14 @@ impl Editor {
             beyond: Vec::new(),
             carets: Vec::new(),
         };
-        let mut row = 0u16;
-        let mut line = v.scroll;
-        while row < area.h {
+        let bottom = area.h as i32 + overscan as i32;
+        let mut row = -above;
+        let mut line = first;
+        while row < bottom {
             if line >= lines {
-                view.beyond.push(row);
+                if (0..area.h as i32).contains(&row) {
+                    view.beyond.push(row as u16);
+                }
                 row += 1;
                 continue;
             }
@@ -179,7 +210,7 @@ impl Editor {
                 }]
             };
             let folded = hidden.iter().any(|r| r.start == line + 1);
-            let shown = rows.len().min((area.h - row) as usize) as u16;
+            let shown = rows.len().min((bottom - row) as usize) as u16;
 
             let mut syntax = vec![Syntax::Plain; chars.len()];
             for &(a, b, kind) in &spans {
@@ -299,7 +330,7 @@ impl Editor {
                     col += crate::doc::advance(c, col);
                     (i < first_row_end
                         && matches!(c, ' ' | '\t')
-                        && guides.is_guide(line, v.scroll, here))
+                        && guides.is_guide(line, first, here))
                     .then(|| guides.is_active(line, here))
                 })
                 .collect();
@@ -323,7 +354,7 @@ impl Editor {
                 guides: line_guides,
                 eol_selected,
             });
-            row += shown;
+            row += shown as i32;
             line += 1;
         }
         view.carets = self

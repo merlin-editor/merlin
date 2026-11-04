@@ -199,6 +199,9 @@ impl Editor {
     }
 
     pub(crate) fn menu_key(&mut self, key: Key, fx: &mut Vec<Effect>) {
+        if self.context.is_some() {
+            return self.context_key(key, fx);
+        }
         let Some(menu) = &mut self.menu else {
             self.focus = Focus::Editor;
             return;

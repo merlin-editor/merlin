@@ -2,6 +2,7 @@ mod carets;
 mod chrome;
 mod colours;
 mod commands;
+mod context;
 mod crumbs;
 mod editing;
 mod find;
@@ -28,9 +29,10 @@ pub use window::{
     PaletteView, RailItem, SideView, StatusView, TabView, ToastView, UiEvent, WindowView,
 };
 
+pub use context::{ContextItem, ContextView, PopupKind, PopupView};
 pub use layout::Rect as CellRect;
 pub use settings::Settings;
-pub use text_view::{CaretView, LineView, TextView};
+pub use text_view::{CaretView, LineView, OVERSCAN, TextView};
 pub use workspace::{GroupState, Tab, Workspace};
 pub use wrap::Row as WrapRow;
 
@@ -98,6 +100,10 @@ pub enum Event {
     Key(Key),
     Paste(String),
     Mouse(Mouse),
+    /// A right click on cell (x, y), for the window's menu there.
+    ContextMenu(u16, u16),
+    /// The mouse has rested on cell (x, y), for a hover.
+    HoverAt(u16, u16),
     /// A click on the frame of a window that draws its own; see
     /// [`Editor::set_windowed`].
     Ui(UiEvent),
@@ -530,6 +536,12 @@ pub struct Editor {
     /// A tab being dragged, by document id, to another place or group.
     tab_drag: Option<u64>,
     popup: Option<Popup>,
+    /// The right-click menu.
+    context: Option<context::ContextMenu>,
+    /// The word the mouse rests on, while its hover is asked for or shown.
+    probe: Option<(usize, usize)>,
+    /// Where a hover the mouse brought up is about, instead of the cursor.
+    hover_anchor: Option<usize>,
     /// Diagnostics by plugin and file, as plugins sent them.
     diagnostics: HashMap<(String, PathBuf), Vec<Diagnostic>>,
     /// Bumped when diagnostics change, so the Explorer rebuilds.
@@ -593,6 +605,9 @@ pub struct Editor {
     problems: Vec<(PathBuf, u32, u32)>,
     /// The window draws the frame; the screen holds only the text.
     windowed: bool,
+    /// The window draws the text and cursors too; see
+    /// [`Editor::set_own_text`].
+    own_text: bool,
     /// The plugins loaded, for the Plugins view.
     plugin_list: Vec<PluginSummary>,
     /// Colour themes and icon themes by name, and the one of each in use.
@@ -631,6 +646,9 @@ impl Editor {
             minimap_drag: false,
             tab_drag: None,
             popup: None,
+            context: None,
+            probe: None,
+            hover_anchor: None,
             diagnostics: HashMap::new(),
             diagnostics_version: 0,
             pending_goto: None,
@@ -662,6 +680,7 @@ impl Editor {
             log: Vec::new(),
             problems: Vec::new(),
             windowed: false,
+            own_text: false,
             plugin_list: Vec::new(),
             themes: [Vec::new(), Vec::new()],
             theme: [String::new(), String::new()],
@@ -775,7 +794,7 @@ impl Editor {
     /// The cursor's line and UTF-16 column, as LSP counts them.
     pub fn cursor_utf16(&self) -> (u32, u32) {
         let doc = self.doc();
-        let (line, col) = doc.line_col(doc.cursor);
+        let (line, col) = doc.line_col(self.plugin_cursor());
         let text: String = doc.line_chars(line).into_iter().collect();
         (
             line as u32,
@@ -849,9 +868,15 @@ impl Editor {
         }
         let before = self.view_key();
         match event {
-            Event::Key(key) => self.key(key, armed, &mut fx),
+            Event::Key(key) => {
+                self.probe = None;
+                self.hover_anchor = None;
+                self.key(key, armed, &mut fx)
+            }
             Event::Paste(text) => self.paste(&text),
             Event::Mouse(mouse) => self.mouse(mouse, &mut fx),
+            Event::ContextMenu(x, y) => self.open_context(x, y),
+            Event::HoverAt(x, y) => self.hover_at(x, y, &mut fx),
             Event::Ui(ui) => self.ui(ui, armed, &mut fx),
             Event::Resize(w, h) => {
                 self.width = w;
@@ -993,6 +1018,8 @@ impl Editor {
             }
             Event::ShowHover(text) => {
                 let lines: Vec<String> = text.trim().lines().map(String::from).collect();
+                // A hover the mouse asked for is about the word it's on.
+                self.hover_anchor = self.probe.map(|(start, _)| start);
                 if self.focus == Focus::Editor && !lines.is_empty() {
                     self.popup = Some(Popup::Hover(lines));
                 }

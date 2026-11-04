@@ -7,7 +7,7 @@ use std::env;
 use cosmic_text::{
     Attrs, Buffer, Family, FontSystem, Metrics, Shaping, Style as FontStyle, SwashCache, Weight,
 };
-use merlin_core::screen::{Screen, WIDE_TAIL};
+use merlin_core::screen::{Screen, Style, Surface, WIDE_TAIL};
 
 use super::canvas::{Canvas, glyph_bitmap};
 use super::scene::{BitmapId, Bitmaps, Prim};
@@ -30,24 +30,26 @@ const FAMILIES: &[&str] = &[
 
 /// A character's picture, rasterised once and kept in the bitmaps.
 #[derive(Clone, Copy)]
-struct Glyph {
-    bitmap: BitmapId,
-    left: i32,
-    top: i32,
+pub(super) struct Glyph {
+    pub(super) bitmap: BitmapId,
+    pub(super) left: i32,
+    pub(super) top: i32,
     width: usize,
 }
 
 pub struct Fonts {
-    system: FontSystem,
-    cache: SwashCache,
-    family: Option<String>,
-    size: f32,
+    pub(super) system: FontSystem,
+    pub(super) cache: SwashCache,
+    pub(super) family: Option<String>,
+    pub(super) size: f32,
     pub cell_w: u32,
     pub cell_h: u32,
     /// From the top of a row.
-    baseline: i32,
-    line: Buffer,
+    pub(super) baseline: i32,
+    pub(super) line: Buffer,
     glyphs: HashMap<(char, bool, bool), Option<Glyph>>,
+    /// Shaped lines and their glyphs, for the code drawn from text views.
+    pub(super) shapes: super::code::Shapes,
     /// The bitmaps' generation the glyphs belong to.
     generation: u64,
 }
@@ -88,6 +90,7 @@ impl Fonts {
             baseline: 0,
             line,
             glyphs: HashMap::new(),
+            shapes: Default::default(),
             generation: u64::MAX,
         };
         fonts.measure();
@@ -96,7 +99,7 @@ impl Fonts {
 }
 
 /// The face for a cell: the chosen family, bold or italic as it says.
-fn attrs(family: &Option<String>, bold: bool, italic: bool) -> Attrs<'_> {
+pub(super) fn attrs(family: &Option<String>, bold: bool, italic: bool) -> Attrs<'_> {
     let family = match family {
         Some(name) => Family::Name(name),
         None => Family::Monospace,
@@ -126,7 +129,7 @@ impl Fonts {
         }
     }
 
-    fn glyph(
+    pub(super) fn glyph(
         &mut self,
         ch: char,
         bold: bool,
@@ -190,8 +193,16 @@ impl Fonts {
         for y in 0..screen.height {
             let mut run: Option<(u16, u32)> = None;
             for x in 0..=screen.width {
+                // Plain cells of the text show the code drawn under them.
                 let bg = (x < screen.width)
-                    .then(|| theme::cell(p, &screen.cell(x, y)).bg.unwrap_or(p.island));
+                    .then(|| screen.cell(x, y))
+                    .and_then(|cell| {
+                        let plain = cell.ch == ' '
+                            && cell.style == Style::Normal
+                            && cell.surface == Surface::Editor
+                            && cell.tint.is_none();
+                        (!plain).then(|| theme::cell(p, &cell).bg.unwrap_or(p.island))
+                    });
                 match run {
                     Some((_, colour)) if Some(colour) == bg => continue,
                     Some((from, colour)) => {

@@ -4,7 +4,10 @@
 //! records what each clickable part does.
 
 use merlin_core::panel::{Entry, Node, Tone};
-use merlin_core::{Key, KeyCode, PaletteView, Side, SideView, ToastView, UiEvent, WindowView};
+use merlin_core::{
+    ContextView, Key, KeyCode, PaletteView, PopupKind, PopupView, Side, SideView, ToastView,
+    UiEvent, WindowView,
+};
 
 use super::canvas::{Canvas, Face, Pictures, Rect, Text};
 use crate::packs::{Fallback, Icon, Icons, Tint};
@@ -169,6 +172,217 @@ impl Frame<'_> {
         }
         if let Some(palette) = &view.palette {
             self.palette(palette, w, h);
+        }
+    }
+
+    /// What floats over the code: the right-click menu where it was
+    /// opened, and hover or completion by the text they're about. `cell`
+    /// is a cell of the code, in logical pixels.
+    pub fn floating(
+        &mut self,
+        view: &WindowView,
+        a: &Areas,
+        cell: (f32, f32),
+        context_at: Option<(f32, f32)>,
+        w: f32,
+        h: f32,
+    ) {
+        if let Some(popup) = &view.popup {
+            self.popup(popup, a, cell);
+        }
+        if let (Some(menu), Some(at)) = (&view.context, context_at) {
+            self.context(menu, at, w, h);
+        }
+    }
+
+    fn context(&mut self, menu: &ContextView, (x, y): (f32, f32), w: f32, h: f32) {
+        let p = self.p;
+        // A click anywhere else closes it.
+        self.hit(Rect::new(0.0, 0.0, w, h), Hit::Ui(UiEvent::CloseContext));
+        let (label_f, key_f) = (Face::ui(13.0), Face::ui(12.0));
+        let widest = menu
+            .items
+            .iter()
+            .map(|i| {
+                self.text.width(&i.label, label_f)
+                    + i.key
+                        .as_ref()
+                        .map_or(0.0, |k| self.text.width(k, key_f) + 32.0)
+            })
+            .fold(0.0, f32::max);
+        let mw = (widest + 40.0).max(220.0);
+        let height = |label: &str| if label.is_empty() { 9.0 } else { 28.0 };
+        let mh: f32 = menu.items.iter().map(|i| height(&i.label)).sum::<f32>() + 10.0;
+        // Opens down and right of the mouse, or the other way at an edge.
+        let x = if x + mw > w - 8.0 {
+            (x - mw).max(8.0)
+        } else {
+            x
+        };
+        let y = if y + mh > h - 8.0 {
+            (y - mh).max(8.0)
+        } else {
+            y
+        };
+        let r = Rect::new(x, y, mw, mh);
+        self.canvas.shadow(r, 8.0, theme::is_light(&p));
+        self.canvas.outline(r, 8.0, 1.0, p.border, p.widget);
+        self.hit(r, Hit::Block);
+        let mut ry = r.y + 5.0;
+        for (k, item) in menu.items.iter().enumerate() {
+            let rh = height(&item.label);
+            if item.label.is_empty() {
+                self.canvas
+                    .fill(Rect::new(r.x + 10.0, ry + 4.0, r.w - 20.0, 1.0), p.chip);
+                ry += rh;
+                continue;
+            }
+            let row = Rect::new(r.x + 5.0, ry, r.w - 10.0, rh);
+            let on = menu.selected == Some(k) || self.hovered(row);
+            if on {
+                self.canvas.round(row, 5.0, p.focus_row);
+            }
+            let colour = if on { p.bright } else { p.text };
+            self.text.draw_in_row(
+                &mut self.canvas,
+                &item.label,
+                label_f,
+                row.x + 12.0,
+                ry,
+                rh,
+                colour,
+                row,
+            );
+            if let Some(key) = &item.key {
+                let kw = self.text.width(key, key_f);
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    key,
+                    key_f,
+                    row.right() - 12.0 - kw,
+                    ry,
+                    rh,
+                    p.muted,
+                    row,
+                );
+            }
+            self.hit(row, Hit::Ui(UiEvent::ContextItem(k)));
+            ry += rh;
+        }
+    }
+
+    /// Hover and completion as a card under the text they're about, or
+    /// over it when there's no room below.
+    fn popup(&mut self, popup: &PopupView, a: &Areas, (cw, ch): (f32, f32)) {
+        let p = self.p;
+        let (ax, ay) = (
+            a.text.x + popup.anchor.0 as f32 * cw,
+            a.text.y + popup.anchor.1 as f32 * ch,
+        );
+        let mono = Face::mono(12.5);
+        let ui = Face::ui(13.0);
+        // The rows to draw: text, whether it's code, and a detail.
+        let mut rows: Vec<(String, bool, String)> = Vec::new();
+        let mut selected = None;
+        match &popup.kind {
+            PopupKind::Hover(lines) => {
+                let mut code = false;
+                for line in lines {
+                    if line.trim_start().starts_with("```") {
+                        code = !code;
+                        continue;
+                    }
+                    if line.trim() == "---" {
+                        rows.push((String::new(), false, String::new()));
+                        continue;
+                    }
+                    rows.push((line.clone(), code, String::new()));
+                }
+                // Blank lines at the ends say nothing.
+                while rows.last().is_some_and(|r| r.0.trim().is_empty()) {
+                    rows.pop();
+                }
+                rows.truncate(16);
+            }
+            PopupKind::Completion { items, selected: s } => {
+                let first = s.saturating_sub(7);
+                selected = Some(s - first);
+                rows = items
+                    .iter()
+                    .skip(first)
+                    .take(8)
+                    .map(|(label, detail)| (label.clone(), true, detail.clone()))
+                    .collect();
+            }
+        }
+        if rows.is_empty() {
+            return;
+        }
+        let row_h = 21.0;
+        let widest = rows
+            .iter()
+            .map(|(t, code, d)| {
+                self.text.width(t, if *code { mono } else { ui })
+                    + if d.is_empty() {
+                        0.0
+                    } else {
+                        self.text.width(d, ui) + 24.0
+                    }
+            })
+            .fold(0.0, f32::max);
+        let pw = (widest + 24.0).clamp(160.0, 560.0);
+        let ph = rows.len() as f32 * row_h + 14.0;
+        let below = ay + ch + 4.0;
+        let y = if below + ph > a.editor.bottom() - 4.0 && ay - ph - 4.0 > a.editor.y {
+            ay - ph - 4.0
+        } else {
+            below
+        };
+        let x = ax.min(a.editor.right() - pw - 8.0).max(a.editor.x + 4.0);
+        let r = Rect::new(x, y, pw, ph);
+        self.canvas.shadow(r, 8.0, theme::is_light(&p));
+        self.canvas.outline(r, 8.0, 1.0, p.border, p.widget);
+        self.hit(r, Hit::Block);
+        for (k, (text, code, detail)) in rows.iter().enumerate() {
+            let ry = r.y + 7.0 + k as f32 * row_h;
+            let row = Rect::new(r.x + 4.0, ry, r.w - 8.0, row_h);
+            if selected == Some(k) {
+                self.canvas.round(row, 4.0, p.focus_row);
+            }
+            if text.is_empty() && !code {
+                self.canvas.fill(
+                    Rect::new(r.x + 8.0, ry + row_h / 2.0, r.w - 16.0, 1.0),
+                    p.chip,
+                );
+                continue;
+            }
+            let face = if *code { mono } else { ui };
+            let colour = if *code { p.bright } else { p.text };
+            let shown = self.text.fit(text, face, row.w - 16.0);
+            self.text.draw_in_row(
+                &mut self.canvas,
+                &shown,
+                face,
+                row.x + 8.0,
+                ry,
+                row_h,
+                colour,
+                row,
+            );
+            if !detail.is_empty() {
+                let dw = self.text.width(detail, ui).min(row.w * 0.5);
+                let shown = self.text.fit(detail, ui, dw);
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    &shown,
+                    ui,
+                    row.right() - 8.0 - dw,
+                    ry,
+                    row_h,
+                    p.muted,
+                    row,
+                );
+            }
         }
     }
 

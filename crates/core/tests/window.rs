@@ -286,3 +286,59 @@ fn key_bindings_show_the_settings_changes() {
         assert_eq!(Key::parse(&key.spec()), Some(key), "{spec} reads back");
     }
 }
+
+#[test]
+fn a_right_click_opens_a_menu_that_runs_its_items() {
+    let mut s = windowed();
+    let (x, y) = s.editor.text_origin();
+    s.send(Event::ContextMenu(x + 4, y + 1));
+    let view = s.editor.window_view();
+    let menu = view.context.expect("a menu");
+    let labels: Vec<&str> = menu.items.iter().map(|i| i.label.as_str()).collect();
+    assert!(labels.contains(&"Copy") && labels.contains(&"Change All Occurrences"));
+    assert!(
+        !labels.contains(&"Go to Definition"),
+        "no language server loaded"
+    );
+    assert_eq!(
+        s.editor.cursor_utf16(),
+        (1, 4),
+        "the cursor went to the click"
+    );
+    let copy = labels.iter().position(|l| *l == "Copy").unwrap();
+    s.send(Event::Ui(UiEvent::ContextItem(copy)));
+    assert!(s.editor.window_view().context.is_none());
+    assert!(
+        s.effects
+            .iter()
+            .any(|e| matches!(e, merlin_core::Effect::Copy(t) if t == "    b(1);\n"))
+    );
+}
+
+#[test]
+fn the_context_menu_takes_arrows_and_escape() {
+    let mut s = windowed();
+    let (x, y) = s.editor.text_origin();
+    s.send(Event::ContextMenu(x, y));
+    s.run("key down");
+    assert_eq!(s.editor.window_view().context.unwrap().selected, Some(0));
+    s.run("key esc");
+    assert!(s.editor.window_view().context.is_none());
+    assert_eq!(s.editor.focus(), Focus::Editor);
+}
+
+#[test]
+fn a_window_drawing_the_text_leaves_it_out_of_the_screen() {
+    let mut s = windowed();
+    s.editor.set_own_text(true);
+    s.send(Event::Resize(80, 20));
+    assert!(!s.screen().contains("fn a()"), "{}", s.screen());
+    let views = s.editor.text_views();
+    assert_eq!(
+        views.last().unwrap().lines[0]
+            .chars
+            .iter()
+            .collect::<String>(),
+        "fn a() {"
+    );
+}

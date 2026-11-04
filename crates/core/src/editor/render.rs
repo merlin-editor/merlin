@@ -172,6 +172,13 @@ impl Editor {
             self.render_scrollbar(s, area);
             return;
         }
+        // A window may draw the text itself, from `text_views`; the cells
+        // keep the minimap and scrollbar.
+        if self.own_text {
+            self.render_minimap(s);
+            self.render_scrollbar(s, area);
+            return;
+        }
         let view = self.text_view(area);
         let gutter = view.gutter;
         let x0 = area.x as usize;
@@ -183,7 +190,7 @@ impl Editor {
             s.put(area.x, area.y + row, '~', Style::Muted);
         }
         for l in &view.lines {
-            let (y, shown, rows) = (area.y + l.row, l.shown, &l.rows);
+            let (y, shown, rows) = (area.y + l.row as u16, l.shown, &l.rows);
             if l.base != Style::Normal {
                 for r in 0..shown {
                     s.fill(
@@ -663,6 +670,10 @@ impl Editor {
         let Some(popup) = &self.popup else {
             return;
         };
+        // A window draws popups as cards of its own.
+        if self.own_text {
+            return;
+        }
         let Some((cx, cy)) = self.cursor_cell().filter(|_| self.focus == Focus::Editor) else {
             return;
         };

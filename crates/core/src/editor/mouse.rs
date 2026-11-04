@@ -12,10 +12,13 @@ impl Editor {
     pub(crate) fn mouse(&mut self, m: Mouse, fx: &mut Vec<Effect>) {
         // Moving only changes what's lit up, which `update` records.
         if m.kind == MouseKind::Move {
-            return;
+            return self.pointer_moved(m.x, m.y);
         }
         if m.kind == MouseKind::Down {
             self.popup = None;
+            self.probe = None;
+            self.hover_anchor = None;
+            self.close_context();
             self.clicks = m.clicks.max(1);
         }
         if self.palette.is_some() {

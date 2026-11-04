@@ -5,6 +5,7 @@
 //! text: every editor group, with its gutter, scrollbar and popups.
 
 use super::chrome::Action;
+use super::context::{ContextView, PopupView};
 use super::{Editor, Effect, Focus, Side, Source};
 use crate::icons::{Icon, icon};
 use crate::panel::{Node, Target};
@@ -41,6 +42,9 @@ pub enum UiEvent {
     ClosePalette,
     /// A notice's button, by its index.
     ToastButton(usize),
+    /// A right-click menu item, by its index in [`ContextView::items`].
+    ContextItem(usize),
+    CloseContext,
 }
 
 /// What the window draws around the text.
@@ -62,6 +66,8 @@ pub struct WindowView {
     pub problem: Option<(String, bool)>,
     pub palette: Option<PaletteView>,
     pub toast: Option<ToastView>,
+    pub context: Option<ContextView>,
+    pub popup: Option<PopupView>,
     /// Where keys go.
     pub focus: Focus,
     /// The page the active tab shows instead of text, by name, such as a
@@ -141,6 +147,12 @@ impl Editor {
     /// Has the window draw the frame, leaving the screen to the text.
     pub fn set_windowed(&mut self, on: bool) {
         self.windowed = on;
+    }
+
+    /// The window draws the text from [`Editor::text_views`], so the
+    /// screen leaves it out, keeping what floats over it.
+    pub fn set_own_text(&mut self, on: bool) {
+        self.own_text = on;
     }
 
     pub fn windowed(&self) -> bool {
@@ -343,6 +355,8 @@ impl Editor {
             problem,
             palette,
             toast,
+            context: self.context_view(),
+            popup: self.popup_view(),
             focus: self.focus,
             page: self.doc().page.as_ref().map(|(name, _)| name.clone()),
         }
@@ -350,6 +364,8 @@ impl Editor {
 
     pub(crate) fn ui(&mut self, event: UiEvent, armed: Option<&'static str>, fx: &mut Vec<Effect>) {
         match event {
+            UiEvent::ContextItem(i) => self.context_item(i, fx),
+            UiEvent::CloseContext => self.close_context(),
             UiEvent::Rail(i) => {
                 if let Some((_, action)) = self.rail_items().into_iter().nth(i) {
                     self.act(action, fx);

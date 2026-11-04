@@ -11,6 +11,7 @@
 //! from a plugin's process, or the half-second check for changed files.
 
 mod canvas;
+mod code;
 mod cpu;
 mod frame;
 mod gpu;
@@ -25,7 +26,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result};
 use merlin_core::screen::Cell;
-use merlin_core::{Event, Key, KeyCode, Mouse, MouseKind, Side, UiEvent, WindowView};
+use merlin_core::{Event, Key, KeyCode, Mouse, MouseKind, Side, TextView, UiEvent, WindowView};
 use merlin_plugins::PluginHost;
 use softbuffer::{Context, Surface};
 use winit::application::ApplicationHandler;
@@ -49,6 +50,15 @@ use scene::{Bitmaps, Scene};
 /// How often open files are checked for changes on disk, and plugins for
 /// rebuilds.
 const DISK_CHECK: Duration = Duration::from_millis(500);
+/// How long the mouse rests on a word before its hover shows, as in VS
+/// Code.
+const HOVER_DELAY: Duration = Duration::from_millis(500);
+/// The caret's blink, each way, and how long after the last input it
+/// keeps blinking before it stays on and the window sleeps.
+const BLINK: Duration = Duration::from_millis(530);
+const BLINK_FOR: Duration = Duration::from_secs(10);
+/// How long a scroll takes to glide to where it's going.
+const GLIDE: Duration = Duration::from_millis(110);
 
 pub fn run(app: &mut App) -> Result<()> {
     let event_loop = EventLoop::<()>::with_user_event()
@@ -56,6 +66,7 @@ pub fn run(app: &mut App) -> Result<()> {
         .context("opening a window")?;
     let _ = PROXY.set(Mutex::new(event_loop.create_proxy()));
     app.editor.set_windowed(true);
+    app.editor.set_own_text(true);
     let mut gui = Gui {
         app,
         window: None,
@@ -64,12 +75,20 @@ pub fn run(app: &mut App) -> Result<()> {
         modifiers: ModifiersState::empty(),
         pointer: None,
         pressed_in_text: false,
+        rest: None,
+        blink_from: Instant::now(),
+        caret_drawn: true,
+        focused: true,
+        glide: None,
+        last_scroll: None,
+        context_at: None,
         clicks: Clicks::default(),
         scroll: 0.0,
         state: State::default(),
         hits: Vec::new(),
         areas: Areas::default(),
         drawn: None,
+        drawn_text: Vec::new(),
         next_check: Instant::now() + DISK_CHECK,
         pictures: Pictures::default(),
         bitmaps: Bitmaps::default(),
@@ -106,6 +125,22 @@ struct Gui<'a> {
     pointer: Option<(f32, f32)>,
     /// The left button went down in the code, so moves are drags there.
     pressed_in_text: bool,
+    /// When the mouse, still on a cell of the text, asks for a hover.
+    rest: Option<(Instant, (u16, u16))>,
+    /// Where the right-click menu was opened, in logical pixels.
+    context_at: Option<(f32, f32)>,
+    /// The last input, which restarts the caret's blink.
+    blink_from: Instant,
+    /// Whether the caret was drawn on, for redrawing when it blinks.
+    caret_drawn: bool,
+    /// Whether the window has the keyboard; the caret blinks only then.
+    focused: bool,
+    /// A scroll gliding: when it began and how far, in physical pixels, the
+    /// lines started from where they are now.
+    glide: Option<(Instant, f32)>,
+    /// The active group's last top line and its area, to tell a scroll
+    /// from a change of layout.
+    last_scroll: Option<(usize, merlin_core::editor::CellRect)>,
     clicks: Clicks,
     /// Touchpad scrolling not yet turned into wheel steps, in pixels.
     scroll: f64,
@@ -125,6 +160,8 @@ struct Gui<'a> {
         (u32, u32),
         Look,
     )>,
+    /// The text last drawn, beside `drawn`.
+    drawn_text: Vec<TextView>,
     next_check: Instant,
     pictures: Pictures,
     /// The glyphs and pictures drawn so far, as scenes name them.
@@ -171,6 +208,9 @@ impl Gui<'_> {
     }
 
     fn dispatch(&mut self, event: Event) {
+        if !matches!(event, Event::HoverAt(..)) {
+            self.blink_from = Instant::now();
+        }
         self.app.dispatch(event);
         self.fit_text();
         self.redraw();
@@ -245,7 +285,22 @@ impl Gui<'_> {
     }
 
     fn text_mouse(&mut self, kind: MouseKind, at: (f32, f32), clicks: u8) {
-        let (x, y) = self.cell_at(at);
+        let (mut x, y) = self.cell_at(at);
+        // In the code, a click goes to the nearest gap between characters,
+        // not the cell it's in.
+        if matches!(kind, MouseKind::Down | MouseKind::Drag)
+            && let Some(grid) = &self.grid
+        {
+            let s = self.scale();
+            let column = (at.0 - self.areas.text.x).max(0.0) * s / grid.cell_w as f32;
+            let in_code = self.drawn_text.iter().any(|v| {
+                let first = v.area.x + v.gutter as u16;
+                v.area.contains(x, y) && x >= first && x < first + v.columns as u16
+            });
+            if in_code {
+                x = (column + 0.5) as u16;
+            }
+        }
         self.dispatch(Event::Mouse(Mouse {
             kind,
             x,
@@ -384,6 +439,23 @@ impl Gui<'_> {
 
     fn paint(&mut self) {
         let s = self.scale();
+        let cell_h = self.grid.as_ref().map_or(1, |g| g.cell_h) as f32;
+        let texts = self.app.editor.text_views();
+        let caret_on = self.caret_on();
+        // A scroll since the last frame glides there from where it was.
+        if let Some(v) = texts.last() {
+            if let Some((was, area)) = &self.last_scroll
+                && *area == v.area
+                && *was != v.scroll
+                && v.overscan > 0
+            {
+                let rows = v.scroll as f32 - *was as f32;
+                let from = self.glide_offset() + rows * cell_h;
+                self.glide = (rows.abs() <= v.overscan as f32).then(|| (Instant::now(), from));
+            }
+            self.last_scroll = Some((v.scroll, v.area));
+        }
+        let glide = self.glide_offset();
         let (Some(shown), Some(text), Some(grid)) =
             (&mut self.window, &mut self.text, &mut self.grid)
         else {
@@ -421,7 +493,12 @@ impl Gui<'_> {
             (size.width, size.height),
             self.app.look.clone(),
         ));
-        if self.drawn == drawn {
+        let gliding = self.glide.is_some();
+        if self.drawn == drawn
+            && self.drawn_text == texts
+            && caret_on == self.caret_drawn
+            && !gliding
+        {
             return;
         }
         // Packs changed: their pictures may have too. Too many bitmaps:
@@ -453,12 +530,27 @@ impl Gui<'_> {
         };
         f.base(&view, &areas, &mut self.state, w, h);
         let t = areas.text;
+        let origin = ((t.x * s) as usize, (t.y * s) as usize);
+        let last = texts.len().saturating_sub(1);
+        for (i, text) in texts.iter().enumerate() {
+            let glide = if i == last { glide } else { 0.0 };
+            grid.draw_code(
+                text,
+                &mut f.canvas,
+                origin,
+                &self.app.look.palette,
+                caret_on,
+                glide,
+            );
+        }
         grid.draw(
             &screen,
             &mut f.canvas,
             ((t.x * s) as usize, (t.y * s) as usize),
             &self.app.look.palette,
         );
+        let cell = (grid.cell_w as f32 / s, grid.cell_h as f32 / s);
+        f.floating(&view, &areas, cell, self.context_at, w, h);
         f.overlays(&view, &areas, w, h);
         self.hits = std::mem::take(&mut f.hits);
         let shown_ok = match &mut shown.backend {
@@ -488,6 +580,47 @@ impl Gui<'_> {
                 .map(|(i, _)| i)
         });
         self.drawn = drawn.map(|d| (d.0, d.1, d.2, hovered, d.4, d.5, d.6));
+        self.drawn_text = texts;
+        self.caret_drawn = caret_on;
+        // Until the glide ends, every frame moves it on.
+        if self.glide.is_some() {
+            if glide == 0.0 {
+                self.glide = None;
+            }
+            self.redraw();
+        }
+    }
+
+    /// Whether the caret shows now: on for a while after each input, then
+    /// blinking, then on for good once the user has been away a while.
+    fn caret_on(&self) -> bool {
+        let since = self.blink_from.elapsed();
+        !self.focused
+            || since >= BLINK_FOR
+            || (since.as_millis() / BLINK.as_millis()).is_multiple_of(2)
+    }
+
+    /// When the caret next blinks, if it's still blinking.
+    fn next_blink(&self) -> Option<Instant> {
+        let since = self.blink_from.elapsed();
+        if !self.focused || since >= BLINK_FOR {
+            return None;
+        }
+        let k = since.as_millis() / BLINK.as_millis() + 1;
+        Some(self.blink_from + BLINK * k as u32)
+    }
+
+    /// How far, in physical pixels, the lines are from where they're
+    /// gliding to: eased out, so it starts quick and settles.
+    fn glide_offset(&self) -> f32 {
+        let Some((start, from)) = self.glide else {
+            return 0.0;
+        };
+        let t = start.elapsed().as_secs_f32() / GLIDE.as_secs_f32();
+        if t >= 1.0 {
+            return 0.0;
+        }
+        from * (1.0 - t).powi(3)
     }
 
     fn tick(&mut self) {
@@ -543,6 +676,15 @@ impl ApplicationHandler for Gui<'_> {
 
     fn new_events(&mut self, _: &ActiveEventLoop, cause: StartCause) {
         if let StartCause::ResumeTimeReached { .. } = cause {
+            if let Some((when, (x, y))) = self.rest
+                && Instant::now() >= when
+            {
+                self.rest = None;
+                self.dispatch(Event::HoverAt(x, y));
+            }
+            if self.caret_on() != self.caret_drawn {
+                self.redraw();
+            }
             self.tick();
         }
     }
@@ -570,6 +712,11 @@ impl ApplicationHandler for Gui<'_> {
                 }
             }
             WindowEvent::RedrawRequested => self.paint(),
+            WindowEvent::Focused(on) => {
+                self.focused = on;
+                self.blink_from = Instant::now();
+                self.redraw();
+            }
             WindowEvent::ModifiersChanged(m) => self.modifiers = m.state(),
             WindowEvent::KeyboardInput { event, .. } => self.key(event),
             WindowEvent::CursorMoved { position, .. } => self.moved(position),
@@ -590,6 +737,19 @@ impl ApplicationHandler for Gui<'_> {
                 } else if self.pressed_in_text {
                     self.pressed_in_text = false;
                     self.text_mouse(MouseKind::Up, at, 1);
+                }
+            }
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                button: MouseButton::Right,
+                ..
+            } => {
+                let Some(at) = self.pointer else { return };
+                self.rest = None;
+                if let Some((_, Hit::Text)) = self.hit_at(at) {
+                    let (x, y) = self.cell_at(at);
+                    self.context_at = Some(at);
+                    self.dispatch(Event::ContextMenu(x, y));
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => match delta {
@@ -619,7 +779,11 @@ impl ApplicationHandler for Gui<'_> {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_check));
+        let wake = [self.rest.map(|(when, _)| when), self.next_blink()]
+            .into_iter()
+            .flatten()
+            .fold(self.next_check, Instant::min);
+        event_loop.set_control_flow(ControlFlow::WaitUntil(wake));
     }
 }
 
@@ -654,12 +818,16 @@ impl Gui<'_> {
         }
         let over = self.hit_at(at).map(|(i, h)| (i, h.clone()));
         if let Some((_, Hit::Text)) = over {
-            // The editor lights up what's under the mouse in the code.
-            if old_cell != Some(self.cell_at(at)) {
+            // The editor lights up what's under the mouse in the code, and
+            // a rest on a word brings up its hover.
+            let cell = self.cell_at(at);
+            if old_cell != Some(cell) {
                 self.text_mouse(MouseKind::Move, at, 1);
+                self.rest = Some((Instant::now() + HOVER_DELAY, cell));
             }
             return;
         }
+        self.rest = None;
         if before != over.map(|(i, _)| i) {
             self.redraw();
         }
