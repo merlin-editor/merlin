@@ -327,7 +327,10 @@ impl Editor {
     /// The Plugins view: each plugin, how it runs, and what it adds.
     fn plugins_nodes(&self) -> Vec<Node> {
         use crate::icons::{Icon, icon};
-        let mut nodes = vec![Node::Heading(format!("Installed · {}", self.plugin_list.len()))];
+        let mut nodes = vec![Node::Heading(format!(
+            "Installed · {}",
+            self.plugin_list.len()
+        ))];
         for p in &self.plugin_list {
             nodes.push(Node::Entry(crate::panel::Entry {
                 id: format!("plugin:{}", p.name),

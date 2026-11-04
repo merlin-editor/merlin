@@ -37,7 +37,10 @@ fn the_view_has_tabs_status_and_rail() {
             .any(|i| i.right && i.text.starts_with("Ln 1"))
     );
     let labels: Vec<_> = view.rail.iter().map(|r| r.label.as_str()).collect();
-    assert_eq!(labels, ["Explorer", "Search", "Source Control", "Outline", "Plugins"]);
+    assert_eq!(
+        labels,
+        ["Explorer", "Search", "Source Control", "Outline", "Plugins"]
+    );
 }
 
 #[test]
@@ -185,7 +188,10 @@ fn icon_themes_have_their_own_picker() {
 fn rail_items_say_what_they_show() {
     let s = windowed();
     let ids: Vec<_> = s.editor.window_view().rail.iter().map(|r| r.id).collect();
-    assert_eq!(ids, ["explorer", "search", "source-control", "outline", "plugins"]);
+    assert_eq!(
+        ids,
+        ["explorer", "search", "source-control", "outline", "plugins"]
+    );
 }
 
 #[test]
@@ -200,7 +206,10 @@ fn the_plugins_view_lists_plugins_and_opens_their_pages() {
         tone: Tone::Warning,
     }]));
     let rail = s.editor.window_view().rail;
-    let i = rail.iter().position(|r| r.id == "plugins").expect("a Plugins rail item");
+    let i = rail
+        .iter()
+        .position(|r| r.id == "plugins")
+        .expect("a Plugins rail item");
     s.send(Event::Ui(UiEvent::Rail(i)));
     let left = s.editor.window_view().left.expect("the Plugins view shows");
     assert_eq!(left.title, "Plugins");
@@ -214,7 +223,11 @@ fn the_plugins_view_lists_plugins_and_opens_their_pages() {
         index: left.targets[row].unwrap(),
     }));
     let view = s.editor.window_view();
-    assert_eq!(view.page.as_deref(), Some("lsp"), "its page is the active tab");
+    assert_eq!(
+        view.page.as_deref(),
+        Some("lsp"),
+        "its page is the active tab"
+    );
     assert!(view.tabs.iter().any(|t| t.name == "Language" && t.active));
 
     // A page has no text to type into, and opening it again reuses its tab.
@@ -255,10 +268,20 @@ fn key_bindings_show_the_settings_changes() {
     assert_eq!(minimap.keys, [("ctrl+k".to_string(), "Ctrl+K".to_string())]);
     assert!(minimap.changed);
     let sidebar = find("view.sidebar");
-    assert!(sidebar.keys.is_empty() && sidebar.changed, "Ctrl+B was unbound");
+    assert!(
+        sidebar.keys.is_empty() && sidebar.changed,
+        "Ctrl+B was unbound"
+    );
     let palette = find("palette.open");
     assert!(!palette.changed && palette.keys.len() == 2);
-    for spec in ["ctrl+shift+p", "f1", "alt+z", "ctrl+,", "shift+alt+up", "ctrl+pagedown"] {
+    for spec in [
+        "ctrl+shift+p",
+        "f1",
+        "alt+z",
+        "ctrl+,",
+        "shift+alt+up",
+        "ctrl+pagedown",
+    ] {
         let key = Key::parse(spec).unwrap();
         assert_eq!(Key::parse(&key.spec()), Some(key), "{spec} reads back");
     }

@@ -1,6 +1,6 @@
 [package]
 name = "merlin"
-description = "A terminal editor with sandboxed WebAssembly plugins"
+description = "A light native code editor with sandboxed WebAssembly plugins"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

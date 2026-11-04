@@ -354,17 +354,27 @@ fn plugin_pages_count_memory_and_time_and_plugins_turn_off_and_on() {
 
     let events = host.set_enabled("testbed", false);
     assert!(
-        events.iter().any(|e| matches!(e, Event::SetPanel { panel: None, .. })),
+        events
+            .iter()
+            .any(|e| matches!(e, Event::SetPanel { panel: None, .. })),
         "its panel goes: {events:?}"
     );
-    assert!(host.run_command("testbed", "count", snapshot()).is_empty(), "off, it runs nothing");
-    assert!(host.render_panels(&snapshot()).is_empty(), "no permission card when off");
+    assert!(
+        host.run_command("testbed", "count", snapshot()).is_empty(),
+        "off, it runs nothing"
+    );
+    assert!(
+        host.render_panels(&snapshot()).is_empty(),
+        "no permission card when off"
+    );
     let info = host.plugins().into_iter().next().unwrap();
     assert!(!info.enabled && !info.waiting && info.memory == 0);
 
     let events = host.set_enabled("testbed", true);
     assert!(
-        events.iter().any(|e| matches!(e, Event::RegisterPlugin { commands, .. } if !commands.is_empty())),
+        events
+            .iter()
+            .any(|e| matches!(e, Event::RegisterPlugin { commands, .. } if !commands.is_empty())),
         "on again, it registers its commands: {events:?}"
     );
     assert!(host.unload("testbed").len() == 2);

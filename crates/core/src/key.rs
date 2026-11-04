@@ -57,7 +57,11 @@ impl Key {
     /// reads back.
     pub fn spec(&self) -> String {
         let mut s = String::new();
-        for (on, name) in [(self.ctrl, "ctrl+"), (self.alt, "alt+"), (self.shift, "shift+")] {
+        for (on, name) in [
+            (self.ctrl, "ctrl+"),
+            (self.alt, "alt+"),
+            (self.shift, "shift+"),
+        ] {
             if on {
                 s.push_str(name);
             }

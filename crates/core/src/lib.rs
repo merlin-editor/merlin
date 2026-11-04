@@ -23,9 +23,8 @@ pub mod symbols;
 
 pub use editor::{
     Command, Editor, Effect, Event, Focus, GitAction, KeyBinding, Mouse, MouseKind, PaletteView,
-    PluginSummary, RailItem,
-    SearchHit, Settings, Side, SideView, StatusView, TabView, ThemeKind, ToastView, UiEvent,
-    WindowView, Workspace,
+    PluginSummary, RailItem, SearchHit, Settings, Side, SideView, StatusView, TabView, ThemeKind,
+    ToastView, UiEvent, WindowView, Workspace,
 };
 pub use key::{Key, KeyCode};
 pub use lang::{Completion, Diagnostic, Severity};

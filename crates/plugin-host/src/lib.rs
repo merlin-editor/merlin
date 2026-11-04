@@ -1216,7 +1216,10 @@ impl PluginHost {
             .map(|p| {
                 let m = &p.manifest;
                 let (memory, processes) = match &p.instance {
-                    Some(i) => (i.store.data().limits.memory, i.store.data().processes.running()),
+                    Some(i) => (
+                        i.store.data().limits.memory,
+                        i.store.data().processes.running(),
+                    ),
                     None => (0, Vec::new()),
                 };
                 PluginInfo {
@@ -1230,7 +1233,12 @@ impl PluginHost {
                     failed: p.failed,
                     permissions: m.permissions.clone(),
                     languages: m.languages.iter().map(|l| l.name.clone()).collect(),
-                    looks: m.themes.iter().chain(&m.packs).map(|t| t.label.clone()).collect(),
+                    looks: m
+                        .themes
+                        .iter()
+                        .chain(&m.packs)
+                        .map(|t| t.label.clone())
+                        .collect(),
                     settings: plugin_settings(m, &self.settings),
                     defaults: m.settings.clone(),
                     memory,

@@ -1,0 +1,260 @@
+//! Commands: the built-in ones by id and title, and running one.
+
+use super::*;
+
+/// Commands, titled as VS Code titles them. Menus show the part after the
+/// colon.
+pub(super) const BUILTIN: &[(&str, &str)] = &[
+    ("file.open", "Go: Go to File…"),
+    ("file.save", "File: Save"),
+    ("file.close", "File: Close Editor"),
+    ("file.next", "View: Next Editor"),
+    ("file.keep", "View: Keep Editor Open"),
+    ("view.breadcrumbs", "View: Toggle Breadcrumbs"),
+    ("view.sticky_scroll", "View: Toggle Sticky Scroll"),
+    ("edit.fold", "Fold"),
+    ("edit.unfold", "Unfold"),
+    ("edit.fold_all", "Fold All"),
+    ("edit.unfold_all", "Unfold All"),
+    ("file.prev", "View: Previous Editor"),
+    ("edit.undo", "Edit: Undo"),
+    ("edit.redo", "Edit: Redo"),
+    ("edit.select_all", "Selection: Select All"),
+    ("edit.copy", "Edit: Copy"),
+    ("edit.cut", "Edit: Cut"),
+    ("edit.paste", "Edit: Paste"),
+    ("edit.comment", "Edit: Toggle Line Comment"),
+    ("edit.indent", "Selection: Indent Lines"),
+    ("edit.outdent", "Selection: Outdent Lines"),
+    ("find.open", "Edit: Find"),
+    ("find.replace", "Edit: Replace"),
+    ("palette.open", "View: Command Palette…"),
+    ("view.sidebar", "View: Toggle Side Bar"),
+    ("view.explorer", "View: Explorer"),
+    ("view.search", "View: Search"),
+    ("view.outline", "View: Outline"),
+    ("settings.user", "Preferences: Open User Settings"),
+    ("settings.workspace", "Preferences: Open Workspace Settings"),
+    ("settings.open", "Preferences: Open Settings"),
+    ("view.plugins", "View: Plugins"),
+    ("theme.pick", "Preferences: Color Theme"),
+    ("icons.pick", "Preferences: File Icon Theme"),
+    ("go.symbol", "Go to Symbol in Editor"),
+    ("view.changes", "View: Source Control"),
+    ("panel.toggle", "View: Focus Secondary Side Bar"),
+    ("view.secondary", "View: Toggle Secondary Side Bar"),
+    ("view.panel", "View: Toggle Panel"),
+    ("view.minimap", "View: Toggle Minimap"),
+    ("view.wrap", "View: Toggle Word Wrap"),
+    ("view.split", "View: Split Editor Right"),
+    ("view.split_down", "View: Split Editor Down"),
+    ("edit.add_next", "Selection: Add Next Occurrence"),
+    (
+        "edit.select_all_matches",
+        "Selection: Select All Occurrences",
+    ),
+    ("edit.cursor_above", "Selection: Add Cursor Above"),
+    ("edit.cursor_below", "Selection: Add Cursor Below"),
+    ("view.group1", "View: Focus First Editor Group"),
+    ("view.group2", "View: Focus Second Editor Group"),
+    ("view.group3", "View: Focus Third Editor Group"),
+    ("view.problems", "View: Problems"),
+    ("view.output", "View: Output"),
+    ("go.line", "Go: Go to Line…"),
+    ("review.next", "Go: Next Change to Review"),
+    ("nav.back", "Go: Back"),
+    ("app.about", "Help: About"),
+    ("app.quit", "File: Exit"),
+];
+
+pub(super) fn set_flag(key: &str, on: bool) -> Effect {
+    Effect::SetSetting {
+        key: key.into(),
+        value: on.to_string(),
+    }
+}
+
+impl Editor {
+    pub(crate) fn run(&mut self, id: &str, armed: Option<&'static str>, fx: &mut Vec<Effect>) {
+        match id {
+            "file.save" => {
+                let doc = self.doc();
+                match &doc.buffer.path {
+                    Some(path) => fx.push(Effect::Save {
+                        doc: doc.id,
+                        path: path.clone(),
+                        text: doc.buffer.text(),
+                        revision: doc.buffer.revision(),
+                    }),
+                    None => self.error("No file name. Start with `merlin <file>`.".into()),
+                }
+            }
+            "file.open" => fx.push(Effect::ListFiles),
+            "file.close" => self.close(armed == Some("file.close")),
+            "file.next" => self.next_tab(true),
+            "file.keep" => self.keep_open(),
+            "view.breadcrumbs" => {
+                self.breadcrumbs = !self.breadcrumbs;
+                fx.push(set_flag("editor.breadcrumbs", self.breadcrumbs));
+            }
+            "view.sticky_scroll" => {
+                self.sticky_scroll = !self.sticky_scroll;
+                fx.push(set_flag("editor.sticky_scroll", self.sticky_scroll));
+            }
+            "settings.user" => fx.push(Effect::OpenSettings { workspace: false }),
+            "settings.workspace" => fx.push(Effect::OpenSettings { workspace: true }),
+            "edit.fold" => self.fold(),
+            "edit.unfold" => self.unfold(),
+            "edit.fold_all" => self.fold_all(),
+            "edit.unfold_all" => self.unfold_all(),
+            "file.prev" => self.next_tab(false),
+            "view.split" => self.split(false),
+            "view.split_down" => self.split(true),
+            "edit.add_next" => self.add_next_occurrence(),
+            "edit.select_all_matches" => self.select_all_occurrences(),
+            "edit.cursor_above" => self.add_caret_vertical(false),
+            "edit.cursor_below" => self.add_caret_vertical(true),
+            "view.group1" => self.focus_group(0),
+            "view.group2" => self.focus_group(1),
+            "view.group3" => self.focus_group(2),
+            "nav.back" => self.go_back(),
+            "view.sidebar" => self.toggle_side_bar(fx),
+            "view.explorer" => self.show_view(views::EXPLORER, fx),
+            "view.search" => self.show_view(views::SEARCH, fx),
+            "view.outline" => self.show_view(views::OUTLINE, fx),
+            "go.symbol" => {
+                let items = crate::symbols::symbols(self.doc())
+                    .into_iter()
+                    .map(|s| {
+                        let label = if s.kind == "#" || s.kind == "impl" {
+                            s.name
+                        } else {
+                            format!("{} {}", s.kind, s.name)
+                        };
+                        (
+                            s.line.to_string(),
+                            format!("{}{label}", "  ".repeat(s.depth)),
+                        )
+                    })
+                    .collect();
+                self.palette = Some(Palette::new(
+                    Source::Symbols,
+                    Some("Go to symbol".into()),
+                    items,
+                ));
+                self.focus = Focus::Palette;
+            }
+            "view.changes" => self.show_view(views::CHANGES, fx),
+            "view.panel" => self.toggle_bottom(),
+            "view.minimap" => {
+                self.minimap = !self.minimap;
+                fx.push(set_flag("editor.minimap", self.minimap));
+            }
+            "view.wrap" => {
+                self.wrap = !self.wrap;
+                fx.push(set_flag("editor.word_wrap", self.wrap));
+                self.doc_mut().hscroll = 0;
+                self.scroll_to_cursor();
+            }
+            "view.problems" => self.show_bottom(views::PROBLEMS),
+            "view.output" => self.show_bottom(views::OUTPUT),
+            "view.secondary" => {
+                let bar = self.bar_mut(Side::Right);
+                bar.visible = !bar.visible;
+                if !bar.visible && self.focus == Focus::Panel {
+                    self.focus = Focus::Editor;
+                }
+            }
+            "review.next" => {
+                let next = (1..=self.docs.len())
+                    .map(|k| (self.current + k) % self.docs.len())
+                    .find(|&i| {
+                        self.docs[i]
+                            .review
+                            .as_ref()
+                            .is_some_and(|r| !r.plugin.is_empty())
+                    });
+                match next {
+                    Some(i) => {
+                        self.current = i;
+                        self.focus = Focus::Editor;
+                    }
+                    None => self.notify("No changes to review".into()),
+                }
+            }
+            "go.line" => {
+                self.palette = Some(Palette::new(
+                    Source::Line,
+                    Some("Go to line".into()),
+                    Vec::new(),
+                ));
+                self.focus = Focus::Palette;
+            }
+            "edit.comment" => self.toggle_comment(),
+            "edit.indent" => self.indent_lines(true),
+            "edit.outdent" => self.indent_lines(false),
+            "app.about" => self.notify(format!("merlin {}", env!("CARGO_PKG_VERSION"))),
+            menu if menu.starts_with("menu.") => {
+                let title = menu.strip_prefix("menu.").filter(|t| *t != "open");
+                self.open_menu(title);
+            }
+            "edit.undo" => match self.doc_mut().buffer.undo() {
+                Some(cursor) => self.set_cursor(cursor),
+                None => self.notify("Nothing to undo".into()),
+            },
+            "edit.redo" => match self.doc_mut().buffer.redo() {
+                Some(cursor) => self.set_cursor(cursor),
+                None => self.notify("Nothing to redo".into()),
+            },
+            "edit.select_all" => {
+                let doc = self.doc_mut();
+                doc.anchor = Some(0);
+                doc.cursor = doc.buffer.len();
+                self.focus = Focus::Editor;
+            }
+            "edit.copy" => self.copy(false, fx),
+            "edit.cut" => self.copy(true, fx),
+            "edit.paste" => fx.push(Effect::ReadClipboard),
+            "find.open" => self.open_find(false),
+            "find.replace" => self.open_find(true),
+            "palette.open" => {
+                self.palette = Some(Palette::new(Source::Commands, None, Vec::new()));
+                self.focus = Focus::Palette;
+            }
+            "settings.open" => fx.push(Effect::OpenSettingsWindow),
+            "view.plugins" => self.show_view(views::PLUGINS, fx),
+            "theme.pick" => self.pick_theme(ThemeKind::Colours),
+            "icons.pick" => self.pick_theme(ThemeKind::Icons),
+            // Show and focus, then step through the panels, then hide.
+            "panel.toggle" => self.toggle_plugin_panels(),
+            "app.quit" => {
+                let dirty = self.docs.iter().filter(|d| d.buffer.is_dirty()).count();
+                if dirty > 0 && armed != Some("app.quit") {
+                    self.armed = Some("app.quit");
+                    let what = match dirty {
+                        1 => "Unsaved changes".to_string(),
+                        n => format!("{n} files have unsaved changes"),
+                    };
+                    self.error(format!(
+                        "{what}. Press Ctrl+Q again to quit without saving."
+                    ));
+                } else {
+                    fx.push(Effect::Quit);
+                }
+            }
+            other => {
+                let found = self.plugins.iter().find_map(|p| {
+                    let local = other.strip_prefix(&p.name)?.strip_prefix('.')?;
+                    p.commands
+                        .iter()
+                        .any(|c| c.id == local)
+                        .then(|| (p.name.clone(), local.to_string()))
+                });
+                match found {
+                    Some((plugin, command)) => fx.push(Effect::PluginCommand { plugin, command }),
+                    None => self.error(format!("Unknown command: {other}")),
+                }
+            }
+        }
+    }
+}

@@ -113,7 +113,7 @@ fn reloads_when_the_component_changes() {
         matches!(events.first(), Some(Event::RegisterPlugin { .. })),
         "{events:?}"
     );
-    assert!(matches!(events.last(), Some(Event::Notify(m)) if m == "Reloaded reloading"));
+    assert!(matches!(events.last(), Some(Event::Notify(m)) if m == "Reloaded Test"));
     fs::remove_dir_all(dir).unwrap();
 }
 
