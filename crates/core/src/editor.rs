@@ -220,6 +220,13 @@ pub enum Event {
         plugin: String,
         id: String,
     },
+    /// Unsaved changes kept from a run that didn't close cleanly: the
+    /// file's text as it was, or an untitled file's with no path. The file
+    /// opens with them, unsaved.
+    Recovered {
+        path: Option<PathBuf>,
+        text: String,
+    },
     /// An open file changed on disk. It reloads unless it has unsaved
     /// changes.
     FileChanged {
@@ -839,6 +846,24 @@ impl Editor {
     }
 
     /// Paths of the open files, in tab order.
+    /// Every open file with unsaved changes: its id, path (none if
+    /// untitled) and buffer version.
+    pub fn unsaved(&self) -> Vec<(u64, Option<PathBuf>, u64)> {
+        self.docs
+            .iter()
+            .filter(|d| d.buffer.is_dirty() && d.page.is_none())
+            .map(|d| (d.id, d.buffer.path.clone(), d.buffer.version()))
+            .collect()
+    }
+
+    /// The text of the open file with id `doc`.
+    pub fn text_of(&self, doc: u64) -> Option<String> {
+        self.docs
+            .iter()
+            .find(|d| d.id == doc)
+            .map(|d| d.buffer.text())
+    }
+
     pub fn open_files(&self) -> Vec<Option<PathBuf>> {
         self.docs.iter().map(|d| d.buffer.path.clone()).collect()
     }
@@ -1098,6 +1123,7 @@ impl Editor {
             } => self.show_review(plugin, id, path, &old, &new),
             Event::CloseReview { plugin, id } => self.close_review(&plugin, &id),
             Event::FileChanged { path, text } => self.file_changed(&path, &text),
+            Event::Recovered { path, text } => self.recovered(path, &text),
             Event::GitBase { path, text } => {
                 for doc in &mut self.docs {
                     if doc.buffer.path.as_ref() == Some(&path) {
@@ -1586,6 +1612,30 @@ impl Editor {
     // Files on disk ------------------------------------------------------------
 
     /// Reloads a file that changed on disk, as one step that can be undone.
+    fn recovered(&mut self, path: Option<PathBuf>, text: &str) {
+        let at = path.as_ref().and_then(|p| {
+            self.docs
+                .iter()
+                .position(|d| d.buffer.path.as_ref() == Some(p))
+        });
+        let i = match at {
+            Some(i) => i,
+            // An untitled file, or one that's gone from disk.
+            None => {
+                let id = self.new_id();
+                self.docs.push(Doc::new(id, "", path));
+                self.docs.len() - 1
+            }
+        };
+        let doc = &mut self.docs[i];
+        let old = doc.buffer.text();
+        if old != text {
+            replace_text(doc, &old, text);
+        }
+        self.current = i;
+        self.sync_groups();
+    }
+
     fn file_changed(&mut self, path: &PathBuf, text: &str) {
         let Some(i) = self
             .docs
@@ -1608,37 +1658,7 @@ impl Editor {
                 "{name} changed on disk, and has unsaved changes here. Saving will overwrite it."
             ));
         }
-        // The cursor and selection keep their line, wherever it moved to.
-        let lines = crate::diff::line_map(&old, text);
-        let keep = |pos: usize| {
-            let (line, col) = doc.line_col(pos);
-            (lines.get(line).copied().unwrap_or(line), col)
-        };
-        let (cursor, anchor) = (keep(doc.cursor), doc.anchor.map(keep));
-        // Replace only what differs, so marks outside it stay put.
-        let old: Vec<char> = old.chars().collect();
-        let new: Vec<char> = text.chars().collect();
-        let prefix = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
-        let suffix = old[prefix..]
-            .iter()
-            .rev()
-            .zip(new[prefix..].iter().rev())
-            .take_while(|(a, b)| a == b)
-            .count();
-        let edit = Edit {
-            at: prefix,
-            removed: old[prefix..old.len() - suffix].iter().collect(),
-            inserted: new[prefix..new.len() - suffix].iter().collect(),
-        };
-        doc.buffer.begin(doc.cursor, Kind::Other);
-        doc.buffer.apply(edit);
-        let place = |doc: &Doc, (line, col): (usize, usize)| {
-            let line = line.min(doc.last_line());
-            doc.line_start(line) + col.min(doc.buffer.line_len(line))
-        };
-        doc.cursor = place(doc, cursor);
-        doc.anchor = anchor.map(|a| place(doc, a));
-        doc.buffer.commit(doc.cursor);
+        replace_text(doc, &old, text);
         doc.buffer.mark_saved(doc.buffer.revision());
         let name = doc.name();
         self.notify(format!("Reloaded {name}, changed on disk"));
@@ -1799,4 +1819,40 @@ impl Editor {
             message.actions.push((label.into(), command.into()));
         }
     }
+}
+
+/// Changes `doc`'s text from `old` to `text` as one undo step, keeping the
+/// cursor and selection on their lines.
+fn replace_text(doc: &mut Doc, old: &str, text: &str) {
+    // The cursor and selection keep their line, wherever it moved to.
+    let lines = crate::diff::line_map(old, text);
+    let keep = |pos: usize| {
+        let (line, col) = doc.line_col(pos);
+        (lines.get(line).copied().unwrap_or(line), col)
+    };
+    let (cursor, anchor) = (keep(doc.cursor), doc.anchor.map(keep));
+    // Replace only what differs, so marks outside it stay put.
+    let old: Vec<char> = old.chars().collect();
+    let new: Vec<char> = text.chars().collect();
+    let prefix = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
+    let suffix = old[prefix..]
+        .iter()
+        .rev()
+        .zip(new[prefix..].iter().rev())
+        .take_while(|(a, b)| a == b)
+        .count();
+    let edit = Edit {
+        at: prefix,
+        removed: old[prefix..old.len() - suffix].iter().collect(),
+        inserted: new[prefix..new.len() - suffix].iter().collect(),
+    };
+    doc.buffer.begin(doc.cursor, Kind::Other);
+    doc.buffer.apply(edit);
+    let place = |doc: &Doc, (line, col): (usize, usize)| {
+        let line = line.min(doc.last_line());
+        doc.line_start(line) + col.min(doc.buffer.line_len(line))
+    };
+    doc.cursor = place(doc, cursor);
+    doc.anchor = anchor.map(|a| place(doc, a));
+    doc.buffer.commit(doc.cursor);
 }

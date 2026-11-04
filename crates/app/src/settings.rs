@@ -107,7 +107,10 @@ impl Files {
 
     /// Takes `key` out of the user's settings or the workspace's, so the
     /// default, or the user's under the workspace's, shows through.
-    #[expect(dead_code, reason = "for the Settings window in prefs.rs, not wired in yet")]
+    #[expect(
+        dead_code,
+        reason = "for the Settings window in prefs.rs, not wired in yet"
+    )]
     pub fn remove_in(&self, workspace: bool, key: &str) -> Result<(), String> {
         self.edit(workspace, key, |table, last| {
             table.remove(last);
@@ -150,7 +153,10 @@ impl Files {
     }
 
     /// Each file's settings on their own: the user's, then the workspace's.
-    #[expect(dead_code, reason = "for the Settings window in prefs.rs, not wired in yet")]
+    #[expect(
+        dead_code,
+        reason = "for the Settings window in prefs.rs, not wired in yet"
+    )]
     pub fn each(&self) -> (toml::Table, toml::Table) {
         let read = |p: &Path| {
             fs::read_to_string(p)

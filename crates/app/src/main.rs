@@ -1,5 +1,7 @@
 mod clipboard;
+mod disk;
 mod gui;
+mod jobs;
 mod looks;
 mod packs;
 mod settings;
@@ -13,6 +15,8 @@ use std::time::{Duration, Instant, SystemTime};
 use std::{env, fs, io};
 
 use anyhow::{Context, Result, bail};
+use disk::{Backups, Changes, Watch};
+use jobs::{Jobs, Lane};
 use merlin_core::screen::{Screen, WIDE_TAIL};
 use merlin_core::script::{self, Step};
 use merlin_core::{Editor, Effect, Event, FileOp, GitAction, SearchHit, Workspace};
@@ -180,6 +184,20 @@ struct App {
     /// The files of the packs stacked, and when each last changed, so a
     /// pack being written shows its changes on save.
     watched: Vec<(PathBuf, Option<SystemTime>)>,
+    /// Disk, git and project walks, off the window's thread.
+    jobs: Jobs,
+    /// The folders whose files the editor cares about.
+    watch: Watch,
+    /// What changed on disk, waiting to settle until `settle`.
+    changes: Changes,
+    settle: Option<Instant>,
+    /// The project's folders, from the last walk, to watch.
+    tree_dirs: Vec<PathBuf>,
+    /// A hash of the last walk, so one that found the same sends nothing.
+    tree_hash: Option<u64>,
+    /// What the watched folders were last worked out from.
+    watch_for: Option<(Vec<Option<PathBuf>>, usize)>,
+    backups: Backups,
     quit: bool,
 }
 
@@ -194,6 +212,8 @@ impl App {
         }
         self.refresh_panels();
         self.serve_colours();
+        self.backups.touch(&self.editor.unsaved());
+        self.refresh_watch();
     }
 
     /// Asks language plugins to colour what the editor wants coloured that
@@ -240,7 +260,17 @@ impl App {
     }
 
     fn run_events(&mut self, mut queue: VecDeque<Event>) {
-        while let Some(event) = queue.pop_front() {
+        loop {
+            let Some(event) = queue.pop_front() else {
+                // Jobs done at once, as scripts have them, finish here.
+                match self.jobs.take() {
+                    Some(finish) => {
+                        queue.extend(finish(self));
+                        continue;
+                    }
+                    None => break,
+                }
+            };
             if matches!(event, Event::RegisterPlugin { .. }) {
                 self.buffer_seen = None;
             }
@@ -251,63 +281,82 @@ impl App {
                         path,
                         text,
                         revision,
-                    } => match fs::write(self.root.join(&path), text) {
-                        Ok(()) => {
-                            self.disk
-                                .insert(path.clone(), modified(&self.root.join(&path)));
-                            self.saved.push(path.display().to_string());
-                            let settings = self.is_settings(&path);
-                            queue.push_back(Event::Saved {
-                                doc,
-                                revision,
-                                path,
-                            });
-                            // Saving a settings file applies it.
-                            if settings {
-                                queue.extend(self.load_settings());
-                            }
-                        }
-                        Err(err) => queue.push_back(Event::SaveFailed(err.to_string())),
-                    },
-                    Effect::Open(path) => {
-                        let opened = self.open(&path);
-                        if let Event::Opened { path, .. } = &opened {
-                            let text = git_base(&self.root, path);
-                            queue.push_back(opened.clone());
-                            queue.push_back(Event::GitBase {
-                                path: path.clone(),
-                                text,
-                            });
-                        } else {
-                            queue.push_back(opened);
-                        }
+                    } => {
+                        let full = self.root.join(&path);
+                        self.jobs.run(Lane::Disk, move || {
+                            let written =
+                                disk::write_atomic(&full, &text).map(|()| modified(&full));
+                            Box::new(move |app: &mut App| match written {
+                                Ok(when) => app.saved_file(doc, revision, path, when),
+                                Err(err) => vec![Event::SaveFailed(err.to_string())],
+                            })
+                        });
                     }
-                    Effect::ListFiles => queue.push_back(Event::Files(list_files(&self.root))),
-                    Effect::ListTree => queue.push_back(Event::Tree(list_tree(&self.root))),
+                    Effect::Open(path) => self.open_later(&path),
+                    Effect::ListFiles => {
+                        let root = self.root.clone();
+                        self.jobs.run(Lane::Scan, move || {
+                            jobs::events(vec![Event::Files(list_files(&root))])
+                        });
+                    }
+                    Effect::ListTree => self.list_tree_later(),
                     Effect::File(op) => {
-                        let done = self.file_op(op);
-                        queue.extend(done);
-                        queue.push_back(Event::Tree(list_tree(&self.root)));
-                        queue.push_back(self.git_status());
+                        let root = self.root.clone();
+                        self.jobs.run(Lane::Disk, move || {
+                            let done = file_op(&root, op);
+                            Box::new(move |app: &mut App| {
+                                for event in &done {
+                                    match event {
+                                        Event::Renamed { from, .. } => {
+                                            app.disk.retain(|p, _| !p.starts_with(from))
+                                        }
+                                        Event::Trashed(path) => {
+                                            app.disk.retain(|p, _| !p.starts_with(path))
+                                        }
+                                        Event::Opened { path, .. } => {
+                                            let when = modified(&app.root.join(path));
+                                            app.disk.insert(path.clone(), when);
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                                app.list_tree_later();
+                                app.git_status_later();
+                                done
+                            })
+                        });
                     }
                     Effect::Search(query) => {
-                        let hits = search(&self.root, &query);
-                        queue.push_back(Event::SearchResults { query, hits });
+                        let root = self.root.clone();
+                        self.jobs.run(Lane::Scan, move || {
+                            let hits = search(&root, &query);
+                            jobs::events(vec![Event::SearchResults { query, hits }])
+                        });
                     }
-                    Effect::GitStatus => queue.push_back(self.git_status()),
+                    Effect::GitStatus => self.git_status_later(),
                     Effect::Git(action) => {
                         let commit = matches!(action, GitAction::Commit(_));
-                        queue.push_back(self.git(action));
-                        if commit {
-                            // The new commit is the base for gutter signs.
-                            self.git_index = None;
-                            queue.push_back(self.git_status());
-                        }
+                        let git = self.git_info();
+                        self.jobs.run(Lane::Git, move || {
+                            let done = git.run(action);
+                            Box::new(move |app: &mut App| {
+                                if commit {
+                                    // The new commit is the base for gutter
+                                    // signs.
+                                    app.git_index = None;
+                                    app.check_disk();
+                                }
+                                vec![done]
+                            })
+                        });
                     }
                     Effect::OpenDiff(path) => {
-                        let old = git_base(&self.root, &path).unwrap_or_default();
-                        let new = fs::read_to_string(self.root.join(&path)).unwrap_or_default();
-                        queue.push_back(Event::ShowDiff { path, old, new });
+                        let root = self.root.clone();
+                        self.jobs.run(Lane::Git, move || {
+                            let old = git_base(&root, &path).unwrap_or_default();
+                            let new = fs::read_to_string(root.join(&path)).unwrap_or_default();
+                            jobs::events(vec![Event::ShowDiff { path, old, new }])
+                        });
                     }
                     Effect::Copy(text) => {
                         if self.system_clipboard {
@@ -374,7 +423,7 @@ impl App {
                     }
                     Effect::SetTheme(kind, name) => queue.extend(self.choose(kind, name)),
                     Effect::OpenSettings { workspace } => match self.settings.ensure(workspace) {
-                        Ok(path) => queue.push_back(self.open(&path)),
+                        Ok(path) => self.open_later(&path),
                         Err(err) => {
                             queue.push_back(Event::Error(format!("Can't open settings: {err}")))
                         }
@@ -388,7 +437,7 @@ impl App {
                         };
                     }
                     Effect::OpenSettingsWindow => match self.settings.ensure(false) {
-                        Ok(path) => queue.push_back(self.open(&path)),
+                        Ok(path) => self.open_later(&path),
                         Err(err) => {
                             queue.push_back(Event::Error(format!("Can't open settings: {err}")))
                         }
@@ -446,189 +495,142 @@ impl App {
         events
     }
 
-    /// Reads a file to open, and starts watching it. A path that doesn't
-    /// exist yet opens empty, and is created on save.
-    /// Does a file operation from the Explorer, and says what changed.
-    fn file_op(&mut self, op: FileOp) -> Vec<Event> {
-        let at = |p: &Path| self.root.join(p);
-        let fail = |what: &str, p: &Path, err: io::Error| {
-            vec![Event::Error(format!("Can't {what} {}: {err}", p.display()))]
-        };
-        match op {
-            FileOp::CreateFile(path) => {
-                if at(&path).exists() {
-                    return vec![Event::Error(format!("{} already exists", path.display()))];
-                }
-                if let Some(dir) = at(&path).parent()
-                    && let Err(err) = fs::create_dir_all(dir)
-                {
-                    return fail("create", &path, err);
-                }
-                if let Err(err) = fs::write(at(&path), "") {
-                    return fail("create", &path, err);
-                }
-                vec![self.open(&path)]
-            }
-            FileOp::CreateFolder(path) => match fs::create_dir_all(at(&path)) {
-                Ok(()) => Vec::new(),
-                Err(err) => fail("create", &path, err),
-            },
-            FileOp::Rename { from, to } => {
-                if at(&to).exists() {
-                    return vec![Event::Error(format!("{} already exists", to.display()))];
-                }
-                match fs::rename(at(&from), at(&to)) {
-                    Ok(()) => {
-                        self.disk.retain(|p, _| !p.starts_with(&from));
-                        vec![Event::Renamed { from, to }]
-                    }
-                    Err(err) => fail("rename", &from, err),
-                }
-            }
-            FileOp::Trash(path) => match trash::delete(at(&path)) {
-                Ok(()) => {
-                    self.disk.retain(|p, _| !p.starts_with(&path));
-                    vec![Event::Trashed(path)]
-                }
-                Err(err) => vec![Event::Error(format!(
-                    "Can't move {} to the trash: {err}",
-                    path.display()
-                ))],
-            },
+    /// A file saved: the editor hears, and saving a settings file applies
+    /// it.
+    fn saved_file(
+        &mut self,
+        doc: u64,
+        revision: merlin_core::history::Revision,
+        path: PathBuf,
+        when: Option<SystemTime>,
+    ) -> Vec<Event> {
+        self.disk.insert(path.clone(), when);
+        self.saved.push(path.display().to_string());
+        let settings = self.is_settings(&path);
+        let mut events = vec![Event::Saved {
+            doc,
+            revision,
+            path,
+        }];
+        if settings {
+            events.extend(self.load_settings());
         }
+        events
     }
 
     /// A file dropped on the window, from anywhere.
-    pub(crate) fn open_dropped(&mut self, path: &Path) -> Event {
+    pub(crate) fn open_dropped(&mut self, path: &Path) {
         if path.is_dir() {
-            return Event::Error(format!("{} is a folder", path.display()));
+            let event = Event::Error(format!("{} is a folder", path.display()));
+            self.dispatch(event);
+        } else {
+            self.open_later(path);
         }
-        self.open(path)
     }
 
+    /// Reads a file to open, at once, for files named at the start. A path
+    /// that doesn't exist yet opens empty, and is created on save.
     fn open(&mut self, path: &Path) -> Event {
         let path = relative_to(&self.root, path);
-        self.disk
-            .insert(path.clone(), modified(&self.root.join(&path)));
-        match fs::read_to_string(self.root.join(&path)) {
+        let full = self.root.join(&path);
+        self.disk.insert(path.clone(), modified(&full));
+        match read_file(&full) {
             Ok(text) => Event::Opened { path, text },
-            Err(err) if err.kind() == io::ErrorKind::NotFound => Event::Opened {
-                path,
-                text: String::new(),
-            },
             Err(err) => Event::Error(format!("Can't open {}: {err}", path.display())),
         }
     }
 
-    /// The branch and changed files, with paths relative to the project.
-    fn git_status(&self) -> Event {
-        let output = self.git_dir.as_ref().and_then(|_| {
-            Command::new("git")
-                .args([
-                    "status",
-                    "--porcelain=v1",
-                    "--branch",
-                    "--untracked-files=all",
-                    "--",
-                    ".",
-                ])
-                .current_dir(&self.root)
-                .stderr(std::process::Stdio::null())
-                .output()
-                .ok()
-                .filter(|o| o.status.success())
+    /// Reads a file to open, then its text as of the last commit.
+    fn open_later(&mut self, path: &Path) {
+        let path = relative_to(&self.root, path);
+        let full = self.root.join(&path);
+        self.jobs.run(Lane::Disk, move || {
+            let when = modified(&full);
+            let read = read_file(&full);
+            Box::new(move |app: &mut App| match read {
+                Ok(text) => {
+                    app.disk.insert(path.clone(), when);
+                    app.git_base_later(path.clone());
+                    vec![Event::Opened { path, text }]
+                }
+                Err(err) => vec![Event::Error(format!(
+                    "Can't open {}: {err}",
+                    path.display()
+                ))],
+            })
         });
-        let Some(output) = output else {
-            return Event::GitStatus {
-                branch: None,
-                files: Vec::new(),
-                staged: Vec::new(),
-                changed: Vec::new(),
-            };
-        };
-        let text = String::from_utf8_lossy(&output.stdout);
-        let mut branch = None;
-        let mut files = Vec::new();
-        let mut staged = Vec::new();
-        let mut changed = Vec::new();
-        for line in text.lines() {
-            if let Some(head) = line.strip_prefix("## ") {
-                let name = head.split("...").next().unwrap_or(head);
-                let name = name.strip_prefix("No commits yet on ").unwrap_or(name);
-                branch = Some(if name.starts_with("HEAD") {
-                    "detached".into()
-                } else {
-                    name.to_string()
-                });
-                continue;
-            }
-            let (Some(status), Some(path)) = (line.get(..2), line.get(3..)) else {
-                continue;
-            };
-            let letter = match status {
-                "??" => '?',
-                s => s.chars().find(|c| *c != ' ').unwrap_or('M'),
-            };
-            // A rename shows as `old -> new`.
-            let path = path.rsplit(" -> ").next().unwrap_or(path).trim_matches('"');
-            let path = path.strip_prefix(&self.git_prefix).unwrap_or(path);
-            files.push((path.to_string(), letter));
-            // X is the index, Y the working tree.
-            let mut xy = status.chars();
-            let (x, y) = (xy.next().unwrap_or(' '), xy.next().unwrap_or(' '));
-            if status == "??" {
-                changed.push((path.to_string(), '?'));
-                continue;
-            }
-            if x != ' ' {
-                staged.push((path.to_string(), x));
-            }
-            if y != ' ' {
-                changed.push((path.to_string(), y));
-            }
-        }
-        Event::GitStatus {
-            branch,
-            files,
-            staged,
-            changed,
+    }
+
+    /// Reads an open file again that changed on disk.
+    fn reload_later(&mut self, path: PathBuf) {
+        let full = self.root.join(&path);
+        self.jobs.run(Lane::Disk, move || {
+            let read = fs::read_to_string(&full);
+            jobs::events(match read {
+                Ok(text) => vec![Event::FileChanged { path, text }],
+                Err(_) => Vec::new(),
+            })
+        });
+    }
+
+    fn git_base_later(&mut self, path: PathBuf) {
+        let root = self.root.clone();
+        self.jobs.run(Lane::Git, move || {
+            let text = git_base(&root, &path);
+            jobs::events(vec![Event::GitBase { path, text }])
+        });
+    }
+
+    fn git_info(&self) -> Git {
+        Git {
+            root: self.root.clone(),
+            repo: self.git_dir.is_some(),
+            prefix: self.git_prefix.clone(),
         }
     }
 
-    /// Runs what Source Control asked for, and says how it went.
-    fn git(&self, action: GitAction) -> Event {
-        let args: Vec<&str> = match &action {
-            GitAction::Stage(path) => vec!["add", "--", path],
-            GitAction::Unstage(path) => vec!["restore", "--staged", "--", path],
-            GitAction::StageAll => vec!["add", "--all", "--", "."],
-            GitAction::UnstageAll => vec!["restore", "--staged", "--", "."],
-            GitAction::Commit(message) => vec!["commit", "--quiet", "-m", message],
-        };
-        let output = Command::new("git")
-            .args(&args)
-            .current_dir(&self.root)
-            .stdin(std::process::Stdio::null())
-            .output();
-        match output {
-            Ok(o) if o.status.success() => match action {
-                GitAction::Commit(message) => {
-                    let first = message.lines().next().unwrap_or_default().to_string();
-                    Event::Notify(format!("Committed: {first}"))
+    fn git_status_later(&mut self) {
+        let git = self.git_info();
+        self.jobs.run(Lane::Git, move || {
+            let status = git.status();
+            Box::new(move |app: &mut App| {
+                // git status can touch the index; that's not a commit.
+                app.git_index = app
+                    .git_dir
+                    .as_ref()
+                    .and_then(|d| modified(&d.join("index")));
+                vec![status]
+            })
+        });
+    }
+
+    /// Walks the project for the Explorer, and to know which folders to
+    /// watch.
+    fn list_tree_later(&mut self) {
+        let root = self.root.clone();
+        self.jobs.run(Lane::Scan, move || {
+            let tree = list_tree(&root);
+            let hash = {
+                use std::hash::{Hash, Hasher};
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                tree.hash(&mut h);
+                h.finish()
+            };
+            Box::new(move |app: &mut App| {
+                // The same as last time: nothing to tell the editor.
+                if app.tree_hash == Some(hash) {
+                    return Vec::new();
                 }
-                _ => self.git_status(),
-            },
-            Ok(o) => {
-                let err = String::from_utf8_lossy(&o.stderr);
-                let out = String::from_utf8_lossy(&o.stdout);
-                let text = if err.trim().is_empty() { out } else { err };
-                let first = text
-                    .lines()
-                    .find(|l| !l.trim().is_empty())
-                    .unwrap_or("failed");
-                Event::Error(format!("git {}: {first}", args[0]))
-            }
-            Err(err) => Event::Error(format!("git: {err}")),
-        }
+                app.tree_hash = Some(hash);
+                app.tree_dirs = tree
+                    .iter()
+                    .filter_map(|p| p.strip_suffix('/'))
+                    .map(|d| app.root.join(d))
+                    .collect();
+                app.watch_for = None;
+                vec![Event::Tree(tree)]
+            })
+        });
     }
 
     /// Reloads open files that changed on disk, such as ones another program
@@ -645,29 +647,131 @@ impl App {
         let committed = index != self.git_index;
         self.git_index = index;
         if committed {
-            let status = self.git_status();
-            self.dispatch(status);
+            self.git_status_later();
         }
         let open: Vec<PathBuf> = self.editor.open_files().into_iter().flatten().collect();
         self.disk.retain(|path, _| open.contains(path));
         for path in open {
-            let full = self.root.join(&path);
-            let now = modified(&full);
+            let now = modified(&self.root.join(&path));
             let changed = self.disk.get(&path).is_some_and(|seen| *seen != now);
             if changed {
                 self.disk.insert(path.clone(), now);
-                if let Ok(text) = fs::read_to_string(&full) {
-                    self.dispatch(Event::FileChanged {
-                        path: path.clone(),
-                        text,
-                    });
-                }
+                self.reload_later(path.clone());
             }
             if committed {
-                let text = git_base(&self.root, &path);
-                self.dispatch(Event::GitBase { path, text });
+                self.git_base_later(path);
             }
         }
+        self.finish_jobs();
+    }
+
+    /// Applies the jobs that are done. Returns whether there were any.
+    fn finish_jobs(&mut self) -> bool {
+        let mut any = false;
+        while let Some(finish) = self.jobs.take() {
+            any = true;
+            for event in finish(self) {
+                self.dispatch(event);
+            }
+        }
+        any
+    }
+
+    /// Waits for every job, as when quitting, so no save is lost.
+    pub(crate) fn finish_all(&mut self) {
+        while let Some(finish) = self.jobs.wait() {
+            for event in finish(self) {
+                self.dispatch(event);
+            }
+        }
+    }
+
+    /// Something woke the window: plugin output, a job done, or a change on
+    /// disk. Returns whether the editor heard anything.
+    pub(crate) fn wake(&mut self) -> bool {
+        let mut changed = self.poll_processes();
+        changed |= self.finish_jobs();
+        if self.watch.take(&mut self.changes) && self.settle.is_none() {
+            self.settle = Some(Instant::now() + disk::SETTLE);
+        }
+        changed
+    }
+
+    /// When the app next has something to do, if ever.
+    pub(crate) fn due(&self) -> Option<Instant> {
+        [self.settle, self.backups.due].into_iter().flatten().min()
+    }
+
+    /// Does what's due by now. Returns whether the editor heard anything.
+    pub(crate) fn tick(&mut self) -> bool {
+        let now = Instant::now();
+        let mut changed = false;
+        if self.settle.is_some_and(|at| at <= now) {
+            self.settle = None;
+            let changes = std::mem::take(&mut self.changes);
+            self.settled(changes);
+            changed = true;
+        }
+        if self.backups.due.is_some_and(|at| at <= now) {
+            let editor = &self.editor;
+            if let Some(plan) = self.backups.plan(editor.unsaved(), |id| editor.text_of(id)) {
+                self.jobs.run(Lane::Disk, move || {
+                    disk::write_backups(&plan);
+                    jobs::events(Vec::new())
+                });
+            }
+        }
+        changed
+    }
+
+    /// Files changed on disk, and have settled.
+    fn settled(&mut self, changes: Changes) {
+        self.reload_plugins();
+        self.check_disk();
+        let in_git = |p: &Path| self.git_dir.as_ref().is_some_and(|g| p.starts_with(g));
+        let worktree: Vec<&PathBuf> = changes
+            .paths
+            .iter()
+            .filter(|p| p.starts_with(&self.root) && !in_git(p))
+            // Saving writes a file beside the one saved first.
+            .filter(|p| !p.to_string_lossy().ends_with(".merlin-save"))
+            .collect();
+        if worktree.is_empty() {
+            return;
+        }
+        if changes.structure {
+            self.list_tree_later();
+        }
+        self.git_status_later();
+    }
+
+    /// Watches the folders of the project, the open files, git, the packs
+    /// and the plugins, when any of those changed.
+    fn refresh_watch(&mut self) {
+        let open = self.editor.open_files();
+        let key = (open, self.tree_dirs.len() + self.watched.len());
+        if self.watch_for.as_ref() == Some(&key) {
+            return;
+        }
+        let parent = |p: &Path| p.parent().map(Path::to_path_buf);
+        let mut dirs: std::collections::HashSet<PathBuf> = self.tree_dirs.iter().cloned().collect();
+        dirs.insert(self.root.clone());
+        dirs.extend(
+            key.0
+                .iter()
+                .flatten()
+                .filter_map(|p| parent(&self.root.join(p))),
+        );
+        dirs.extend(self.git_dir.clone());
+        dirs.extend(self.watched.iter().filter_map(|(p, _)| parent(p)));
+        dirs.extend(self.host.components().iter().filter_map(|p| parent(p)));
+        dirs.extend(
+            [&self.settings.user, &self.settings.workspace]
+                .into_iter()
+                .filter_map(|p| parent(p)),
+        );
+        self.watch.set(dirs);
+        self.watch_for = Some(key);
     }
 
     fn refresh_panels(&mut self) {
@@ -707,6 +811,189 @@ impl App {
             for event in events {
                 self.dispatch(event);
             }
+        }
+    }
+}
+
+/// A file to edit, read whole. One that isn't there yet opens empty.
+fn read_file(path: &Path) -> io::Result<String> {
+    match fs::read(path) {
+        Ok(bytes) => String::from_utf8(bytes).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "it isn't UTF-8 text, so editing it could change it",
+            )
+        }),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(String::new()),
+        Err(err) => Err(err),
+    }
+}
+
+/// Does a file operation from the Explorer, and says what changed.
+fn file_op(root: &Path, op: FileOp) -> Vec<Event> {
+    let at = |p: &Path| root.join(p);
+    let fail = |what: &str, p: &Path, err: io::Error| {
+        vec![Event::Error(format!("Can't {what} {}: {err}", p.display()))]
+    };
+    match op {
+        FileOp::CreateFile(path) => {
+            if at(&path).exists() {
+                return vec![Event::Error(format!("{} already exists", path.display()))];
+            }
+            if let Some(dir) = at(&path).parent()
+                && let Err(err) = fs::create_dir_all(dir)
+            {
+                return fail("create", &path, err);
+            }
+            if let Err(err) = fs::write(at(&path), "") {
+                return fail("create", &path, err);
+            }
+            vec![Event::Opened {
+                path,
+                text: String::new(),
+            }]
+        }
+        FileOp::CreateFolder(path) => match fs::create_dir_all(at(&path)) {
+            Ok(()) => Vec::new(),
+            Err(err) => fail("create", &path, err),
+        },
+        FileOp::Rename { from, to } => {
+            if at(&to).exists() {
+                return vec![Event::Error(format!("{} already exists", to.display()))];
+            }
+            match fs::rename(at(&from), at(&to)) {
+                Ok(()) => vec![Event::Renamed { from, to }],
+                Err(err) => fail("rename", &from, err),
+            }
+        }
+        FileOp::Trash(path) => match trash::delete(at(&path)) {
+            Ok(()) => vec![Event::Trashed(path)],
+            Err(err) => vec![Event::Error(format!(
+                "Can't move {} to the trash: {err}",
+                path.display()
+            ))],
+        },
+    }
+}
+
+/// What git jobs need to know of the project, to run on their own thread.
+struct Git {
+    root: PathBuf,
+    /// Whether the project is in a repository at all.
+    repo: bool,
+    /// Where the project is in the repository, as git names paths.
+    prefix: String,
+}
+
+impl Git {
+    /// The branch and changed files, with paths relative to the project.
+    fn status(&self) -> Event {
+        let output = self.repo.then(|| {
+            Command::new("git")
+                .args([
+                    "status",
+                    "--porcelain=v1",
+                    "--branch",
+                    "--untracked-files=all",
+                    "--",
+                    ".",
+                ])
+                .current_dir(&self.root)
+                .stderr(std::process::Stdio::null())
+                .output()
+                .ok()
+                .filter(|o| o.status.success())
+        });
+        let Some(output) = output.flatten() else {
+            return Event::GitStatus {
+                branch: None,
+                files: Vec::new(),
+                staged: Vec::new(),
+                changed: Vec::new(),
+            };
+        };
+        let text = String::from_utf8_lossy(&output.stdout);
+        let mut branch = None;
+        let mut files = Vec::new();
+        let mut staged = Vec::new();
+        let mut changed = Vec::new();
+        for line in text.lines() {
+            if let Some(head) = line.strip_prefix("## ") {
+                let name = head.split("...").next().unwrap_or(head);
+                let name = name.strip_prefix("No commits yet on ").unwrap_or(name);
+                branch = Some(if name.starts_with("HEAD") {
+                    "detached".into()
+                } else {
+                    name.to_string()
+                });
+                continue;
+            }
+            let (Some(status), Some(path)) = (line.get(..2), line.get(3..)) else {
+                continue;
+            };
+            let letter = match status {
+                "??" => '?',
+                s => s.chars().find(|c| *c != ' ').unwrap_or('M'),
+            };
+            // A rename shows as `old -> new`.
+            let path = path.rsplit(" -> ").next().unwrap_or(path).trim_matches('"');
+            let path = path.strip_prefix(&self.prefix).unwrap_or(path);
+            files.push((path.to_string(), letter));
+            // X is the index, Y the working tree.
+            let mut xy = status.chars();
+            let (x, y) = (xy.next().unwrap_or(' '), xy.next().unwrap_or(' '));
+            if status == "??" {
+                changed.push((path.to_string(), '?'));
+                continue;
+            }
+            if x != ' ' {
+                staged.push((path.to_string(), x));
+            }
+            if y != ' ' {
+                changed.push((path.to_string(), y));
+            }
+        }
+        Event::GitStatus {
+            branch,
+            files,
+            staged,
+            changed,
+        }
+    }
+
+    /// Runs what Source Control asked for, and says how it went.
+    fn run(&self, action: GitAction) -> Event {
+        let args: Vec<&str> = match &action {
+            GitAction::Stage(path) => vec!["add", "--", path],
+            GitAction::Unstage(path) => vec!["restore", "--staged", "--", path],
+            GitAction::StageAll => vec!["add", "--all", "--", "."],
+            GitAction::UnstageAll => vec!["restore", "--staged", "--", "."],
+            GitAction::Commit(message) => vec!["commit", "--quiet", "-m", message],
+        };
+        let output = Command::new("git")
+            .args(&args)
+            .current_dir(&self.root)
+            .stdin(std::process::Stdio::null())
+            .output();
+        match output {
+            Ok(o) if o.status.success() => match action {
+                GitAction::Commit(message) => {
+                    let first = message.lines().next().unwrap_or_default().to_string();
+                    Event::Notify(format!("Committed: {first}"))
+                }
+                _ => self.status(),
+            },
+            Ok(o) => {
+                let err = String::from_utf8_lossy(&o.stderr);
+                let out = String::from_utf8_lossy(&o.stdout);
+                let text = if err.trim().is_empty() { out } else { err };
+                let first = text
+                    .lines()
+                    .find(|l| !l.trim().is_empty())
+                    .unwrap_or("failed");
+                Event::Error(format!("git {}: {first}", args[0]))
+            }
+            Err(err) => Event::Error(format!("git: {err}")),
         }
     }
 }
@@ -873,7 +1160,27 @@ fn snapshot(editor: &Editor, root: &Path) -> Snapshot {
     }
 }
 
+/// glibc gives each thread that allocates a heap of its own, and keeps
+/// what's freed in it: wasmtime's threads compiling plugins left about
+/// 170 MB that way. Two are plenty for an editor.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+fn fewer_heaps() {
+    unsafe extern "C" {
+        fn mallopt(param: i32, value: i32) -> i32;
+    }
+    const M_ARENA_MAX: i32 = -8;
+    // SAFETY: mallopt only changes the allocator's settings, before any
+    // other thread starts.
+    unsafe {
+        mallopt(M_ARENA_MAX, 2);
+    }
+}
+
+#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+fn fewer_heaps() {}
+
 fn main() -> Result<()> {
+    fewer_heaps();
     let argv: Vec<String> = env::args().skip(1).collect();
     if let [plugin, new, name] = &argv[..]
         && plugin == "plugin"
@@ -899,6 +1206,14 @@ fn main() -> Result<()> {
         ..Config::standard()
     };
     let settings_files = settings::Files::new(&root);
+    let data_dir = config.data_dir.clone();
+    let gui = args.exec.is_none();
+    // Scripts remember nothing, and so keep nothing.
+    let backups_dir = gui.then(|| {
+        data_dir
+            .join("backups")
+            .join(safe_name(&root.display().to_string()))
+    });
     // The minimap and word wrap used to be remembered here; they're
     // settings now.
     let view_path = config.data_dir.join("view");
@@ -931,13 +1246,29 @@ fn main() -> Result<()> {
         git_prefix,
         git_dir,
         git_index: None,
-        quit: false,
         settings: settings_files,
         scripted: args.exec.is_some(),
         look: packs::Look::stack(&[]).expect("merlin's own look"),
         packs: Vec::new(),
         choice: looks::Choice::default(),
         watched: Vec::new(),
+        jobs: if gui {
+            Jobs::threaded(gui::waker())
+        } else {
+            Jobs::inline()
+        },
+        watch: if gui {
+            Watch::new(gui::waker())
+        } else {
+            Watch::none()
+        },
+        changes: Changes::default(),
+        settle: None,
+        tree_dirs: Vec::new(),
+        tree_hash: None,
+        watch_for: None,
+        backups: Backups::new(backups_dir),
+        quit: false,
     };
     // Nerd Font icons, except in scripted runs, whose output should read
     // anywhere. MERLIN_ICONS=nerd or =plain decides either way.
@@ -979,11 +1310,34 @@ fn main() -> Result<()> {
         }
         app.dispatch(Event::Restore(ws));
     }
+    // Unsaved changes a crash left behind open again, unsaved.
+    let kept = app.backups.left_over();
+    if !kept.is_empty() {
+        let count = kept.len();
+        for kept in kept {
+            if let Some(path) = &kept.path
+                && !app.editor.open_files().contains(&Some(path.clone()))
+            {
+                let event = app.open(path);
+                app.dispatch(event);
+            }
+            app.dispatch(Event::Recovered {
+                path: kept.path,
+                text: kept.text,
+            });
+        }
+        let files = if count == 1 { "file" } else { "files" };
+        app.dispatch(Event::Notify(format!(
+            "Restored unsaved changes to {count} {files}"
+        )));
+    }
     // Loads git signs for the files opened so far; later ones get theirs
     // when they open.
     app.check_disk();
-    if args.exec.is_none() {
+    if gui {
         gui::set_waker(&mut app.host);
+        // The Explorer's tree, and the folders to watch.
+        app.list_tree_later();
     }
     for dir in plugin_dirs(&args) {
         match app.host.load(&dir) {
@@ -1016,6 +1370,10 @@ fn main() -> Result<()> {
     }
 
     let result = gui::run(&mut app);
+    app.finish_all();
+    if result.is_ok() {
+        app.backups.clear();
+    }
     let _ = fs::create_dir_all(workspace_path.parent().unwrap_or(Path::new(".")))
         .and_then(|()| fs::write(&workspace_path, app.editor.workspace().to_text()));
     result
@@ -1024,10 +1382,15 @@ fn main() -> Result<()> {
 /// Where the open tabs and groups of the project at `root` are kept
 /// between runs.
 fn workspace_file(data_dir: &Path, root: &Path) -> PathBuf {
-    let name: String = root
-        .display()
-        .to_string()
-        .chars()
+    data_dir
+        .join("workspaces")
+        .join(safe_name(&root.display().to_string()))
+}
+
+/// `text` as a file name: letters, digits, `.` and `-`, and `_` for the
+/// rest.
+pub(crate) fn safe_name(text: &str) -> String {
+    text.chars()
         .map(|c| {
             if c.is_alphanumeric() || c == '.' || c == '-' {
                 c
@@ -1035,8 +1398,7 @@ fn workspace_file(data_dir: &Path, root: &Path) -> PathBuf {
                 '_'
             }
         })
-        .collect();
-    data_dir.join("workspaces").join(name)
+        .collect()
 }
 
 fn run_script(app: &mut App, script: &str) -> Result<()> {

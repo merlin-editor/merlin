@@ -1083,6 +1083,16 @@ impl PluginHost {
     /// Reloads plugins whose component file changed since it was loaded.
     /// A plugin that fails to reload keeps running its old code. One that
     /// saves its state gets it back, and keeps its processes.
+    /// The component files of the plugins loaded, which reload when they
+    /// change.
+    pub fn components(&self) -> Vec<PathBuf> {
+        self.plugins
+            .iter()
+            .filter(|p| !p.wasm.as_os_str().is_empty())
+            .map(|p| p.wasm.clone())
+            .collect()
+    }
+
     pub fn reload_changed(&mut self) -> Vec<Event> {
         let mut events = Vec::new();
         for i in 0..self.plugins.len() {

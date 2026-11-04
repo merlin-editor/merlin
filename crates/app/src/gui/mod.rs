@@ -50,7 +50,6 @@ use scene::{Bitmaps, Scene};
 
 /// How often open files are checked for changes on disk, and plugins for
 /// rebuilds.
-const DISK_CHECK: Duration = Duration::from_millis(500);
 /// A tab held down: its name, where the press was, and whether it has
 /// moved far enough to be a drag.
 struct TabDrag {
@@ -111,7 +110,6 @@ pub fn run(app: &mut App) -> Result<()> {
         areas: Areas::default(),
         drawn: None,
         drawn_text: Vec::new(),
-        next_check: Instant::now() + DISK_CHECK,
         pictures: Pictures::default(),
         bitmaps: Bitmaps::default(),
         scene: Scene::default(),
@@ -124,6 +122,17 @@ pub fn run(app: &mut App) -> Result<()> {
 /// The window's event loop, once it's open. EventLoopProxy is Send but not
 /// Sync, so it sits behind a lock.
 static PROXY: OnceLock<Mutex<EventLoopProxy<()>>> = OnceLock::new();
+
+/// Wakes the window from another thread, as when a job is done.
+pub fn waker() -> crate::jobs::Waker {
+    std::sync::Arc::new(|| {
+        if let Some(proxy) = PROXY.get()
+            && let Ok(proxy) = proxy.lock()
+        {
+            let _ = proxy.send_event(());
+        }
+    })
+}
 
 /// Lets plugins' processes wake the window when they have output. Called
 /// before plugins load, as they keep the waker they were loaded with.
@@ -200,7 +209,6 @@ struct Gui<'a> {
     )>,
     /// The text last drawn, beside `drawn`.
     drawn_text: Vec<TextView>,
-    next_check: Instant,
     pictures: Pictures,
     /// The glyphs and pictures drawn so far, as scenes name them.
     bitmaps: Bitmaps,
@@ -767,14 +775,7 @@ impl Gui<'_> {
     }
 
     fn tick(&mut self) {
-        let mut changed = self.app.poll_processes();
-        if Instant::now() >= self.next_check {
-            self.app.reload_plugins();
-            self.app.check_disk();
-            self.next_check = Instant::now() + DISK_CHECK;
-            changed = true;
-        }
-        if changed {
+        if self.app.tick() {
             self.fit_text();
             self.redraw();
         }
@@ -840,7 +841,7 @@ impl ApplicationHandler for Gui<'_> {
     }
 
     fn user_event(&mut self, _: &ActiveEventLoop, (): ()) {
-        if self.app.poll_processes() {
+        if self.app.wake() {
             self.fit_text();
             self.redraw();
         }
@@ -864,8 +865,9 @@ impl ApplicationHandler for Gui<'_> {
             WindowEvent::RedrawRequested => self.paint(),
             // Files dropped from the desktop open, as in any editor.
             WindowEvent::DroppedFile(path) => {
-                let opened = self.app.open_dropped(&path);
-                self.dispatch(opened);
+                self.app.open_dropped(&path);
+                self.fit_text();
+                self.redraw();
             }
             WindowEvent::Focused(on) => {
                 self.focused = on;
@@ -972,6 +974,8 @@ impl ApplicationHandler for Gui<'_> {
             _ => {}
         }
         if self.app.quit {
+            // Saves still being written finish first.
+            self.app.finish_all();
             event_loop.exit();
         }
     }
@@ -982,11 +986,17 @@ impl ApplicationHandler for Gui<'_> {
             .as_ref()
             .map(|(when, _)| *when)
             .filter(|when| *when > Instant::now());
-        let wake = [self.rest.map(|(when, _)| when), self.next_blink(), tip]
-            .into_iter()
-            .flatten()
-            .fold(self.next_check, Instant::min);
-        event_loop.set_control_flow(ControlFlow::WaitUntil(wake));
+        // Nothing to wait for: sleep until something happens.
+        let wake = [
+            self.rest.map(|(when, _)| when),
+            self.next_blink(),
+            tip,
+            self.app.due(),
+        ]
+        .into_iter()
+        .flatten()
+        .min();
+        event_loop.set_control_flow(wake.map_or(ControlFlow::Wait, ControlFlow::WaitUntil));
     }
 }
 

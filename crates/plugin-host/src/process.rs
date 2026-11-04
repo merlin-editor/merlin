@@ -60,7 +60,9 @@ impl Processes {
         cwd: &Path,
         framing: Framing,
     ) -> Result<u32, String> {
-        let mut child = Command::new(program)
+        let mut command = Command::new(program);
+        die_with_editor(&mut command);
+        let mut child = command
             .args(args)
             .envs(env.iter().map(|(k, v)| (k, v)))
             .current_dir(cwd)
@@ -225,3 +227,25 @@ fn read_content_length(reader: &mut impl BufRead) -> io::Result<Option<String>> 
     reader.read_exact(&mut body)?;
     Ok(Some(String::from_utf8_lossy(&body).into_owned()))
 }
+
+/// Has the process end when the editor does, however it ends, so a crash or
+/// a kill leaves no language server running.
+#[cfg(target_os = "linux")]
+fn die_with_editor(command: &mut Command) {
+    use std::os::unix::process::CommandExt;
+    unsafe extern "C" {
+        fn prctl(option: i32, ...) -> i32;
+    }
+    const PR_SET_PDEATHSIG: i32 = 1;
+    const SIGTERM: std::ffi::c_ulong = 15;
+    // SAFETY: prctl is async-signal-safe, as pre_exec needs.
+    unsafe {
+        command.pre_exec(|| {
+            prctl(PR_SET_PDEATHSIG, SIGTERM);
+            Ok(())
+        });
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn die_with_editor(_: &mut Command) {}
