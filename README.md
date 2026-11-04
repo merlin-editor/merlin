@@ -34,30 +34,41 @@ looking at [ttt](https://github.com/eugenioenko/ttt), and merlin keeps both:
 
 ## The window
 
-The window draws the core's screen, still a grid of cells, into a software
-buffer ([softbuffer](https://crates.io/crates/softbuffer)) with
-[cosmic-text](https://crates.io/crates/cosmic-text) for fonts and
-[winit](https://crates.io/crates/winit) for the window. There's no GPU
-context and no web view. Each character is drawn once and then kept. A
-redraw that changes no cell costs nothing, and box lines are drawn by hand
-so frames meet.
+The window draws its own frame in pixels, as the
+[design](https://claude.ai/artifact/DaNmFu3KfwW7wQeJb63dJh) has it. A slim
+title bar holds the project, the branch, one search box and the layout
+toggles, with the menus behind ☰. Beside it are the activity rail and the
+side bar, editor and panel, as rounded islands on a darker ground, and a thin
+status bar runs underneath. The interface uses a proportional font (the first
+installed of Inter, Noto Sans, Cantarell and DejaVu Sans; `MERLIN_UI_FONT`
+picks another). Code stays monospace.
 
-It sleeps between events. Output from a plugin's process wakes it straight
-away, and a check every half second looks for files changed on disk and
-rebuilt plugins.
+The core still owns all state and behaviour. In window mode
+(`Editor::set_windowed`) its screen is only the code, and the window draws
+everything else from `Editor::window_view`: tabs, breadcrumbs, the rail,
+each side's panel nodes, the status items, the palette and notices. Clicks on
+the frame go back as `Event::Ui`; the mouse in the code goes back as cells.
+Built-in views and plugin panels are the same panel nodes, so one renderer
+draws them all.
 
-Every key VS Code uses reaches the editor, Ctrl+Shift included, with no
-terminal protocol needed. `MERLIN_FONT` picks a font family (the default is
-the first installed of JetBrainsMono Nerd Font, JetBrains Mono, FiraCode Nerd
-Font and DejaVu Sans Mono), and `MERLIN_FONT_SIZE` sets its size in points
-(14).
+It uses winit for the window, softbuffer for drawing and cosmic-text for
+fonts. There's no GPU context and no web view. It sleeps between events.
+Output from a plugin's process wakes it straight away, and a check every
+half second looks for files changed on disk and rebuilt plugins. Every key
+VS Code uses reaches the editor, Ctrl+Shift included.
+`MERLIN_ISLANDS=off` lays the panes edge to edge instead. `MERLIN_FONT` and
+`MERLIN_FONT_SIZE` set the code's font.
 
 Measured on Linux (Hyprland) in a 948×1141 window, release build:
 
 | | Memory (RSS) | Idle CPU |
 |---|---|---|
-| No plugins | 28 MB | 0.4% |
-| The 7 bundled plugins (languages and lsp) | 231 MB | 0.2% |
+| No plugins, cell-grid window | 28 MB | 0.4% |
+| The 7 bundled plugins, cell-grid window | 231 MB | 0.2% |
+| The 7 bundled plugins, pixel frame | 263 MB | 0.3% |
+
+The pixel frame loads the font list twice, once for the interface and once
+for the code, which accounts for most of its extra 30 MB.
 
 Language servers run as their own processes and aren't counted here.
 Plugins are where the memory goes, about 27 MB each, so they're the next

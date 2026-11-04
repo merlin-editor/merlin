@@ -16,7 +16,10 @@ pub enum UiEvent {
     /// An activity rail item, by its index in [`WindowView::rail`].
     Rail(usize),
     /// A tab of the focused group, by its index in [`WindowView::tabs`].
-    Tab { index: usize, clicks: u8 },
+    Tab {
+        index: usize,
+        clicks: u8,
+    },
     CloseTab(usize),
     /// A breadcrumb, by its index in [`WindowView::crumbs`].
     Crumb(usize),
@@ -24,9 +27,15 @@ pub enum UiEvent {
     Status(usize),
     /// A panel's focusable element, by its index among the panel's targets
     /// (see [`SideView::targets`]).
-    Target { side: Side, index: usize },
+    Target {
+        side: Side,
+        index: usize,
+    },
     /// One of a side's panel titles, to show that panel.
-    PanelTitle { side: Side, name: String },
+    PanelTitle {
+        side: Side,
+        name: String,
+    },
     /// A palette row, by its index among all the palette's items.
     PaletteRow(usize),
     ClosePalette,
@@ -300,7 +309,11 @@ impl Editor {
         WindowView {
             project: self.project.clone(),
             branch: self.git.branch.clone(),
-            rail: self.rail_items().into_iter().map(|(item, _)| item).collect(),
+            rail: self
+                .rail_items()
+                .into_iter()
+                .map(|(item, _)| item)
+                .collect(),
             left: self.side_view(Side::Left),
             right: self.side_view(Side::Right),
             bottom: self.side_view(Side::Bottom),
@@ -348,7 +361,11 @@ impl Editor {
                 }
             }
             UiEvent::Status(i) => {
-                if let Some(action) = self.status_items().into_iter().nth(i).and_then(|s| s.action)
+                if let Some(action) = self
+                    .status_items()
+                    .into_iter()
+                    .nth(i)
+                    .and_then(|s| s.action)
                 {
                     self.act(action, fx);
                 }
@@ -365,11 +382,7 @@ impl Editor {
             UiEvent::PaletteRow(i) => {
                 if let Some(p) = &mut self.palette {
                     p.selected = i;
-                    self.palette_key(
-                        crate::key::Key::plain(crate::key::KeyCode::Enter),
-                        None,
-                        fx,
-                    );
+                    self.palette_key(crate::key::Key::plain(crate::key::KeyCode::Enter), None, fx);
                 }
             }
             UiEvent::ClosePalette => {

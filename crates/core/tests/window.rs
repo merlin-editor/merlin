@@ -31,7 +31,11 @@ fn the_view_has_tabs_status_and_rail() {
     assert_eq!(view.tabs.len(), 1);
     assert_eq!(view.tabs[0].name, "main.rs");
     assert!(view.tabs[0].active);
-    assert!(view.status.iter().any(|i| i.right && i.text.starts_with("Ln 1")));
+    assert!(
+        view.status
+            .iter()
+            .any(|i| i.right && i.text.starts_with("Ln 1"))
+    );
     let labels: Vec<_> = view.rail.iter().map(|r| r.label.as_str()).collect();
     assert_eq!(labels, ["Explorer", "Search", "Source Control", "Outline"]);
 }
@@ -46,7 +50,10 @@ fn rail_clicks_show_and_hide_views() {
     assert!(left.nodes.iter().any(|n| matches!(n, Node::Input { .. })));
     assert!(left.focused);
     s.send(Event::Ui(UiEvent::Rail(1)));
-    assert!(s.editor.window_view().left.is_none(), "a second click hides it");
+    assert!(
+        s.editor.window_view().left.is_none(),
+        "a second click hides it"
+    );
 }
 
 #[test]

@@ -1,4 +1,4 @@
-//! Colours: VS Code's Dark Modern.
+//! Colours: merlin's quiet dark theme, on the islands' grey.
 
 use merlin_core::Syntax;
 use merlin_core::lang::Severity;
@@ -18,16 +18,19 @@ pub struct Look {
     pub curly: bool,
 }
 
-const EDITOR: u32 = 0x1f1f1f;
-const BAR: u32 = 0x181818;
-const HOVER: u32 = 0x2a2d2e;
-const TEXT: u32 = 0xcccccc;
-const MUTED: u32 = 0x9d9d9d;
-const BLUE: u32 = 0x0078d4;
-const WIDGET: u32 = 0x252526;
-const INPUT: u32 = 0x313131;
-const RED: u32 = 0xf14c4c;
-const YELLOW: u32 = 0xcca700;
+const EDITOR: u32 = 0x17181b;
+const BAR: u32 = 0x131417;
+const HOVER: u32 = 0x22242a;
+const TEXT: u32 = 0xd4d5da;
+const MUTED: u32 = 0x8e9099;
+/// Fills under white text.
+const BLUE: u32 = 0x3b56c4;
+/// Lines, markers and the cursor.
+const ACCENT: u32 = 0x7c9cff;
+const WIDGET: u32 = 0x202126;
+const INPUT: u32 = 0x26272c;
+const RED: u32 = 0xf0807a;
+const YELLOW: u32 = 0xe3b341;
 
 fn look(fg: u32, bg: u32) -> Look {
     Look {
@@ -68,17 +71,17 @@ impl Look {
 pub fn dark(kind: Kind) -> Look {
     match kind {
         Kind::Normal | Kind::ScrollTrack => text(TEXT),
-        Kind::Gutter => text(0x6e7681),
+        Kind::Gutter => text(0x5f626b),
         Kind::GutterActive => text(TEXT),
         Kind::GutterError => text(RED).bold(),
         Kind::GutterWarning => text(YELLOW),
         Kind::Muted => text(MUTED),
-        Kind::Border => text(0x2b2b2b),
-        Kind::Match => look(TEXT, 0x623315),
-        Kind::MatchCurrent => look(0xffffff, 0x9e6a03),
-        Kind::Selection => look(TEXT, 0x264f78),
-        Kind::CurrentLine => look(TEXT, 0x282828),
-        Kind::WordMatch => look(TEXT, 0x3b3f45),
+        Kind::Border => text(0x2a2b31),
+        Kind::Match => look(TEXT, 0x4a3a1e),
+        Kind::MatchCurrent => look(0xffffff, 0x8a6416),
+        Kind::Selection => look(TEXT, 0x2c3a5e),
+        Kind::CurrentLine => look(TEXT, 0x1d1e23),
+        Kind::WordMatch => look(TEXT, 0x2a2d36),
         Kind::Heading => text(0xe7e7e7).bold(),
         Kind::Button => look(TEXT, INPUT),
         Kind::ButtonFocused => look(0xffffff, BLUE),
@@ -94,47 +97,47 @@ pub fn dark(kind: Kind) -> Look {
         Kind::Menu => look(TEXT, WIDGET),
         Kind::MenuSelected => look(0xffffff, BLUE),
         Kind::MenuMuted => look(MUTED, WIDGET),
-        Kind::CommandCenter => look(MUTED, 0x2b2b2b),
-        Kind::Selected => look(0xffffff, 0x04395e),
+        Kind::CommandCenter => look(MUTED, 0x1a1b1f),
+        Kind::Selected => look(0xffffff, 0x272a33),
         Kind::Warning => text(0xe2c08d),
         Kind::Error => text(RED),
         Kind::Success => text(0x73c991),
         Kind::Input => look(TEXT, INPUT),
         Kind::InputPlaceholder => look(0x989898, INPUT),
         Kind::Tab => text(MUTED),
-        Kind::TabActive => look(0xffffff, EDITOR).underline(BLUE),
+        Kind::TabActive => look(0xffffff, EDITOR).underline(ACCENT),
         Kind::TabPreview => text(MUTED).italic(),
-        Kind::TabPreviewActive => look(0xffffff, EDITOR).underline(BLUE).italic(),
-        Kind::Popup => look(TEXT, 0x202020),
-        Kind::PopupMuted => look(MUTED, 0x202020).italic(),
+        Kind::TabPreviewActive => look(0xffffff, EDITOR).underline(ACCENT).italic(),
+        Kind::Popup => look(TEXT, WIDGET),
+        Kind::PopupMuted => look(MUTED, WIDGET).italic(),
         Kind::Emphasis => text(TEXT).italic(),
         Kind::Code => text(0xd7ba7d),
         Kind::CodeBlock => look(TEXT, BAR),
-        Kind::Link => text(0x4daafc).underline(0x4daafc),
+        Kind::Link => text(0x9fb4ff).underline(0x9fb4ff),
         Kind::DiffAdded => look(TEXT, 0x373d29),
         Kind::DiffRemoved => look(TEXT, 0x4b1d1d),
-        Kind::GitAdded => text(0x2ea043),
-        Kind::GitChanged => text(BLUE),
-        Kind::GitRemoved => text(0xf85149),
-        Kind::ScrollThumb => look(TEXT, 0x424242),
+        Kind::GitAdded => text(0x6cc070),
+        Kind::GitChanged => text(0x5aa0e6),
+        Kind::GitRemoved => text(0xe5534b),
+        Kind::ScrollThumb => look(TEXT, 0x2a2b31),
         Kind::SideTitle => text(0xbbbbbb),
         Kind::SideTitleFocused => text(0xe7e7e7),
         Kind::PanelTitle => text(MUTED),
-        Kind::PanelTitleActive => text(0xe7e7e7).underline(BLUE),
+        Kind::PanelTitleActive => text(0xe7e7e7).underline(ACCENT),
         Kind::Toast => look(TEXT, WIDGET),
         Kind::ToastError => look(0xffffff, 0x5a1d1d),
-        Kind::Frame => text(0x454545),
-        Kind::WidgetFrame => look(0x5a5a5a, WIDGET),
+        Kind::Frame => text(0x2c2d33),
+        Kind::WidgetFrame => look(0x2c2d33, WIDGET),
         Kind::Badge => look(0xffffff, 0x616161),
         Kind::Activity => text(0x868686),
         Kind::ActivityActive => text(0xe7e7e7),
-        Kind::ActivityMarker => text(BLUE),
+        Kind::ActivityMarker => text(ACCENT),
         Kind::ActivityBadge => look(0xffffff, BLUE),
         Kind::Minimap => text(MUTED),
-        Kind::MinimapView => look(MUTED, 0x2e2e2e),
+        Kind::MinimapView => look(MUTED, 0x24262c),
         Kind::MinimapMatch => look(MUTED, 0x623315),
         Kind::ScrollMatch => text(0xd18616),
-        Kind::Caret => look(EDITOR, 0xaeafad),
+        Kind::Caret => look(EDITOR, ACCENT),
     }
 }
 
@@ -143,12 +146,12 @@ fn surface(surface: Surface) -> u32 {
         Surface::Editor => EDITOR,
         Surface::Bar => BAR,
         Surface::Hover => HOVER,
-        Surface::Sticky => 0x252526,
+        Surface::Sticky => 0x1c1d21,
     }
 }
 
 /// Dark Modern's colours for icons, guides and brackets.
-fn hue(hue: Hue) -> u32 {
+pub fn hue(hue: Hue) -> u32 {
     match hue {
         Hue::Blue => 0x519aba,
         Hue::Green => 0x8dc149,
@@ -161,9 +164,9 @@ fn hue(hue: Hue) -> u32 {
         Hue::Guide => 0x404040,
         Hue::GuideActive => 0x707070,
         Hue::TreeGuide => 0x585858,
-        Hue::Bracket1 => 0xffd700,
-        Hue::Bracket2 => 0xda70d6,
-        Hue::Bracket3 => 0x179fff,
+        Hue::Bracket1 => 0xe6c07b,
+        Hue::Bracket2 => 0xc4a7e7,
+        Hue::Bracket3 => 0x7fb0ff,
         Hue::Modified => 0xe2c08d,
         Hue::Untracked => 0x73c991,
         Hue::Deleted => 0xc74e39,
@@ -184,16 +187,17 @@ fn severity(severity: Severity) -> u32 {
 /// Dark Modern's colours for code.
 pub fn code(syntax: Syntax) -> Option<u32> {
     Some(match syntax {
-        Syntax::Keyword => 0x569cd6,
-        Syntax::String => 0xce9178,
-        Syntax::Comment => 0x6a9955,
-        Syntax::Function => 0xdcdcaa,
-        Syntax::Type => 0x4ec9b0,
-        Syntax::Constant => 0xb5cea8,
-        Syntax::Attribute | Syntax::Property | Syntax::Variable => 0x9cdcfe,
-        Syntax::Macro => 0xc586c0,
-        Syntax::Escape => 0xd7ba7d,
-        Syntax::Operator => 0xd4d4d4,
+        Syntax::Keyword => 0xc4a7e7,
+        Syntax::String => 0xa6d189,
+        Syntax::Comment => 0x7f8794,
+        Syntax::Function => 0xf0c674,
+        Syntax::Type => 0x9ccfd8,
+        Syntax::Constant => 0xf5a97f,
+        Syntax::Attribute => 0xe0a8d8,
+        Syntax::Property | Syntax::Variable => 0xd4d5da,
+        Syntax::Macro => 0x9ccfd8,
+        Syntax::Escape => 0xf5a97f,
+        Syntax::Operator => 0xa3a6ad,
         Syntax::Plain | Syntax::Punctuation => return None,
     })
 }

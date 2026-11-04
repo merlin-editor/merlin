@@ -9,8 +9,8 @@ stays small and 2 follows straight after.
 
 Milestones 1 to 6½ were built as kestrel, and merlin started from there.
 
-*Status: started.* The window draws the core's cell grid with real fonts
-(winit, softbuffer, cosmic-text). Every key arrives, and the window sleeps
+*Status: started.* The window draws its frame in pixels and the code from
+the core's cell grid (winit, softbuffer, cosmic-text). Every key arrives, and the window sleeps
 between events. With no plugins it uses 28 MB; with the seven bundled ones,
 231 MB.
 
@@ -21,11 +21,14 @@ Next:
   memories, and at keeping grammars in the host.
 - **Wake on change, not on a timer.** Watch files with inotify instead of
   checking every half second.
-- **Pixel layout for the chrome.** The core lays out tabs, the side bar,
-  menus and the palette in cells. Give the frontend sizes in pixels, with a
-  proportional UI font, while the text stays monospace. This needs the core
-  split into a model and a cell view, with the terminal's view kept for
-  `--exec` tests.
+- **Pixel layout for the chrome.** *Built:* the window draws the title
+  bar, rail, side bars, panel, tabs, breadcrumbs, status bar, palette and
+  notices in pixels from `Editor::window_view`, and sends clicks back as
+  `Event::Ui`. Still drawn by the core in cells, over the code: menus (☰
+  opens them there), hover cards, completion and find. Also still to do:
+  tabs for each editor group (only the focused group's show), Markdown in
+  panels (shown as plain text), panel footers, dragging tabs, resizing the
+  side bar, and one font list shared by the frame and the code.
 - **What VS Code users miss first:** an integrated terminal, IME input, a
   blinking cursor (as an option, since blinking costs wakeups), smooth
   scrolling, and debugging (DAP, as a plugin like lsp).

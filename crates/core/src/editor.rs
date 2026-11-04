@@ -857,8 +857,7 @@ impl Editor {
         let by_user = matches!(
             event,
             Event::Key(_) | Event::Paste(_) | Event::Command(_) | Event::Ui(_)
-        )
-            || matches!(event, Event::Mouse(m) if m.kind == MouseKind::Down);
+        ) || matches!(event, Event::Mouse(m) if m.kind == MouseKind::Down);
         let armed = if by_user { self.armed.take() } else { None };
         if let Event::Mouse(m) = &event {
             self.hover = Some((m.x, m.y));
