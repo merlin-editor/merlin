@@ -23,6 +23,9 @@ pub struct Settings {
     pub detect_indentation: bool,
     /// Typing an opening bracket or quote adds its closer.
     pub auto_closing_brackets: bool,
+    /// The last line can scroll up to the top, rather than stopping at
+    /// the bottom of the view.
+    pub scroll_beyond_last_line: bool,
     /// Keys and the commands they run, such as `ctrl+k ctrl+m` and
     /// `view.minimap`, maybe only when a condition holds. An empty command
     /// unbinds the keys.
@@ -41,6 +44,7 @@ impl Default for Settings {
             insert_spaces: true,
             detect_indentation: true,
             auto_closing_brackets: true,
+            scroll_beyond_last_line: true,
             keys: Vec::new(),
         }
     }
@@ -62,6 +66,7 @@ impl Editor {
         };
         self.detect_indentation = settings.detect_indentation;
         self.auto_close = settings.auto_closing_brackets;
+        self.scroll_beyond_last_line = settings.scroll_beyond_last_line;
         if !self.preview_tabs {
             self.preview = None;
         }

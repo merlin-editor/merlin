@@ -16,6 +16,7 @@ use merlin_core::style::{Cell, Style, Surface};
 use super::canvas::{Canvas, glyph_bitmap};
 use super::grid::{Fonts, attrs};
 use super::scene::{BitmapId, Prim};
+use crate::settings::CursorStyle;
 use crate::theme::{self, Look, Palette};
 
 /// Shaped lines kept, most for the lines on screen as they scroll.
@@ -38,6 +39,15 @@ pub(super) struct Picture {
     top: i32,
 }
 
+/// How the carets look in a frame: their style, and how far on they are
+/// in their blink, from 0 to 1, as opacity or, expanding, as height.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Caret {
+    pub style: CursorStyle,
+    pub on: f32,
+    pub expand: bool,
+}
+
 /// What the painter keeps between frames.
 #[derive(Default)]
 pub struct Shapes {
@@ -57,7 +67,8 @@ struct Spot {
 impl Fonts {
     /// Draws `view` in its group's text area, physical (`ox`, `oy`) to
     /// (`ox` + `w`, `oy` + `h`), with the view's grid from its top left.
-    /// `caret_on` is the blink's phase; carets show only while it's on.
+    /// `caret` is how the carets look and how far on they are in their
+    /// blink.
     /// `glide` moves the lines down by that many pixels, while scrolling
     /// eases to where the view is; the part of the top row scrolled off
     /// moves them up.
@@ -67,7 +78,7 @@ impl Fonts {
         canvas: &mut Canvas,
         [ox, oy, w, h]: [f32; 4],
         p: &Palette,
-        caret_on: bool,
+        caret: Caret,
         glide: f32,
     ) {
         let (cw, ch) = (self.cell_w as f32, self.cell_h as f32);
@@ -374,22 +385,69 @@ impl Fonts {
             );
         }
 
-        // The cursors: thin bars, every one of them.
-        if view.focused && caret_on && view.preedit.is_none() {
+        // The cursors, every one of them, in the style the settings ask.
+        if view.focused && caret.on > 0.0 && view.preedit.is_none() {
+            let thin = s.round().max(1.0);
             let beam = (2.0 * s).round().max(2.0);
-            for caret in &view.carets {
-                let Some((cx, cy)) = caret.cell else { continue };
-                let x = (text_x + cx as f32 * cw).round() - (beam / 2.0).floor();
+            // An underline has no height to expand: it fades instead.
+            let underline = matches!(
+                caret.style,
+                CursorStyle::Underline | CursorStyle::UnderlineThin
+            );
+            let expand = caret.expand && !underline;
+            let alpha = if expand {
+                255
+            } else {
+                (caret.on * 255.0) as u8
+            };
+            for at in &view.carets {
+                let Some((cx, cy)) = at.cell else { continue };
+                let x = (text_x + cx as f32 * cw).round();
                 let y = top + cy as f32 * ch + glide;
                 if x < text_x - beam || x >= right {
                     continue;
                 }
-                quad(
-                    canvas,
-                    [x, y + s, x + beam, y + ch - s],
-                    beam / 2.0,
-                    p.accent,
-                );
+                // Expanding, it grows from its middle.
+                let (y0, y1) = (y + s, y + ch - s);
+                let half = (y1 - y0) * (1.0 - if expand { caret.on } else { 1.0 }) / 2.0;
+                let (y0, y1) = (y0 + half, y1 - half);
+                let mut bar = |rect: [f32; 4], radius: f32, alpha: u8| {
+                    canvas.scene.prims.push(Prim::Quad {
+                        rect,
+                        radius,
+                        fill: p.accent,
+                        alpha,
+                        border: 0,
+                        border_w: 0.0,
+                    })
+                };
+                match caret.style {
+                    CursorStyle::Line | CursorStyle::LineThin => {
+                        let w = if caret.style == CursorStyle::Line {
+                            beam
+                        } else {
+                            thin
+                        };
+                        let x = x - (w / 2.0).floor();
+                        bar([x, y0, x + w, y1], w / 2.0, alpha);
+                    }
+                    // Over its character, which shows through.
+                    CursorStyle::Block => bar([x, y0, x + cw, y1], s, (alpha as f32 * 0.55) as u8),
+                    CursorStyle::BlockOutline => {
+                        bar([x, y0, x + cw, y0 + thin], 0.0, alpha);
+                        bar([x, y1 - thin, x + cw, y1], 0.0, alpha);
+                        bar([x, y0, x + thin, y1], 0.0, alpha);
+                        bar([x + cw - thin, y0, x + cw, y1], 0.0, alpha);
+                    }
+                    CursorStyle::Underline | CursorStyle::UnderlineThin => {
+                        let h = if caret.style == CursorStyle::Underline {
+                            beam
+                        } else {
+                            thin
+                        };
+                        bar([x, y + ch - s - h, x + cw, y + ch - s], 0.0, alpha);
+                    }
+                }
             }
         }
 
@@ -412,7 +470,7 @@ impl Fonts {
                 canvas,
                 [ox, oy, w, rows as f32 * ch],
                 p,
-                false,
+                Caret { on: 0.0, ..caret },
                 0.0,
             );
             let y = top + rows as f32 * ch;
@@ -470,11 +528,11 @@ impl Fonts {
             }
             spans.push((
                 &text[bytes[i]..bytes[j]],
-                attrs(&self.family, face.0, face.1),
+                attrs(&self.family, self.ligatures, face.0, face.1),
             ));
             i = j;
         }
-        let default = attrs(&self.family, false, false);
+        let default = attrs(&self.family, self.ligatures, false, false);
         let line = &mut self.line;
         line.set_wrap(Wrap::None);
         line.set_rich_text(spans, &default, Shaping::Advanced, None);

@@ -338,3 +338,36 @@ fn an_input_method_composes_at_the_cursor_then_types() {
     assert_eq!(s.text(), "a日本b\n");
     assert!(s.editor.text_views().pop().unwrap().preedit.is_none());
 }
+
+#[test]
+fn without_scrolling_beyond_the_last_line_it_stops_at_the_bottom() {
+    use merlin_core::{Event, Settings};
+    let text: String = (1..=30).map(|i| format!("line {i}\n")).collect();
+    let mut s = window(&text, 10);
+    let bottom = |s: &Session| s.editor.text_views().pop().unwrap().top_row;
+    s.send(Event::Scroll {
+        group: 0,
+        rows: 100.0,
+        cols: 0.0,
+    });
+    assert_eq!(bottom(&s), 30.0, "the last row, empty, at the top");
+    s.send(Event::Settings(Settings {
+        scroll_beyond_last_line: false,
+        ..Settings::default()
+    }));
+    s.send(Event::Scroll {
+        group: 0,
+        rows: 100.0,
+        cols: 0.0,
+    });
+    let view = s.editor.text_views().pop().unwrap();
+    assert_eq!(
+        view.top_row,
+        (view.total_rows - view.area.h as usize) as f64
+    );
+    s.send(Event::ScrollTo {
+        group: 0,
+        row: 29.0,
+    });
+    assert_eq!(bottom(&s), view.top_row, "nor from the scrollbar");
+}

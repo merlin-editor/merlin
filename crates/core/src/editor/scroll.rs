@@ -62,6 +62,22 @@ impl Editor {
         let doc = self.doc_mut();
         doc.scroll = line;
         doc.scroll_sub = Sub { line, row, frac };
+        let max = self.max_top_row();
+        if self.top_row() > max {
+            self.set_top_row(max);
+        }
+    }
+
+    /// The furthest down the top goes: to the last row, as VS Code lets
+    /// it, or without `scroll_beyond_last_line`, a view's height above the
+    /// end.
+    fn max_top_row(&self) -> f64 {
+        let total = *self.row_index().last().unwrap_or(&0);
+        if self.scroll_beyond_last_line {
+            total.saturating_sub(1) as f64
+        } else {
+            total.saturating_sub(self.text_height()) as f64
+        }
     }
 
     /// The rows before each line of the document drawn, and in all, with
@@ -104,8 +120,7 @@ impl Editor {
     /// Puts the top at row `at` of the document, part of a row too.
     pub(crate) fn set_top_row(&mut self, at: f64) {
         let index = self.row_index();
-        let total = *index.last().unwrap_or(&0);
-        let at = at.clamp(0.0, total.saturating_sub(1) as f64);
+        let at = at.clamp(0.0, self.max_top_row());
         let whole = at.floor() as usize;
         // The line whose rows hold it: the last that starts at or before.
         let line = index[..index.len() - 1]

@@ -207,6 +207,23 @@ impl App {
             control: Control::Toggle(flag(&key["editor.".len()..], default)),
             changed: set_here("editor", &key["editor.".len()..]),
         };
+        // A value as a choice shows it, numbers as written.
+        let value = |key: &str, default: &str| {
+            merged
+                .get("editor")
+                .and_then(|e| e.get(key))
+                .map_or(default.to_string(), |v| match v {
+                    toml::Value::String(text) => text.clone(),
+                    other => other.to_string(),
+                })
+        };
+        let choice = |label, about, key: &'static str, options, default| Row {
+            label,
+            about,
+            key,
+            control: Control::Choice(options, value(&key["editor.".len()..], default)),
+            changed: set_here("editor", &key["editor.".len()..]),
+        };
         let icons = settings::editor_text(&merged, "icons").unwrap_or("nerd").to_string();
         let tab_size = settings::editor(&merged).tab_size.to_string();
         let size = merged
@@ -221,6 +238,17 @@ impl App {
                     toggle("Minimap", "The file's shape beside the scrollbar, with matches, problems and changes marked.", "editor.minimap", false),
                     toggle("Breadcrumbs", "The file's folders and the symbols around the cursor, under the tabs.", "editor.breadcrumbs", true),
                     toggle("Sticky scroll", "The first lines of the blocks in view stay pinned at the top.", "editor.sticky_scroll", true),
+                    choice("Minimap scale", "How big the minimap draws the file.", "editor.minimap_scale", vec!["1", "2", "3"], "1"),
+                    choice("Scrollbar size", "The scrollbar's width, in points.", "editor.scrollbar_size", vec!["10", "14", "18"], "14"),
+                ],
+            ),
+            (
+                "Scrolling",
+                vec![
+                    toggle("Smooth scrolling", "A wheel's steps glide to where they scroll.", "editor.smooth_scrolling", true),
+                    toggle("Scroll beyond last line", "The last line can scroll up to the top of the view.", "editor.scroll_beyond_last_line", true),
+                    choice("Wheel sensitivity", "How far the wheel and touchpad scroll, times their own.", "editor.mouse_wheel_scroll_sensitivity", vec!["0.5", "1", "2", "3"], "1"),
+                    choice("Fast scroll sensitivity", "Times that again with Alt held.", "editor.fast_scroll_sensitivity", vec!["3", "5", "10"], "5"),
                 ],
             ),
             (
@@ -244,6 +272,10 @@ impl App {
                         control: Control::Number(size),
                         changed: set_here("editor", "font_size"),
                     },
+                    choice("Line height", "Each row's height, times the font size.", "editor.line_height", vec!["1.3", "1.55", "1.8"], "1.55"),
+                    toggle("Font ligatures", "Runs like -> and != join into one picture, in fonts that have them.", "editor.font_ligatures", true),
+                    choice("Cursor style", "How the cursor is drawn.", "editor.cursor_style", vec!["line", "line-thin", "block", "block-outline", "underline", "underline-thin"], "line"),
+                    choice("Cursor blinking", "How the cursor blinks.", "editor.cursor_blinking", vec!["blink", "smooth", "phase", "expand", "solid"], "blink"),
                 ],
             ),
             (

@@ -1,4 +1,4 @@
-//! Scripts drive the editor without a terminal, for tests and `--exec`.
+//! Scripts drive the editor without a window, for tests and `--exec`.
 //!
 //! Actions are separated by `;` or newlines:
 //!

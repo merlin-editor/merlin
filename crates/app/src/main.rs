@@ -174,6 +174,8 @@ struct App {
     scripted: bool,
     /// How the window looks, from the packs stacked.
     look: packs::Look,
+    /// What the settings say about the window: fonts, cursor, scrolling.
+    window: settings::Window,
     /// Every pack there is, built in or from plugins.
     packs: Vec<packs::Pack>,
     /// The themes and packs chosen.
@@ -518,6 +520,7 @@ impl App {
             self.settings.load()
         };
         let mut editor = settings::editor(&table);
+        self.window = settings::window(&table);
         // MERLIN_MINIMAP=on or off still decides, for trying it out.
         match env::var("MERLIN_MINIMAP").as_deref() {
             Ok("on" | "1") => editor.minimap = true,
@@ -1309,6 +1312,7 @@ fn main() -> Result<()> {
         settings: settings_files,
         scripted: args.exec.is_some(),
         look: packs::Look::stack(&[]).expect("merlin's own look"),
+        window: settings::Window::default(),
         packs: Vec::new(),
         choice: looks::Choice::default(),
         watched: Vec::new(),

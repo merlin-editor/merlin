@@ -703,6 +703,8 @@ pub struct Editor {
     detect_indentation: bool,
     /// Brackets and quotes close themselves.
     auto_close: bool,
+    /// The last line can scroll to the top of the view.
+    scroll_beyond_last_line: bool,
     /// Colours plugins gave for diffs and code blocks.
     colours: colours::TextColours,
     /// Languages plugins added, with the plugin that added each.
@@ -794,6 +796,7 @@ impl Editor {
             indent: Indent::spaces(4),
             detect_indentation: true,
             auto_close: true,
+            scroll_beyond_last_line: true,
             project: "merlin".into(),
             log: Vec::new(),
             problems: Vec::new(),
@@ -805,7 +808,7 @@ impl Editor {
         editor
     }
 
-    /// Draws Nerd Font icons, for terminals with such a font.
+    /// Draws Nerd Font icons, or plain ones without.
     pub fn set_nerd_icons(&mut self, on: bool) {
         self.nerd = on;
         self.build_views();

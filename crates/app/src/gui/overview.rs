@@ -14,12 +14,13 @@ use merlin_core::style::Style;
 use super::canvas::{Canvas, Rect};
 use crate::theme::{self, Palette};
 
-/// The vertical scrollbar's width, and the minimap's with its margin.
+/// The vertical scrollbar's width by default, and the minimap's with its
+/// margin at its own scale.
 pub const SCROLLBAR_W: f32 = 14.0;
 pub const MINIMAP_W: f32 = 86.0;
 /// The horizontal scrollbar's height, over the text's last row.
 const HBAR_H: f32 = 10.0;
-/// A minimap line's height and a character's width.
+/// A minimap line's height and a character's width, at its own scale.
 const MAP_LINE: f32 = 2.0;
 const MAP_CHAR: f32 = 0.7;
 /// The shortest a thumb gets, to stay easy to grab.
@@ -102,12 +103,18 @@ pub struct Map {
     pub first: usize,
     pub slider: Rect,
     thumb: Thumb,
+    /// A line's height and a character's width, scaled as the map is.
+    line: f32,
+    char: f32,
 }
 
 impl Map {
     pub fn new(area: Rect, v: &TextView, map: &MinimapView) -> Self {
         let lines = map.lines.len();
-        let fit = (area.h / MAP_LINE).floor().max(1.0) as usize;
+        // Scaled up, it's wider.
+        let scale = (area.w / MINIMAP_W).max(1.0);
+        let (line, char) = (MAP_LINE * scale, MAP_CHAR * scale);
+        let fit = (area.h / line).floor().max(1.0) as usize;
         let visible = (v.area.h as usize).min(lines).max(1);
         let top = v.scroll.min(lines.saturating_sub(1));
         // Longer than fits: it scrolls with the view, end to end.
@@ -117,9 +124,9 @@ impl Map {
             let along = top as f64 / (lines - visible).max(1) as f64;
             (along.min(1.0) * (lines - fit) as f64) as usize
         };
-        let shown = lines.min(fit) as f32 * MAP_LINE;
-        let len = visible as f32 * MAP_LINE;
-        let y = area.y + (top.saturating_sub(first) as f32 + v.top_frac) * MAP_LINE;
+        let shown = lines.min(fit) as f32 * line;
+        let len = visible as f32 * line;
+        let y = area.y + (top.saturating_sub(first) as f32 + v.top_frac) * line;
         Self {
             first,
             slider: Rect::new(area.x, y, area.w, len),
@@ -128,6 +135,8 @@ impl Map {
                 travel: (shown - len).max(0.0),
                 range: lines.saturating_sub(visible) as f64,
             },
+            line,
+            char,
         }
     }
 
@@ -138,7 +147,7 @@ impl Map {
 
     /// The line under `y`.
     pub fn line_at(&self, area: Rect, y: f32) -> usize {
-        self.first + ((y - area.y).max(0.0) / MAP_LINE) as usize
+        self.first + ((y - area.y).max(0.0) / self.line) as usize
     }
 }
 
@@ -209,35 +218,34 @@ fn draw_thumb(canvas: &mut Canvas, p: &Palette, rect: Rect, shown: Shown) {
 pub fn draw_minimap(canvas: &mut Canvas, p: &Palette, area: Rect, v: &TextView, shown: Shown) {
     let Some(map) = &v.minimap else { return };
     let geom = Map::new(area, v, map);
-    let fit = (area.h / MAP_LINE).floor() as usize;
+    let (line_h, char_w) = (geom.line, geom.char);
+    let fit = (area.h / line_h).floor() as usize;
     let left = area.x + 4.0;
     for &(line, style) in &map.marks {
         if line < geom.first || line >= geom.first + fit {
             continue;
         }
-        let y = area.y + (line - geom.first) as f32 * MAP_LINE;
+        let y = area.y + (line - geom.first) as f32 * line_h;
         let colour = mark_colour(p, style);
         match style {
             // Changes are a stripe down the left edge, as in the gutter.
             Style::GitAdded | Style::GitChanged | Style::GitRemoved => {
-                canvas.fill(Rect::new(area.x, y, 2.0, MAP_LINE), colour)
+                canvas.fill(Rect::new(area.x, y, 2.0, line_h), colour)
             }
-            Style::Selection => {
-                canvas.tint(Rect::new(area.x, y, area.w, MAP_LINE), 0.0, colour, 60)
-            }
-            _ => canvas.tint(Rect::new(area.x, y, area.w, MAP_LINE), 0.0, colour, 110),
+            Style::Selection => canvas.tint(Rect::new(area.x, y, area.w, line_h), 0.0, colour, 60),
+            _ => canvas.tint(Rect::new(area.x, y, area.w, line_h), 0.0, colour, 110),
         }
     }
     for (i, runs) in map.lines.iter().skip(geom.first).take(fit).enumerate() {
-        let y = area.y + i as f32 * MAP_LINE;
+        let y = area.y + i as f32 * line_h;
         for &(col, len, syntax) in runs {
-            let x = left + col as f32 * MAP_CHAR;
+            let x = left + col as f32 * char_w;
             if x >= area.right() {
                 break;
             }
-            let w = (len as f32 * MAP_CHAR).min(area.right() - x);
+            let w = (len as f32 * char_w).min(area.right() - x);
             let colour = theme::code(p, syntax).unwrap_or(p.text);
-            canvas.tint(Rect::new(x, y, w, MAP_LINE * 0.8), 0.0, colour, 170);
+            canvas.tint(Rect::new(x, y, w, line_h * 0.8), 0.0, colour, 170);
         }
     }
     if shown.map_hovered || shown.dragging {

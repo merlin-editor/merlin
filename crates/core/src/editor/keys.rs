@@ -3,9 +3,7 @@
 use super::keymap::{Binding, From, When, spec_of};
 use super::*;
 
-/// Keys that work wherever focus is, as VS Code binds them where the
-/// terminal can tell them apart. Ctrl+Shift needs a terminal with the kitty
-/// keyboard protocol; elsewhere the menus and F1 reach everything.
+/// Keys that work wherever focus is, as VS Code binds them on Linux.
 pub(super) const GLOBAL_KEYS: &[(&str, &str)] = &[
     ("ctrl+s", "file.save"),
     ("ctrl+p", "file.open"),
@@ -45,9 +43,6 @@ pub(super) const GLOBAL_KEYS: &[(&str, &str)] = &[
     ("ctrl+\\", "view.split"),
     ("ctrl+shift+[", "edit.fold"),
     ("ctrl+shift+]", "edit.unfold"),
-    // kitty keeps Ctrl+Shift+[ and ] for its own windows.
-    ("ctrl+alt+[", "edit.fold"),
-    ("ctrl+alt+]", "edit.unfold"),
     ("ctrl+1", "view.group1"),
     ("ctrl+2", "view.group2"),
     ("ctrl+3", "view.group3"),

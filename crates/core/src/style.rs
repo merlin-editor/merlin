@@ -97,16 +97,8 @@ pub enum Style {
     PanelTitleActive,
     /// A coloured item at the left of the status bar, for what needs doing.
     StatusAccent,
-    /// The minimap's dots, coloured like code but dimmer, and the rows
-    /// for the lines in view.
-    Minimap,
-    MinimapView,
-    /// Cells of the minimap that hold a search match.
-    MinimapMatch,
     /// Search matches on the scrollbar.
     ScrollMatch,
-    /// A cursor other than the terminal's own, when there are several.
-    Caret,
 }
 
 /// The part of the window a cell is in. Text styles without a background

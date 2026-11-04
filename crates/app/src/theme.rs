@@ -331,11 +331,7 @@ pub fn kind(p: &Palette, kind: Kind) -> Look {
         Kind::ActivityActive => text(p.bright),
         Kind::ActivityMarker => text(p.accent),
         Kind::ActivityBadge => look(p.on_accent, p.accent),
-        Kind::Minimap => text(p.muted),
-        Kind::MinimapView => look(p.muted, p.selected),
-        Kind::MinimapMatch => look(p.muted, p.find_match),
         Kind::ScrollMatch => text(p.warning),
-        Kind::Caret => look(p.island, p.accent),
     }
 }
 
@@ -425,9 +421,6 @@ pub fn shows_code(kind: Kind) -> bool {
             | Kind::CodeBlock
             | Kind::CurrentLine
             | Kind::WordMatch
-            | Kind::Minimap
-            | Kind::MinimapView
-            | Kind::MinimapMatch
             | Kind::DiffAdded
             | Kind::DiffRemoved
     )
@@ -445,15 +438,6 @@ pub fn cell(p: &Palette, cell: &Cell) -> Look {
     {
         l.fg = Some(colour);
         l.italic |= cell.syntax == Syntax::Comment;
-    }
-    // The minimap's dots are dimmer than the code they stand for.
-    if matches!(
-        cell.style,
-        Kind::Minimap | Kind::MinimapView | Kind::MinimapMatch
-    ) && let (Some(fg), Some(bg)) = (l.fg, l.bg)
-    {
-        l.fg = Some(mix(fg, bg, 0.6));
-        l.italic = false;
     }
     if let Some(h) = cell.tint {
         l.fg = Some(hue(p, h));

@@ -137,6 +137,9 @@ pub struct Sizes {
     pub left: f32,
     pub right: f32,
     pub bottom: f32,
+    /// The scrollbar's width, and the minimap's scale, from the settings.
+    pub scrollbar: f32,
+    pub minimap_scale: f32,
 }
 
 impl Default for Sizes {
@@ -145,6 +148,8 @@ impl Default for Sizes {
             left: SIDE_W,
             right: RIGHT_W,
             bottom: BOTTOM_H,
+            scrollbar: super::overview::SCROLLBAR_W,
+            minimap_scale: 1.0,
         }
     }
 }
@@ -189,7 +194,7 @@ pub fn areas(view: &WindowView, w: f32, h: f32, gap: f32, sizes: &Sizes) -> Area
     });
     let editor_h = body_h - bottom.map_or(0.0, |b| b.h + gap);
     let editor = Rect::new(x, top, main_w, editor_h.max(0.0));
-    let (groups, group_sashes) = group_areas(editor, &view.groups, view.minimap);
+    let (groups, group_sashes) = group_areas(editor, &view.groups, view.minimap, sizes);
     let text = groups
         .iter()
         .zip(&view.groups)
@@ -214,6 +219,7 @@ pub fn group_areas(
     editor: Rect,
     groups: &[GroupView],
     minimap: bool,
+    sizes: &Sizes,
 ) -> (Vec<GroupArea>, Vec<(Rect, GroupSash)>) {
     let n = groups.len().max(1);
     let heads: Vec<usize> = (0..groups.len())
@@ -248,7 +254,7 @@ pub fn group_areas(
                 room_h * share(g, false) / total_h
             };
             let crumbs = groups.get(g).is_some_and(|v| !v.crumbs.is_empty());
-            areas.push(GroupArea::of(Rect::new(x, y, w, h), crumbs, minimap));
+            areas.push(GroupArea::of(Rect::new(x, y, w, h), crumbs, minimap, sizes));
             if g + 1 < end {
                 let r = Rect::new(x, y + h - SASH, w, DIVIDER + 2.0 * SASH);
                 sashes.push((r, GroupSash::Row(g)));
@@ -268,13 +274,13 @@ impl GroupArea {
     /// A group's tabs on top, then its breadcrumbs, then its code with
     /// the minimap and scrollbar on its right. A narrow group drops the
     /// minimap first.
-    fn of(r: Rect, crumbs: bool, minimap: bool) -> Self {
-        use super::overview::{MINIMAP_W, SCROLLBAR_W};
+    fn of(r: Rect, crumbs: bool, minimap: bool, sizes: &Sizes) -> Self {
         let head = if crumbs { TABS_H + CRUMBS_H } else { TABS_H };
         let (y, h) = (r.y + head + 4.0, (r.h - head - 4.0).max(0.0));
-        let bar = Rect::new(r.right() - SCROLLBAR_W, y, SCROLLBAR_W, h);
-        let minimap = (minimap && r.w > 3.0 * MINIMAP_W)
-            .then(|| Rect::new(bar.x - MINIMAP_W, y, MINIMAP_W, h));
+        let bar_w = sizes.scrollbar;
+        let map_w = super::overview::MINIMAP_W * sizes.minimap_scale;
+        let bar = Rect::new(r.right() - bar_w, y, bar_w, h);
+        let minimap = (minimap && r.w > 3.0 * map_w).then(|| Rect::new(bar.x - map_w, y, map_w, h));
         let code_w = (minimap.map_or(bar.x, |m| m.x) - r.x).max(0.0);
         Self {
             tabs: Rect::new(r.x, r.y, r.w, TABS_H.min(r.h)),

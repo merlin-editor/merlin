@@ -42,6 +42,7 @@ use winit::window::{Window, WindowId};
 
 use crate::App;
 use crate::packs::{self, Look};
+use crate::settings::Blinking;
 use canvas::{Canvas, Pictures, Rect, Text};
 use frame::{Areas, Frame, Hit, State};
 use gpu::Gpu;
@@ -70,6 +71,10 @@ const TIP_DELAY: Duration = Duration::from_millis(600);
 /// keeps blinking before it stays on and the window sleeps.
 const BLINK: Duration = Duration::from_millis(530);
 const BLINK_FOR: Duration = Duration::from_secs(10);
+/// A smooth blink's fade, out or in, as a part of a blink.
+const FADE: f32 = 0.35;
+/// How often a fading caret is drawn again.
+const FADE_FRAME: Duration = Duration::from_millis(33);
 /// How long a scroll takes to glide to where it's going.
 const GLIDE: Duration = Duration::from_millis(110);
 
@@ -105,7 +110,7 @@ pub fn run(app: &mut App) -> Result<()> {
         tab_drag: None,
         cursor_icon: CursorIcon::Default,
         blink_from: Instant::now(),
-        caret_drawn: true,
+        caret_drawn: 1.0,
         focused: true,
         glide: None,
         last_top: Vec::new(),
@@ -205,8 +210,8 @@ struct Gui<'a> {
     cursor_icon: CursorIcon,
     /// The last input, which restarts the caret's blink.
     blink_from: Instant,
-    /// Whether the caret was drawn on, for redrawing when it blinks.
-    caret_drawn: bool,
+    /// How far on the caret was drawn, for redrawing when it blinks.
+    caret_drawn: f32,
     /// Whether the window has the keyboard; the caret blinks only then.
     focused: bool,
     /// A scroll gliding: the group, when it began and how far, in physical
@@ -236,9 +241,10 @@ struct Gui<'a> {
     bitmaps: Bitmaps,
     /// The last frame's drawing, kept for its room.
     scene: Scene,
-    /// The fonts the text and code were set up with, to set them up again
-    /// when packs change them.
-    fonts: Option<packs::Fonts>,
+    /// The fonts the text and code were set up with, and the code's line
+    /// height and ligatures, to set them up again when packs or settings
+    /// change them.
+    fonts: Option<(packs::Fonts, (Option<f32>, bool))>,
 }
 
 struct Shown {
@@ -300,9 +306,16 @@ impl Gui<'_> {
     /// Sets up the fonts for the display's scale and what the packs ask
     /// for, when they've changed or `now`.
     fn set_fonts(&mut self, now: bool) {
-        let wanted = &self.app.look.fonts;
+        // The settings' code font over the packs'.
+        let w = &self.app.window;
+        let wanted = packs::Fonts {
+            code: w.font_family.clone().or(self.app.look.fonts.code.clone()),
+            code_size: w.font_size.or(self.app.look.fonts.code_size),
+            ..self.app.look.fonts.clone()
+        };
+        let shape = (w.line_height, w.font_ligatures);
         let zoom = self.app.zoom;
-        if !now && self.fonts.as_ref() == Some(wanted) && self.zoomed == zoom {
+        if !now && self.fonts.as_ref() == Some(&(wanted.clone(), shape)) && self.zoomed == zoom {
             return;
         }
         self.zoomed = zoom;
@@ -313,8 +326,14 @@ impl Gui<'_> {
             wanted.code.as_deref(),
         ));
         let size = (wanted.code_size.unwrap_or(grid::FONT_SIZE) + zoom).max(6.0);
-        self.grid = Some(Fonts::new(scale, wanted.code.as_deref(), Some(size)));
-        self.fonts = Some(wanted.clone());
+        self.grid = Some(Fonts::new(
+            scale,
+            wanted.code.as_deref(),
+            Some(size),
+            shape.0,
+            shape.1,
+        ));
+        self.fonts = Some((wanted, shape));
         // The old fonts' glyphs go with them.
         self.bitmaps.clear();
         self.drawn = None;
@@ -324,6 +343,8 @@ impl Gui<'_> {
     /// the editor how many cells the code has room for.
     fn fit_text(&mut self) {
         self.set_fonts(false);
+        self.sizes.scrollbar = self.app.window.scrollbar_size;
+        self.sizes.minimap_scale = self.app.window.minimap_scale;
         let (Some(shown), Some(grid)) = (&self.window, &self.grid) else {
             return;
         };
@@ -706,9 +727,10 @@ impl Gui<'_> {
             self.redraw();
             return;
         }
-        // Three rows a step, or six columns sideways, as VS Code scrolls.
+        // Three rows a step, or six columns sideways, as VS Code scrolls,
+        // times the settings' sensitivity, and again with Alt.
         let group = self.group_at(at).unwrap_or(self.focused_group());
-        let steps = lines as f32;
+        let steps = lines as f32 * self.sensitivity();
         let (rows, cols) = if sideways || self.modifiers.shift_key() {
             (0.0, -steps * 6.0)
         } else {
@@ -749,11 +771,22 @@ impl Gui<'_> {
             return;
         };
         self.touched = true;
+        let k = self.sensitivity();
         self.dispatch(Event::Scroll {
             group,
-            rows: (-dy / ch) as f32,
-            cols: (-dx / cw) as f32,
+            rows: (-dy / ch) as f32 * k,
+            cols: (-dx / cw) as f32 * k,
         });
+    }
+
+    /// How far the wheel and touchpad scroll the code, times their own.
+    fn sensitivity(&self) -> f32 {
+        let w = &self.app.window;
+        if self.modifiers.alt_key() {
+            w.wheel_sensitivity * w.fast_sensitivity
+        } else {
+            w.wheel_sensitivity
+        }
     }
 
     fn key(&mut self, event: KeyEvent) {
@@ -831,7 +864,12 @@ impl Gui<'_> {
         let s = self.scale();
         let cell_h = self.grid.as_ref().map_or(1, |g| g.cell_h) as f32;
         let texts = self.app.editor.text_views();
-        let caret_on = self.caret_on();
+        let caret_on = self.caret_level();
+        let caret = code::Caret {
+            style: self.app.window.cursor_style,
+            on: caret_on,
+            expand: self.app.window.cursor_blinking == Blinking::Expand,
+        };
         // A scroll since the last frame glides there from where it was, but
         // a touchpad's follows the fingers already.
         let mut tops = Vec::new();
@@ -852,6 +890,7 @@ impl Gui<'_> {
             if let Some(was) = was
                 && was != v.top_row
                 && !self.touched
+                && self.app.window.smooth_scrolling
             {
                 let rows = (v.top_row - was) as f32;
                 let from = self.glide_offset(v.group) + rows * cell_h;
@@ -969,7 +1008,7 @@ impl Gui<'_> {
                 &mut f.canvas,
                 [t.x * s, t.y * s, t.w * s, t.h * s],
                 &self.app.look.palette,
-                caret_on,
+                caret,
                 glide,
             );
         }
@@ -1073,23 +1112,71 @@ impl Gui<'_> {
         }
     }
 
-    /// Whether the caret shows now: on for a while after each input, then
-    /// blinking, then on for good once the user has been away a while.
-    fn caret_on(&self) -> bool {
-        let since = self.blink_from.elapsed();
-        !self.focused
-            || since >= BLINK_FOR
-            || (since.as_millis() / BLINK.as_millis()).is_multiple_of(2)
+    /// Whether the caret blinks now: for a while after each input, then
+    /// it's on for good once the user has been away a while.
+    fn blinking(&self) -> bool {
+        self.focused
+            && self.blink_from.elapsed() < BLINK_FOR
+            && self.app.window.cursor_blinking != Blinking::Solid
     }
 
-    /// When the caret next blinks, if it's still blinking.
+    /// Where the blink is, in blinks since it was last on from the start:
+    /// from 0 up to 2, on for the first and off for the second.
+    fn blink_phase(&self) -> f32 {
+        let blink = BLINK.as_secs_f32();
+        (self.blink_from.elapsed().as_secs_f32() / blink) % 2.0
+    }
+
+    /// How far on the caret is now, from 0 to 1, as the settings have it
+    /// blink.
+    fn caret_level(&self) -> f32 {
+        if !self.blinking() {
+            return 1.0;
+        }
+        let t = self.blink_phase();
+        let level = match self.app.window.cursor_blinking {
+            Blinking::Blink | Blinking::Solid => (t < 1.0) as u8 as f32,
+            Blinking::Phase => 0.5 + 0.5 * (t * std::f32::consts::PI).cos(),
+            // On, fading out, off, fading in.
+            Blinking::Smooth | Blinking::Expand => {
+                if t < 1.0 - FADE {
+                    1.0
+                } else if t < 1.0 {
+                    (1.0 - t) / FADE
+                } else if t < 2.0 - FADE {
+                    0.0
+                } else {
+                    (t - (2.0 - FADE)) / FADE
+                }
+            }
+        };
+        // In steps, so frames that look the same aren't drawn twice.
+        (level * 32.0).round() / 32.0
+    }
+
+    /// When the caret next changes, if it's still blinking: its next
+    /// blink, or its next frame while it fades.
     fn next_blink(&self) -> Option<Instant> {
-        let since = self.blink_from.elapsed();
-        if !self.focused || since >= BLINK_FOR {
+        if !self.blinking() {
             return None;
         }
-        let k = since.as_millis() / BLINK.as_millis() + 1;
-        Some(self.blink_from + BLINK * k as u32)
+        let now = Instant::now();
+        let t = self.blink_phase();
+        let at = |phase: f32| now + BLINK.mul_f32(phase - t);
+        Some(match self.app.window.cursor_blinking {
+            Blinking::Blink | Blinking::Solid => at(if t < 1.0 { 1.0 } else { 2.0 }),
+            Blinking::Phase => now + FADE_FRAME,
+            Blinking::Smooth | Blinking::Expand => {
+                let fading = (1.0 - FADE..1.0).contains(&t) || t >= 2.0 - FADE;
+                if fading {
+                    now + FADE_FRAME
+                } else if t < 1.0 - FADE {
+                    at(1.0 - FADE)
+                } else {
+                    at(2.0 - FADE)
+                }
+            }
+        })
     }
 
     /// How far, in physical pixels, the lines are from where they're
@@ -1178,7 +1265,7 @@ impl ApplicationHandler for Gui<'_> {
             {
                 self.redraw();
             }
-            if self.caret_on() != self.caret_drawn {
+            if self.caret_level() != self.caret_drawn {
                 self.redraw();
             }
             self.tick();

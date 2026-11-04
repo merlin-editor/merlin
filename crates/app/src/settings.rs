@@ -22,6 +22,18 @@ const USER_TEMPLATE: &str = r#"# merlin settings. Saving this file applies them.
 # insert_spaces = true
 # detect_indentation = true    # a file's own indentation wins
 # auto_closing_brackets = true
+# scroll_beyond_last_line = true
+# font_family = "JetBrains Mono"
+# font_size = 13.5
+# line_height = 1.55   # times the font size below 8, else points
+# font_ligatures = true
+# cursor_style = "line"        # line-thin, block, block-outline, underline, underline-thin
+# cursor_blinking = "blink"    # smooth, phase, expand, solid
+# smooth_scrolling = true
+# mouse_wheel_scroll_sensitivity = 1.0
+# fast_scroll_sensitivity = 5.0   # with Alt held
+# scrollbar_size = 14
+# minimap_scale = 1.0
 # icons = "nerd"      # or "plain"
 # theme = "dark"
 
@@ -217,7 +229,129 @@ pub fn editor(table: &toml::Table) -> Settings {
         insert_spaces: flag("insert_spaces", defaults.insert_spaces),
         detect_indentation: flag("detect_indentation", defaults.detect_indentation),
         auto_closing_brackets: flag("auto_closing_brackets", defaults.auto_closing_brackets),
+        scroll_beyond_last_line: flag("scroll_beyond_last_line", defaults.scroll_beyond_last_line),
         keys,
+    }
+}
+
+/// How the code's cursor is drawn.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CursorStyle {
+    #[default]
+    Line,
+    LineThin,
+    Block,
+    BlockOutline,
+    Underline,
+    UnderlineThin,
+}
+
+/// How the cursor blinks, as VS Code's `cursorBlinking` has it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Blinking {
+    #[default]
+    Blink,
+    /// Fades out and in at each change.
+    Smooth,
+    /// Fades the whole way, out and in.
+    Phase,
+    /// Shrinks to nothing and grows back.
+    Expand,
+    Solid,
+}
+
+/// What `[editor]` says about the window itself: the code's font, the
+/// cursor, scrolling, and the bars beside the code.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Window {
+    /// Over the packs' code font, if installed.
+    pub font_family: Option<String>,
+    /// Points, over the packs' size.
+    pub font_size: Option<f32>,
+    /// Each row's height: times the font size below 8, else points.
+    pub line_height: Option<f32>,
+    pub font_ligatures: bool,
+    pub cursor_style: CursorStyle,
+    pub cursor_blinking: Blinking,
+    /// A wheel's steps glide to where they scroll.
+    pub smooth_scrolling: bool,
+    /// How far the wheel and touchpad scroll, times their own distance.
+    pub wheel_sensitivity: f32,
+    /// Times that again with Alt held.
+    pub fast_sensitivity: f32,
+    /// The scrollbar's width, in points.
+    pub scrollbar_size: f32,
+    /// The minimap's size, times its own.
+    pub minimap_scale: f32,
+}
+
+impl Default for Window {
+    fn default() -> Self {
+        Self {
+            font_family: None,
+            font_size: None,
+            line_height: None,
+            font_ligatures: true,
+            cursor_style: CursorStyle::Line,
+            cursor_blinking: Blinking::Blink,
+            smooth_scrolling: true,
+            wheel_sensitivity: 1.0,
+            fast_sensitivity: 5.0,
+            scrollbar_size: 14.0,
+            minimap_scale: 1.0,
+        }
+    }
+}
+
+/// The window's settings in a merged table.
+pub fn window(table: &toml::Table) -> Window {
+    let d = Window::default();
+    let get = |key: &str| table.get("editor")?.as_table()?.get(key);
+    // A number, whole or not, or the text the Settings window's choice
+    // writes.
+    let number = |key: &str| {
+        get(key).and_then(|v| {
+            v.as_float()
+                .or_else(|| v.as_integer().map(|n| n as f64))
+                .or_else(|| v.as_str()?.parse().ok())
+                .map(|n| n as f32)
+                .filter(|n| n.is_finite())
+        })
+    };
+    let text = |key: &str| get(key).and_then(|v| v.as_str());
+    Window {
+        font_family: text("font_family")
+            .filter(|f| !f.trim().is_empty())
+            .map(str::to_string),
+        font_size: number("font_size").map(|n| n.clamp(6.0, 100.0)),
+        line_height: number("line_height").filter(|&n| n > 0.0),
+        font_ligatures: get("font_ligatures")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(d.font_ligatures),
+        cursor_style: match text("cursor_style") {
+            Some("line-thin") => CursorStyle::LineThin,
+            Some("block") => CursorStyle::Block,
+            Some("block-outline") => CursorStyle::BlockOutline,
+            Some("underline") => CursorStyle::Underline,
+            Some("underline-thin") => CursorStyle::UnderlineThin,
+            _ => d.cursor_style,
+        },
+        cursor_blinking: match text("cursor_blinking") {
+            Some("smooth") => Blinking::Smooth,
+            Some("phase") => Blinking::Phase,
+            Some("expand") => Blinking::Expand,
+            Some("solid") => Blinking::Solid,
+            _ => d.cursor_blinking,
+        },
+        smooth_scrolling: get("smooth_scrolling")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(d.smooth_scrolling),
+        wheel_sensitivity: number("mouse_wheel_scroll_sensitivity")
+            .map_or(d.wheel_sensitivity, |n| n.clamp(0.1, 20.0)),
+        fast_sensitivity: number("fast_scroll_sensitivity")
+            .map_or(d.fast_sensitivity, |n| n.clamp(1.0, 50.0)),
+        scrollbar_size: number("scrollbar_size").map_or(d.scrollbar_size, |n| n.clamp(4.0, 40.0)),
+        minimap_scale: number("minimap_scale").map_or(d.minimap_scale, |n| n.clamp(1.0, 3.0)),
     }
 }
 
@@ -308,6 +442,22 @@ mod tests {
         assert!(text.contains("# minimap = false"), "{text}");
         let (table, _) = f.load();
         assert!(!editor(&table).minimap);
+    }
+
+    #[test]
+    fn window_settings_read_with_their_defaults() {
+        let table: toml::Table = "[editor]\nfont_size = 15\nline_height = 1.4\ncursor_style = \"block\"\ncursor_blinking = \"phase\"\nsmooth_scrolling = false\nscrollbar_size = 100\n"
+            .parse()
+            .unwrap();
+        let w = window(&table);
+        assert_eq!(w.font_size, Some(15.0));
+        assert_eq!(w.line_height, Some(1.4));
+        assert_eq!(w.cursor_style, CursorStyle::Block);
+        assert_eq!(w.cursor_blinking, Blinking::Phase);
+        assert!(!w.smooth_scrolling && w.font_ligatures);
+        assert_eq!(w.scrollbar_size, 40.0, "kept in range");
+        assert_eq!(w.wheel_sensitivity, 1.0);
+        assert_eq!(window(&toml::Table::new()), Window::default());
     }
 
     #[test]
