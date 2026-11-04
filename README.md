@@ -7,8 +7,9 @@ plugins as they are; only the frontend is new. kestrel tested two ideas from
 looking at [ttt](https://github.com/eugenioenko/ttt), and merlin keeps both:
 
 1. **Most editor bugs are state bugs.** The core is a reducer with no IO:
-   `Editor::update(Event) -> Vec<Effect>`. It renders to a plain grid, so
-   tests drive it with scripts and check the screen as text.
+   `Editor::update(Event) -> Vec<Effect>`. It hands the window plain data
+   to draw, so tests drive it with scripts and check that data, or a text
+   dump of it.
 2. **Plugins should be sandboxed, typed and quick to iterate on.** Plugins are
    WebAssembly components. They can call only what's in
    [`wit/merlin.wit`](wit/merlin.wit), each call is checked against the
@@ -44,32 +45,35 @@ status bar runs underneath. The interface uses [Inter](https://rsms.me/inter/),
 which comes built into the binary (SIL Open Font License, in
 [`crates/app/fonts`](crates/app/fonts); `MERLIN_UI_FONT` picks another). Code stays monospace.
 
-The core still owns all state and behaviour. In window mode
-(`Editor::set_windowed`) its screen is only the code, and the window draws
-everything else from `Editor::window_view`: tabs, breadcrumbs, the rail,
-each side's panel nodes, the status items, the palette and notices. Clicks on
-the frame go back as `Event::Ui`; the mouse in the code goes back as cells.
-Built-in views and plugin panels are the same panel nodes, so one renderer
-draws them all.
+The core owns all state and behaviour, and the window draws what it says:
+`Editor::window_view` for the frame (tabs, breadcrumbs, the rail, each
+side's panel nodes, the status items, the palette, notices and dialogs) and
+`Editor::text_views` for each group's code, with its scrollbar marks and
+minimap. The window lays the groups out in pixels and tells the core how
+many rows and columns each has room for (`Event::Viewports`). Clicks on the
+frame go back as `Event::Ui`, the mouse in the code as `Event::Pointer`,
+and the wheel and touchpad as `Event::Scroll`, all in rows and columns and
+parts of them. Built-in views and plugin panels are the same panel nodes,
+so one renderer draws them all.
 
-It uses winit for the window, softbuffer for drawing and cosmic-text for
-fonts. There's no GPU context and no web view. It sleeps between events.
+It uses winit for the window, wgpu for drawing (or softbuffer on the CPU,
+with `MERLIN_RENDERER=cpu`, or when there's no GPU) and cosmic-text for
+fonts. There's no web view. It sleeps between events.
 Output from a plugin's process wakes it straight away, and a check every
 half second looks for files changed on disk and rebuilt plugins. Every key
 VS Code uses reaches the editor, Ctrl+Shift included.
 `MERLIN_ISLANDS=off` lays the panes edge to edge instead. `MERLIN_FONT` and
-`MERLIN_FONT_SIZE` set the code's font.
+`MERLIN_FONT_SIZE` set the code's font, over the settings' `font_family` and
+`font_size`.
 
 Measured on Linux (Hyprland) in a 948×1141 window, release build:
 
-| | Memory (RSS) | Idle CPU |
+| | Memory (RSS) | Idle wakeups |
 |---|---|---|
-| No plugins, cell-grid window | 28 MB | 0.4% |
-| The 7 bundled plugins, cell-grid window | 231 MB | 0.2% |
-| The 7 bundled plugins, pixel frame | 263 MB | 0.3% |
+| The bundled plugins, a file open | 155 MB | 7 per 10 s |
 
-The pixel frame loads the font list twice, once for the interface and once
-for the code, which accounts for most of its extra 30 MB.
+The first start after a plugin changes compiles it, and takes about 100 MB
+more until the next start.
 
 Language servers run as their own processes and aren't counted here.
 Plugins are where the memory goes, about 27 MB each, so they're the next
@@ -106,14 +110,18 @@ instead. Colours are VS Code's Dark Modern. Code gets indent guides, with the cu
 brighter, brackets coloured by depth, and other uses of the word under the
 cursor marked.
 
-View › Minimap shows a minimap left of the scrollbar, drawn in braille: each
-cell holds 2×4 dots, so ten columns show the shape of 80 columns of code,
-coloured like it. Search matches light up its cells, errors and warnings
-colour their dots, and changed lines are marked beside it. Click or drag it
-to scroll. It's off at first; toggling it saves `editor.minimap` in your
-settings (`MERLIN_MINIMAP=on` or `off` overrides it). It folds away when
-the text area is under 80 columns. The scrollbar marks
-search matches too, as well as errors and changes.
+The scrollbar is VS Code's: its ruler marks changes, search matches,
+selections and problems down the whole file, in lanes, and its thumb fades
+in while you scroll or the mouse is near and out a second after. Click the
+track to jump there, or drag the thumb. Long lines get a scrollbar along the
+bottom too, and a shadow under the tabs shows the code is scrolled.
+
+View › Minimap shows the file left of the scrollbar in tiny blocks of its
+colours, with selections, matches, problems and changes marked across it.
+The mouse on it shows a slider over the lines in view; click or drag it to
+scroll. A long file's minimap scrolls with the view. It's off at first;
+toggling it saves `editor.minimap` in your settings (`MERLIN_MINIMAP=on` or
+`off` overrides it), and it folds away in a narrow group.
 
 View › Word Wrap (`Alt+Z`) wraps long lines at spaces instead of scrolling
 sideways; continued rows keep the line's indent, and Up and Down move by
@@ -126,6 +134,13 @@ its own cursor and scroll, and an edit in one moves the other's cursor along.
 Files open in the focused group; `Ctrl+1`, `Ctrl+2` and `Ctrl+3` or a click
 move between groups. Drag a tab along the tab row to reorder it, or onto
 another group to move it there; a group whose last tab goes closes.
+
+Drag the edge between two groups to resize them. Closing a file with
+unsaved changes, or quitting with some, asks first: Save, Don't Save or
+Cancel. File › Open File… (`Ctrl+O`), Save As… and Open Folder…
+(`Ctrl+K Ctrl+O`) use the desktop's own file dialogs; opening a folder
+starts merlin there. In the Explorer, New File, New Folder and Rename name
+the file in its row, and Delete asks before moving it to the trash.
 
 Started without files, merlin reopens the tabs, groups and cursors you
 left in that folder (kept in `~/.local/share/merlin/workspaces/`).
@@ -255,6 +270,18 @@ sticky_scroll = true
 preview_tabs = true
 icons = "nerd"        # or "plain"
 theme = "dark"
+font_family = "JetBrains Mono"   # the code's, over the packs'
+font_size = 13.5
+line_height = 1.55    # times the font size below 8, else points
+font_ligatures = true
+cursor_style = "line"            # line-thin, block, block-outline, underline, underline-thin
+cursor_blinking = "blink"        # smooth, phase, expand, solid
+smooth_scrolling = true
+mouse_wheel_scroll_sensitivity = 1.0
+fast_scroll_sensitivity = 5.0    # with Alt held
+scroll_beyond_last_line = true
+scrollbar_size = 14
+minimap_scale = 1                # up to 3
 
 [keys]
 "ctrl+k ctrl+m" = "view.minimap"   # any command id from the palette; two keys make a chord
@@ -274,20 +301,21 @@ Keys, as in VS Code:
 | Keys | Does |
 |---|---|
 | `Ctrl+Shift+P` / `F1` | Commands |
-| `Ctrl+P` / `Ctrl+O` | Go to a file (fuzzy; skips hidden and git-ignored files) |
+| `Ctrl+P` / `Ctrl+E` | Go to a file (fuzzy; skips hidden and git-ignored files) |
+| `Ctrl+O` / `Ctrl+K Ctrl+O` | Open a file / a folder, in the desktop's dialog |
 | `F10`, `Alt+F`, `Alt+E`, … | Menus |
 | `Ctrl+B` | Side bar |
-| `Ctrl+Shift+E` (or `Ctrl+E`) / `Ctrl+Shift+F` / `Ctrl+Shift+G` | Explorer / search the project / Source Control |
+| `Ctrl+Shift+E` / `Ctrl+Shift+F` / `Ctrl+Shift+G` | Explorer / search the project / Source Control |
 | `Ctrl+Alt+B` | Plugin panels; press again to step through them |
 | `Ctrl+J` | The panel under the editor |
 | `Ctrl+Shift+M` / `Ctrl+Shift+U` | Problems / Output |
 | `Ctrl+G` | Go to a line |
 | `Alt+Z` | Word wrap |
 | `Ctrl+\` / `Ctrl+1` `2` `3` | Split the editor / focus a group |
-| `Ctrl+Shift+[` / `Ctrl+Shift+]`, or `Ctrl+Alt+[` / `]` | Fold / unfold the block (kitty keeps `Ctrl+Shift+[` and `]` for its windows unless you `map kitty_mod+[ no_op`) |
+| `Ctrl+Shift+[` / `Ctrl+Shift+]` | Fold / unfold the block |
 | `Ctrl+Shift+O` | Go to a symbol in the file |
 | `Ctrl+/` | Comment or uncomment the lines |
-| `Ctrl+S` / `Ctrl+W` | Save / close the file |
+| `Ctrl+S` / `Ctrl+Shift+S` / `Ctrl+W` | Save / save as / close the file |
 | `Ctrl+PageUp` / `Ctrl+PageDown` | Previous / next tab |
 | `Shift`+arrows, `Ctrl+A` | Select |
 | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | Copy, cut, paste (the whole line without a selection) |
@@ -318,9 +346,10 @@ folders. The mouse does everything: menus, the activity bar, tabs and their
 ×, the Explorer, search results, problems, panel buttons, notice buttons,
 palette items, status bar items and the scrollbar. It places
 the cursor, selects by dragging (Shift+click extends), and scrolls, sideways
-with Shift or a sideways wheel. Hold Shift to select with the terminal
-instead. Alt+click adds a cursor, Shift+Alt+drag selects a box, and
-dragging after a double or triple click selects whole words or lines.
+with Shift or a sideways wheel, and five times as far with Alt. A touchpad
+moves the text exactly as far as your fingers. Alt+click adds a cursor,
+Shift+Alt+drag selects a box, dragging after a double or triple click
+selects whole words or lines, and a middle click pastes the selection.
 
 Brackets and quotes close themselves, are typed over, wrap a selection,
 and go together on Backspace. Enter keeps the line's indent, adds a level
@@ -345,8 +374,10 @@ instead. In a git repository, the gutter marks lines changed since the last
 commit: `▎` green for added, yellow for changed, `‾` red where lines were
 deleted.
 
-The clipboard goes through `wl-copy`/`wl-paste`, `xclip` or `pbcopy`, and
-falls back to the terminal (OSC 52) for copying when none is there.
+The clipboard goes through the window's own connection to the desktop,
+Wayland's or X11's. Selecting text makes it the selection that a middle
+click pastes, as Linux apps do. Input methods work too: what you're
+composing shows underlined at the cursor.
 
 Headless, for scripts and bug reports:
 

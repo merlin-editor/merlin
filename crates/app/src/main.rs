@@ -1394,6 +1394,11 @@ fn main() -> Result<()> {
         app.dispatch(Event::Notify(format!(
             "Restored unsaved changes to {count} {files}"
         )));
+        // The file asked for stays in front of the ones restored.
+        if let Some(first) = args.files.first() {
+            let event = app.open(first);
+            app.dispatch(event);
+        }
     }
     // Loads git signs for the files opened so far; later ones get theirs
     // when they open.
