@@ -25,8 +25,8 @@ const ITEMS: &[(&str, &str)] = &[
 
 pub(crate) struct ContextMenu {
     /// Command ids, `-` for separators.
-    items: Vec<&'static str>,
-    selected: Option<usize>,
+    pub(crate) items: Vec<&'static str>,
+    pub(crate) selected: Option<usize>,
 }
 
 /// The right-click menu, as the window draws it where it was opened.
@@ -133,6 +133,7 @@ impl Editor {
                 _ => ContextItem {
                     label: ITEMS
                         .iter()
+                        .chain(super::tabs::TAB_ITEMS)
                         .find(|(i, _)| *i == id)
                         .map_or(id, |(_, l)| l)
                         .to_string(),

@@ -342,3 +342,103 @@ fn a_window_drawing_the_text_leaves_it_out_of_the_screen() {
         "fn a() {"
     );
 }
+
+fn three_tabs() -> Session {
+    let mut s = windowed();
+    s.files.insert("c.rs".into(), "c\n".into());
+    for file in ["src/lib.rs", "c.rs"] {
+        s.send(Event::Command("file.keep".into()));
+        s.send(Event::Opened {
+            path: file.into(),
+            text: s.files[file].clone(),
+        });
+    }
+    s
+}
+
+fn tab_names(s: &Session) -> Vec<String> {
+    s.editor
+        .window_view()
+        .tabs
+        .iter()
+        .map(|t| t.name.clone())
+        .collect()
+}
+
+#[test]
+fn a_dragged_tab_goes_before_the_tab_it_is_dropped_on() {
+    let mut s = three_tabs();
+    assert_eq!(tab_names(&s), ["main.rs", "lib.rs", "c.rs"]);
+    s.send(Event::Ui(UiEvent::Tab {
+        index: 2,
+        clicks: 1,
+    }));
+    s.send(Event::Ui(UiEvent::DropTab {
+        group: 0,
+        at: Some(0),
+    }));
+    assert_eq!(tab_names(&s), ["c.rs", "main.rs", "lib.rs"]);
+    s.send(Event::Ui(UiEvent::DropTab { group: 0, at: None }));
+    assert_eq!(tab_names(&s), ["main.rs", "lib.rs", "c.rs"]);
+    // Dropped after itself it stays put, as dropping on the next tab.
+    s.send(Event::Ui(UiEvent::Tab {
+        index: 0,
+        clicks: 1,
+    }));
+    s.send(Event::Ui(UiEvent::DropTab {
+        group: 0,
+        at: Some(1),
+    }));
+    assert_eq!(tab_names(&s), ["main.rs", "lib.rs", "c.rs"]);
+}
+
+#[test]
+fn several_groups_have_their_own_tabs_and_take_dropped_tabs() {
+    let mut s = three_tabs();
+    s.send(Event::Command("view.split".into()));
+    let view = s.editor.window_view();
+    assert!(view.tabs.is_empty(), "the groups have the tabs");
+    assert_eq!(view.groups.len(), 2);
+    assert!(view.groups[1].focused);
+    let names = |g: usize, s: &Session| -> Vec<String> {
+        s.editor.window_view().groups[g]
+            .tabs
+            .iter()
+            .map(|t| t.name.clone())
+            .collect()
+    };
+    // The left group's lib.rs, dragged to the right.
+    s.send(Event::Ui(UiEvent::GroupTab {
+        group: 0,
+        index: 1,
+        clicks: 1,
+    }));
+    s.send(Event::Ui(UiEvent::DropTab { group: 1, at: None }));
+    assert_eq!(names(0, &s), ["main.rs", "c.rs"]);
+    assert!(names(1, &s).contains(&"lib.rs".to_string()));
+    // Each pane keeps rows for its tabs above the code.
+    let views = s.editor.text_views();
+    assert!(
+        views.iter().all(|v| v.area.y >= 2),
+        "{:?}",
+        views.iter().map(|v| v.area).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn a_tab_menu_closes_the_others() {
+    let mut s = three_tabs();
+    s.send(Event::Ui(UiEvent::Tab {
+        index: 1,
+        clicks: 1,
+    }));
+    s.send(Event::Ui(UiEvent::TabMenu));
+    let menu = s.editor.window_view().context.unwrap();
+    let others = menu
+        .items
+        .iter()
+        .position(|i| i.label == "Close Others")
+        .unwrap();
+    s.send(Event::Ui(UiEvent::ContextItem(others)));
+    assert_eq!(tab_names(&s), ["lib.rs"]);
+}

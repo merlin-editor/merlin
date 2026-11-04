@@ -37,6 +37,7 @@ use winit::event::{
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
 use winit::keyboard::{Key as WinitKey, ModifiersState, NamedKey};
 use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
+use winit::window::CursorIcon;
 use winit::window::{Window, WindowId};
 
 use crate::App;
@@ -50,6 +51,17 @@ use scene::{Bitmaps, Scene};
 /// How often open files are checked for changes on disk, and plugins for
 /// rebuilds.
 const DISK_CHECK: Duration = Duration::from_millis(500);
+/// A tab held down: its name, where the press was, and whether it has
+/// moved far enough to be a drag.
+struct TabDrag {
+    name: String,
+    from: (f32, f32),
+    moved: bool,
+}
+
+/// How far a tab moves before it's dragged rather than clicked.
+const DRAG_START: f32 = 5.0;
+
 /// How long the mouse rests on a word before its hover shows, as in VS
 /// Code.
 const HOVER_DELAY: Duration = Duration::from_millis(500);
@@ -76,6 +88,8 @@ pub fn run(app: &mut App) -> Result<()> {
         pointer: None,
         pressed_in_text: false,
         rest: None,
+        tab_drag: None,
+        cursor_icon: CursorIcon::Default,
         blink_from: Instant::now(),
         caret_drawn: true,
         focused: true,
@@ -129,6 +143,10 @@ struct Gui<'a> {
     rest: Option<(Instant, (u16, u16))>,
     /// Where the right-click menu was opened, in logical pixels.
     context_at: Option<(f32, f32)>,
+    /// A tab pressed on, and whether it's being dragged yet.
+    tab_drag: Option<TabDrag>,
+    /// The mouse pointer's shape now.
+    cursor_icon: CursorIcon,
     /// The last input, which restarts the caret's blink.
     blink_from: Instant,
     /// Whether the caret was drawn on, for redrawing when it blinks.
@@ -322,12 +340,73 @@ impl Gui<'_> {
                 self.text_mouse(MouseKind::Down, at, clicks);
             }
             Hit::Ui(UiEvent::Tab { index, .. }) => {
+                self.hold_tab(None, index, at);
                 self.dispatch(Event::Ui(UiEvent::Tab { index, clicks }))
+            }
+            Hit::Ui(UiEvent::GroupTab { group, index, .. }) => {
+                self.hold_tab(Some(group), index, at);
+                self.dispatch(Event::Ui(UiEvent::GroupTab {
+                    group,
+                    index,
+                    clicks,
+                }))
             }
             Hit::Ui(event) => self.dispatch(Event::Ui(event)),
             Hit::Command(command) => self.dispatch(Event::Command(command.into())),
             Hit::Key(key) => self.dispatch(Event::Key(key)),
-            Hit::Side(_) | Hit::Block => {}
+            Hit::Side(_) | Hit::Block | Hit::TabStrip(_) => {}
+        }
+    }
+
+    /// Remembers the tab pressed on, so moving the mouse can drag it.
+    fn hold_tab(&mut self, group: Option<usize>, index: usize, at: (f32, f32)) {
+        let view = self.app.editor.window_view();
+        let tabs = match group {
+            Some(g) => view.groups.get(g).map(|g| &g.tabs),
+            None => Some(&view.tabs),
+        };
+        if let Some(tab) = tabs.and_then(|t| t.get(index)) {
+            self.tab_drag = Some(TabDrag {
+                name: tab.name.clone(),
+                from: at,
+                moved: false,
+            });
+        }
+    }
+
+    /// A dragged tab let go at `at`: before the tab there, at the end of
+    /// the strip there, or at the end of the group whose code it's over.
+    fn drop_tab(&mut self, at: (f32, f32)) {
+        let view = self.app.editor.window_view();
+        let focused = view.groups.iter().position(|g| g.focused).unwrap_or(0);
+        let target = match self.hit_at(at).map(|(_, h)| h.clone()) {
+            Some(Hit::Ui(UiEvent::Tab { index, .. })) => Some((focused, Some(index))),
+            Some(Hit::Ui(UiEvent::GroupTab { group, index, .. })) => Some((group, Some(index))),
+            Some(Hit::Ui(UiEvent::CloseTab(index))) => Some((focused, Some(index))),
+            Some(Hit::Ui(UiEvent::CloseGroupTab { group, index })) => Some((group, Some(index))),
+            Some(Hit::TabStrip(group)) => Some((group.unwrap_or(focused), None)),
+            Some(Hit::Text) => {
+                let (x, y) = self.cell_at(at);
+                view.groups
+                    .iter()
+                    .position(|g| g.pane.contains(x, y))
+                    .map(|g| (g, None))
+            }
+            _ => None,
+        };
+        if let Some((group, at)) = target {
+            self.dispatch(Event::Ui(UiEvent::DropTab { group, at }));
+        }
+    }
+
+    /// The pointer's shape for what it's over: an I-beam over the code, a
+    /// grabbing hand while dragging a tab.
+    fn set_pointer(&mut self, icon: CursorIcon) {
+        if self.cursor_icon != icon
+            && let Some(shown) = &self.window
+        {
+            shown.window.set_cursor(icon);
+            self.cursor_icon = icon;
         }
     }
 
@@ -494,10 +573,13 @@ impl Gui<'_> {
             self.app.look.clone(),
         ));
         let gliding = self.glide.is_some();
+        // A dragged tab follows the mouse, so every move draws.
+        let dragging = self.tab_drag.as_ref().is_some_and(|d| d.moved);
         if self.drawn == drawn
             && self.drawn_text == texts
             && caret_on == self.caret_drawn
             && !gliding
+            && !dragging
         {
             return;
         }
@@ -527,6 +609,11 @@ impl Gui<'_> {
             icons: &self.app.look.icons,
             pictures: &mut self.pictures,
             compact: self.app.look.layout.compact,
+            tab_drag: self
+                .tab_drag
+                .as_ref()
+                .filter(|d| d.moved)
+                .map(|d| d.name.clone()),
         };
         f.base(&view, &areas, &mut self.state, w, h);
         let t = areas.text;
@@ -753,6 +840,12 @@ impl ApplicationHandler for Gui<'_> {
                 };
                 if state == ElementState::Pressed {
                     self.press(at);
+                } else if let Some(drag) = self.tab_drag.take() {
+                    if drag.moved {
+                        self.drop_tab(at);
+                    }
+                    self.set_pointer(CursorIcon::Default);
+                    self.redraw();
                 } else if self.pressed_in_text {
                     self.pressed_in_text = false;
                     self.text_mouse(MouseKind::Up, at, 1);
@@ -765,10 +858,36 @@ impl ApplicationHandler for Gui<'_> {
             } => {
                 let Some(at) = self.pointer else { return };
                 self.rest = None;
-                if let Some((_, Hit::Text)) = self.hit_at(at) {
-                    let (x, y) = self.cell_at(at);
-                    self.context_at = Some(at);
-                    self.dispatch(Event::ContextMenu(x, y));
+                match self.hit_at(at).map(|(_, h)| h.clone()) {
+                    Some(Hit::Text) => {
+                        let (x, y) = self.cell_at(at);
+                        self.context_at = Some(at);
+                        self.dispatch(Event::ContextMenu(x, y));
+                    }
+                    // A tab's menu is about that tab, so it's chosen first.
+                    Some(Hit::Ui(tab @ (UiEvent::Tab { .. } | UiEvent::GroupTab { .. }))) => {
+                        self.dispatch(Event::Ui(tab));
+                        self.context_at = Some(at);
+                        self.dispatch(Event::Ui(UiEvent::TabMenu));
+                    }
+                    _ => {}
+                }
+            }
+            // The middle button closes a tab, as in every editor.
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                button: MouseButton::Middle,
+                ..
+            } => {
+                let Some(at) = self.pointer else { return };
+                match self.hit_at(at).map(|(_, h)| h.clone()) {
+                    Some(Hit::Ui(UiEvent::Tab { index, .. })) => {
+                        self.dispatch(Event::Ui(UiEvent::CloseTab(index)))
+                    }
+                    Some(Hit::Ui(UiEvent::GroupTab { group, index, .. })) => {
+                        self.dispatch(Event::Ui(UiEvent::CloseGroupTab { group, index }))
+                    }
+                    _ => {}
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => match delta {
@@ -829,6 +948,17 @@ impl Gui<'_> {
         let before = self.pointer.and_then(|p| self.hit_at(p).map(|(i, _)| i));
         let old_cell = self.pointer.map(|p| self.cell_at(p));
         self.pointer = Some(at);
+        if let Some(drag) = &mut self.tab_drag {
+            let (dx, dy) = (at.0 - drag.from.0, at.1 - drag.from.1);
+            if !drag.moved && dx.hypot(dy) > DRAG_START {
+                drag.moved = true;
+            }
+            if drag.moved {
+                self.set_pointer(CursorIcon::Grabbing);
+                self.redraw();
+            }
+            return;
+        }
         if self.pressed_in_text {
             if old_cell != Some(self.cell_at(at)) {
                 self.text_mouse(MouseKind::Drag, at, 1);
@@ -836,6 +966,11 @@ impl Gui<'_> {
             return;
         }
         let over = self.hit_at(at).map(|(i, h)| (i, h.clone()));
+        let icon = match over {
+            Some((_, Hit::Text)) => CursorIcon::Text,
+            _ => CursorIcon::Default,
+        };
+        self.set_pointer(icon);
         // Over a menu's title, its menu opens, as menus do.
         if let Some((_, Hit::Ui(UiEvent::MenuTitle(i)))) = over {
             self.dispatch(Event::Ui(UiEvent::MenuTitle(i)));

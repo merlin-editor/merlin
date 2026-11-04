@@ -171,6 +171,14 @@ impl Editor {
         let all = Rect { x: 0, y: 0, w, h };
         let panes = self.pane_rects(all);
         let editor = panes.get(self.pane()).copied().unwrap_or(all);
+        // With several groups, each has its own tabs and breadcrumbs, which
+        // the window draws in rows kept at the top of its pane.
+        let head = if panes.len() > 1 {
+            super::tabs::GROUP_TABS + self.breadcrumbs as u16
+        } else {
+            0
+        };
+        let head = head.min(editor.h.saturating_sub(1));
         Layout {
             menu: none,
             activity: None,
@@ -180,7 +188,11 @@ impl Editor {
             tabs: Rect { h: 0, ..editor },
             crumbs: Rect { h: 0, ..editor },
             editor: all,
-            text: editor,
+            text: Rect {
+                y: editor.y + head,
+                h: editor.h - head,
+                ..editor
+            },
             status: none,
         }
     }

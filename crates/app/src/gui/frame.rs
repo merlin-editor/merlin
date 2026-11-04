@@ -6,7 +6,7 @@
 use merlin_core::panel::{Entry, Node, Tone};
 use merlin_core::{
     ContextItem, ContextView, FindAction, FindView, Key, KeyCode, MenuView, PaletteView, PopupKind,
-    PopupView, Side, SideView, ToastView, UiEvent, WindowView,
+    PopupView, Side, SideView, TabView, ToastView, UiEvent, WindowView,
 };
 
 use super::canvas::{Canvas, Face, Pictures, Rect, Text};
@@ -37,6 +37,9 @@ pub enum Hit {
     Side(Side),
     /// A floating box that takes clicks without doing anything.
     Block,
+    /// A tab strip, past its tabs: a dragged tab dropped there goes at the
+    /// end, of group `n` when there are several.
+    TabStrip(Option<usize>),
 }
 
 /// Where the islands are, in logical pixels.
@@ -77,6 +80,8 @@ pub struct Frame<'a> {
     pub pictures: &'a mut Pictures,
     /// Rows a little shorter, for more on screen.
     pub compact: bool,
+    /// The name of a tab being dragged.
+    pub tab_drag: Option<String>,
 }
 
 pub fn areas(view: &WindowView, w: f32, h: f32, gap: f32) -> Areas {
@@ -104,12 +109,13 @@ pub fn areas(view: &WindowView, w: f32, h: f32, gap: f32) -> Areas {
     });
     let editor_h = body_h - bottom.map_or(0.0, |b| b.h + gap);
     let editor = Rect::new(x, top, main_w, editor_h.max(0.0));
-    let head = TABS_H
-        + if view.crumbs.is_empty() {
-            0.0
-        } else {
-            CRUMBS_H
-        };
+    let head = if !view.groups.is_empty() {
+        0.0
+    } else if view.crumbs.is_empty() {
+        TABS_H
+    } else {
+        TABS_H + CRUMBS_H
+    };
     let text = Rect::new(
         editor.x,
         editor.y + head + 4.0,
@@ -157,9 +163,12 @@ impl Frame<'_> {
             }
         }
         self.canvas.round(a.editor, self.radius, p.island);
-        self.tabs(view, a.editor);
-        if !view.crumbs.is_empty() {
-            self.crumbs(view, a.editor);
+        // Several groups draw their own tabs, over the code's grid.
+        if view.groups.is_empty() {
+            self.tabs(view, a.editor);
+            if !view.crumbs.is_empty() {
+                self.crumbs(view, a.editor);
+            }
         }
         self.hit(a.text, Hit::Text);
         self.status(view, w, h);
@@ -187,6 +196,7 @@ impl Frame<'_> {
         w: f32,
         h: f32,
     ) {
+        self.groups(view, a, cell);
         if let Some(find) = &view.find {
             self.find(find, a);
         }
@@ -1393,36 +1403,69 @@ impl Frame<'_> {
     }
 
     fn tabs(&mut self, view: &WindowView, editor: Rect) {
-        let p = self.p;
         let row = Rect::new(editor.x, editor.y, editor.w, TABS_H);
-        self.canvas.fill(
-            Rect::new(editor.x, editor.y + TABS_H - 1.0, editor.w, 1.0),
-            p.line,
-        );
-        let mut x = editor.x + 6.0;
-        let end = editor.right() - 70.0;
-        for (i, tab) in view.tabs.iter().enumerate() {
-            let face = if tab.preview {
+        self.tab_strip(&view.tabs, row, None, true);
+    }
+
+    /// A strip of tabs in `row`, for group `group` when there are several.
+    /// With more tabs than fit, it starts late enough for the active one to
+    /// show. While a tab is dragged, a bar marks where it would go.
+    fn tab_strip(&mut self, tabs: &[TabView], row: Rect, group: Option<usize>, focused: bool) {
+        let p = self.p;
+        self.canvas
+            .fill(Rect::new(row.x, row.bottom() - 1.0, row.w, 1.0), p.line);
+        // Empty strip takes drops too, at the end.
+        self.hit(row, Hit::TabStrip(group));
+        let face_of = |tab: &TabView| {
+            if tab.preview {
                 Face::ui(13.0).italic()
             } else {
                 Face::ui(13.0)
-            };
+            }
+        };
+        let widths: Vec<f32> = tabs
+            .iter()
+            .map(|t| {
+                let nw = self.text.width(&t.name, face_of(t));
+                12.0 + 14.0 + 7.0 + nw + 7.0 + 16.0 + 10.0
+            })
+            .collect();
+        let room = row.w - 76.0;
+        let active = tabs.iter().position(|t| t.active).unwrap_or(0);
+        let mut first = 0;
+        while first < active && widths[first..=active].iter().map(|w| w + 2.0).sum::<f32>() > room {
+            first += 1;
+        }
+        let mut x = row.x + 6.0;
+        let end = row.right() - 70.0;
+        for (i, tab) in tabs.iter().enumerate().skip(first) {
+            let face = face_of(tab);
             let nw = self.text.width(&tab.name, face);
-            let w = 12.0 + 14.0 + 7.0 + nw + 7.0 + 16.0 + 10.0;
-            if x + w > end && i > 0 {
+            let w = widths[i];
+            if x + w > end && i > first {
                 break;
             }
-            let r = Rect::new(x, editor.y, w, TABS_H - 1.0);
-            let hovered = self.hovered(r);
+            let r = Rect::new(x, row.y, w, row.h - 1.0);
+            let hovered = self.hovered(r) && self.tab_drag.is_none();
             if tab.active {
-                self.canvas.fill(r, p.raised);
+                self.canvas
+                    .fill(r, if focused { p.raised } else { p.island });
+                if focused {
+                    self.canvas.round(
+                        Rect::new(r.x + 8.0, r.bottom() - 1.0, r.w - 16.0, 2.0),
+                        1.0,
+                        p.accent,
+                    );
+                }
+            } else if hovered {
+                self.canvas.fill(r, p.hover);
+            }
+            if self.tab_drag.is_some() && self.hovered(r) {
                 self.canvas.round(
-                    Rect::new(r.x + 8.0, r.bottom() - 1.0, r.w - 16.0, 2.0),
+                    Rect::new(r.x - 1.0, r.y + 6.0, 2.0, r.h - 12.0),
                     1.0,
                     p.accent,
                 );
-            } else if hovered {
-                self.canvas.fill(r, p.hover);
             }
             self.file_icon(
                 &tab.name,
@@ -1468,26 +1511,38 @@ impl Frame<'_> {
                     row,
                 );
             }
-            self.hit(
-                r,
-                Hit::Ui(UiEvent::Tab {
-                    index: i,
-                    clicks: 1,
-                }),
-            );
-            self.hit(close, Hit::Ui(UiEvent::CloseTab(i)));
+            let (tab_hit, close_hit) = match group {
+                Some(group) => (
+                    UiEvent::GroupTab {
+                        group,
+                        index: i,
+                        clicks: 1,
+                    },
+                    UiEvent::CloseGroupTab { group, index: i },
+                ),
+                None => (
+                    UiEvent::Tab {
+                        index: i,
+                        clicks: 1,
+                    },
+                    UiEvent::CloseTab(i),
+                ),
+            };
+            self.hit(r, Hit::Ui(tab_hit));
+            self.hit(close, Hit::Ui(close_hit));
             x += w + 2.0;
         }
         // Split the editor, at the right end.
+        let mid = row.y + (row.h - 28.0) / 2.0;
         self.icon_button(
-            Rect::new(editor.right() - 66.0, editor.y + 5.0, 28.0, 28.0),
+            Rect::new(row.right() - 66.0, mid, 28.0, 28.0),
             "split",
             '\u{eb56}',
             false,
             Hit::Command("view.split"),
         );
         self.icon_button(
-            Rect::new(editor.right() - 34.0, editor.y + 5.0, 28.0, 28.0),
+            Rect::new(row.right() - 34.0, mid, 28.0, 28.0),
             "more",
             '\u{ea7c}',
             false,
@@ -1496,14 +1551,18 @@ impl Frame<'_> {
     }
 
     fn crumbs(&mut self, view: &WindowView, editor: Rect) {
-        let p = self.p;
         let row = Rect::new(editor.x, editor.y + TABS_H, editor.w, CRUMBS_H);
+        self.crumb_row(&view.crumbs, row, None);
+    }
+
+    fn crumb_row(&mut self, crumbs: &[String], row: Rect, group: Option<usize>) {
+        let p = self.p;
         let face = Face::ui(12.0);
-        let mut x = editor.x + 16.0;
-        let last = view.crumbs.len().saturating_sub(1);
-        for (i, crumb) in view.crumbs.iter().enumerate() {
+        let mut x = row.x + 16.0;
+        let last = crumbs.len().saturating_sub(1);
+        for (i, crumb) in crumbs.iter().enumerate() {
             let tw = self.text.width(crumb, face);
-            let r = Rect::new(x - 3.0, row.y + 4.0, tw + 6.0, CRUMBS_H - 8.0);
+            let r = Rect::new(x - 3.0, row.y + 4.0, tw + 6.0, row.h - 8.0);
             let hovered = self.hovered(r);
             if hovered {
                 self.canvas.round(r, 4.0, p.hover);
@@ -1515,7 +1574,11 @@ impl Frame<'_> {
             };
             self.text
                 .draw_in_row(&mut self.canvas, crumb, face, x, row.y, row.h, colour, row);
-            self.hit(r, Hit::Ui(UiEvent::Crumb(i)));
+            let hit = match group {
+                Some(group) => UiEvent::GroupCrumb { group, index: i },
+                None => UiEvent::Crumb(i),
+            };
+            self.hit(r, Hit::Ui(hit));
             x += tw;
             if i < last {
                 self.text.draw_in_row(
@@ -1533,6 +1596,46 @@ impl Frame<'_> {
             if x > row.right() - 20.0 {
                 break;
             }
+        }
+    }
+
+    /// Each group's tabs and breadcrumbs, in the rows its pane keeps for
+    /// them, and the tab being dragged under the mouse.
+    fn groups(&mut self, view: &WindowView, a: &Areas, (cw, ch): (f32, f32)) {
+        for (g, group) in view.groups.iter().enumerate() {
+            let pane = group.pane;
+            let x = a.text.x + pane.x as f32 * cw;
+            let y = a.text.y + pane.y as f32 * ch;
+            let w = pane.w as f32 * cw;
+            let tabs = Rect::new(x, y, w, 2.0 * ch);
+            self.canvas.fill(tabs, self.p.island);
+            self.tab_strip(&group.tabs, tabs, Some(g), group.focused);
+            if !group.crumbs.is_empty() {
+                let row = Rect::new(x, y + 2.0 * ch, w, ch);
+                self.crumb_row(&group.crumbs, row, Some(g));
+            }
+        }
+        if let (Some(name), Some((px, py))) = (self.tab_drag.clone(), self.pointer) {
+            let p = self.p;
+            let face = Face::ui(13.0);
+            let r = Rect::new(
+                px + 12.0,
+                py + 8.0,
+                self.text.width(&name, face) + 24.0,
+                28.0,
+            );
+            self.canvas.shadow(r, 6.0, theme::is_light(&p));
+            self.canvas.outline(r, 6.0, 1.0, p.accent, p.raised);
+            self.text.draw_in_row(
+                &mut self.canvas,
+                &name,
+                face,
+                r.x + 12.0,
+                r.y,
+                r.h,
+                p.bright,
+                r,
+            );
         }
     }
 

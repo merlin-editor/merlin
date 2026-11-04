@@ -53,6 +53,29 @@ pub enum UiEvent {
     MenuItem(usize),
     CloseMenu,
     Find(FindAction),
+    /// A tab of group `group` when there are several, as [`Self::Tab`].
+    GroupTab {
+        group: usize,
+        index: usize,
+        clicks: u8,
+    },
+    CloseGroupTab {
+        group: usize,
+        index: usize,
+    },
+    /// A breadcrumb of a group other than the focused one.
+    GroupCrumb {
+        group: usize,
+        index: usize,
+    },
+    /// The focused tab dragged to group `group`, before its `at`th tab or
+    /// at the end.
+    DropTab {
+        group: usize,
+        at: Option<usize>,
+    },
+    /// A right click on the focused tab.
+    TabMenu,
 }
 
 /// What the window draws around the text.
@@ -78,6 +101,9 @@ pub struct WindowView {
     pub popup: Option<PopupView>,
     pub menu: Option<MenuView>,
     pub find: Option<FindView>,
+    /// Each editor group, when there are several; `tabs` and `crumbs` are
+    /// then empty.
+    pub groups: Vec<super::tabs::GroupView>,
     /// Where keys go.
     pub focus: Focus,
     /// The page the active tab shows instead of text, by name, such as a
@@ -280,21 +306,13 @@ impl Editor {
     }
 
     pub fn window_view(&self) -> WindowView {
-        let tabs = self
-            .pane_tabs()
-            .into_iter()
-            .map(|i| {
-                let doc = &self.docs[i];
-                TabView {
-                    name: doc.name(),
-                    icon: self.tab_icon(i),
-                    active: i == self.pane_doc(),
-                    dirty: doc.buffer.is_dirty(),
-                    preview: self.preview == Some(doc.id),
-                }
-            })
-            .collect();
-        let crumbs = if self.shows_crumbs() {
+        let groups = self.group_strips();
+        let tabs = if groups.is_empty() {
+            self.tab_views()
+        } else {
+            Vec::new()
+        };
+        let crumbs = if self.shows_crumbs() && groups.is_empty() {
             self.crumbs().into_iter().map(|(text, _)| text).collect()
         } else {
             Vec::new()
@@ -369,6 +387,7 @@ impl Editor {
             popup: self.popup_view(),
             menu: self.menu_view(),
             find: self.find_view(),
+            groups,
             focus: self.focus,
             page: self.doc().page.as_ref().map(|(name, _)| name.clone()),
         }
@@ -382,6 +401,25 @@ impl Editor {
             UiEvent::MenuItem(i) => self.menu_item(i, fx),
             UiEvent::CloseMenu => self.close_menu(),
             UiEvent::Find(what) => self.find_ui(what),
+            UiEvent::GroupTab {
+                group,
+                index,
+                clicks,
+            } => self.group_tab(group, index, clicks),
+            UiEvent::CloseGroupTab { group, index } => {
+                self.group_tab(group, index, 1);
+                self.close(armed == Some("file.close"));
+            }
+            UiEvent::GroupCrumb { group, index } => {
+                if group < self.groups.len() && group != self.group {
+                    self.focus_group(group);
+                }
+                if let Some((_, Some(line))) = self.crumbs().into_iter().nth(index) {
+                    self.go_to_block(line);
+                }
+            }
+            UiEvent::DropTab { group, at } => self.drop_tab_at(group, at),
+            UiEvent::TabMenu => self.open_tab_menu(),
             UiEvent::Rail(i) => {
                 if let Some((_, action)) = self.rail_items().into_iter().nth(i) {
                     self.act(action, fx);
