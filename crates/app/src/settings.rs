@@ -19,7 +19,7 @@ const USER_TEMPLATE: &str = r#"# merlin settings. Saving this file applies them.
 # sticky_scroll = true
 # preview_tabs = true
 # icons = "nerd"      # or "plain"
-# theme = "dark"      # or "terminal", for the terminal's own colours
+# theme = "dark"
 
 [keys]
 # "ctrl+k" = "view.minimap"

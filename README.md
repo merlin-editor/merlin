@@ -1,7 +1,10 @@
 # merlin
 
-A prototype terminal editor built to test two ideas from looking at
-[ttt](https://github.com/eugenioenko/ttt):
+A lighter VS Code: a native Rust code editor in its own window, with VS
+Code's layout and keys, that stays small and quiet. It starts from
+[kestrel](../kestrel), a terminal editor, and keeps its core, plugin host and
+plugins as they are; only the frontend is new. kestrel tested two ideas from
+looking at [ttt](https://github.com/eugenioenko/ttt), and merlin keeps both:
 
 1. **Most editor bugs are state bugs.** The core is a reducer with no IO:
    `Editor::update(Event) -> Vec<Effect>`. It renders to a plain grid, so
@@ -19,7 +22,7 @@ A prototype terminal editor built to test two ideas from looking at
 | `crates/core` | Buffer (rope), undo history, editor state, rendering, scripts. No IO. |
 | `crates/syntax` | What a piece of code is, for its colour. The editor has no grammars. |
 | `crates/plugin-host` | Loads plugins with wasmtime and turns their requests into events. |
-| `crates/app` | The `merlin` binary: terminal frontend and headless `--exec` mode. |
+| `crates/app` | The `merlin` binary: the window (`gui.rs`) and headless `--exec` mode. |
 | `wit/merlin.wit` | The plugin API. |
 | `sdk/rust` | `merlin-plugin`, the Rust SDK for writing plugins. |
 | `sdk/grammar` | `merlin-grammar`: colour a language in a plugin with a tree-sitter grammar. |
@@ -28,6 +31,37 @@ A prototype terminal editor built to test two ideas from looking at
 | `plugins/lsp` | Language servers: diagnostics, hover, go-to-definition, completion. |
 | `plugins/cpp` | C and C++: the languages and their colours. |
 | `plugins/testbed` | Exercises the plugin API for the host's tests. |
+
+## The window
+
+The window draws the core's screen, still a grid of cells, into a software
+buffer ([softbuffer](https://crates.io/crates/softbuffer)) with
+[cosmic-text](https://crates.io/crates/cosmic-text) for fonts and
+[winit](https://crates.io/crates/winit) for the window. There's no GPU
+context and no web view. Each character is drawn once and then kept. A
+redraw that changes no cell costs nothing, and box lines are drawn by hand
+so frames meet.
+
+It sleeps between events. Output from a plugin's process wakes it straight
+away, and a check every half second looks for files changed on disk and
+rebuilt plugins.
+
+Every key VS Code uses reaches the editor, Ctrl+Shift included, with no
+terminal protocol needed. `MERLIN_FONT` picks a font family (the default is
+the first installed of JetBrainsMono Nerd Font, JetBrains Mono, FiraCode Nerd
+Font and DejaVu Sans Mono), and `MERLIN_FONT_SIZE` sets its size in points
+(14).
+
+Measured on Linux (Hyprland) in a 948×1141 window, release build:
+
+| | Memory (RSS) | Idle CPU |
+|---|---|---|
+| No plugins | 28 MB | 0.4% |
+| The 7 bundled plugins (languages and lsp) | 231 MB | 0.2% |
+
+Language servers run as their own processes and aren't counted here.
+Plugins are where the memory goes, about 27 MB each, so they're the next
+thing to make smaller.
 
 ## Build and run
 
@@ -56,9 +90,7 @@ Rows, tabs and buttons light up under the mouse.
 
 Icons come from a [Nerd Font](https://www.nerdfonts.com), as VS Code's
 codicons and file icons; `MERLIN_ICONS=plain` draws ordinary symbols
-instead. Colours are VS Code's Dark Modern in a terminal with 24-bit colour,
-and the terminal's own palette elsewhere (`MERLIN_THEME=dark` or `terminal`
-overrides the guess). Code gets indent guides, with the cursor's block
+instead. Colours are VS Code's Dark Modern. Code gets indent guides, with the cursor's block
 brighter, brackets coloured by depth, and other uses of the word under the
 cursor marked.
 
@@ -121,7 +153,7 @@ breadcrumbs = true
 sticky_scroll = true
 preview_tabs = true
 icons = "nerd"        # or "plain"
-theme = "dark"        # or "terminal", for the terminal's own colours
+theme = "dark"
 
 [keys]
 "ctrl+k" = "view.minimap"   # any command id from the palette
@@ -130,13 +162,11 @@ theme = "dark"        # or "terminal", for the terminal's own colours
 [plugins.lsp]               # a plugin's settings, by its name
 ```
 
-`MERLIN_ICONS`, `MERLIN_THEME` and `MERLIN_MINIMAP` override the
-settings. `MERLIN_KEYLOG=file` records each key as the terminal sends it,
-for keys that don't do what they should. Scripts (`--exec`) use the defaults, so their output is the same
+`MERLIN_ICONS` and `MERLIN_MINIMAP` override the
+settings. Scripts (`--exec`) use the defaults, so their output is the same
 everywhere.
 
-Keys, VS Code's where the terminal can tell them apart (Ctrl+Shift needs the
-kitty keyboard protocol, which kitty, WezTerm, foot and Ghostty have):
+Keys, as in VS Code:
 
 | Keys | Does |
 |---|---|
@@ -353,7 +383,7 @@ Other languages work too: anything that builds a WASI 0.2 component for
 - Git can stage whole files and commit, but not stage parts of a file,
   discard changes, push, or blame.
 - Settings have no editor of their own (they're a TOML file), and the
-  theme is VS Code's Dark Modern or the terminal's colours.
+  theme is VS Code's Dark Modern, with no others yet.
 - Language servers can't rename, format, or apply code actions yet, and
   completions don't add imports.
 - A review is all or nothing per edit; you can't accept some hunks and not

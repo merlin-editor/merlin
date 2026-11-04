@@ -5,6 +5,34 @@ order is deliberate: milestones 2–4 can't be judged until merlin is usable
 for real editing, but milestone 2 is the biggest gain over ttt, so milestone 1
 stays small and 2 follows straight after.
 
+## merlin: a window instead of a terminal
+
+Milestones 1 to 6½ were built as kestrel, and merlin started from there.
+
+*Status: started.* The window draws the core's cell grid with real fonts
+(winit, softbuffer, cosmic-text). Every key arrives, and the window sleeps
+between events. With no plugins it uses 28 MB; with the seven bundled ones,
+231 MB.
+
+Next:
+
+- **Plugins that cost less.** Each one takes about 27 MB, most of it its
+  wasmtime instance. Look at wasmtime's pooling allocator and smaller
+  memories, and at keeping grammars in the host.
+- **Wake on change, not on a timer.** Watch files with inotify instead of
+  checking every half second.
+- **Pixel layout for the chrome.** The core lays out tabs, the side bar,
+  menus and the palette in cells. Give the frontend sizes in pixels, with a
+  proportional UI font, while the text stays monospace. This needs the core
+  split into a model and a cell view, with the terminal's view kept for
+  `--exec` tests.
+- **What VS Code users miss first:** an integrated terminal, IME input, a
+  blinking cursor (as an option, since blinking costs wakeups), smooth
+  scrolling, and debugging (DAP, as a plugin like lsp).
+
+*Done when:* a day's work on merlin's own code happens in merlin, under
+100 MB with the bundled plugins and at 0% CPU while idle.
+
 ## 1. Usable for everyday editing
 
 *Status: built. The "done when" test is still to do.*
