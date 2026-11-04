@@ -1,0 +1,18 @@
+name = "testbed"
+title = "Testbed"
+api = "0.7"
+component = "target/wasm32-wasip2/release/testbed.wasm"
+
+[permissions]
+editor-read = true
+processes = ["cat"]
+
+[settings]
+greeting = "hello"
+style = { loud = false }
+
+[[languages]]
+id = "notes"
+name = "Notes"
+extensions = ["notes"]
+line-comment = ";"

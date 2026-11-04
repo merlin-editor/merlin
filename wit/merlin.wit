@@ -1,0 +1,323 @@
+package merlin:plugin@0.5.0;
+
+interface types {
+  /// What a run of text is, for its colour.
+  enum token-kind {
+    plain,
+    keyword,
+    %string,
+    comment,
+    function,
+    %type,
+    constant,
+    attribute,
+    property,
+    operator,
+    punctuation,
+    escape,
+    variable,
+    macro,
+  }
+
+  /// Which colours a plugin sends: `base` replaces the editor's own grammar
+  /// for the file, as a VS Code grammar does; `semantic` goes over it, as
+  /// semantic tokens do.
+  enum token-layer {
+    base,
+    semantic,
+  }
+
+  /// A coloured run of text, within one line or across several.
+  record token {
+    start: position,
+    end: position,
+    kind: token-kind,
+  }
+
+  /// A symbol in a file, for the Outline, breadcrumbs and Go to Symbol.
+  record doc-symbol {
+    name: string,
+    /// Such as `function`, `class`, `method`, `namespace`, `field`.
+    kind: string,
+    /// Shown after the name, such as a signature.
+    detail: string,
+    start: position,
+    end: position,
+    /// How many symbols it's inside.
+    depth: u32,
+  }
+
+  /// Lines `start` up to `end`, not including it.
+  record line-range {
+    start: u32,
+    end: u32,
+  }
+
+  /// A block that folds: its first and last lines.
+  record fold-range {
+    first: u32,
+    last: u32,
+  }
+
+  /// A setting's value. Lists and tables come as their TOML text.
+  variant setting {
+    text(string),
+    flag(bool),
+    integer(s64),
+    float(f64),
+    other(string),
+  }
+
+  record command {
+    /// Local to the plugin. The editor runs it as `<plugin>.<id>`.
+    id: string,
+    title: string,
+    /// A key that runs it, such as `ctrl+alt+w`. It needs Ctrl or Alt, and
+    /// is ignored with a warning if the editor already uses it.
+    key: option<string>,
+  }
+
+  record button {
+    id: string,
+    label: string,
+  }
+
+  enum tone {
+    normal,
+    muted,
+    strong,
+    warning,
+    error,
+  }
+
+  record styled {
+    text: string,
+    tone: tone,
+  }
+
+  /// A text field. The editor keeps what's typed in it across re-renders,
+  /// and sends it to `on-submit` on Enter.
+  record input {
+    id: string,
+    placeholder: string,
+    /// Shows dots instead of the text, for passwords and API keys.
+    secret: bool,
+  }
+
+  /// A row that can be focused and clicked like a button, drawn as text:
+  /// a file in a list, a problem in a file.
+  record item {
+    id: string,
+    label: string,
+    tone: tone,
+  }
+
+  /// Panels are data. The editor lays them out and owns focus, scrolling,
+  /// selection and input text, so re-rendering never resets them.
+  variant node {
+    heading(string),
+    /// Wrapped to the panel width; newlines are kept.
+    text(string),
+    styled(styled),
+    button(button),
+    /// Buttons side by side.
+    buttons(list<button>),
+    /// Clicks arrive at `on-click` with its id.
+    item(item),
+    /// Markdown: headings, lists, quotes, bold, italics,
+    /// inline code, links, and fenced code blocks with syntax colours.
+    markdown(string),
+    input(input),
+    divider,
+    /// Nodes after this stay at the bottom of the panel. The nodes before it
+    /// scroll, and keep the newest content in view.
+    footer,
+  }
+
+  record panel {
+    title: string,
+    nodes: list<node>,
+  }
+
+  record pick-item {
+    id: string,
+    label: string,
+  }
+
+  /// How messages on a process's stdout and stdin are delimited.
+  enum framing {
+    /// One message per line (JSON-RPC over stdio, ACP).
+    lines,
+    /// `Content-Length` headers (LSP).
+    content-length,
+  }
+
+  variant process-event {
+    message(string),
+    stderr(string),
+    /// The exit code, or none if a signal ended the process.
+    exit(option<s32>),
+  }
+
+  /// A place in a file: a line, and a column counted in UTF-16 code units,
+  /// as LSP counts them. Both start at 0.
+  record position {
+    line: u32,
+    column: u32,
+  }
+
+  enum severity {
+    error,
+    warning,
+    info,
+    hint,
+  }
+
+  /// Selected text and where it is.
+  record selection {
+    start: position,
+    end: position,
+    text: string,
+  }
+
+  record diagnostic {
+    start: position,
+    end: position,
+    severity: severity,
+    message: string,
+  }
+
+  record completion {
+    label: string,
+    /// Shown dimmed after the label, such as a type.
+    detail: string,
+    /// What replaces the word at the cursor when it's chosen.
+    insert: string,
+  }
+
+  /// Something that happened to the open files.
+  variant buffer-event {
+    /// Another file became the active one.
+    switched,
+    /// The active file's text changed.
+    changed,
+    /// A file was saved. Its path.
+    saved(string),
+  }
+}
+
+/// What the editor offers a plugin. Calls that need a permission check the
+/// plugin's manifest and return an error naming the permission if denied.
+interface host {
+  use types.{framing, pick-item, position, selection, diagnostic, completion, setting, token, token-layer, doc-symbol, line-range, fold-range};
+
+  /// Text of the active buffer. Needs `editor-read`.
+  active-text: func() -> result<string, string>;
+
+  /// Path of the active buffer, if it has one. Needs `editor-read`.
+  active-path: func() -> result<option<string>, string>;
+
+  /// The cursor in the active buffer. Needs `editor-read`.
+  active-cursor: func() -> result<position, string>;
+
+  /// The selection in the active buffer, if anything is selected. Needs
+  /// `editor-read`.
+  active-selection: func() -> result<option<selection>, string>;
+
+  /// Inserts text at the cursor as one undo step. Needs `editor-write`.
+  insert-text: func(text: string) -> result<_, string>;
+
+  /// The folder the editor is working in.
+  workspace-root: func() -> string;
+
+  /// Shows a message in the status bar.
+  notify: func(message: string);
+
+  /// Shows this plugin's panel and focuses its first input.
+  focus-panel: func();
+
+  /// Replaces this plugin's diagnostics for a file. The path is relative to
+  /// the workspace root, or absolute. They're underlined, and move with
+  /// edits until the plugin sends new ones.
+  set-diagnostics: func(path: string, diagnostics: list<diagnostic>);
+
+  /// Colours a file: replaces this layer's tokens on `lines`, or in the
+  /// whole file. Positions count UTF-16 columns, as LSP does. Tokens move
+  /// with edits until the plugin sends new ones.
+  set-tokens: func(path: string, layer: token-layer, lines: option<line-range>, tokens: list<token>);
+
+  /// Replaces a file's symbols. Without any, the editor finds its own.
+  set-symbols: func(path: string, symbols: list<doc-symbol>);
+
+  /// Replaces where a file's blocks fold. Without any, they fold by
+  /// indentation.
+  set-folds: func(path: string, ranges: list<fold-range>);
+
+  /// Shows text next to the cursor until the next key.
+  show-hover: func(text: string);
+
+  /// Offers completions for the word at the cursor. The editor filters them
+  /// as the user keeps typing.
+  show-completions: func(items: list<completion>);
+
+  /// Opens a file at a position, as go-to-definition does. Alt+Left goes
+  /// back.
+  open-at: func(path: string, at: position);
+
+  /// Shows a proposed change to a file, from `old` to `new`, as a diff in
+  /// its own tab. The user accepts or rejects it there, and the answer
+  /// arrives at `on-review` with `id`. Showing an id again replaces it.
+  show-diff: func(id: string, path: string, old: string, new: string);
+
+  /// Closes a diff that was answered some other way.
+  close-diff: func(id: string);
+
+  /// Lets the user pick one item. The choice arrives at `on-pick`.
+  show-picker: func(id: string, title: string, items: list<pick-item>);
+
+  /// Starts a program in the workspace root, with `env` added to the
+  /// editor's environment. It must be listed in the manifest's `processes`
+  /// permission, and runs with the user's rights. Its output arrives at
+  /// `on-process`.
+  spawn: func(program: string, args: list<string>, env: list<tuple<string, string>>, framing: framing) -> result<u32, string>;
+
+  /// Sends one message to a process, framed as it was spawned.
+  send: func(process: u32, message: string) -> result<_, string>;
+
+  kill: func(process: u32);
+
+  /// One of this plugin's settings, by key: `[plugins.<name>]` in the
+  /// user's or the workspace's settings.toml, or else the default in the
+  /// manifest's `[settings]`. Dotted keys reach into tables. Read them when
+  /// needed: they change while the plugin runs.
+  get-setting: func(key: string) -> option<setting>;
+
+  /// A secret this plugin stored, such as an API key. Each plugin sees only
+  /// its own. They live in the system keyring when there is one.
+  get-secret: func(key: string) -> option<string>;
+  set-secret: func(key: string, value: string) -> result<_, string>;
+  delete-secret: func(key: string);
+}
+
+world plugin {
+  import host;
+  use types.{command, panel, process-event, buffer-event};
+
+  /// Called after loading, and again after every hot reload with what
+  /// `save-state` returned.
+  export activate: func(state: option<list<u8>>) -> list<command>;
+  /// Called before a hot reload. A plugin that returns state also keeps its
+  /// processes running across the reload; one that returns none has them
+  /// stopped.
+  export save-state: func() -> option<list<u8>>;
+  export run-command: func(id: string);
+  /// Called when the panel is visible and something may have changed.
+  export render-panel: func() -> option<panel>;
+  export on-click: func(button: string);
+  export on-submit: func(input: string, text: string);
+  export on-pick: func(picker: string, item: string);
+  export on-process: func(process: u32, event: process-event);
+  export on-buffer: func(event: buffer-event);
+  /// The user's answer to a diff shown with `show-diff`.
+  export on-review: func(id: string, accepted: bool);
+}

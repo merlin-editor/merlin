@@ -1,0 +1,102 @@
+#!/usr/bin/env python3
+"""A fake language server for the LSP plugin's tests. It speaks just enough
+LSP over stdio: diagnostics on open, hover, definition, completion, semantic
+tokens, symbols and folding ranges."""
+
+import json
+import sys
+
+
+def read():
+    length = None
+    while True:
+        line = sys.stdin.buffer.readline()
+        if not line:
+            sys.exit(0)
+        line = line.strip()
+        if not line:
+            break
+        name, _, value = line.decode().partition(":")
+        if name.lower() == "content-length":
+            length = int(value)
+    return json.loads(sys.stdin.buffer.read(length))
+
+
+def send(message):
+    message["jsonrpc"] = "2.0"
+    body = json.dumps(message).encode()
+    sys.stdout.buffer.write(b"Content-Length: %d\r\n\r\n%s" % (len(body), body))
+    sys.stdout.buffer.flush()
+
+
+initialized = False
+while True:
+    message = read()
+    method = message.get("method")
+    params = message.get("params", {})
+    if method == "initialize":
+        send({"id": message["id"], "result": {"capabilities": {
+            "diagnosticProvider": {},
+            "semanticTokensProvider": {"legend": {"tokenTypes": ["keyword", "function", "variable"], "tokenModifiers": []}, "full": True},
+            "documentSymbolProvider": True,
+            "foldingRangeProvider": True,
+        }}})
+    elif method == "initialized":
+        initialized = True
+        # Servers ask the client things too; the plugin must answer.
+        send({"id": "config-1", "method": "workspace/configuration", "params": {"items": [{}]}})
+        send({"method": "$/progress", "params": {"token": "index", "value": {"kind": "begin", "title": "Indexing"}}})
+    elif method == "textDocument/didOpen" or method == "textDocument/didChange":
+        assert initialized, "message before initialized"
+        doc = params["textDocument"]
+        send({"method": "$/progress", "params": {"token": "index", "value": {"kind": "end"}}})
+        send({"method": "textDocument/publishDiagnostics", "params": {
+            "uri": doc["uri"],
+            "diagnostics": [{
+                "range": {"start": {"line": 0, "character": 3}, "end": {"line": 0, "character": 7}},
+                "severity": 1,
+                "message": "fake error\nmore detail",
+            }],
+        }})
+    elif method == "textDocument/semanticTokens/full":
+        # `fn` and `main` on line 0, `v` on line 1.
+        send({"id": message["id"], "result": {"data": [0, 0, 2, 0, 0, 0, 3, 4, 1, 0, 1, 8, 1, 2, 0]}})
+    elif method == "textDocument/documentSymbol":
+        send({"id": message["id"], "result": [{
+            "name": "main", "kind": 12, "detail": "fn()",
+            "range": {"start": {"line": 0, "character": 0}, "end": {"line": 3, "character": 1}},
+            "selectionRange": {"start": {"line": 0, "character": 3}, "end": {"line": 0, "character": 7}},
+            "children": [{
+                "name": "v", "kind": 13,
+                "range": {"start": {"line": 1, "character": 4}, "end": {"line": 1, "character": 23}},
+                "selectionRange": {"start": {"line": 1, "character": 8}, "end": {"line": 1, "character": 9}},
+            }],
+        }]})
+    elif method == "textDocument/foldingRange":
+        send({"id": message["id"], "result": [{"startLine": 0, "endLine": 2}]})
+    elif method == "textDocument/diagnostic":
+        send({"id": message["id"], "result": {"kind": "full", "items": [{
+            "range": {"start": {"line": 1, "character": 8}, "end": {"line": 1, "character": 9}},
+            "severity": 2,
+            "message": "unused variable",
+        }]}})
+    elif method == "textDocument/hover":
+        send({"id": message["id"], "result": {"contents": {
+            "kind": "markdown", "value": "```rust\nfn main()\n```\n\n---\n\nThe entry point.",
+        }}})
+    elif method == "textDocument/definition":
+        uri = params["textDocument"]["uri"]
+        send({"id": message["id"], "result": [{
+            "uri": uri, "range": {"start": {"line": 2, "character": 4}, "end": {"line": 2, "character": 8}},
+        }]})
+    elif method == "textDocument/completion":
+        items = [
+            {"label": "push", "detail": "fn(&mut self, T)", "sortText": "2"},
+            {"label": "pop", "labelDetails": {"detail": "() -> Option<T>"}, "sortText": "1",
+             "textEdit": {"newText": "pop()", "range": {}}},
+        ]
+        send({"id": message["id"], "result": {"isIncomplete": False, "items": items}})
+    elif "id" in message and method is None:
+        pass  # a response to our request
+    elif "id" in message:
+        send({"id": message["id"], "result": None})

@@ -1,0 +1,12 @@
+[package]
+name = "merlin-core"
+description = "Editor state, undo history and rendering, with no IO"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ropey.workspace = true
+unicode-width.workspace = true
+merlin-syntax.workspace = true
+similar.workspace = true

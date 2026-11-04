@@ -1,0 +1,18 @@
+[package]
+name = "cpp"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+merlin-plugin = { path = "../../sdk/rust" }
+
+[profile.release]
+opt-level = "s"
+strip = true
+
+# Its own workspace: it builds for wasm32-wasip2, not the host.
+[workspace]

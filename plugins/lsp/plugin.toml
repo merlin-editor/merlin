@@ -1,0 +1,9 @@
+name = "lsp"
+title = "Language"
+api = "0.7"
+component = "target/wasm32-wasip2/release/lsp.wasm"
+
+[permissions]
+editor-read = true
+# The language servers it may start, for the files you open.
+processes = ["rust-analyzer", "gopls", "clangd", "pyright-langserver", "typescript-language-server"]

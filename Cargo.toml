@@ -1,0 +1,19 @@
+[workspace]
+resolver = "3"
+members = ["crates/core", "crates/syntax", "crates/plugin-host", "crates/app"]
+# Plugins and their SDK build for wasm32-wasip2 in their own workspaces.
+exclude = ["plugins", "sdk"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[workspace.dependencies]
+merlin-core = { path = "crates/core" }
+merlin-plugins = { path = "crates/plugin-host" }
+merlin-syntax = { path = "crates/syntax" }
+anyhow = "1"
+ropey = "1.6"
+unicode-width = "0.2"
+similar = "2"

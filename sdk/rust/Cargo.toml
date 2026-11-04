@@ -1,0 +1,14 @@
+[package]
+name = "merlin-plugin"
+description = "Write merlin plugins in Rust"
+version = "0.3.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[dependencies]
+wit-bindgen = "0.63"
+
+# Plugins build it for wasm32-wasip2, so it stays out of the editor's
+# workspace.
+[workspace]

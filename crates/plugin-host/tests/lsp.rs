@@ -1,0 +1,195 @@
+//! Runs the LSP plugin against a fake `rust-analyzer`. Build it first:
+//! `cargo build --release --manifest-path plugins/lsp/Cargo.toml`
+
+use std::path::{Path, PathBuf};
+use std::sync::Once;
+use std::time::{Duration, Instant};
+
+use merlin_core::{Completion, Event, Severity};
+use merlin_plugins::{BufferEvent, Config, PluginHost, Snapshot};
+
+fn plugin_dir() -> PathBuf {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/lsp");
+    let wasm = dir.join("target/wasm32-wasip2/release/lsp.wasm");
+    assert!(
+        wasm.exists(),
+        "build the lsp plugin first (see the top of this file)"
+    );
+    dir
+}
+
+/// Puts the fake server first on PATH, so the plugin spawns it.
+fn use_fake_server() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        let fake = plugin_dir().join("tests/fake");
+        let path = format!(
+            "{}:{}",
+            fake.display(),
+            std::env::var("PATH").unwrap_or_default()
+        );
+        // Safe: set once, before any test in this file spawns a process.
+        unsafe { std::env::set_var("PATH", path) };
+    });
+}
+
+fn snapshot() -> Snapshot {
+    Snapshot {
+        path: Some("src/main.rs".into()),
+        text: "fn main() {\n    let v = Vec::new();\n    v.\n}\n".into(),
+        root: std::env::temp_dir(),
+        cursor: (2, 6),
+        selection: None,
+    }
+}
+
+/// A host with the plugin loaded and the server told about main.rs.
+fn started() -> PluginHost {
+    use_fake_server();
+    let config = Config {
+        data_dir: std::env::temp_dir().join(format!("merlin-lsp-test-{}", std::process::id())),
+        ask: false,
+        keyring: false,
+    };
+    let mut host = PluginHost::new(config).unwrap();
+    host.load(&plugin_dir()).unwrap();
+    host.buffer_event(&BufferEvent::Switched, &snapshot());
+    host
+}
+
+/// Polls process output until an event matches.
+fn wait_for(host: &mut PluginHost, what: &str, matches: impl Fn(&Event) -> bool) -> Event {
+    let until = Instant::now() + Duration::from_secs(10);
+    loop {
+        let (events, _) = host.poll_processes(snapshot);
+        if let Some(event) = events.into_iter().find(&matches) {
+            return event;
+        }
+        assert!(Instant::now() < until, "never got {what}");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[test]
+fn pushed_and_pulled_diagnostics_arrive_together() {
+    let mut host = started();
+    let both = |e: &Event| matches!(e, Event::SetDiagnostics { diagnostics, .. } if diagnostics.len() == 2);
+    let event = wait_for(&mut host, "both kinds of diagnostics", both);
+    let Event::SetDiagnostics {
+        path, diagnostics, ..
+    } = event
+    else {
+        unreachable!()
+    };
+    assert_eq!(path, Path::new("src/main.rs"), "made relative to the root");
+    assert_eq!(diagnostics[0].start, (0, 3));
+    assert_eq!(diagnostics[0].severity, Severity::Error);
+    assert_eq!(diagnostics[0].message, "fake error\nmore detail");
+    assert_eq!(diagnostics[1].severity, Severity::Warning, "pulled");
+}
+
+#[test]
+fn hover_drops_markdown_fences() {
+    let mut host = started();
+    host.run_command("lsp", "hover", snapshot());
+    let event = wait_for(&mut host, "hover", |e| matches!(e, Event::ShowHover(_)));
+    assert!(matches!(event, Event::ShowHover(t) if t == "fn main()\n\nThe entry point."));
+}
+
+#[test]
+fn definition_opens_the_location() {
+    let mut host = started();
+    host.run_command("lsp", "definition", snapshot());
+    let event = wait_for(&mut host, "definition", |e| {
+        matches!(e, Event::OpenAt { .. })
+    });
+    let Event::OpenAt { path, line, column } = event else {
+        unreachable!()
+    };
+    assert_eq!(
+        (path.as_path(), line, column),
+        (Path::new("src/main.rs"), 2, 4)
+    );
+}
+
+#[test]
+fn completions_come_sorted_with_their_insert_text() {
+    let mut host = started();
+    host.run_command("lsp", "complete", snapshot());
+    let event = wait_for(&mut host, "completions", |e| {
+        matches!(e, Event::ShowCompletions(_))
+    });
+    let Event::ShowCompletions(items) = event else {
+        unreachable!()
+    };
+    let pop = Completion {
+        label: "pop".into(),
+        detail: "() -> Option<T>".into(),
+        insert: "pop()".into(),
+    };
+    assert_eq!(items[0], pop);
+    assert_eq!(items[1].insert, "push");
+}
+
+#[test]
+fn typing_a_dot_asks_for_completions() {
+    let mut host = started();
+    wait_for(&mut host, "diagnostics", |e| {
+        matches!(e, Event::SetDiagnostics { .. })
+    });
+    // The snapshot's cursor is just after `v.`.
+    host.buffer_event(&BufferEvent::Changed, &snapshot());
+    wait_for(&mut host, "completions", |e| {
+        matches!(e, Event::ShowCompletions(_))
+    });
+}
+
+#[test]
+fn semantic_tokens_symbols_and_folds_come_from_the_server() {
+    use merlin_core::Syntax;
+    use merlin_core::layers::Layer;
+    let mut host = started();
+    // All three answer each sync, so collect until each has come.
+    let mut seen = Vec::new();
+    let until = Instant::now() + Duration::from_secs(10);
+    let has = |seen: &[Event], f: fn(&Event) -> bool| seen.iter().any(f);
+    while !(has(&seen, |e| matches!(e, Event::SetTokens { .. }))
+        && has(&seen, |e| matches!(e, Event::SetSymbols { .. }))
+        && has(&seen, |e| matches!(e, Event::SetFolds { .. })))
+    {
+        assert!(Instant::now() < until, "only got {seen:?}");
+        seen.extend(host.poll_processes(snapshot).0);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    for event in seen {
+        match event {
+            Event::SetTokens {
+                path,
+                layer,
+                tokens,
+                ..
+            } => {
+                assert_eq!(path, std::path::PathBuf::from("src/main.rs"));
+                assert_eq!(layer, Layer::Semantic);
+                let found: Vec<_> = tokens.iter().map(|t| (t.start, t.end, t.kind)).collect();
+                assert_eq!(
+                    found,
+                    [
+                        ((0, 0), (0, 2), Syntax::Keyword),
+                        ((0, 3), (0, 7), Syntax::Function),
+                        ((1, 8), (1, 9), Syntax::Variable),
+                    ]
+                );
+            }
+            Event::SetSymbols { symbols, .. } => {
+                let found: Vec<_> = symbols
+                    .iter()
+                    .map(|s| (s.name.as_str(), s.kind.as_str(), s.depth))
+                    .collect();
+                assert_eq!(found, [("main", "function", 0), ("v", "variable", 1)]);
+            }
+            Event::SetFolds { ranges, .. } => assert_eq!(ranges, [(0, 2)]),
+            _ => {}
+        }
+    }
+}

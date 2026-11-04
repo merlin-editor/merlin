@@ -1,0 +1,21 @@
+name = "cpp"
+title = "C/C++"
+api = "0.7"
+component = "target/wasm32-wasip2/release/cpp.wasm"
+
+[permissions]
+editor-read = true
+
+[[languages]]
+id = "c"
+name = "C"
+extensions = ["c", "h"]
+line-comment = "//"
+block-comment = ["/*", "*/"]
+
+[[languages]]
+id = "cpp"
+name = "C++"
+extensions = ["cpp", "cc", "cxx", "c++", "hpp", "hh", "hxx", "h++", "ipp", "inl", "tpp"]
+line-comment = "//"
+block-comment = ["/*", "*/"]
