@@ -169,7 +169,7 @@ impl Editor {
                     command: command.into(),
                 })
             }
-            _ => self.run(id, None, fx),
+            _ => self.run(id, fx),
         }
     }
 

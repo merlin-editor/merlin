@@ -22,10 +22,11 @@ pub mod style;
 pub mod symbols;
 
 pub use editor::{
-    Command, ContextItem, ContextView, Editor, Effect, Event, FileOp, FindAction, FindView, Focus,
-    GitAction, KeyBinding, MenuView, MouseKind, PaletteView, PluginSummary, Pointer, PopupKind,
-    PopupView, RailItem, SearchHit, Settings, Side, SideView, StatusView, TabView, TextView,
-    ThemeKind, ToastView, UiEvent, UserKey, When, WindowView, Workspace,
+    Command, ContextItem, ContextView, DialogView, Editor, Effect, Event, FileOp, FilePick,
+    FindAction, FindView, Focus, GitAction, KeyBinding, MenuView, MouseKind, PaletteView,
+    PluginSummary, Pointer, PopupKind, PopupView, RailItem, SearchHit, Settings, Side, SideView,
+    StatusView, TabView, TextView, ThemeKind, ToastView, UiEvent, UserKey, When, WindowView,
+    Workspace,
 };
 pub use key::{Key, KeyCode};
 pub use lang::{Completion, Diagnostic, Severity};

@@ -38,38 +38,6 @@ impl Editor {
                 };
                 return vec![item];
             }
-            Source::NewFile { .. } | Source::NewFolder { .. } | Source::Rename { .. } => {
-                let name = palette.query.trim();
-                let what = match &palette.source {
-                    Source::NewFile { dir } if dir.is_empty() => "Create".to_string(),
-                    Source::NewFile { dir } | Source::NewFolder { dir } => {
-                        format!("Create in {dir}/")
-                    }
-                    _ => "Rename to".to_string(),
-                };
-                return vec![if name.is_empty() {
-                    (String::new(), "Type a name; a/b makes folders too".into())
-                } else {
-                    (name.to_string(), format!("{what} {name}"))
-                }];
-            }
-            Source::Trash { ref path } => {
-                return vec![(
-                    "yes".into(),
-                    format!("Enter moves {path} to the trash; Esc keeps it"),
-                )];
-            }
-            Source::SaveAs => {
-                let path = palette.query.trim();
-                return vec![if path.is_empty() {
-                    (
-                        String::new(),
-                        "Type a path in the project, such as src/new.rs".into(),
-                    )
-                } else {
-                    (path.to_string(), format!("Save as {path}"))
-                }];
-            }
             _ => &palette.items,
         };
         let query = palette.query.to_lowercase();
@@ -86,12 +54,7 @@ impl Editor {
             .collect()
     }
 
-    pub(crate) fn palette_key(
-        &mut self,
-        key: Key,
-        armed: Option<&'static str>,
-        fx: &mut Vec<Effect>,
-    ) {
+    pub(crate) fn palette_key(&mut self, key: Key, fx: &mut Vec<Effect>) {
         let count = self.palette_items().len();
         let Some(palette) = &mut self.palette else {
             self.focus = Focus::Editor;
@@ -141,24 +104,11 @@ impl Editor {
                     return;
                 };
                 match (item, palette.source) {
-                    (Some((id, _)), Source::Commands) => self.run(&id, armed, fx),
+                    (Some((id, _)), Source::Commands) => self.run(&id, fx),
                     (Some((path, _)), Source::Files) => self.open(PathBuf::from(path), fx),
                     (Some((line, _)), Source::Symbols) => {
                         if let Ok(line) = line.parse() {
                             self.go_to_block(line);
-                        }
-                    }
-                    (
-                        Some((name, _)),
-                        source @ (Source::NewFile { .. }
-                        | Source::NewFolder { .. }
-                        | Source::Rename { .. }
-                        | Source::Trash { .. }),
-                    ) => self.file_prompt(source, &name, fx),
-                    (Some((path, _)), Source::SaveAs) => {
-                        if !path.is_empty() {
-                            self.doc_mut().buffer.path = Some(PathBuf::from(path));
-                            self.run("file.save", None, fx);
                         }
                     }
                     (Some((line, _)), Source::Line) => {

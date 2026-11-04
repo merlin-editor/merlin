@@ -79,6 +79,8 @@ pub enum UiEvent {
     /// The sashes between groups were dragged: each group's new width and
     /// height shares, as in [`super::tabs::GroupView`].
     GroupSizes(Vec<(f32, f32)>),
+    /// A dialog's `n`th button.
+    DialogButton(usize),
     /// A right click on the focused tab.
     TabMenu,
     /// A right click on a side's element, or on its empty space.
@@ -122,6 +124,8 @@ pub struct WindowView {
     pub page: Option<String>,
     /// Whether the minimap shows beside the code.
     pub minimap: bool,
+    /// A question to answer before anything else.
+    pub dialog: Option<super::DialogView>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -334,11 +338,6 @@ impl Editor {
                 Source::Commands => "Commands",
                 Source::Files => "Files",
                 Source::Line => "Go to Line",
-                Source::SaveAs => "Save As",
-                Source::NewFile { .. } => "New File",
-                Source::NewFolder { .. } => "New Folder",
-                Source::Rename { .. } => "Rename",
-                Source::Trash { .. } => "Delete",
                 Source::Symbols => "Symbols",
                 Source::Picker { .. } => "Pick",
                 Source::Themes { .. } => "Themes",
@@ -390,10 +389,11 @@ impl Editor {
             focus: self.focus,
             page: self.doc().page.as_ref().map(|(name, _)| name.clone()),
             minimap: self.minimap,
+            dialog: self.dialog_view(),
         }
     }
 
-    pub(crate) fn ui(&mut self, event: UiEvent, armed: Option<&'static str>, fx: &mut Vec<Effect>) {
+    pub(crate) fn ui(&mut self, event: UiEvent, fx: &mut Vec<Effect>) {
         match event {
             UiEvent::ContextItem(i) => self.context_item(i, fx),
             UiEvent::CloseContext => self.close_context(),
@@ -408,7 +408,7 @@ impl Editor {
             } => self.group_tab(group, index, clicks),
             UiEvent::CloseGroupTab { group, index } => {
                 self.group_tab(group, index, 1);
-                self.close(armed == Some("file.close"));
+                self.close(false);
             }
             UiEvent::GroupCrumb { group, index } => {
                 if group < self.groups.len() && group != self.group {
@@ -419,6 +419,7 @@ impl Editor {
                 }
             }
             UiEvent::DropTab { group, at } => self.drop_tab_at(group, at),
+            UiEvent::DialogButton(i) => self.answer(i, fx),
             UiEvent::GroupSizes(sizes) => {
                 for (group, (w, h)) in self.groups.iter_mut().zip(sizes) {
                     group.width = w.max(0.05);
@@ -462,7 +463,7 @@ impl Editor {
                 if let Some(doc) = self.pane_tabs().get(index).copied() {
                     self.current = doc;
                     self.focus = Focus::Editor;
-                    self.close(armed == Some("file.close"));
+                    self.close(false);
                 }
             }
             UiEvent::Crumb(i) => {
@@ -499,7 +500,7 @@ impl Editor {
             UiEvent::PaletteRow(i) => {
                 if let Some(p) = &mut self.palette {
                     p.selected = i;
-                    self.palette_key(crate::key::Key::plain(crate::key::KeyCode::Enter), None, fx);
+                    self.palette_key(crate::key::Key::plain(crate::key::KeyCode::Enter), fx);
                 }
             }
             UiEvent::ClosePalette => {
@@ -513,7 +514,7 @@ impl Editor {
                     .map(|(_, c)| c.clone())
                 {
                     self.message = None;
-                    self.run(&command, armed, fx);
+                    self.run(&command, fx);
                 }
             }
         }

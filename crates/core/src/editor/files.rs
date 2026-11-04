@@ -1,13 +1,16 @@
 //! Files on disk from the Explorer, as VS Code has it: a new file or
 //! folder, rename, delete to the trash, copy a path, and the right-click
-//! menu that offers them. Names are typed into the palette; the host does
-//! the work and says what changed.
+//! menu that offers them. Names are typed into the tree itself, where the
+//! file will be, and deleting asks first; the host does the work and says
+//! what changed. Opening and saving elsewhere use the system's file
+//! dialogs.
 
 use std::path::PathBuf;
 
 use super::context::ContextMenu;
+use super::dialog::Ask;
 use super::views::EXPLORER;
-use super::{Editor, Effect, Focus, Palette, Side, Source};
+use super::{Editor, Effect, Focus, Side};
 use crate::panel::Target;
 
 /// The Explorer's right-click menu, on a file or folder.
@@ -23,6 +26,28 @@ pub(crate) const EXPLORER_ITEMS: &[(&str, &str)] = &[
     ("explorer.rename", "Rename…"),
     ("explorer.delete", "Delete"),
 ];
+
+/// What a system file dialog is for.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FilePick {
+    /// A file to open.
+    Open,
+    /// A folder to open in a new window.
+    OpenFolder,
+    /// Where to save document `doc`.
+    SaveAs { doc: u64 },
+}
+
+/// A name being typed in the Explorer, and what it's for.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Naming {
+    NewFile { dir: String },
+    NewFolder { dir: String },
+    Rename { from: String },
+}
+
+/// The input the name is typed into.
+pub(crate) const NAME_INPUT: &str = "name";
 
 /// A file operation the host carries out.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -96,12 +121,48 @@ impl Editor {
         self.focus = Focus::Menu;
     }
 
-    /// Asks for a name in the palette, starting with `text`.
-    fn ask(&mut self, source: Source, title: &str, text: String) {
-        let mut palette = Palette::new(source, Some(title.into()), Vec::new());
-        palette.query = text;
-        self.palette = Some(palette);
-        self.focus = Focus::Palette;
+    /// Starts typing a name in the Explorer, at the folder it goes in or
+    /// in place of what's renamed, starting with `text`.
+    fn start_naming(&mut self, naming: Naming, text: String) {
+        let bar = self.bar_mut(Side::Left);
+        bar.visible = true;
+        bar.active = Some(EXPLORER.into());
+        let Some(tree) = &mut self.tree else { return };
+        if let Naming::NewFile { dir } | Naming::NewFolder { dir } = &naming
+            && !dir.is_empty()
+        {
+            tree.expanded.insert(dir.clone());
+        }
+        tree.edit = Some(naming);
+        tree.built_for = None;
+        self.inputs
+            .insert((EXPLORER.into(), NAME_INPUT.into()), text);
+        self.build_views();
+        self.bar_mut(Side::Left).target = Some(Target::Input(NAME_INPUT.into()));
+        self.focus = Focus::SideBar;
+    }
+
+    /// Stops typing a name, without doing anything.
+    pub(crate) fn cancel_naming(&mut self) {
+        if let Some(tree) = &mut self.tree
+            && tree.edit.take().is_some()
+        {
+            tree.built_for = None;
+            self.inputs.remove(&(EXPLORER.into(), NAME_INPUT.into()));
+        }
+    }
+
+    /// The name typed: does what it was for.
+    pub(crate) fn name_typed(&mut self, name: &str, fx: &mut Vec<Effect>) {
+        let Some(naming) = self.tree.as_mut().and_then(|t| t.edit.take()) else {
+            return;
+        };
+        if let Some(tree) = &mut self.tree {
+            tree.built_for = None;
+        }
+        self.inputs.remove(&(EXPLORER.into(), NAME_INPUT.into()));
+        self.named(naming, name, fx);
+        self.focus = Focus::Editor;
     }
 
     /// Runs an `explorer.` command; false if it isn't one.
@@ -111,21 +172,21 @@ impl Editor {
         match id {
             "explorer.new_file" => {
                 let dir = self.explorer_folder();
-                self.ask(Source::NewFile { dir }, "New file", String::new());
+                self.start_naming(Naming::NewFile { dir }, String::new());
             }
             "explorer.new_folder" => {
                 let dir = self.explorer_folder();
-                self.ask(Source::NewFolder { dir }, "New folder", String::new());
+                self.start_naming(Naming::NewFolder { dir }, String::new());
             }
             "explorer.rename" => {
                 if let Some(from) = path {
                     let name = from.rsplit('/').next().unwrap_or(&from).to_string();
-                    self.ask(Source::Rename { from }, "Rename to", name);
+                    self.start_naming(Naming::Rename { from }, name);
                 }
             }
             "explorer.delete" => {
                 if let Some(path) = path {
-                    self.ask(Source::Trash { path }, "Delete", String::new());
+                    self.ask(Ask::Trash(PathBuf::from(path)));
                 }
             }
             "explorer.copy_path" | "explorer.copy_relative" => {
@@ -142,7 +203,7 @@ impl Editor {
             "explorer.open_side" => {
                 if let Some(path) = path {
                     self.open(PathBuf::from(&path), fx);
-                    self.run("view.split", None, fx);
+                    self.run("view.split", fx);
                 }
             }
             _ => return false,
@@ -151,9 +212,12 @@ impl Editor {
         true
     }
 
-    /// What Enter in a file prompt does with the name typed.
-    pub(super) fn file_prompt(&mut self, source: Source, name: &str, fx: &mut Vec<Effect>) {
+    /// What a name typed in the Explorer makes happen.
+    fn named(&mut self, naming: Naming, name: &str, fx: &mut Vec<Effect>) {
         let name = name.trim().trim_start_matches('/');
+        if name.is_empty() || name.split('/').any(|p| p == "..") {
+            return self.error("Type a name inside the project".into());
+        }
         let within = |dir: &str| {
             if dir.is_empty() {
                 PathBuf::from(name)
@@ -161,14 +225,10 @@ impl Editor {
                 PathBuf::from(dir).join(name)
             }
         };
-        let op = match source {
-            Source::Trash { path } => FileOp::Trash(PathBuf::from(path)),
-            _ if name.is_empty() || name.split('/').any(|p| p == "..") => {
-                return self.error("Type a name inside the project".into());
-            }
-            Source::NewFile { dir } => FileOp::CreateFile(within(&dir)),
-            Source::NewFolder { dir } => FileOp::CreateFolder(within(&dir)),
-            Source::Rename { from } => {
+        let op = match naming {
+            Naming::NewFile { dir } => FileOp::CreateFile(within(&dir)),
+            Naming::NewFolder { dir } => FileOp::CreateFolder(within(&dir)),
+            Naming::Rename { from } => {
                 let to = match from.rsplit_once('/') {
                     Some((dir, _)) => PathBuf::from(dir).join(name),
                     None => PathBuf::from(name),
@@ -178,9 +238,39 @@ impl Editor {
                     to,
                 }
             }
-            _ => return,
         };
         fx.push(Effect::File(op));
+    }
+
+    /// What the system's file dialog came back with.
+    pub(crate) fn picked(&mut self, pick: FilePick, path: Option<PathBuf>, fx: &mut Vec<Effect>) {
+        let Some(path) = path else {
+            // Cancelled: nothing waits on it any more.
+            self.quitting = false;
+            return;
+        };
+        // Inside the project, files go by their path in it.
+        let path = path
+            .strip_prefix(&self.root)
+            .map(PathBuf::from)
+            .unwrap_or(path);
+        match pick {
+            FilePick::Open => self.open(path, fx),
+            FilePick::OpenFolder => {
+                self.open_folder = Some(path);
+                self.run("app.quit", fx);
+            }
+            FilePick::SaveAs { doc } => {
+                let Some(i) = self.index_of(doc) else { return };
+                let back = self.docs[self.current].id;
+                self.current = i;
+                self.doc_mut().buffer.path = Some(path);
+                self.run("file.save", fx);
+                if let Some(j) = self.index_of(back) {
+                    self.current = j;
+                }
+            }
+        }
     }
 
     /// A file or folder was renamed on disk: open files under it follow.

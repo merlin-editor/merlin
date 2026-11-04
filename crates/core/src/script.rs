@@ -291,7 +291,9 @@ impl Session {
                 | Effect::File(_)
                 | Effect::GitStatus
                 | Effect::OpenDiff(_)
-                | Effect::Git(_) => {}
+                | Effect::Git(_)
+                | Effect::PickFile(_)
+                | Effect::OpenFolder(_) => {}
             }
         }
     }

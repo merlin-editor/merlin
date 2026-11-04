@@ -145,7 +145,7 @@ fn drag_tab(s: &mut Session, from: usize, index: usize, to: usize, at: Option<us
 #[test]
 fn dragging_a_tab_to_another_group_moves_it_there() {
     let mut s = session();
-    s.run("cmd view.split; key ctrl+1; key ctrl+o; type b.txt; key enter");
+    s.run("cmd view.split; key ctrl+1; key ctrl+p; type b.txt; key enter");
     assert_eq!(tabs(&s), [vec!["a.txt", "b.txt"], vec!["a.txt"]]);
     drag_tab(&mut s, 0, 1, 1, None);
     assert_eq!(tabs(&s), [vec!["a.txt"], vec!["a.txt", "b.txt"]]);
@@ -155,7 +155,7 @@ fn dragging_a_tab_to_another_group_moves_it_there() {
 #[test]
 fn dragging_the_last_tab_out_closes_its_group() {
     let mut s = session();
-    s.run("cmd view.split; key ctrl+o; type b.txt; key enter");
+    s.run("cmd view.split; key ctrl+p; type b.txt; key enter");
     s.run("key ctrl+w"); // the right group now has only a.txt
     drag_tab(&mut s, 1, 0, 0, None);
     assert_eq!(tabs(&s).len(), 1, "one group left");
@@ -164,7 +164,7 @@ fn dragging_the_last_tab_out_closes_its_group() {
 #[test]
 fn dragging_a_tab_along_the_tab_row_reorders_it() {
     let mut s = session();
-    s.run("key ctrl+o; type b.txt; key enter");
+    s.run("key ctrl+p; type b.txt; key enter");
     assert_eq!(tabs(&s), [["a.txt", "b.txt"]]);
     drag_tab(&mut s, 0, 1, 0, Some(0));
     assert_eq!(tabs(&s), [["b.txt", "a.txt"]]);

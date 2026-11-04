@@ -111,19 +111,27 @@ fn find_uses_fresh_matches_after_edits() {
 }
 
 #[test]
-fn quitting_with_unsaved_changes_needs_a_second_press() {
+fn quitting_with_unsaved_changes_asks_first() {
     let mut s = session("");
     s.run("type a; key ctrl+q");
     assert!(!s.quit);
-    s.run("key ctrl+q");
+    assert!(s.editor.window_view().dialog.is_some());
+    // Cancel: nothing happens, and keys reach the text again.
+    s.run("key left; key enter");
+    assert!(!s.quit && s.editor.window_view().dialog.is_none());
+    s.run("type b");
+    assert_eq!(s.text(), "ab");
+    // Don't Save quits as it is.
+    s.run("key ctrl+q; key tab; key enter");
     assert!(s.quit);
+    assert!(s.saved.is_empty());
 }
 
 #[test]
-fn any_other_key_disarms_quit() {
+fn quitting_with_nothing_unsaved_just_quits() {
     let mut s = session("");
-    s.run("type a; key ctrl+q; key left; key ctrl+q");
-    assert!(!s.quit);
+    s.run("key ctrl+q");
+    assert!(s.quit);
 }
 
 #[test]

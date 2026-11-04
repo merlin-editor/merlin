@@ -32,7 +32,7 @@ pub(crate) struct StatusItem {
 impl Editor {
     pub(crate) fn act(&mut self, action: Action, fx: &mut Vec<Effect>) {
         match action {
-            Action::Run(command) => self.run(command, None, fx),
+            Action::Run(command) => self.run(command, fx),
             Action::View(view) => {
                 let shown = self.bar(Side::Left).visible
                     && self.active_panel_name(Side::Left).as_deref() == Some(view);

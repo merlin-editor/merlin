@@ -479,7 +479,19 @@ fn rename_starts_from_the_name_and_open_files_follow() {
         index,
     }));
     run_item(&mut s, "Rename…");
-    assert_eq!(s.editor.window_view().palette.unwrap().query, "main.rs");
+    // The name is typed where the file is in the tree, starting from it.
+    let left = s.editor.window_view().left.unwrap();
+    assert!(left.nodes.iter().any(|n| matches!(n, Node::Input { .. })));
+    assert!(
+        !left
+            .nodes
+            .iter()
+            .any(|n| matches!(n, Node::Entry(e) if e.label == "main.rs"))
+    );
+    assert!(
+        left.inputs
+            .contains(&("name".to_string(), "main.rs".to_string()))
+    );
     s.run("key backspace backspace backspace; type _old.rs; key enter");
     assert_eq!(
         file_ops(&s),
@@ -511,7 +523,9 @@ fn delete_asks_first_then_trashes() {
     }));
     run_item(&mut s, "Delete");
     assert!(file_ops(&s).is_empty(), "nothing yet");
-    s.run("key enter");
+    let dialog = s.editor.window_view().dialog.expect("asks first");
+    assert_eq!(dialog.title, "Are you sure you want to delete 'lib.rs'?");
+    s.send(Event::Ui(UiEvent::DialogButton(0)));
     assert_eq!(
         file_ops(&s),
         [merlin_core::FileOp::Trash("src/lib.rs".into())]

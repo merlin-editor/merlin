@@ -42,6 +42,8 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
     ("explorer.rename", "Explorer: Rename…"),
     ("explorer.delete", "Explorer: Delete"),
     ("file.save_as", "File: Save As…"),
+    ("file.open_file", "File: Open File…"),
+    ("file.open_folder", "File: Open Folder…"),
     ("file.reopen", "View: Reopen Closed Editor"),
     ("view.zoom_in", "View: Zoom In"),
     ("view.zoom_out", "View: Zoom Out"),
@@ -105,7 +107,7 @@ pub(super) fn set_flag(key: &str, on: bool) -> Effect {
 }
 
 impl Editor {
-    pub(crate) fn run(&mut self, id: &str, armed: Option<&'static str>, fx: &mut Vec<Effect>) {
+    pub(crate) fn run(&mut self, id: &str, fx: &mut Vec<Effect>) {
         if id.starts_with("explorer.") && self.explorer_command(id, fx) {
             return;
         }
@@ -119,11 +121,11 @@ impl Editor {
                         text: doc.buffer.text(),
                         revision: doc.buffer.revision(),
                     }),
-                    None => self.run("file.save_as", None, fx),
+                    None => self.run("file.save_as", fx),
                 }
             }
             "file.open" => fx.push(Effect::ListFiles),
-            "file.close" => self.close(armed == Some("file.close")),
+            "file.close" => self.close(false),
             "file.next" => self.next_tab(true),
             "file.keep" => self.keep_open(),
             "view.breadcrumbs" => {
@@ -243,19 +245,9 @@ impl Editor {
                 self.focus = Focus::Editor;
                 self.sync_groups();
             }
-            "file.save_as" => {
-                let now = self
-                    .doc()
-                    .buffer
-                    .path
-                    .as_ref()
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_default();
-                let mut palette = Palette::new(Source::SaveAs, Some("Save as".into()), Vec::new());
-                palette.query = now;
-                self.palette = Some(palette);
-                self.focus = Focus::Palette;
-            }
+            "file.save_as" => fx.push(Effect::PickFile(FilePick::SaveAs { doc: self.doc().id })),
+            "file.open_file" => fx.push(Effect::PickFile(FilePick::Open)),
+            "file.open_folder" => fx.push(Effect::PickFile(FilePick::OpenFolder)),
             "file.reopen" => match self.closed.pop() {
                 Some(path) => self.open(path, fx),
                 None => self.notify("No closed files to reopen".into()),
@@ -306,17 +298,10 @@ impl Editor {
             "panel.toggle" => self.toggle_plugin_panels(),
             "app.quit" => {
                 let dirty = self.docs.iter().filter(|d| d.buffer.is_dirty()).count();
-                if dirty > 0 && armed != Some("app.quit") {
-                    self.armed = Some("app.quit");
-                    let what = match dirty {
-                        1 => "Unsaved changes".to_string(),
-                        n => format!("{n} files have unsaved changes"),
-                    };
-                    self.error(format!(
-                        "{what}. Press Ctrl+Q again to quit without saving."
-                    ));
+                if dirty > 0 {
+                    self.ask(super::dialog::Ask::Quit);
                 } else {
-                    fx.push(Effect::Quit);
+                    self.quit(fx);
                 }
             }
             other => {

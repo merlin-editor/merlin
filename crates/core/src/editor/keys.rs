@@ -9,7 +9,7 @@ use super::*;
 pub(super) const GLOBAL_KEYS: &[(&str, &str)] = &[
     ("ctrl+s", "file.save"),
     ("ctrl+p", "file.open"),
-    ("ctrl+o", "file.open"),
+    ("ctrl+o", "file.open_file"),
     ("ctrl+w", "file.close"),
     ("ctrl+q", "app.quit"),
     ("ctrl+shift+p", "palette.open"),
@@ -29,7 +29,7 @@ pub(super) const GLOBAL_KEYS: &[(&str, &str)] = &[
     ("ctrl+b", "view.sidebar"),
     ("ctrl+alt+b", "panel.toggle"),
     ("ctrl+shift+e", "view.explorer"),
-    ("ctrl+e", "view.explorer"),
+    ("ctrl+e", "file.open"),
     ("ctrl+shift+f", "view.search"),
     ("ctrl+shift+o", "go.symbol"),
     ("ctrl+shift+g", "view.changes"),
@@ -100,10 +100,11 @@ pub(super) const CHORDS: &[(&str, &str, &str)] = &[
     ("ctrl+k", "ctrl+t", "theme.pick"),
     ("ctrl+k", "ctrl+s", "settings.open"),
     ("ctrl+k", "ctrl+w", "file.close_all"),
+    ("ctrl+k", "ctrl+o", "file.open_folder"),
 ];
 
 impl Editor {
-    pub(crate) fn key(&mut self, key: Key, armed: Option<&'static str>, fx: &mut Vec<Effect>) {
+    pub(crate) fn key(&mut self, key: Key, fx: &mut Vec<Effect>) {
         // An open completion list takes the keys it uses first.
         if self.focus == Focus::Editor && self.popup_key(key) {
             return;
@@ -111,14 +112,14 @@ impl Editor {
         if let Some(first) = self.chord.take() {
             self.message = None;
             return match self.binding_for(&[first, key]).cloned() {
-                Some(binding) => self.run_binding(&binding, armed, fx),
+                Some(binding) => self.run_binding(&binding, fx),
                 None => self.notify(format!(
                     "The key combination ({first}, {key}) is not a command"
                 )),
             };
         }
         if let Some(binding) = self.binding_for(&[key]).cloned() {
-            return self.run_binding(&binding, armed, fx);
+            return self.run_binding(&binding, fx);
         }
         if self.starts_chord(key) {
             self.chord = Some(key);
@@ -129,7 +130,7 @@ impl Editor {
         match self.focus {
             Focus::Editor => self.editor_key(key, fx),
             Focus::Find => self.find_key(key),
-            Focus::Palette => self.palette_key(key, armed, fx),
+            Focus::Palette => self.palette_key(key, fx),
             Focus::Panel => self.panel_key(Side::Right, key, fx),
             Focus::SideBar => self.panel_key(Side::Left, key, fx),
             Focus::Bottom => self.panel_key(Side::Bottom, key, fx),
@@ -138,12 +139,7 @@ impl Editor {
     }
 
     /// Runs what a binding says; one to nothing does nothing.
-    fn run_binding(
-        &mut self,
-        binding: &Binding,
-        armed: Option<&'static str>,
-        fx: &mut Vec<Effect>,
-    ) {
+    fn run_binding(&mut self, binding: &Binding, fx: &mut Vec<Effect>) {
         if binding.command.is_empty() {
             return;
         }
@@ -152,7 +148,7 @@ impl Editor {
                 plugin: plugin.clone(),
                 command: binding.command[plugin.len() + 1..].to_string(),
             }),
-            _ => self.run(&binding.command, armed, fx),
+            _ => self.run(&binding.command, fx),
         }
     }
 

@@ -18,7 +18,7 @@ use anyhow::{Context, Result, bail};
 use disk::{Backups, Changes, Watch};
 use jobs::{Jobs, Lane};
 use merlin_core::script::{self, Step};
-use merlin_core::{Editor, Effect, Event, FileOp, GitAction, SearchHit, Workspace};
+use merlin_core::{Editor, Effect, Event, FileOp, FilePick, GitAction, SearchHit, Workspace};
 use merlin_plugins::{BufferEvent, Config, PluginHost, Selection, Snapshot};
 
 const USAGE: &str = "\
@@ -364,6 +364,48 @@ impl App {
                         queue.push_back(Event::Clipboard(text));
                     }
                     Effect::Quit => self.quit = true,
+                    // Scripts can't answer a dialog: it's as if cancelled.
+                    Effect::PickFile(pick) if self.scripted => {
+                        queue.push_back(Event::Picked { pick, path: None });
+                    }
+                    Effect::PickFile(pick) => {
+                        // In the active file's folder, as VS Code starts.
+                        let path = self.editor.buffer().path.clone();
+                        let folder = path
+                            .as_ref()
+                            .and_then(|p| p.parent())
+                            .map_or(self.root.clone(), |p| self.root.join(p));
+                        let name = path
+                            .as_ref()
+                            .and_then(|p| p.file_name())
+                            .map(|n| n.to_string_lossy().into_owned());
+                        self.jobs.run(Lane::Ask, move || {
+                            let dialog = rfd::FileDialog::new().set_directory(&folder);
+                            let path = match &pick {
+                                FilePick::Open => dialog.set_title("Open File").pick_file(),
+                                FilePick::OpenFolder => {
+                                    dialog.set_title("Open Folder").pick_folder()
+                                }
+                                FilePick::SaveAs { .. } => {
+                                    let dialog = dialog.set_title("Save As");
+                                    match name {
+                                        Some(name) => dialog.set_file_name(name),
+                                        None => dialog,
+                                    }
+                                    .save_file()
+                                }
+                            };
+                            jobs::events(vec![Event::Picked { pick, path }])
+                        });
+                    }
+                    Effect::OpenFolder(folder) => {
+                        if let Err(err) = open_window(&folder) {
+                            queue.push_back(Event::Error(format!(
+                                "Can't open {}: {err}",
+                                folder.display()
+                            )));
+                        }
+                    }
                     Effect::PluginCommand { plugin, command } if plugin == looks::PANEL => {
                         queue.extend(self.packs_command(&command));
                     }
@@ -992,6 +1034,17 @@ impl Git {
             Err(err) => Event::Error(format!("git: {err}")),
         }
     }
+}
+
+/// Starts merlin again in `folder`, on its own, as Open Folder does.
+fn open_window(folder: &Path) -> io::Result<()> {
+    Command::new(env::current_exe()?)
+        .current_dir(folder)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map(|_| ())
 }
 
 /// `path` relative to the project folder when it's inside it, so the same

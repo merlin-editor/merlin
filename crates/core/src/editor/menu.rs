@@ -10,6 +10,9 @@ const MENUS: &[(&str, &[&str])] = &[
         "File",
         &[
             "file.new",
+            "-",
+            "file.open_file",
+            "file.open_folder",
             "file.open",
             "file.reopen",
             "-",
@@ -180,7 +183,7 @@ impl Editor {
             return;
         }
         self.close_menu();
-        self.run(id, None, fx);
+        self.run(id, fx);
     }
 
     pub(crate) fn menu_key(&mut self, key: Key, fx: &mut Vec<Effect>) {

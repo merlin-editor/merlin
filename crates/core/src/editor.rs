@@ -4,6 +4,7 @@ mod colours;
 mod commands;
 mod context;
 mod crumbs;
+mod dialog;
 mod dump;
 mod editing;
 mod files;
@@ -34,7 +35,8 @@ pub use window::{
 };
 
 pub use context::{ContextItem, ContextView, PopupKind, PopupView};
-pub use files::FileOp;
+pub use dialog::DialogView;
+pub use files::{FileOp, FilePick};
 pub use find::{FindAction, FindView};
 pub use keymap::{UserKey, When};
 pub use layout::Rect as CellRect;
@@ -154,6 +156,12 @@ pub enum Event {
         path: PathBuf,
     },
     SaveFailed(String),
+    /// The file or folder picked for [`Effect::PickFile`], or `None` if
+    /// the dialog was cancelled.
+    Picked {
+        pick: FilePick,
+        path: Option<PathBuf>,
+    },
     /// A file asked for with [`Effect::Open`].
     Opened {
         path: PathBuf,
@@ -386,6 +394,10 @@ pub enum Effect {
     Copy(String),
     ReadClipboard,
     Quit,
+    /// Asks the system for a file or folder: see [`FilePick`].
+    PickFile(FilePick),
+    /// Opens a folder in a new window, as this one quits.
+    OpenFolder(PathBuf),
     PluginCommand {
         plugin: String,
         command: String,
@@ -494,22 +506,6 @@ enum Source {
     Files,
     Line,
     Symbols,
-    /// A path to save the file as, typed in.
-    SaveAs,
-    /// A name for a new file or folder in `dir`, a new name for `from`, or
-    /// Enter to trash `path`.
-    NewFile {
-        dir: String,
-    },
-    NewFolder {
-        dir: String,
-    },
-    Rename {
-        from: String,
-    },
-    Trash {
-        path: String,
-    },
     Picker {
         plugin: String,
         id: String,
@@ -580,9 +576,14 @@ pub struct Editor {
     inputs: HashMap<(String, String), String>,
     plugins: Vec<Plugin>,
     message: Option<Message>,
-    /// A command waiting to be pressed again to confirm, such as quitting
-    /// with unsaved changes.
-    armed: Option<&'static str>,
+    /// A question that needs an answer first.
+    dialog: Option<dialog::Dialog>,
+    /// Files to close once they're saved, by id.
+    closing: Vec<u64>,
+    /// Quitting once every file is saved.
+    quitting: bool,
+    /// A folder to open in a new window when this one quits.
+    open_folder: Option<PathBuf>,
     /// What was last copied, for when the system clipboard can't be read.
     clipboard: String,
     /// Whether the left button went down in the text and is selecting.
@@ -720,7 +721,10 @@ impl Editor {
             inputs: HashMap::new(),
             plugins: Vec::new(),
             message: None,
-            armed: None,
+            dialog: None,
+            closing: Vec::new(),
+            quitting: false,
+            open_folder: None,
             clipboard: String::new(),
             dragging: false,
             box_from: None,
@@ -960,7 +964,23 @@ impl Editor {
             event,
             Event::Key(_) | Event::Paste(_) | Event::Command(_) | Event::Ui(_)
         ) || matches!(event, Event::Pointer(p) if p.kind == MouseKind::Down);
-        let armed = if by_user { self.armed.take() } else { None };
+        // A dialog takes the keys, and the mouse is for its buttons.
+        if self.dialog.is_some() {
+            match event {
+                Event::Key(key) => {
+                    self.dialog_key(key, &mut fx);
+                    return fx;
+                }
+                Event::Ui(UiEvent::DialogButton(i)) => {
+                    self.answer(i, &mut fx);
+                    return fx;
+                }
+                Event::Pointer(_) | Event::Paste(_) | Event::Ui(_) | Event::Command(_) => {
+                    return fx;
+                }
+                _ => {}
+            }
+        }
         if by_user {
             // A notice's button needs the notice to run.
             if !matches!(event, Event::Ui(UiEvent::ToastButton(_))) {
@@ -972,10 +992,10 @@ impl Editor {
             Event::Key(key) => {
                 self.probe = None;
                 self.hover_anchor = None;
-                self.key(key, armed, &mut fx)
+                self.key(key, &mut fx)
             }
             Event::Paste(text) => self.paste(&text),
-            Event::Ui(ui) => self.ui(ui, armed, &mut fx),
+            Event::Ui(ui) => self.ui(ui, &mut fx),
             // Every group as big, until the window says otherwise.
             Event::Resize(w, h) => {
                 self.width = w;
@@ -986,7 +1006,7 @@ impl Editor {
             Event::Pointer(p) => self.pointer(p, &mut fx),
             Event::Scroll { group, rows, cols } => self.scroll_group(group, rows, cols),
             Event::ScrollTo { group, row } => self.in_group(group, |e| e.set_top_row(row)),
-            Event::Command(id) => self.run(&id, armed, &mut fx),
+            Event::Command(id) => self.run(&id, &mut fx),
             Event::Saved {
                 doc,
                 revision,
@@ -1000,7 +1020,9 @@ impl Editor {
                 if self.git.branch.is_some() {
                     fx.push(Effect::GitStatus);
                 }
+                self.after_save(doc, &mut fx);
             }
+            Event::Picked { pick, path } => self.picked(pick, path, &mut fx),
             Event::SaveFailed(err) => self.error(format!("Save failed: {err}")),
             Event::Opened { path, text } => self.opened(path, &text),
             Event::Restore(ws) => self.restore(ws),
@@ -1815,12 +1837,7 @@ impl Editor {
             return;
         }
         if self.doc().buffer.is_dirty() && !confirmed {
-            self.armed = Some("file.close");
-            let name = self.doc().name();
-            self.error(format!(
-                "{name} has unsaved changes. Press Ctrl+W again to close it."
-            ));
-            return;
+            return self.ask(dialog::Ask::Close(self.doc().id));
         }
         let gone = self.docs.remove(self.current);
         if let Some(path) = gone.buffer.path {

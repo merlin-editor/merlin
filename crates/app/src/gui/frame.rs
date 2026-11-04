@@ -5,8 +5,9 @@
 
 use merlin_core::panel::{Entry, Node, Tone};
 use merlin_core::{
-    ContextItem, ContextView, FindAction, FindView, Key, KeyCode, MenuView, PaletteView, PopupKind,
-    PopupView, Side, SideView, TabView, ToastView, UiEvent, WindowView, editor::GroupView,
+    ContextItem, ContextView, DialogView, FindAction, FindView, Key, KeyCode, MenuView,
+    PaletteView, PopupKind, PopupView, Side, SideView, TabView, ToastView, UiEvent, WindowView,
+    editor::GroupView,
 };
 
 use super::canvas::{Canvas, Face, Pictures, Rect, Text};
@@ -368,6 +369,71 @@ impl Frame<'_> {
         }
         if let Some(palette) = &view.palette {
             self.palette(palette, w, h);
+        }
+        if let Some(dialog) = &view.dialog {
+            self.dialog(dialog, w, h);
+        }
+    }
+
+    /// A question over the dimmed window: what it's about, why it
+    /// matters, and the buttons, the first the main one, right-aligned as
+    /// a desktop's dialogs have them. Nothing else takes a click.
+    fn dialog(&mut self, dv: &DialogView, w: f32, h: f32) {
+        let p = self.p;
+        let all = Rect::new(0.0, 0.0, w, h);
+        self.canvas.tint(all, 0.0, p.ground, 150);
+        self.hit(all, Hit::Block);
+        let dw = 460.0_f32.min(w - 32.0);
+        let inner = dw - 48.0;
+        let title_face = Face::ui(15.0).medium();
+        let detail_face = Face::ui(13.0);
+        let title_h = self.text.wrapped_height(&dv.title, title_face, inner);
+        let detail_h = self.text.wrapped_height(&dv.detail, detail_face, inner);
+        let dh = 24.0 + title_h + 10.0 + detail_h + 28.0 + 30.0 + 22.0;
+        let r = Rect::new((w - dw) / 2.0, ((h - dh) / 2.0 - 40.0).max(16.0), dw, dh);
+        self.canvas.shadow(r, 12.0, theme::is_light(&p));
+        self.canvas.outline(r, 12.0, 1.0, p.border, p.widget);
+        self.hit(r, Hit::Block);
+        let (x, mut y) = (r.x + 24.0, r.y + 24.0);
+        self.text.draw(
+            &mut self.canvas,
+            &dv.title,
+            title_face,
+            x,
+            y,
+            p.bright,
+            r,
+            Some(inner),
+        );
+        y += title_h + 10.0;
+        self.text.draw(
+            &mut self.canvas,
+            &dv.detail,
+            detail_face,
+            x,
+            y,
+            p.muted,
+            r,
+            Some(inner),
+        );
+        // The buttons, right to left from the edge, so the main one ends
+        // up on the left of the row as GNOME and VS Code put it.
+        let face = Face::ui(13.0).medium();
+        let widths: Vec<f32> = dv
+            .buttons
+            .iter()
+            .map(|b| self.text.width(b, face) + 28.0)
+            .collect();
+        let total: f32 = widths.iter().sum::<f32>() + 8.0 * (widths.len().saturating_sub(1)) as f32;
+        let mut bx = r.right() - 24.0 - total;
+        let by = r.bottom() - 22.0 - 30.0;
+        for (i, label) in dv.buttons.iter().enumerate() {
+            let bw = self.button(label, bx, by, i == dv.selected, i == 0);
+            self.hit(
+                Rect::new(bx, by, bw, 30.0),
+                Hit::Ui(UiEvent::DialogButton(i)),
+            );
+            bx += bw + 8.0;
         }
     }
 

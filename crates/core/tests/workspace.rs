@@ -36,8 +36,8 @@ fn restored(ws: &Workspace) -> Session {
 fn groups_tabs_and_cursors_come_back() {
     let mut s = session();
     s.run("key ctrl+g; type 40; key enter; key right; key right");
-    s.run("cmd view.split; key ctrl+o; type b.txt; key enter; key down");
-    s.run("cmd view.split_down; key ctrl+o; type a.txt; key enter");
+    s.run("cmd view.split; key ctrl+p; type b.txt; key enter; key down");
+    s.run("cmd view.split_down; key ctrl+p; type a.txt; key enter");
     s.run("key ctrl+g; type 70; key enter");
     s.run("key ctrl+1");
     let ws = s.editor.workspace();

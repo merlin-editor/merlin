@@ -45,6 +45,8 @@ pub(crate) struct Tree {
     pub built_for: Option<(u64, u64)>,
     /// A file to focus once the list arrives.
     pub reveal: Option<String>,
+    /// A name being typed in the tree.
+    pub edit: Option<super::files::Naming>,
 }
 
 #[derive(Default)]
@@ -417,7 +419,41 @@ impl Editor {
                 current: current.as_deref(),
                 nerd: self.nerd,
             };
-            tree.rows(&marks).into_iter().map(Node::Entry).collect()
+            let mut nodes: Vec<Node> = tree.rows(&marks).into_iter().map(Node::Entry).collect();
+            // A name being typed goes where the file will be: under its
+            // folder, or in place of what's renamed.
+            if let Some(edit) = &tree.edit {
+                use super::files::{NAME_INPUT, Naming};
+                let row = |id: &str| {
+                    nodes
+                        .iter()
+                        .position(|n| matches!(n, Node::Entry(e) if e.id == id))
+                };
+                let (at, replace, placeholder) = match edit {
+                    Naming::NewFile { dir } | Naming::NewFolder { dir } if dir.is_empty() => {
+                        (Some(0), false, "Name")
+                    }
+                    Naming::NewFile { dir } | Naming::NewFolder { dir } => {
+                        (row(&format!("d:{dir}")).map(|i| i + 1), false, "Name")
+                    }
+                    Naming::Rename { from } => (
+                        row(&format!("f:{from}")).or_else(|| row(&format!("d:{from}"))),
+                        true,
+                        "New name",
+                    ),
+                };
+                let input = Node::Input {
+                    id: NAME_INPUT.into(),
+                    placeholder: placeholder.into(),
+                    secret: false,
+                };
+                match at {
+                    Some(i) if replace => nodes[i] = input,
+                    Some(i) => nodes.insert(i, input),
+                    None => nodes.insert(0, input),
+                }
+            }
+            nodes
         };
         let reveal = (!tree.files.is_empty())
             .then(|| tree.reveal.take())
@@ -705,6 +741,26 @@ impl Editor {
     pub(crate) fn explorer_key(&mut self, key: Key, fx: &mut Vec<Effect>) -> bool {
         if self.active_panel_name(Side::Left).as_deref() != Some(EXPLORER) {
             return false;
+        }
+        // Typing a name: Enter does it, Esc doesn't.
+        if self.tree.as_ref().is_some_and(|t| t.edit.is_some()) {
+            match key.code {
+                KeyCode::Esc => {
+                    self.cancel_naming();
+                    self.focus = Focus::Editor;
+                    return true;
+                }
+                KeyCode::Enter => {
+                    let text = self
+                        .inputs
+                        .get(&(EXPLORER.to_string(), super::files::NAME_INPUT.to_string()))
+                        .cloned()
+                        .unwrap_or_default();
+                    self.name_typed(&text, fx);
+                    return true;
+                }
+                _ => return false,
+            }
         }
         let index = self.selected_index(Side::Left);
         let Some(Target::Button(id)) = self.panel_targets(Side::Left).into_iter().nth(index) else {

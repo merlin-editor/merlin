@@ -140,7 +140,7 @@ fn project() -> Session {
 #[test]
 fn opening_a_file_replaces_the_blank_scratch_buffer() {
     let mut s = project();
-    s.run("key ctrl+o; type edrs; key enter");
+    s.run("key ctrl+p; type edrs; key enter");
     assert_eq!(s.text(), "struct Editor;\n");
     assert_eq!(s.editor.open_files().len(), 1);
 }
@@ -148,12 +148,12 @@ fn opening_a_file_replaces_the_blank_scratch_buffer() {
 #[test]
 fn open_files_get_tabs_and_switch() {
     let mut s = project();
-    s.run("key ctrl+o; type main; key enter; key ctrl+o; type readme; key enter");
+    s.run("key ctrl+p; type main; key enter; key ctrl+p; type readme; key enter");
     let screen = s.screen();
     assert!(screen.contains("tabs: main.rs [README.md]"), "{screen}");
     s.run("key ctrl+pageup");
     assert_eq!(s.text(), "fn main() {}\n");
-    s.run("key ctrl+o; type readme; key enter");
+    s.run("key ctrl+p; type readme; key enter");
     assert_eq!(
         s.editor.open_files().len(),
         2,
@@ -163,32 +163,48 @@ fn open_files_get_tabs_and_switch() {
 }
 
 #[test]
-fn closing_an_unsaved_file_needs_a_second_press() {
+fn closing_an_unsaved_file_asks_to_save_it() {
     let mut s = project();
-    s.run("key ctrl+o; type main; key enter; key ctrl+o; type readme; key enter");
+    s.run("key ctrl+p; type main; key enter; key ctrl+p; type readme; key enter");
     s.run("type x; key ctrl+w");
+    let dialog = s.editor.window_view().dialog.expect("a question");
+    assert!(dialog.title.contains("README.md"), "{}", dialog.title);
+    assert_eq!(dialog.buttons, ["Save", "Don't Save", "Cancel"]);
+    assert_eq!(s.editor.open_files().len(), 2, "nothing closed yet");
+    // Esc keeps it open; the dialog took the key, not the text.
+    s.run("key esc");
+    assert!(s.editor.window_view().dialog.is_none());
     assert_eq!(s.editor.open_files().len(), 2);
-    s.run("key ctrl+w");
+    // Save writes it, then closes it.
+    s.run("key ctrl+w; key enter");
+    assert_eq!(s.files["README.md"], "x# hi\n");
     assert_eq!(s.editor.open_files().len(), 1);
     assert_eq!(s.text(), "fn main() {}\n");
+    // Don't Save closes it as it is on disk.
+    s.run("type y; key ctrl+w; key right; key enter");
+    assert_eq!(s.files["src/main.rs"], "fn main() {}\n");
+    assert_eq!(s.editor.open_files(), [None], "a blank file is left");
 }
 
 #[test]
 fn quitting_counts_unsaved_files_across_tabs() {
     let mut s = project();
-    s.run("key ctrl+o; type main; key enter; type a; key ctrl+o; type readme; key enter; type b");
+    s.run("key ctrl+p; type main; key enter; type a; key ctrl+p; type readme; key enter; type b");
     s.run("key ctrl+q");
     assert!(!s.quit);
-    assert_eq!(
-        s.editor.message(),
-        Some("2 files have unsaved changes. Press Ctrl+Q again to quit without saving.")
-    );
+    let dialog = s.editor.window_view().dialog.expect("a question");
+    assert_eq!(dialog.title, "Do you want to save the changes to 2 files?");
+    // Save All writes both, then quits.
+    s.run("key enter");
+    assert_eq!(s.files["src/main.rs"], "afn main() {}\n");
+    assert_eq!(s.files["README.md"], "b# hi\n");
+    assert!(s.quit);
 }
 
 #[test]
 fn saving_marks_the_file_that_was_saved() {
     let mut s = project();
-    s.run("key ctrl+o; type main; key enter; type a; key ctrl+s");
+    s.run("key ctrl+p; type main; key enter; type a; key ctrl+s");
     assert_eq!(s.files["src/main.rs"], "afn main() {}\n");
     assert!(!s.editor.buffer().is_dirty());
 }
@@ -260,7 +276,7 @@ fn clicking_a_panel_button_presses_it() {
 #[test]
 fn clicking_a_palette_item_runs_it() {
     let mut s = project();
-    s.run("key ctrl+o");
+    s.run("key ctrl+p");
     s.send(merlin_core::Event::Ui(merlin_core::UiEvent::PaletteRow(1)));
     assert_eq!(s.editor.open_files().len(), 1);
     assert_ne!(s.text(), "", "opened the second file in the list");
@@ -270,7 +286,7 @@ fn clicking_a_palette_item_runs_it() {
 #[test]
 fn clicking_a_tab_switches_to_it() {
     let mut s = project();
-    s.run("key ctrl+o; type main; key enter; key ctrl+o; type readme; key enter");
+    s.run("key ctrl+p; type main; key enter; key ctrl+p; type readme; key enter");
     s.send(merlin_core::Event::Ui(merlin_core::UiEvent::GroupTab {
         group: 0,
         index: 0,
@@ -451,12 +467,15 @@ fn new_files_save_as_a_path_typed_in() {
     s.run("key ctrl+n; type hello");
     assert_eq!(s.text(), "hello");
     s.run("key ctrl+s");
-    assert_eq!(
-        s.editor.focus(),
-        Focus::Palette,
-        "an untitled file asks for a name"
-    );
-    s.run("type notes/new.txt; key enter");
+    // An untitled file asks the system's Save As dialog for a name.
+    let Some(Effect::PickFile(pick)) = s.effects.last().cloned() else {
+        panic!("{:?}", s.effects);
+    };
+    assert!(matches!(pick, merlin_core::FilePick::SaveAs { .. }));
+    s.send(Event::Picked {
+        pick,
+        path: Some("notes/new.txt".into()),
+    });
     assert_eq!(
         s.files.get("notes/new.txt").map(String::as_str),
         Some("hello")
