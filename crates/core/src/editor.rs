@@ -1,5 +1,6 @@
 mod carets;
 mod chrome;
+mod colours;
 mod crumbs;
 pub(crate) mod fold;
 mod groups;
@@ -94,6 +95,13 @@ pub enum Event {
     Restore(Workspace),
     /// The user's settings, with the workspace's over them.
     Settings(Settings),
+    /// Colours for text the editor asked for with
+    /// [`Editor::colour_requests`].
+    TextColours {
+        language: String,
+        text: String,
+        tokens: Vec<PluginToken>,
+    },
     /// The project's files, asked for with [`Effect::ListFiles`].
     Files(Vec<String>),
     /// The system clipboard, asked for with [`Effect::ReadClipboard`].
@@ -609,6 +617,8 @@ pub struct Editor {
     user_keys: Vec<(Key, String)>,
     /// Whether a click in the Explorer opens a preview tab.
     preview_tabs: bool,
+    /// Colours plugins gave for diffs and code blocks.
+    colours: colours::TextColours,
     /// Languages plugins added, with the plugin that added each.
     languages: Vec<(String, Language)>,
     /// The document and version the Outline was built for.
@@ -668,6 +678,7 @@ impl Editor {
             clicks: 0,
             outline_for: None,
             languages: Vec::new(),
+            colours: Default::default(),
             user_keys: Vec::new(),
             preview_tabs: true,
             project: "merlin".into(),
@@ -878,6 +889,11 @@ impl Editor {
             Event::Opened { path, text } => self.opened(path, &text),
             Event::Restore(ws) => self.restore(ws),
             Event::Settings(settings) => self.apply_settings(settings),
+            Event::TextColours {
+                language,
+                text,
+                tokens,
+            } => self.text_coloured(language, text, tokens),
             Event::Files(files) => {
                 if files.is_empty() {
                     self.notify("No files found".into());
@@ -1528,6 +1544,7 @@ impl Editor {
                 self.docs.insert(self.current, doc);
             }
         }
+        self.colour_review(self.current);
         self.focus = Focus::Editor;
         self.popup = None;
         let doc = self.doc_mut();

@@ -184,7 +184,10 @@ each part.*
 - Languages are plugins' to add, as in VS Code (plugin API 0.7): the
   language itself, base and semantic colours, symbols and folding ranges.
   The lsp plugin takes them from language servers, and a `cpp` plugin adds
-  C and C++.
+  C and C++. Rust, Python, JavaScript, JSON and TOML moved out of the editor
+  into plugins with their tree-sitter grammars (API 0.8), so the editor has
+  no languages of its own; `merlin plugin install` and
+  `scripts/install-plugins.sh` put them in place.
 - The OpenCode chat moved to its own repository, `merlin-opencode`:
   merlin is an editor, and AI is a plugin like any other.
 

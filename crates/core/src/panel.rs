@@ -169,6 +169,7 @@ pub(crate) fn layout(
     width: usize,
     focused: Option<usize>,
     input_text: impl Fn(&str) -> String,
+    colour: crate::markdown::Colour,
 ) -> Layout {
     let mut layout = Layout {
         body: Vec::new(),
@@ -208,7 +209,7 @@ pub(crate) fn layout(
                 rows.push(entry_row(entry, width, target, focused));
                 target += 1 + entry.action.is_some() as usize;
             }
-            Node::Markdown(text) => rows.extend(crate::markdown::layout(text, width)),
+            Node::Markdown(text) => rows.extend(crate::markdown::layout(text, width, colour)),
             Node::Input {
                 id,
                 placeholder,

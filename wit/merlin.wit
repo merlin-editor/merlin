@@ -301,7 +301,7 @@ interface host {
 
 world plugin {
   import host;
-  use types.{command, panel, process-event, buffer-event};
+  use types.{command, panel, process-event, buffer-event, token};
 
   /// Called after loading, and again after every hot reload with what
   /// `save-state` returned.
@@ -320,4 +320,8 @@ world plugin {
   export on-buffer: func(event: buffer-event);
   /// The user's answer to a diff shown with `show-diff`.
   export on-review: func(id: string, accepted: bool);
+  /// Colours some text in one of the languages the plugin adds, named by
+  /// its id or an extension: a diff of a file, or a code block in Markdown.
+  /// Positions are within the text.
+  export colour-text: func(language: string, text: string) -> list<token>;
 }

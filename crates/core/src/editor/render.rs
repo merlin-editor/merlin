@@ -791,9 +791,6 @@ impl Editor {
             return lang.name.clone();
         }
         let doc = self.doc();
-        if let Some(h) = &doc.highlighter {
-            return h.language().into();
-        }
         let path = doc
             .review
             .as_ref()
@@ -801,6 +798,11 @@ impl Editor {
             .or(doc.buffer.path.as_ref());
         let name = match path.and_then(|p| p.extension()).and_then(|e| e.to_str()) {
             Some("md") => "Markdown",
+            Some("rs") => "Rust",
+            Some("py" | "pyi") => "Python",
+            Some("js" | "mjs" | "cjs" | "jsx") => "JavaScript",
+            Some("json") => "JSON",
+            Some("toml") => "TOML",
             Some("ts" | "tsx") => "TypeScript",
             Some("go") => "Go",
             Some("c" | "h") => "C",

@@ -382,12 +382,19 @@ impl Editor {
 
         let bar = self.bar(side);
         let focused = (self.focus == side.focus()).then_some(self.selected_index(side));
-        let layout = panel::layout(panel, inner as usize, focused, |id| {
-            self.inputs
-                .get(&(active.to_string(), id.to_string()))
-                .cloned()
-                .unwrap_or_default()
-        });
+        let colour = |lang: &str, text: &str| self.colours.get(lang, text);
+        let layout = panel::layout(
+            panel,
+            inner as usize,
+            focused,
+            |id| {
+                self.inputs
+                    .get(&(active.to_string(), id.to_string()))
+                    .cloned()
+                    .unwrap_or_default()
+            },
+            &colour,
+        );
         let rows_h = bottom.saturating_sub(top) as usize;
         let skip = layout.footer.len().saturating_sub(rows_h);
         let footer: Vec<Row> = layout.footer.into_iter().skip(skip).collect();

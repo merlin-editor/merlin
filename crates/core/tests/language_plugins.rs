@@ -161,3 +161,62 @@ fn colours_for_a_file_not_open_are_dropped() {
     assert_eq!(syntax_at(&s, "int"), Syntax::Plain);
     let _ = Style::Normal;
 }
+
+#[test]
+fn a_review_asks_for_its_files_colours() {
+    let mut s = Session::new("int a;\n", Some("main.cpp"), 80, 12);
+    s.send(Event::ShowReview {
+        plugin: "p".into(),
+        id: "1".into(),
+        path: "main.cpp".into(),
+        old: "int a;\n".into(),
+        new: "int b;\n".into(),
+    });
+    let wanted = s.editor.colour_requests();
+    assert_eq!(wanted.len(), 1, "{wanted:?}");
+    let (language, text) = wanted[0].clone();
+    assert_eq!(language, "cpp");
+    assert!(text.contains("int a;") && text.contains("int b;"), "{text}");
+    // The plugin colours each `int`.
+    let tokens = text
+        .lines()
+        .enumerate()
+        .filter(|(_, l)| l.starts_with("int"))
+        .map(|(i, _)| token(i as u32, 0, 3, Syntax::Keyword))
+        .collect();
+    s.send(Event::TextColours {
+        language,
+        text,
+        tokens,
+    });
+    assert_eq!(syntax_at(&s, "int b"), Syntax::Keyword);
+    assert!(s.editor.colour_requests().is_empty(), "asked once");
+}
+
+#[test]
+fn markdown_code_blocks_ask_for_colours() {
+    use merlin_core::{Node, Panel};
+    let mut s = Session::new("", None, 80, 20);
+    s.send(Event::RegisterPlugin {
+        plugin: "chat".into(),
+        commands: Vec::new(),
+    });
+    s.send(Event::SetPanel {
+        plugin: "chat".into(),
+        panel: Some(Panel {
+            title: "Chat".into(),
+            nodes: vec![Node::Markdown("```rust\nfn x() {}\n```".into())],
+        }),
+    });
+    s.run("key ctrl+alt+b");
+    // Code blocks ask while they're drawn.
+    let _ = s.screen();
+    let wanted = s.editor.colour_requests();
+    assert_eq!(wanted, [("rust".to_string(), "fn x() {}".to_string())]);
+    s.send(Event::TextColours {
+        language: "rust".into(),
+        text: "fn x() {}".into(),
+        tokens: vec![token(0, 0, 2, Syntax::Keyword)],
+    });
+    assert_eq!(syntax_at(&s, "fn x"), Syntax::Keyword);
+}

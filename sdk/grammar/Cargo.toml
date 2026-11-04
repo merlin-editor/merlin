@@ -1,0 +1,15 @@
+[package]
+name = "merlin-grammar"
+description = "Colour a language in a merlin plugin with a tree-sitter grammar"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[dependencies]
+merlin-plugin = { path = "../rust" }
+tree-sitter = "0.27"
+
+# Plugins build it for wasm32-wasip2, so it stays out of the editor's
+# workspace.
+[workspace]

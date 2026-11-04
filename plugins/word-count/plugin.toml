@@ -1,6 +1,6 @@
 name = "word-count"
 title = "Word Count"
-api = "0.7"
+api = "0.8"
 component = "target/wasm32-wasip2/release/word_count.wasm"
 
 [permissions]

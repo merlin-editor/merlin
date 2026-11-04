@@ -17,11 +17,13 @@ A prototype terminal editor built to test two ideas from looking at
 | Path | What it is |
 |---|---|
 | `crates/core` | Buffer (rope), undo history, editor state, rendering, scripts. No IO. |
-| `crates/syntax` | Syntax highlighting with tree-sitter. |
+| `crates/syntax` | What a piece of code is, for its colour. The editor has no grammars. |
 | `crates/plugin-host` | Loads plugins with wasmtime and turns their requests into events. |
 | `crates/app` | The `merlin` binary: terminal frontend and headless `--exec` mode. |
 | `wit/merlin.wit` | The plugin API. |
 | `sdk/rust` | `merlin-plugin`, the Rust SDK for writing plugins. |
+| `sdk/grammar` | `merlin-grammar`: colour a language in a plugin with a tree-sitter grammar. |
+| `plugins/rust`, `python`, `javascript`, `json`, `toml` | Those languages and their tree-sitter colours. |
 | `plugins/word-count` | Small example plugin: commands, a key, a panel and a button. |
 | `plugins/lsp` | Language servers: diagnostics, hover, go-to-definition, completion. |
 | `plugins/cpp` | C and C++: the languages and their colours. |
@@ -30,10 +32,17 @@ A prototype terminal editor built to test two ideas from looking at
 ## Build and run
 
 ```sh
-rustup target add wasm32-wasip2
-(cd plugins/word-count && cargo build --release)
-cargo run -- --plugin plugins/word-count src/main.rs src/lib.rs
+scripts/install-plugins.sh
+target/release/merlin src/main.rs src/lib.rs
 ```
+
+The editor has no languages of its own: they come with it as plugins, as
+VS Code's do. The script builds them (and the language server plugin) and
+installs them with `merlin plugin install <dir>`, which links a plugin into
+`~/.config/merlin/plugins/` and allows what its manifest asks for, so they
+load at every start. Without them, files show uncoloured. Plugins compile
+once and are cached in `~/.local/share/merlin/compiled/`, so starting with
+all of them takes about a quarter of a second.
 
 The window is laid out like VS Code, in flat panes set apart by shade: a
 title bar with the menus (File, Edit, Selection, View, Go, Help), a search
@@ -204,11 +213,16 @@ The OpenCode chat, a port of ttt's, lives in its own repository,
 
 ## Language support
 
-Languages work as in VS Code, where extensions add them. Plugins can do
-everything a language needs: add the language (its file extensions, name
-and comment markers), colour it, list its symbols and say where it folds.
-The editor itself only has tree-sitter colours for Rust, Python, JavaScript,
-JSON and TOML, which a plugin can replace.
+Languages work as in VS Code, where extensions add them, and the ones that
+come with merlin are plugins too. Plugins do everything a language needs:
+add the language (its file extensions, name and comment markers), colour it,
+colour pieces of it for diffs and Markdown code blocks, list its symbols and
+say where it folds.
+
+- **`rust`, `python`, `javascript`, `json`, `toml`** add those languages
+  and colour them with their tree-sitter grammars, through `sdk/grammar`.
+  Each change recolours only the lines whose meaning changed: about 3 ms a
+  key in a 2,600-line file.
 
 - **`lsp`** runs the language server for the open file (rust-analyzer,
   gopls, clangd, pyright or typescript-language-server, whichever you have
@@ -273,7 +287,7 @@ The manifest says what the plugin may do:
 ```toml
 name = "word-count"
 title = "Word Count"
-api = "0.7"
+api = "0.8"
 component = "target/wasm32-wasip2/release/word_count.wasm"
 
 [permissions]
@@ -310,8 +324,12 @@ What else plugins get, besides commands and panels:
   `host::set_tokens(path, layer, lines, tokens)` colours a file: the
   `Base` layer replaces the editor's own grammar, and `Semantic` goes over
   it. `host::set_symbols` and `host::set_folds` give its symbols and fold
-  ranges. All of it moves with edits until the plugin sends more; the
-  `cpp` plugin is a short example.
+  ranges. All of it moves with edits until the plugin sends more.
+  `colour_text` colours a piece of text in the language, for diffs and
+  Markdown code blocks. The `cpp` plugin is a short example; with
+  `merlin-grammar` a tree-sitter grammar takes a dozen lines (see
+  `plugins/rust`), building against `sdk/grammar/wasm-include` instead of a
+  system C library.
 - **Settings.** Defaults go in the manifest's `[settings]`; the user's and
   the workspace's `[plugins.<name>]` override them. Read them with
   `settings::text("server")`, `settings::flag(...)`, `settings::integer(...)`

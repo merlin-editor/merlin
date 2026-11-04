@@ -25,6 +25,11 @@ fn active() -> Option<String> {
 }
 
 fn colour(path: &str, text: &str) {
+    host::set_tokens(path, TokenLayer::Base, None, &tokens(text));
+}
+
+/// The lexer's runs as tokens, with UTF-16 columns.
+fn tokens(text: &str) -> Vec<Token> {
     let lines: Vec<&str> = text.split('\n').collect();
     let at = |line: usize, chars: usize| Position {
         line: line as u32,
@@ -47,10 +52,14 @@ fn colour(path: &str, text: &str) {
             },
         })
         .collect();
-    host::set_tokens(path, TokenLayer::Base, None, &tokens);
+    tokens
 }
 
 impl Plugin for Cpp {
+    fn colour_text(&mut self, _language: &str, text: &str) -> Vec<Token> {
+        tokens(text)
+    }
+
     fn buffer(&mut self, event: BufferEvent) {
         if matches!(event, BufferEvent::Saved(_)) {
             return;

@@ -1,0 +1,20 @@
+[package]
+name = "javascript-language"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+merlin-plugin = { path = "../../sdk/rust" }
+merlin-grammar = { path = "../../sdk/grammar" }
+tree-sitter-javascript = "0.25"
+
+[profile.release]
+opt-level = "s"
+strip = true
+
+# Its own workspace: it builds for wasm32-wasip2, not the host.
+[workspace]

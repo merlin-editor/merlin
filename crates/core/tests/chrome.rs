@@ -213,6 +213,13 @@ fn guides_brackets_and_the_word_under_the_cursor() {
         80,
         16,
     );
+    // Brackets are coloured in files a language plugin colours.
+    s.send(merlin_core::Event::SetTokens {
+        path: "main.rs".into(),
+        layer: merlin_core::layers::Layer::Base,
+        lines: None,
+        tokens: Vec::new(),
+    });
     let (x, y) = s.editor.text_origin();
     let render = s.editor.render();
     // Line 3, indented twice: a guide at each level, the inner one the

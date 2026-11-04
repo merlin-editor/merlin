@@ -2,8 +2,6 @@
 
 use std::path::PathBuf;
 
-use merlin_syntax::Highlighter;
-
 use crate::buffer::{Buffer, Change};
 use crate::diff::{self, LineKind, Sign};
 use crate::lang::Mark;
@@ -59,8 +57,6 @@ pub struct Doc {
     pub scroll: usize,
     /// Display columns scrolled off the left.
     pub hscroll: usize,
-    /// For languages merlin knows.
-    pub highlighter: Option<Highlighter>,
     /// Diagnostics from plugins.
     pub marks: Vec<Mark>,
     pub review: Option<Review>,
@@ -81,11 +77,7 @@ pub struct Doc {
 
 impl Doc {
     pub fn new(id: u64, text: &str, path: Option<PathBuf>) -> Self {
-        let mut highlighter = path.as_deref().and_then(Highlighter::for_path);
         let buffer = Buffer::new(text, path);
-        if let Some(h) = &mut highlighter {
-            h.parse(buffer.rope());
-        }
         Self {
             id,
             buffer,
@@ -94,7 +86,6 @@ impl Doc {
             goal: None,
             scroll: 0,
             hscroll: 0,
-            highlighter,
             marks: Vec::new(),
             review: None,
             git_base: None,
@@ -120,10 +111,6 @@ impl Doc {
         }
         let text: Vec<&str> = lines.iter().map(|l| l.text.as_str()).collect();
         let mut doc = Doc::new(id, &text.join("\n"), None);
-        doc.highlighter = Highlighter::for_path(&path);
-        if let Some(h) = &mut doc.highlighter {
-            h.parse(doc.buffer.rope());
-        }
         // Start at the first change.
         let first = lines
             .iter()
@@ -184,21 +171,14 @@ impl Doc {
             .retain(|&f| f == 0 || self.buffer.rope().char(f - 1) == '\n');
         self.folds.sort_unstable();
         self.folds.dedup();
-        if let Some(h) = &mut self.highlighter {
-            for change in &changes {
-                h.edit(&change.edit);
-            }
-            h.parse(self.buffer.rope());
-        }
         if self.git_base.is_some() {
             self.update_signs();
         }
         changes
     }
 
-    /// Syntax colours over `lines`, by character range: the built-in
-    /// grammar's, unless a plugin sends its own base colours, and a
-    /// plugin's semantic colours over them.
+    /// Syntax colours over `lines`, by character range, as plugins sent
+    /// them: base colours, and semantic colours over them.
     pub fn spans(&self, lines: std::ops::Range<usize>) -> Vec<(usize, usize, Syntax)> {
         let count = self.last_line() + 1;
         let lines = lines.start.min(count)..lines.end.min(count);
@@ -209,23 +189,12 @@ impl Doc {
                 self.line_start(l)
             }
         };
-        let range = at(lines.start)..at(lines.end);
-        let rope = self.buffer.rope();
-        let mut out: Vec<(usize, usize, Syntax)> = match (&self.layers.base, &self.highlighter) {
-            (None, Some(h)) => h
-                .highlights(rope, lines)
-                .into_iter()
-                .map(|(r, s)| (rope.byte_to_char(r.start), rope.byte_to_char(r.end), s))
-                .collect(),
-            _ => Vec::new(),
-        };
-        out.extend(self.layers.spans(&range));
-        out
+        self.layers.spans(&(at(lines.start)..at(lines.end)))
     }
 
     /// Whether anything colours this document.
     pub fn has_colours(&self) -> bool {
-        self.highlighter.is_some() || self.layers.base.is_some()
+        self.layers.base.is_some()
     }
 
     /// The position of an LSP-style line and UTF-16 column, clamped to the

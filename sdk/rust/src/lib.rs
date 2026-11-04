@@ -131,6 +131,12 @@ pub trait Plugin: Default + 'static {
     /// The user accepted or rejected a diff shown with [`host::show_diff`].
     fn review(&mut self, _id: &str, _accepted: bool) {}
 
+    /// Colours `text` as `language`, one of the languages in the
+    /// manifest, by its id or an extension: for diffs and code blocks.
+    fn colour_text(&mut self, _language: &str, _text: &str) -> Vec<Token> {
+        Vec::new()
+    }
+
     /// State to keep across a hot reload. Returning some also keeps the
     /// plugin's processes running.
     fn save_state(&self) -> Option<Vec<u8>> {
@@ -332,6 +338,12 @@ macro_rules! export {
             }
             fn on_review(id: String, accepted: bool) {
                 $crate::runtime::with(|p: &mut $plugin| $crate::Plugin::review(p, &id, accepted))
+            }
+
+            fn colour_text(language: String, text: String) -> Vec<$crate::Token> {
+                $crate::runtime::with(|p: &mut $plugin| {
+                    $crate::Plugin::colour_text(p, &language, &text)
+                })
             }
         }
 

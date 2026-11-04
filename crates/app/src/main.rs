@@ -87,9 +87,55 @@ fn plugin_dirs(args: &Args) -> Vec<PathBuf> {
     {
         let mut found: Vec<_> = entries.flatten().map(|e| e.path()).collect();
         found.sort();
-        dirs.extend(found.into_iter().filter(|d| d.join("plugin.toml").exists()));
+        // One given with --plugin as well loads once.
+        let given: Vec<PathBuf> = dirs.iter().filter_map(|d| d.canonicalize().ok()).collect();
+        dirs.extend(found.into_iter().filter(|d| {
+            d.join("plugin.toml").exists() && !d.canonicalize().is_ok_and(|c| given.contains(&c))
+        }));
     }
     dirs
+}
+
+/// `merlin plugin install <dir>...`: links each plugin into the user's
+/// plugins folder, so it loads at every start, and allows what its manifest
+/// asks for, since installing it is the user's say-so.
+fn install_plugins(dirs: &[String]) -> Result<()> {
+    let config = env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
+        .context("no home folder")?;
+    let plugins = config.join("merlin/plugins");
+    fs::create_dir_all(&plugins)?;
+    for dir in dirs {
+        let dir = Path::new(dir)
+            .canonicalize()
+            .with_context(|| format!("no plugin at {dir}"))?;
+        let manifest = merlin_plugins::manifest(&dir)?;
+        if !dir.join(&manifest.component).exists() {
+            bail!(
+                "{} isn't built: run `cargo build --release` in {}",
+                manifest.name,
+                dir.display()
+            );
+        }
+        let link = plugins.join(&manifest.name);
+        if link.symlink_metadata().is_ok() {
+            if link.canonicalize().ok().as_ref() != Some(&dir) {
+                bail!("{} is already installed from elsewhere", link.display());
+            }
+        } else {
+            std::os::unix::fs::symlink(&dir, &link)?;
+        }
+        let (_, allowed) = merlin_plugins::grant(&Config::standard(), &link)?;
+        let may = if allowed.is_empty() {
+            String::new()
+        } else {
+            format!(", allowed to {}", allowed.join(", "))
+        };
+        println!("Installed {}{may}", manifest.title);
+    }
+    Ok(())
 }
 
 /// Connects the editor to the outside world: it carries out the editor's
@@ -132,6 +178,30 @@ impl App {
             self.run_events(events.into());
         }
         self.refresh_panels();
+        self.serve_colours();
+    }
+
+    /// Asks language plugins to colour what the editor wants coloured that
+    /// isn't an open file: diffs, and code blocks in Markdown. Returns
+    /// whether there was any.
+    fn serve_colours(&mut self) -> bool {
+        let wanted = self.editor.colour_requests();
+        if wanted.is_empty() {
+            return false;
+        }
+        let events = wanted
+            .into_iter()
+            .map(|(language, text)| {
+                let tokens = self.host.colour_text(&language, &text).unwrap_or_default();
+                Event::TextColours {
+                    language,
+                    text,
+                    tokens,
+                }
+            })
+            .collect();
+        self.run_events(events);
+        true
     }
 
     /// Tells plugins what happened to the open files since they last heard.
@@ -679,6 +749,13 @@ fn main() -> Result<()> {
     {
         return template::create(name);
     }
+    if let [plugin, install, dirs @ ..] = &argv[..]
+        && plugin == "plugin"
+        && install == "install"
+        && !dirs.is_empty()
+    {
+        return install_plugins(dirs);
+    }
     let args = parse_args()?;
     let root = env::current_dir()
         .and_then(|d| d.canonicalize())
@@ -782,6 +859,9 @@ fn main() -> Result<()> {
     if let Some(script) = &args.exec {
         app.dispatch(Event::Resize(args.size.0, args.size.1));
         let result = run_script(&mut app, script);
+        // Drawing may ask for colours, such as a code block's.
+        app.editor.render();
+        app.serve_colours();
         let screen = app.editor.render();
         print!("{}", screen.to_text());
         if let Some(path) = &args.html {

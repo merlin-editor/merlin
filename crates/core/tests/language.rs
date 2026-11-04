@@ -2,7 +2,7 @@
 //! and go-to.
 
 use merlin_core::script::Session;
-use merlin_core::{Completion, Diagnostic, Effect, Event, Severity, Syntax};
+use merlin_core::{Completion, Diagnostic, Effect, Event, Severity};
 
 fn rust(text: &str) -> Session {
     Session::new(text, Some("main.rs"), 60, 8)
@@ -25,23 +25,6 @@ fn diagnostic(start: (u32, u32), end: (u32, u32), message: &str) -> Event {
 fn cell(s: &Session, col: u16, row: u16) -> merlin_core::screen::Cell {
     let (x, y) = s.editor.text_origin();
     s.editor.render().cell(x + col, y + row)
-}
-
-#[test]
-fn rust_files_are_highlighted() {
-    let s = rust("fn main() {}\n// hi");
-    assert_eq!(cell(&s, 0, 0).syntax, Syntax::Keyword);
-    assert_eq!(cell(&s, 3, 0).syntax, Syntax::Function);
-    assert_eq!(cell(&s, 0, 1).syntax, Syntax::Comment);
-}
-
-#[test]
-fn highlighting_follows_edits_and_undo() {
-    let mut s = rust("fn main() {}");
-    s.run("type // ");
-    assert_eq!(cell(&s, 3, 0).syntax, Syntax::Comment);
-    s.run("key ctrl+z");
-    assert_eq!(cell(&s, 0, 0).syntax, Syntax::Keyword);
 }
 
 #[test]

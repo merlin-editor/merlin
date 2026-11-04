@@ -45,7 +45,7 @@ use bindings::merlin::plugin::{host, types};
 
 /// The API version this host implements. A manifest names the version it was
 /// built for and loads only on an exact match while the API is 0.x.
-pub const API_VERSION: &str = "0.7";
+pub const API_VERSION: &str = "0.8";
 
 /// Roughly a few hundred million instructions per call.
 const FUEL_PER_CALL: u64 = 500_000_000;
@@ -301,9 +301,6 @@ impl host::Host for State {
         lines: Option<types::LineRange>,
         tokens: Vec<types::Token>,
     ) {
-        use merlin_core::Syntax;
-        use types::TokenKind as K;
-        let at = |p: types::Position| (p.line, p.column);
         self.events.push(Event::SetTokens {
             path: self.snapshot.local(&path),
             layer: match layer {
@@ -311,29 +308,7 @@ impl host::Host for State {
                 types::TokenLayer::Semantic => merlin_core::layers::Layer::Semantic,
             },
             lines: lines.map(|r| (r.start, r.end)),
-            tokens: tokens
-                .into_iter()
-                .map(|t| merlin_core::lang::PluginToken {
-                    start: at(t.start),
-                    end: at(t.end),
-                    kind: match t.kind {
-                        K::Plain => Syntax::Plain,
-                        K::Keyword => Syntax::Keyword,
-                        K::String => Syntax::String,
-                        K::Comment => Syntax::Comment,
-                        K::Function => Syntax::Function,
-                        K::Type => Syntax::Type,
-                        K::Constant => Syntax::Constant,
-                        K::Attribute => Syntax::Attribute,
-                        K::Property => Syntax::Property,
-                        K::Operator => Syntax::Operator,
-                        K::Punctuation => Syntax::Punctuation,
-                        K::Escape => Syntax::Escape,
-                        K::Variable => Syntax::Variable,
-                        K::Macro => Syntax::Macro,
-                    },
-                })
-                .collect(),
+            tokens: tokens.into_iter().map(plugin_token).collect(),
         });
     }
 
@@ -544,12 +519,7 @@ impl PluginHost {
     /// Loads the plugin in `dir` and returns the events that register it,
     /// or that show the permission card if the user hasn't allowed it yet.
     pub fn load(&mut self, dir: &Path) -> Result<Vec<Event>> {
-        let manifest_path = dir.join("plugin.toml");
-        let manifest: Manifest = toml::from_str(
-            &fs::read_to_string(&manifest_path)
-                .with_context(|| format!("reading {}", manifest_path.display()))?,
-        )
-        .with_context(|| format!("parsing {}", manifest_path.display()))?;
+        let manifest = manifest(dir)?;
         let valid = |c: char| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_';
         if manifest.name.is_empty() || !manifest.name.chars().all(valid) {
             bail!(
@@ -612,15 +582,8 @@ impl PluginHost {
         Ok(self.activate(index, None))
     }
 
-    fn grants_path(&self) -> PathBuf {
-        self.config.data_dir.join("grants.toml")
-    }
-
     fn grants(&self) -> Grants {
-        fs::read_to_string(self.grants_path())
-            .ok()
-            .and_then(|text| toml::from_str(&text).ok())
-            .unwrap_or_default()
+        read_grants(&self.config.data_dir)
     }
 
     /// Answers a permission card: loads the plugin and remembers the grant,
@@ -648,16 +611,11 @@ impl PluginHost {
                 }];
             }
         };
-        let mut grants = self.grants();
-        grants
-            .plugins
-            .insert(plugin.dir.clone(), plugin.manifest.permissions.clone());
-        let saved = toml::to_string(&grants)
-            .map_err(anyhow::Error::from)
-            .and_then(|text| {
-                fs::create_dir_all(&self.config.data_dir)?;
-                Ok(fs::write(self.grants_path(), text)?)
-            });
+        let saved = save_grant(
+            &self.config.data_dir,
+            &plugin.dir,
+            &plugin.manifest.permissions,
+        );
         self.plugins[index].instance = Some(instance);
         let mut events = self.activate(index, None);
         if let Err(err) = saved {
@@ -668,9 +626,49 @@ impl PluginHost {
         events
     }
 
+    /// Compiles a component, or loads it compiled from the cache in the
+    /// data folder, since compiling every plugin at every start is slow.
+    /// The cache is keyed by the component's bytes and this build of the
+    /// editor, so a rebuilt plugin or editor compiles afresh.
+    fn compile(&self, wasm: &Path) -> Result<Component> {
+        use std::hash::{Hash, Hasher};
+        let bytes = fs::read(wasm)?;
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        bytes.hash(&mut hasher);
+        env!("CARGO_PKG_VERSION").hash(&mut hasher);
+        std::env::current_exe()
+            .ok()
+            .and_then(|e| fs::metadata(e).ok()?.modified().ok())
+            .hash(&mut hasher);
+        let dir = self.config.data_dir.join("compiled");
+        let cached = dir.join(format!("{:016x}.cwasm", hasher.finish()));
+        if cached.exists() {
+            // Safe as long as the file is what `serialize` wrote for this
+            // engine: it's in the user's own data folder, named by the
+            // component and the editor that compiled it.
+            if let Ok(component) = unsafe { Component::deserialize_file(&self.engine, &cached) } {
+                return Ok(component);
+            }
+        }
+        let component = Component::new(&self.engine, &bytes).map_err(wt)?;
+        // Written aside and renamed into place: another editor may have the
+        // file mapped, and changing it under them would crash them.
+        if let Ok(compiled) = component.serialize() {
+            let aside = dir.join(format!(
+                "{:016x}.{}.tmp",
+                hasher.finish(),
+                std::process::id()
+            ));
+            let _ = fs::create_dir_all(&dir)
+                .and_then(|()| fs::write(&aside, compiled))
+                .and_then(|()| fs::rename(&aside, &cached));
+        }
+        Ok(component)
+    }
+
     fn instantiate(&self, manifest: &Manifest, wasm: &Path, generation: u64) -> Result<Instance> {
-        let component = Component::from_file(&self.engine, wasm)
-            .map_err(wt)
+        let component = self
+            .compile(wasm)
             .with_context(|| format!("loading {}", wasm.display()))?;
         let state = State {
             wasi: WasiCtx::builder().build(),
@@ -845,6 +843,27 @@ impl PluginHost {
         };
         self.call(i, snapshot, |b, s| b.call_on_review(s, id, accepted))
             .1
+    }
+
+    /// Colours `text` as a language, named by its id or an extension, with
+    /// the plugin that added it. `None` if no plugin did.
+    pub fn colour_text(
+        &mut self,
+        language: &str,
+        text: &str,
+    ) -> Option<Vec<merlin_core::lang::PluginToken>> {
+        let name = language.trim_start_matches('.').to_ascii_lowercase();
+        let i = self.plugins.iter().position(|p| {
+            p.instance.is_some()
+                && p.manifest
+                    .languages
+                    .iter()
+                    .any(|l| l.id == name || l.extensions.contains(&name))
+        })?;
+        let (tokens, _) = self.call(i, Snapshot::default(), |b, s| {
+            b.call_colour_text(s, &name, text)
+        });
+        Some(tokens?.into_iter().map(plugin_token).collect())
     }
 
     pub fn pick(
@@ -1070,4 +1089,75 @@ pub fn merge(base: &mut toml::Table, over: &toml::Table) {
             }
         }
     }
+}
+
+fn plugin_token(t: types::Token) -> merlin_core::lang::PluginToken {
+    use merlin_core::Syntax;
+    use types::TokenKind as K;
+    let at = |p: types::Position| (p.line, p.column);
+    merlin_core::lang::PluginToken {
+        start: at(t.start),
+        end: at(t.end),
+        kind: match t.kind {
+            K::Plain => Syntax::Plain,
+            K::Keyword => Syntax::Keyword,
+            K::String => Syntax::String,
+            K::Comment => Syntax::Comment,
+            K::Function => Syntax::Function,
+            K::Type => Syntax::Type,
+            K::Constant => Syntax::Constant,
+            K::Attribute => Syntax::Attribute,
+            K::Property => Syntax::Property,
+            K::Operator => Syntax::Operator,
+            K::Punctuation => Syntax::Punctuation,
+            K::Escape => Syntax::Escape,
+            K::Variable => Syntax::Variable,
+            K::Macro => Syntax::Macro,
+        },
+    }
+}
+
+fn read_grants(data_dir: &Path) -> Grants {
+    fs::read_to_string(data_dir.join("grants.toml"))
+        .ok()
+        .and_then(|text| toml::from_str(&text).ok())
+        .unwrap_or_default()
+}
+
+/// Remembers that the plugin in `dir` may do what `permissions` say.
+fn save_grant(data_dir: &Path, dir: &str, permissions: &Permissions) -> Result<()> {
+    let mut grants = read_grants(data_dir);
+    grants.plugins.insert(dir.to_string(), permissions.clone());
+    fs::create_dir_all(data_dir)?;
+    fs::write(data_dir.join("grants.toml"), toml::to_string(&grants)?)?;
+    Ok(())
+}
+
+/// Reads a plugin's manifest.
+pub fn manifest(dir: &Path) -> Result<Manifest> {
+    let path = dir.join("plugin.toml");
+    toml::from_str(
+        &fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?,
+    )
+    .with_context(|| format!("parsing {}", path.display()))
+}
+
+/// Allows the plugin in `dir` what its manifest asks for, as installing it
+/// does, and says what that is.
+pub fn grant(config: &Config, dir: &Path) -> Result<(Manifest, Vec<String>)> {
+    let manifest = manifest(dir)?;
+    let dir = dir.canonicalize()?.display().to_string();
+    save_grant(&config.data_dir, &dir, &manifest.permissions)?;
+    let p = &manifest.permissions;
+    let mut allowed = Vec::new();
+    if p.editor_read {
+        allowed.push("read the open file".to_string());
+    }
+    if p.editor_write {
+        allowed.push("change the open file".to_string());
+    }
+    for program in &p.processes {
+        allowed.push(format!("run `{program}`, outside the sandbox"));
+    }
+    Ok((manifest, allowed))
 }

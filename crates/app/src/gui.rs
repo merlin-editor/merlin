@@ -17,7 +17,7 @@ use cosmic_text::{
     Attrs, Buffer, Family, FontSystem, Metrics, Shaping, Style as FontStyle, SwashCache,
     SwashContent, Weight,
 };
-use merlin_core::screen::{Screen, WIDE_TAIL};
+use merlin_core::screen::{Cell, Screen, WIDE_TAIL};
 use merlin_core::{Event, Key, KeyCode, Mouse, MouseKind};
 use merlin_plugins::PluginHost;
 use softbuffer::{Context, Surface};
@@ -68,7 +68,7 @@ pub fn run(app: &mut App) -> Result<()> {
         pressed: false,
         clicks: Clicks::default(),
         scroll: 0.0,
-        frame: Vec::new(),
+        drawn: None,
         next_check: Instant::now() + DISK_CHECK,
     };
     event_loop.run_app(&mut gui).context("running the window")?;
@@ -102,8 +102,9 @@ struct Gui<'a> {
     clicks: Clicks,
     /// Touchpad scrolling not yet turned into wheel steps, in pixels.
     scroll: f64,
-    /// The pixels last drawn, kept so a redraw that changes nothing is free.
-    frame: Vec<u32>,
+    /// The cells and cursor last drawn, so a redraw that changes nothing
+    /// costs no pixels.
+    drawn: Option<(Vec<Cell>, Option<(u16, u16)>)>,
     next_check: Instant,
 }
 
@@ -141,7 +142,7 @@ impl Gui<'_> {
         {
             let _ = shown.surface.resize(w, h);
         }
-        self.frame.clear();
+        self.drawn = None;
         let (w, h) = self.grid(size);
         self.dispatch(Event::Resize(w, h));
     }
@@ -262,20 +263,30 @@ impl Gui<'_> {
         if w == 0 || h == 0 {
             return;
         }
-        let screen = self.app.editor.render();
-        let mut frame = vec![BACKGROUND; w * h];
-        fonts.draw(&screen, &mut frame, w, h);
-        if frame == self.frame {
+        let mut screen = self.app.editor.render();
+        // Code blocks ask for their colours while drawn; draw again with them.
+        if self.app.serve_colours() {
+            screen = self.app.editor.render();
+        }
+        // Most redraws change nothing: a disk check, the mouse moving
+        // within a row of text.
+        let cells: Vec<Cell> = (0..screen.height)
+            .flat_map(|y| (0..screen.width).map(move |x| (x, y)))
+            .map(|(x, y)| screen.cell(x, y))
+            .collect();
+        let drawn = Some((cells, screen.cursor));
+        if self.drawn == drawn {
             return;
         }
         let Ok(mut buffer) = shown.surface.buffer_mut() else {
             return;
         };
-        if buffer.len() == frame.len() {
-            buffer.copy_from_slice(&frame);
+        if buffer.len() == w * h {
+            buffer.fill(BACKGROUND);
+            fonts.draw(&screen, &mut buffer, w, h);
             shown.window.pre_present_notify();
             let _ = buffer.present();
-            self.frame = frame;
+            self.drawn = drawn;
         }
     }
 

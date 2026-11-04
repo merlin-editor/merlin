@@ -2,18 +2,19 @@
 //! quotes, bold, italics, inline code, links and fenced code blocks, which
 //! get syntax colours. Anything else shows as written.
 
-use std::path::Path;
-
-use merlin_syntax::{Highlighter, Syntax};
-use ropey::Rope;
+use merlin_syntax::Syntax;
 
 use crate::panel::Row;
 use crate::screen::{Style, char_width, str_width};
 
 type Cell = (char, Style);
 
+/// Colours for a code block: its language as the fence names it, and its
+/// text, by character offset. `None` while they're asked for.
+pub(crate) type Colour<'a> = &'a dyn Fn(&str, &str) -> Option<Vec<(usize, usize, Syntax)>>;
+
 /// Lays out `text` in rows at most `width` cells wide.
-pub(crate) fn layout(text: &str, width: usize) -> Vec<Row> {
+pub(crate) fn layout(text: &str, width: usize, colour: Colour) -> Vec<Row> {
     let width = width.max(4);
     let mut rows: Vec<Row> = Vec::new();
     let mut paragraph: Vec<&str> = Vec::new();
@@ -43,7 +44,7 @@ pub(crate) fn layout(text: &str, width: usize) -> Vec<Row> {
                 }
                 code.push(line);
             }
-            push_code(&mut rows, &code, lang.trim(), width);
+            push_code(&mut rows, &code, lang.trim(), width, colour);
             continue;
         }
         if trimmed.is_empty() {
@@ -281,33 +282,12 @@ fn group(cells: impl Iterator<Item = (char, Style, Syntax)>) -> Vec<(String, Sty
     segments
 }
 
-/// File extensions for the languages merlin highlights, by the names
-/// fences use.
-fn extension(lang: &str) -> &str {
-    match lang.to_ascii_lowercase().as_str() {
-        "rust" | "rs" => "rs",
-        "python" | "py" => "py",
-        "javascript" | "js" | "jsx" => "js",
-        "json" => "json",
-        "toml" => "toml",
-        _ => "",
-    }
-}
-
-fn push_code(rows: &mut Vec<Row>, code: &[&str], lang: &str, width: usize) {
+fn push_code(rows: &mut Vec<Row>, code: &[&str], lang: &str, width: usize, colour: Colour) {
     let text = code.join("\n");
-    let rope = Rope::from_str(&text);
-    let mut syntax = vec![Syntax::Plain; rope.len_chars()];
-    let ext = extension(lang);
-    if let Some(mut h) = (!ext.is_empty())
-        .then(|| Highlighter::for_path(Path::new(&format!("code.{ext}"))))
-        .flatten()
-    {
-        h.parse(&rope);
-        for (range, kind) in h.highlights(&rope, 0..rope.len_lines()) {
-            let (a, b) = (rope.byte_to_char(range.start), rope.byte_to_char(range.end));
-            syntax[a..b].fill(kind);
-        }
+    let len = text.chars().count();
+    let mut syntax = vec![Syntax::Plain; len];
+    for (a, b, kind) in colour(&lang.to_ascii_lowercase(), &text).unwrap_or_default() {
+        syntax[a.min(len)..b.min(len)].fill(kind);
     }
     // One cell of padding on the left; long lines are cut into pieces.
     let room = width.saturating_sub(1).max(1);
@@ -343,6 +323,11 @@ fn push_code(rows: &mut Vec<Row>, code: &[&str], lang: &str, width: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// No colours, as when no plugin adds the language.
+    fn layout(text: &str, width: usize) -> Vec<Row> {
+        super::layout(text, width, &|_, _| None)
+    }
 
     fn text(rows: &[Row]) -> Vec<String> {
         rows.iter()
@@ -391,9 +376,15 @@ mod tests {
 
     #[test]
     fn code_blocks_keep_lines_and_get_colours() {
-        let rows = layout(
+        // A plugin colours `fn` and `let`.
+        let colour = |lang: &str, text: &str| {
+            assert_eq!((lang, text), ("rust", "fn main() {\n    let x = 1;\n}"));
+            Some(vec![(0, 2, Syntax::Keyword), (16, 19, Syntax::Keyword)])
+        };
+        let rows = super::layout(
             "Look:\n```rust\nfn main() {\n    let x = 1;\n}\n```\nDone",
             40,
+            &colour,
         );
         assert_eq!(
             text(&rows),
