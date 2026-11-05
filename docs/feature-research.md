@@ -216,6 +216,10 @@ All **Built** on `editor-rework`. How each turned out:
 
 ### 2. Needs a mock-up first
 
+Mock-ups for review, one artboard each:
+[merlin feature mock-ups](https://claude.ai/artifact/QzFdCBA1P32LckaUDc419F)
+(private to the user). Nothing below is approved until the user says so.
+
 These are ordered by votes against effort.
 
 1. **Integrated terminal**: a bottom panel tab, with tabs for each shell
