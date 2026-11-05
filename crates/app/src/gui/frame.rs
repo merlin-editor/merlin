@@ -1120,6 +1120,7 @@ impl Frame<'_> {
             match item {
                 PeekItem::File {
                     name,
+                    icon,
                     folder,
                     count,
                     open,
@@ -1127,7 +1128,7 @@ impl Frame<'_> {
                     let mid = iy + h / 2.0;
                     self.canvas.chevron(row.x + 15.0, mid, 7.0, *open, p.muted);
                     let mut x = row.x + 24.0;
-                    x += self.file_icon(name, None, x, mid - 8.0, 16.0, list_clip);
+                    x += self.file_icon(name, Some(*icon), x, mid - 8.0, 16.0, list_clip);
                     let face = Face::ui(12.5);
                     x += self.text.draw_in_row(
                         &mut self.canvas,

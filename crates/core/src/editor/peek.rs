@@ -103,6 +103,8 @@ pub struct PeekView {
 pub enum PeekItem {
     File {
         name: String,
+        /// Its file type's icon and colour, as the Explorer has them.
+        icon: (char, crate::style::Hue),
         folder: String,
         count: usize,
         open: bool,
@@ -310,11 +312,13 @@ impl Editor {
             .map(|row| match row {
                 Row::File(i) => {
                     let file = &peek.files[i];
+                    let name = file
+                        .path
+                        .file_name()
+                        .map_or(String::new(), |n| n.to_string_lossy().into_owned());
                     PeekItem::File {
-                        name: file
-                            .path
-                            .file_name()
-                            .map_or(String::new(), |n| n.to_string_lossy().into_owned()),
+                        icon: crate::icons::file_icon(&name, self.nerd),
+                        name,
                         folder: file
                             .path
                             .parent()

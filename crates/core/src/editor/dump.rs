@@ -213,6 +213,7 @@ fn dump_peek(o: &mut String, peek: &super::PeekView) {
                 folder,
                 count,
                 open,
+                ..
             } => {
                 let arrow = if *open { "▾" } else { "▸" };
                 writeln!(o, "│{mark}{arrow} {name} {folder} {count}")
