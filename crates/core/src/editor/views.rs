@@ -88,6 +88,10 @@ pub(crate) struct Git {
     pub syncing: Option<crate::editor::SyncKind>,
     /// Files a pull left with conflicts.
     pub conflicts: Vec<String>,
+    /// Files moved since the last commit.
+    pub moves: Vec<crate::editor::GitMove>,
+    /// Binary files' changes tabs say their sizes instead.
+    pub binary: HashMap<String, String>,
     /// Bumped on every update, so views built from it know to rebuild.
     pub version: u64,
 }
@@ -592,6 +596,38 @@ impl Editor {
         if git.files.is_empty() {
             nodes.push(Node::Styled("No changes".into(), Tone::Muted));
         }
+        // Files with conflicts come first, to resolve; + marks one
+        // resolved.
+        let conflicts: Vec<&String> = git
+            .files
+            .iter()
+            .filter(|(_, s)| *s == '!')
+            .map(|(p, _)| p)
+            .collect();
+        if !conflicts.is_empty() {
+            nodes.push(Node::Entry(Entry {
+                id: "sec:x".into(),
+                label: "Merge Conflicts".into(),
+                badge: conflicts.len().to_string(),
+                heading: true,
+                tone: Tone::Error,
+                ..Default::default()
+            }));
+            for path in conflicts {
+                let (dir, name) = path.rsplit_once('/').unwrap_or(("", path));
+                nodes.push(Node::Entry(Entry {
+                    id: format!("cx:{path}"),
+                    label: name.to_string(),
+                    icon: Some(file_icon(name, self.nerd)),
+                    detail: dir.to_string(),
+                    badge: "!".into(),
+                    badge_tone: Tone::Error,
+                    action: Some(('+', format!("a:{path}"))),
+                    twisty: Some(' '),
+                    ..Default::default()
+                }));
+            }
+        }
         // Staged changes first, with − to unstage; then the rest, with + to
         // stage, as VS Code lists them. A file's hunks unfold under it.
         for (title, list, diffs, action, prefix, key) in [
@@ -608,33 +644,87 @@ impl Editor {
             if list.is_empty() {
                 continue;
             }
-            // The section's + or − stages or unstages all of it.
+            // The section's + or − stages or unstages all of it. A move's
+            // old path doesn't count, as it shows with the new.
             let all = if key == "s" { "g:unstage" } else { "g:stage" };
+            let hidden = list
+                .iter()
+                .filter(|(p, _)| {
+                    git.moves
+                        .iter()
+                        .any(|m| m.from == *p && m.staged == (key == "s"))
+                })
+                .count();
             nodes.push(Node::Entry(Entry {
                 id: format!("sec:{key}"),
                 label: title.to_string(),
-                badge: list.len().to_string(),
+                badge: (list.len() - hidden).to_string(),
                 action: Some((action, all.into())),
                 heading: true,
                 ..Default::default()
             }));
+            let staged_list = key == "s";
             for (path, status) in list {
+                // A deleted file paired with a new one shows as the move.
+                let hidden = git
+                    .moves
+                    .iter()
+                    .any(|m| m.from == *path && m.staged == staged_list);
+                if hidden {
+                    continue;
+                }
+                let moved = git
+                    .moves
+                    .iter()
+                    .find(|m| m.to == *path && m.staged == staged_list);
                 let (dir, name) = path.rsplit_once('/').unwrap_or(("", path));
-                let diff = diffs.get(path).filter(|d| !d.hunks.is_empty());
+                let any = diffs.get(path);
+                let diff = any.filter(|d| !d.hunks.is_empty() && d.submodule().is_none());
                 let open = git.open.contains(&format!("{key}:{path}"));
+                let chip = any.and_then(|d| {
+                    d.mode_change()
+                        .or_else(|| d.submodule())
+                        .or_else(|| d.binary().then(|| "binary".to_string()))
+                });
+                let (badge, badge_tone) = match moved {
+                    Some(m) if m.staged => ("R".to_string(), Tone::Badge),
+                    Some(_) => ("R?".to_string(), Tone::Muted),
+                    None => (letter(*status).to_string(), tone(*status)),
+                };
+                let detail = match moved {
+                    Some(m) => {
+                        let old = m.from.rsplit('/').next().unwrap_or(&m.from);
+                        if dir.is_empty() {
+                            format!("← {old}")
+                        } else {
+                            format!("{dir}  ← {old}")
+                        }
+                    }
+                    None => dir.to_string(),
+                };
                 nodes.push(Node::Entry(Entry {
-                    id: format!("c{}:{path}", if key == "s" { "s" } else { "" }),
+                    id: format!("c{}:{path}", if staged_list { "s" } else { "" }),
                     label: name.to_string(),
-                    tone: tone(*status),
+                    tone: if moved.is_some() {
+                        Tone::Normal
+                    } else {
+                        tone(*status)
+                    },
                     icon: Some(file_icon(name, self.nerd)),
-                    detail: dir.to_string(),
-                    badge: letter(*status).to_string(),
-                    badge_tone: tone(*status),
+                    detail,
+                    badge,
+                    badge_tone: if badge_tone == Tone::Badge {
+                        Tone::Normal
+                    } else {
+                        badge_tone
+                    },
                     action: Some((action, format!("{prefix}{path}"))),
                     fold: diff.map(|_| open),
                     // A blank where others have their arrow, to line up.
                     twisty: Some(' '),
                     counts: diff.map(crate::git::FileDiff::counts),
+                    strike: *status == 'D' && moved.is_none(),
+                    chip,
                     ..Default::default()
                 }));
                 let Some(diff) = diff.filter(|_| open) else {
@@ -815,11 +905,27 @@ impl Editor {
             }
         } else if let Some(line) = id.strip_prefix("o:").and_then(|l| l.parse().ok()) {
             self.go_to_block(line);
+        } else if let Some(path) = id.strip_prefix("cx:") {
+            // The merge editor isn't built: the file opens, markers and all.
+            self.open(PathBuf::from(path), fx);
         } else if let Some(path) = id.strip_prefix("c:").or_else(|| id.strip_prefix("cs:")) {
-            fx.push(Effect::OpenDiff(PathBuf::from(path)));
+            match self.git.moves.iter().find(|m| m.to == path) {
+                Some(m) => fx.push(Effect::OpenMove {
+                    from: PathBuf::from(&m.from),
+                    to: PathBuf::from(&m.to),
+                }),
+                None => fx.push(Effect::OpenDiff(PathBuf::from(path))),
+            }
         } else if self.hunk_click(id, fx) {
         } else if let Some(path) = id.strip_prefix("a:") {
-            fx.push(Effect::Git(GitAction::Stage(path.into())));
+            // A move not yet staged stages its old path's deletion too.
+            match self.git.moves.iter().find(|m| m.to == path && !m.staged) {
+                Some(m) => fx.push(Effect::Git(GitAction::StageMove {
+                    from: m.from.clone(),
+                    to: m.to.clone(),
+                })),
+                None => fx.push(Effect::Git(GitAction::Stage(path.into()))),
+            }
         } else if let Some(path) = id.strip_prefix("u:") {
             fx.push(Effect::Git(GitAction::Unstage(path.into())));
         } else if let Some(kind) = match id {

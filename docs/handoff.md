@@ -459,10 +459,36 @@ committed:
   - Test: `git_blame_shows_who_changed_each_line_and_a_card_for_the_commit`.
   - Checked in the window: the column, the card, the tint and Open
     Changes.
+- **New, deleted, moved and other files, built** (GitFiles.dc.html):
+  - The app's status marks files with conflicts `!`, in neither list, and
+    sends `Event::GitMoves`: staged renames from `old -> new`, and an
+    unstaged deleted file paired with a new one at least half alike
+    (`pair_moves`, `diff::similarity`, at most 20 of each under 512 KB).
+  - Source Control: a Merge Conflicts section first (`cx:` rows open the
+    file; + marks it resolved), the status bar's conflict count, a move as
+    one row (`R` or `R?`, the old path's row hidden and not counted; `+`
+    is `GitAction::StageMove`, opening is `Effect::OpenMove`), deleted
+    names struck through (`Entry.strike`), and a chip (`Entry.chip`) for a
+    mode change, a submodule's commits or `binary`, from the diff's header
+    (`FileDiff::mode_change`, `submodule`, `binary`).
+  - The menu has Restore for a deleted file (`restore --source=HEAD
+    --staged --worktree`, no Undo) and Add to .gitignore for a new one
+    (`GitAction::Ignore`).
+  - The changes tab: a new or deleted file is one column (`split_rows`);
+    the bar has a note (`DiffBarView.note`: new, deleted, moved and how
+    alike, a binary's sizes); a binary file (a NUL near its start,
+    `changes_of`) is `Event::ShowBinary`, a tab that says its sizes.
+  - Not built from the mock-up: images side by side, Diff Anyway for files
+    over 2 MB, a submodule's list of commits, Show Ignored, staging part of
+    a new file, and the merge editor for Resolve.
+  - Test: `new_deleted_moved_and_conflicted_files_show_as_what_they_are`.
+  - Checked in the window: each kind of row, opening a move, a deleted, a
+    binary and a new file, and Restore.
 - Not in the mock-ups' order but still to do: the changes tab's boxes
   inline.
-- Still to build: new, deleted and moved files
-  (GitFiles).
+- Still to build for Git, next: the merge editor and comparing two files
+  ([`mockups/Merge.dc.html`](mockups/Merge.dc.html)). Resolve and a
+  conflicted row open the file as text until then.
 
 Saved for later, by the user's choice:
 
@@ -554,7 +580,7 @@ These are suggestions; nothing of them is written yet.
   straight into core `Event`s. The Rust SDK's re-exports are in
   `sdk/rust/src/lib.rs`; add new types to both lists there.
 - Checks before each commit:
-  - `cargo test --workspace`: 368 tests passed with the blame column
+  - `cargo test --workspace`: 369 tests passed with new, deleted and moved files
   - `cargo clippy --workspace --all-targets`
   - in `plugins/lsp`: `cargo clippy --release --target wasm32-wasip2`
   - `cargo fmt --all`

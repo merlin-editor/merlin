@@ -23,6 +23,10 @@ pub struct DiffBarView {
     pub change: usize,
     pub changes: usize,
     pub inline: bool,
+    /// What kind of change the file had, when it isn't plain edits: "New
+    /// file, not in the last commit", "Deleted", "Moved from x.rs · 94% the
+    /// same", a binary file's sizes.
+    pub note: Option<String>,
 }
 
 /// The box and buttons for one row of a changes tab side by side, in the
@@ -161,7 +165,51 @@ impl Editor {
             change: self.change_at_cursor().map_or(0, |i| i + 1),
             changes,
             inline: self.split_rows().is_none(),
+            note: self.changes_note(),
         })
+    }
+
+    /// What kind of change the changes tab's file had, when it isn't
+    /// plain edits.
+    fn changes_note(&self) -> Option<String> {
+        let review = self.doc().review.as_ref()?;
+        let path = review.path.to_string_lossy().to_string();
+        if let Some(note) = self.git.binary.get(&path) {
+            return Some(note.clone());
+        }
+        if let Some(m) = self.git.moves.iter().find(|m| m.to == path) {
+            let old = m.from.rsplit('/').next().unwrap_or(&m.from);
+            return Some(match m.similarity {
+                _ if runs(review).is_empty() => format!("Moved from {old}, no changes"),
+                Some(pct) => format!("Moved from {old} · {pct}% the same"),
+                None => format!("Moved from {old}"),
+            });
+        }
+        let status = self.git.files.iter().find(|(p, _)| *p == path)?.1;
+        match status {
+            '?' | 'A' => Some("New file, not in the last commit".into()),
+            'D' => Some("Deleted".into()),
+            _ => None,
+        }
+    }
+
+    /// A binary file's changes: its sizes, as there's no text to compare.
+    pub(crate) fn show_binary(&mut self, path: std::path::PathBuf, old: u64, new: u64) {
+        let size = |n: u64| match n {
+            0 => "none".to_string(),
+            n if n < 1024 => format!("{n} B"),
+            n if n < 1024 * 1024 => format!("{} KB", n.div_ceil(1024)),
+            n => format!("{:.1} MB", n as f64 / (1024.0 * 1024.0)),
+        };
+        let note = format!("Binary · {} → {}", size(old), size(new));
+        self.git
+            .binary
+            .insert(path.to_string_lossy().to_string(), note.clone());
+        let id = path.display().to_string();
+        self.show_review(String::new(), id, path, "", "");
+        let doc = self.doc_mut();
+        doc.buffer = crate::buffer::Buffer::new(&note, None);
+        doc.cursor = 0;
     }
 
     /// How many of the changes tab's changes are staged, for the status
@@ -678,7 +726,14 @@ impl Editor {
     /// Opens a changes tab's file as a tab beside it, without leaving the
     /// changes tab.
     pub(crate) fn open_beside(&mut self, path: std::path::PathBuf, fx: &mut Vec<Effect>) {
-        if self.opening_beside.as_ref() == Some(&path)
+        // A deleted file has nothing to open.
+        let deleted = self
+            .git
+            .files
+            .iter()
+            .any(|(p, s)| *s == 'D' && std::path::Path::new(p) == path);
+        if deleted
+            || self.opening_beside.as_ref() == Some(&path)
             || self
                 .docs
                 .iter()

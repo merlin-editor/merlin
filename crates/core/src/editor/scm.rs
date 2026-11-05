@@ -19,6 +19,8 @@ pub(crate) const SCM_ITEMS: &[(&str, &str)] = &[
     ("scm.stage", "Stage"),
     ("scm.unstage", "Unstage"),
     ("scm.discard", "Discard Changes"),
+    ("scm.restore", "Restore"),
+    ("scm.ignore", "Add to .gitignore"),
     ("-", ""),
     ("scm.copy_path", "Copy Path"),
     ("scm.reveal", "Reveal in Explorer"),
@@ -184,16 +186,30 @@ impl Editor {
 
     /// The right-click menu on a Source Control row.
     pub(crate) fn open_scm_menu(&mut self, row: Option<String>) {
-        let Some((staged, _)) = row.as_deref().and_then(Self::scm_file) else {
+        let Some((staged, path)) = row.as_deref().and_then(Self::scm_file) else {
             return;
         };
+        let status =
+            |list: &[(String, char)]| list.iter().find(|(p, _)| p == path).map(|(_, s)| *s);
+        let status = if staged {
+            status(&self.git.staged)
+        } else {
+            status(&self.git.changed)
+        };
+        let (deleted, untracked) = (status == Some('D'), status == Some('?'));
         self.popup = None;
         self.git.menu_row = row;
         let items = SCM_ITEMS
             .iter()
             .map(|(id, _)| *id)
             .filter(|&id| match id {
-                "scm.stage" | "scm.discard" => !staged,
+                "scm.stage" => !staged,
+                // A deleted file is restored, not discarded, and has no file
+                // to open.
+                "scm.discard" => !staged && !deleted,
+                "scm.restore" => deleted,
+                "scm.open_file" | "scm.reveal" => !deleted,
+                "scm.ignore" => untracked,
                 "scm.unstage" => staged,
                 _ => true,
             })
@@ -348,6 +364,8 @@ impl Editor {
                     fx.push(Effect::Git(GitAction::Discard { path, patch: None }));
                 }
             }
+            "scm.restore" => fx.push(Effect::Git(GitAction::Discard { path, patch: None })),
+            "scm.ignore" => fx.push(Effect::Git(GitAction::Ignore(path))),
             "scm.copy_path" => {
                 let text = self.root.join(&path).display().to_string();
                 self.clipboard = text.clone();

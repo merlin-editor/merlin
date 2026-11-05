@@ -403,7 +403,14 @@ a click stops it. The counts are in the status bar too, from a quiet fetch
 every 5 minutes while the window has focus. Git never waits on a password:
 a remote that wants one says to set up an SSH key or a credential helper.
 A rejected push offers Pull and Push, and a pull that stops on conflicts
-offers Resolve and Abort Pull. A pull merges unless git is set to rebase. A
+offers Resolve and Abort Pull. A pull merges unless git is set to rebase. Files with conflicts come
+first, under Merge Conflicts, and the status bar counts them. A deleted
+file is struck through, opens as what it had, and its menu restores it. A
+new file opens as one column, and its menu adds it to `.gitignore`. A
+deleted file and a new one at least half alike show as one move, `app.rs
+← main.rs`, which opens as the diff between them and stages both paths.
+A mode change or a submodule's new commit shows as a chip, and a binary
+file's tab says its sizes. A
 file's arrow (or Right) unfolds its changes, each with its line: Stage or
 Unstage one alone, or Discard it. Discarding asks nothing and the notice
 has Undo; a file git doesn't track goes to the trash, after asking. A
@@ -591,7 +598,10 @@ Other languages work too: anything that builds a WASI 0.2 component for
 - A wrapped line taller than the view can't scroll part way. Without a
   language server, folds go by indentation and symbols are found by
   keyword. Only one plugin's symbols or folds count for a file at a time.
-- The changes tab has its boxes only
+- Git: images don't show side by side, very large files compare anyway,
+  a submodule's commits aren't listed, and there's no Show Ignored. The
+  merge editor isn't built, so a conflicted file opens as text. The
+  changes tab has its boxes only
   side by side, not inline, and stages only what's saved.
 - Settings have no editor of their own (they're a TOML file), and the
   theme is VS Code's Dark Modern, with no others yet.

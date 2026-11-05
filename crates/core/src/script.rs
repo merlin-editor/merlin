@@ -303,6 +303,7 @@ impl Session {
                 | Effect::File(_)
                 | Effect::GitStatus
                 | Effect::OpenDiff(_)
+                | Effect::OpenMove { .. }
                 | Effect::Git(_)
                 | Effect::Blame { .. }
                 | Effect::CommitInfo(_)

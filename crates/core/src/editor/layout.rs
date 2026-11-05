@@ -165,6 +165,11 @@ impl Editor {
         if !split {
             return None;
         }
+        // A new or deleted file has only one side.
+        let one_side = |kind| review.lines.iter().all(|(k, _)| *k == kind);
+        if review.plugin.is_empty() && (one_side(LineKind::Added) || one_side(LineKind::Removed)) {
+            return None;
+        }
         let lines = &review.lines;
         let mut rows = Vec::new();
         let mut i = 0;

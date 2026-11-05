@@ -25,8 +25,8 @@ pub mod symbols;
 pub use editor::{
     AutoSave, AutoSaveWhy, Command, ContextItem, ContextView, DialogView, Editor, Effect, Event,
     FORMAT_WAIT_MS, FileConfig, FileOp, FilePick, FindAction, FindView, Focus, FormatOnSave,
-    GitAction, HoverButton, KeyBinding, MenuView, MouseKind, PaletteView, PluginSummary, Pointer,
-    PopupKind, PopupView, ProblemView, RailItem, SearchHit, Settings, Side, SideView,
+    GitAction, GitMove, HoverButton, KeyBinding, MenuView, MouseKind, PaletteView, PluginSummary,
+    Pointer, PopupKind, PopupView, ProblemView, RailItem, SearchHit, Settings, Side, SideView,
     SignatureView, StatusView, SyncKind, SyncOutcome, SyncState, TabView, TermOp, TermSession,
     TerminalView, TextView, ThemeKind, ToastView, UiEvent, UserKey, When, WindowView, Workspace,
 };

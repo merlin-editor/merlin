@@ -21,7 +21,7 @@ use disk::{Backups, Changes, Watch};
 use jobs::{Jobs, Lane};
 use merlin_core::script::{self, Step};
 use merlin_core::{
-    AutoSaveWhy, Editor, Effect, Event, FileOp, FilePick, GitAction, SearchHit, SyncKind,
+    AutoSaveWhy, Editor, Effect, Event, FileOp, FilePick, GitAction, GitMove, SearchHit, SyncKind,
     SyncOutcome, SyncState, Workspace,
 };
 use merlin_plugins::{BufferEvent, Config, PluginHost, Selection, Snapshot};
@@ -443,9 +443,13 @@ impl App {
                     Effect::OpenDiff(path) => {
                         let root = self.root.clone();
                         self.jobs.run(Lane::Git, move || {
-                            let old = git_base(&root, &path).unwrap_or_default();
-                            let new = fs::read_to_string(root.join(&path)).unwrap_or_default();
-                            jobs::events(vec![Event::ShowDiff { path, old, new }])
+                            jobs::events(vec![changes_of(&root, &path, path.clone())])
+                        });
+                    }
+                    Effect::OpenMove { from, to } => {
+                        let root = self.root.clone();
+                        self.jobs.run(Lane::Git, move || {
+                            jobs::events(vec![changes_of(&root, &from, to)])
                         });
                     }
                     Effect::ReadFiles(paths) => {
@@ -1229,10 +1233,12 @@ impl Git {
                     changed: Vec::new(),
                 },
                 Event::GitSync(SyncState::default()),
+                Event::GitMoves(Vec::new()),
             ];
         };
         let text = String::from_utf8_lossy(&output.stdout);
         let mut sync = SyncState::default();
+        let mut moves = Vec::new();
         let mut branch = None;
         let mut files = Vec::new();
         let mut staged = Vec::new();
@@ -1252,11 +1258,30 @@ impl Git {
             let (Some(status), Some(path)) = (line.get(..2), line.get(3..)) else {
                 continue;
             };
+            // A file with conflicts shows as `!`, in neither list.
+            if matches!(status, "DD" | "AU" | "UD" | "UA" | "DU" | "AA" | "UU") {
+                let path = path.trim_matches('"');
+                let path = path.strip_prefix(&self.prefix).unwrap_or(path);
+                files.push((path.to_string(), '!'));
+                continue;
+            }
             let letter = match status {
                 "??" => '?',
                 s => s.chars().find(|c| *c != ' ').unwrap_or('M'),
             };
             // A rename shows as `old -> new`.
+            if let Some((from, to)) = path.split_once(" -> ") {
+                let strip = |p: &str| {
+                    let p = p.trim_matches('"');
+                    p.strip_prefix(&self.prefix).unwrap_or(p).to_string()
+                };
+                moves.push(GitMove {
+                    from: strip(from),
+                    to: strip(to),
+                    staged: true,
+                    similarity: None,
+                });
+            }
             let path = path.rsplit(" -> ").next().unwrap_or(path).trim_matches('"');
             let path = path.strip_prefix(&self.prefix).unwrap_or(path);
             files.push((path.to_string(), letter));
@@ -1288,6 +1313,7 @@ impl Git {
                     text.lines().next().map(str::to_string)
                 });
         }
+        moves.extend(self.pair_moves(&changed));
         vec![
             Event::GitStatus {
                 branch,
@@ -1296,7 +1322,58 @@ impl Git {
                 changed,
             },
             Event::GitSync(sync),
+            Event::GitMoves(moves),
         ]
+    }
+
+    /// Deleted and new files not staged that are alike enough to be one
+    /// file moved, as git pairs them once both are staged: at least half
+    /// the same. Only a few of each, and not big ones, are compared.
+    fn pair_moves(&self, changed: &[(String, char)]) -> Vec<GitMove> {
+        const MOST: usize = 20;
+        const BIGGEST: u64 = 512 * 1024;
+        let deleted: Vec<&String> = changed
+            .iter()
+            .filter(|(_, s)| *s == 'D')
+            .map(|(p, _)| p)
+            .take(MOST)
+            .collect();
+        if deleted.is_empty() {
+            return Vec::new();
+        }
+        let added: Vec<&String> = changed
+            .iter()
+            .filter(|(_, s)| *s == '?')
+            .map(|(p, _)| p)
+            .filter(|p| fs::metadata(self.root.join(p)).is_ok_and(|m| m.len() <= BIGGEST))
+            .take(MOST)
+            .collect();
+        let olds: Vec<(&String, String)> = deleted
+            .into_iter()
+            .filter_map(|p| Some((p, git_base(&self.root, Path::new(p))?)))
+            .collect();
+        let mut taken = Vec::new();
+        let mut out = Vec::new();
+        for new in added {
+            let Ok(text) = fs::read_to_string(self.root.join(new)) else {
+                continue;
+            };
+            let best = olds
+                .iter()
+                .filter(|(p, _)| !taken.contains(p))
+                .map(|(p, old)| (*p, merlin_core::diff::similarity(old, &text)))
+                .max_by(|a, b| a.1.total_cmp(&b.1));
+            if let Some((from, alike)) = best.filter(|(_, a)| *a >= 0.5) {
+                taken.push(from);
+                out.push(GitMove {
+                    from: from.clone(),
+                    to: new.clone(),
+                    staged: false,
+                    similarity: Some((alike * 100.0).round() as u8),
+                });
+            }
+        }
+        out
     }
 
     /// Each changed file's hunks: in the index, and not yet staged.
@@ -1669,6 +1746,40 @@ impl Git {
                 cached,
                 reverse,
             } => self.apply(patch, *cached, *reverse),
+            GitAction::StageMove { from, to } => self.git(&["add", "-A", "--", from, to], None),
+            GitAction::Ignore(path) => {
+                let file = self.root.join(".gitignore");
+                let mut text = fs::read_to_string(&file).unwrap_or_default();
+                if !text.is_empty() && !text.ends_with('\n') {
+                    text.push('\n');
+                }
+                text.push_str(&format!("/{path}\n"));
+                fs::write(&file, text).map_err(|e| format!(".gitignore: {e}"))
+            }
+            // A deleted file comes back from the last commit, in the index
+            // too; there's nothing to undo to.
+            GitAction::Discard { path, patch: None } if !self.root.join(path).exists() => {
+                let done = self.git(
+                    &[
+                        "restore",
+                        "--source=HEAD",
+                        "--staged",
+                        "--worktree",
+                        "--",
+                        path,
+                    ],
+                    None,
+                );
+                return match done {
+                    Ok(()) => {
+                        let name = path.rsplit('/').next().unwrap_or(path);
+                        std::iter::once(Event::Notify(format!("Restored {name}")))
+                            .chain(self.status())
+                            .collect()
+                    }
+                    Err(e) => vec![Event::Error(e)],
+                };
+            }
             GitAction::Discard { path, patch } => {
                 let file = self.root.join(path);
                 let before = fs::read_to_string(&file).unwrap_or_default();
@@ -1848,6 +1959,36 @@ fn search(root: &Path, query: &str) -> Vec<SearchHit> {
         }
     }
     hits
+}
+
+/// A file's changes since the last commit, from `from` as it was then to
+/// `to` as it is now: as text, or a binary file's sizes.
+fn changes_of(root: &Path, from: &Path, to: PathBuf) -> Event {
+    let base = Command::new("git")
+        .arg("show")
+        .arg(format!("HEAD:./{}", from.display()))
+        .current_dir(root)
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| o.stdout)
+        .unwrap_or_default();
+    let now = fs::read(root.join(&to)).unwrap_or_default();
+    // A NUL near the start says it isn't text, as git judges.
+    let binary = |b: &[u8]| b.iter().take(8000).any(|&c| c == 0);
+    if binary(&base) || binary(&now) {
+        return Event::ShowBinary {
+            path: to,
+            old: base.len() as u64,
+            new: now.len() as u64,
+        };
+    }
+    Event::ShowDiff {
+        path: to,
+        old: String::from_utf8_lossy(&base).into_owned(),
+        new: String::from_utf8_lossy(&now).into_owned(),
+    }
 }
 
 /// A file as of the last commit, or `None` if git doesn't track it.

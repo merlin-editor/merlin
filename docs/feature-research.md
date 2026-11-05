@@ -245,10 +245,13 @@ These are ordered by votes against effort.
    actions (a lightbulb and a menu) and format and format on save
    (`Format.dc.html`), rename with its review (`Rename.dc.html`) and find
    references in a peek view (`References.dc.html`) are **Built**.
-3. **Git**:
+3. **Git** (see [`handoff.md`](handoff.md)):
    - stage, unstage and discard hunks from the gutter and Changes
-   - blame, inline and in a gutter
-   - push and pull
+     (**built**), with a side-by-side diff that stages and edits
+     (`Compare.dc.html`, **built**)
+   - blame, inline and in a gutter (**built**)
+   - push and pull (`GitSync.dc.html`, **built**)
+   - new, deleted, moved and binary files (`GitFiles.dc.html`, **built**)
    - a diff of any two files
    - a 3-way merge editor
 4. **Tasks and tests**: run a task from `tasks.toml` or `Cargo.toml`, with

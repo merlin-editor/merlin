@@ -1212,3 +1212,114 @@ fn git_blame_shows_who_changed_each_line_and_a_card_for_the_commit() {
     s.run("key esc");
     assert_eq!(s.editor.text_views().pop().unwrap().blame_cols, 0);
 }
+
+#[test]
+fn new_deleted_moved_and_conflicted_files_show_as_what_they_are() {
+    let mut s = session();
+    s.send(Event::GitStatus {
+        branch: Some("main".into()),
+        files: vec![
+            ("lib.rs".into(), '!'),
+            ("NOTES.md".into(), 'D'),
+            ("src/main.rs".into(), 'D'),
+            ("src/app.rs".into(), '?'),
+            ("new.txt".into(), '?'),
+            ("build.sh".into(), 'M'),
+        ],
+        staged: vec![],
+        changed: vec![
+            ("NOTES.md".into(), 'D'),
+            ("src/main.rs".into(), 'D'),
+            ("src/app.rs".into(), '?'),
+            ("new.txt".into(), '?'),
+            ("build.sh".into(), 'M'),
+        ],
+    });
+    s.send(Event::GitMoves(vec![merlin_core::GitMove {
+        from: "src/main.rs".into(),
+        to: "src/app.rs".into(),
+        staged: false,
+        similarity: Some(94),
+    }]));
+    s.send(Event::GitDiffs {
+        staged: vec![],
+        changed: merlin_core::git::parse(
+            "diff --git a/build.sh b/build.sh\nold mode 100644\nnew mode 100755\n",
+        ),
+    });
+    s.run("key ctrl+shift+g");
+    let screen = s.screen();
+    assert!(screen.contains("MERGE CONFLICTS  1"), "{screen}");
+    assert!(screen.contains("lib.rs  !"), "{screen}");
+    assert!(
+        screen.contains("CHANGES  4"),
+        "the move's old path doesn't count: {screen}"
+    );
+    assert!(screen.contains("~NOTES.md~"), "{screen}");
+    assert!(screen.contains("app.rs  src  ← main.rs  R?"), "{screen}");
+    assert!(!screen.contains("main.rs  src  D"), "{screen}");
+    assert!(screen.contains("build.sh [644 → 755]"), "{screen}");
+    assert!(screen.contains(" 1 conflict "), "{screen}");
+    // Staging the move stages both paths; opening it compares the old
+    // path's text.
+    click_target(&mut s, "a:src/app.rs");
+    assert!(s.effects.contains(&Effect::Git(GitAction::StageMove {
+        from: "src/main.rs".into(),
+        to: "src/app.rs".into(),
+    })));
+    click_target(&mut s, "c:src/app.rs");
+    assert!(s.effects.contains(&Effect::OpenMove {
+        from: "src/main.rs".into(),
+        to: "src/app.rs".into(),
+    }));
+    s.send(Event::ShowDiff {
+        path: "src/app.rs".into(),
+        old: "fn main() {}\n".into(),
+        new: "fn main() {}\nfn app() {}\n".into(),
+    });
+    let bar = s.editor.window_view().diff_bar.unwrap();
+    assert_eq!(
+        bar.note.as_deref(),
+        Some("Moved from main.rs · 94% the same")
+    );
+    // A deleted file's menu restores it; a new one's adds it to .gitignore.
+    let menu = |s: &mut Session, id: &str| {
+        let index = target(s, id);
+        s.send(Event::Ui(merlin_core::UiEvent::TargetMenu {
+            side: merlin_core::Side::Left,
+            index,
+        }));
+        s.editor
+            .window_view()
+            .context
+            .unwrap()
+            .items
+            .into_iter()
+            .map(|i| i.label)
+            .collect::<Vec<_>>()
+    };
+    s.run("key ctrl+shift+g");
+    let items = menu(&mut s, "c:NOTES.md");
+    assert!(items.contains(&"Restore".to_string()), "{items:?}");
+    assert!(!items.contains(&"Discard Changes".to_string()), "{items:?}");
+    s.send(Event::Ui(merlin_core::UiEvent::CloseContext));
+    let items = menu(&mut s, "c:new.txt");
+    let ignore = items.iter().position(|i| i == "Add to .gitignore").unwrap();
+    s.effects.clear();
+    s.send(Event::Ui(merlin_core::UiEvent::ContextItem(ignore)));
+    assert!(
+        s.effects
+            .contains(&Effect::Git(GitAction::Ignore("new.txt".into())))
+    );
+    // A binary file's tab says its sizes.
+    s.send(Event::ShowBinary {
+        path: "icon.png".into(),
+        old: 24 * 1024,
+        new: 31 * 1024,
+    });
+    assert!(
+        s.screen().contains("Binary · 24 KB → 31 KB"),
+        "{}",
+        s.screen()
+    );
+}

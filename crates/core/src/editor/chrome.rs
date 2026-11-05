@@ -138,6 +138,15 @@ impl Editor {
         } else if doc.review.is_some() {
             left.push((format!("  {}", self.review_hint()), Style::Status, None));
         }
+        let conflicts = self.git.files.iter().filter(|(_, s)| *s == '!').count();
+        if conflicts > 0 {
+            let s = if conflicts == 1 { "" } else { "s" };
+            left.push((
+                format!(" {conflicts} conflict{s} "),
+                Style::StatusError,
+                Some(Action::View(CHANGES)),
+            ));
+        }
         if self.blame_shown() {
             left.push((
                 " Blame ".into(),

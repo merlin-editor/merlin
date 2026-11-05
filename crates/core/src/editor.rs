@@ -390,6 +390,15 @@ pub enum Event {
     /// Where the branch stands with its upstream, sent with
     /// [`Event::GitStatus`].
     GitSync(SyncState),
+    /// Files moved, sent with [`Event::GitStatus`].
+    GitMoves(Vec<GitMove>),
+    /// A file's changes git can't show as text: a binary file's sizes, in
+    /// bytes, before and now.
+    ShowBinary {
+        path: PathBuf,
+        old: u64,
+        new: u64,
+    },
     /// A push, pull, sync, publish or fetch finished: how, and what git
     /// said, for the Output panel.
     Synced {
@@ -553,6 +562,11 @@ pub enum Effect {
     Search(String),
     GitStatus,
     OpenDiff(PathBuf),
+    /// A moved file's changes, from its old path as of the last commit.
+    OpenMove {
+        from: PathBuf,
+        to: PathBuf,
+    },
     /// Stage, unstage or commit; the frontend answers with
     /// [`Event::GitStatus`].
     Git(GitAction),
@@ -574,6 +588,17 @@ pub enum Effect {
         text: String,
         ignore: Vec<String>,
     },
+}
+
+/// A file moved since the last commit: staged as a rename, or a deleted
+/// file and a new one alike enough to be one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GitMove {
+    pub from: String,
+    pub to: String,
+    pub staged: bool,
+    /// How alike they are, in percent, when it was worked out.
+    pub similarity: Option<u8>,
 }
 
 /// Where a branch stands with its upstream.
@@ -633,6 +658,13 @@ pub enum GitAction {
     StageAll,
     UnstageAll,
     Commit(String),
+    /// Stages a moved file's old and new paths together.
+    StageMove {
+        from: String,
+        to: String,
+    },
+    /// Adds a file to the project's `.gitignore`.
+    Ignore(String),
     /// `git apply` a patch from [`crate::git::patch`]: to the index when
     /// `cached`, and backwards when `reverse`.
     Apply {
@@ -1673,6 +1705,11 @@ impl Editor {
             Event::CommitInfo { hash, info } => {
                 self.commit_info.insert(hash, info);
             }
+            Event::GitMoves(moves) => {
+                self.git.moves = moves;
+                self.git.version += 1;
+            }
+            Event::ShowBinary { path, old, new } => self.show_binary(path, old, new),
             Event::GitSync(state) => {
                 self.git.sync = state;
                 self.git.version += 1;

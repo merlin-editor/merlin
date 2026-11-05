@@ -3607,6 +3607,7 @@ impl Frame<'_> {
             - 6.0)
             .max(0.0);
         let colour = match e.tone {
+            _ if e.strike => p.muted,
             Tone::Normal => p.text,
             tone => tone_colour(&p, tone),
         };
@@ -3630,14 +3631,38 @@ impl Frame<'_> {
             }
         };
         let mut used = lw;
-        if !e.detail.is_empty() && lw + 12.0 < room {
-            let detail = self.text.fit(&e.detail, detail_face, room - lw - 8.0);
+        // A deleted file's name is struck through.
+        if e.strike {
+            self.canvas.fill(Rect::new(x, mid, lw, 1.0), p.muted);
+        }
+        // A chip after the name, as a mode change's.
+        if let Some(chip) = &e.chip {
+            let face = Face::mono(10.5);
+            let cw = self.text.width(chip, face) + 10.0;
+            if used + 8.0 + cw < room {
+                let r = Rect::new(x + used + 8.0, mid - 8.0, cw, 16.0);
+                self.canvas.round(r, 4.0, p.chip);
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    chip,
+                    face,
+                    r.x + 5.0,
+                    r.y,
+                    16.0,
+                    p.muted,
+                    clip,
+                );
+                used += 8.0 + cw;
+            }
+        }
+        if !e.detail.is_empty() && used + 12.0 < room {
+            let detail = self.text.fit(&e.detail, detail_face, room - used - 8.0);
             used += 8.0
                 + self.text.draw_in_row(
                     &mut self.canvas,
                     &detail,
                     detail_face,
-                    x + lw + 8.0,
+                    x + used + 8.0,
                     row.y,
                     row.h,
                     p.muted,
@@ -4085,10 +4110,11 @@ impl Frame<'_> {
             );
             self.hit(r, Hit::Command(command));
         }
-        let label = if bar.changes == 0 {
-            "No changes".to_string()
-        } else {
-            format!("Change {} of {}", bar.change.max(1), bar.changes)
+        // A note such as "Moved from x.rs, no changes" says it already.
+        let label = match bar.changes {
+            0 if bar.note.is_some() => String::new(),
+            0 => "No changes".to_string(),
+            n => format!("Change {} of {n}", bar.change.max(1)),
         };
         let lw = self.text.width(&label, face);
         x -= lw + 6.0;
@@ -4102,6 +4128,24 @@ impl Frame<'_> {
             p.text,
             Rect::new(x, y, lw + 1.0, h),
         );
+        // What kind of change, when it isn't plain edits, while there's
+        // room for the tabs.
+        if let Some(note) = &bar.note {
+            let nw = self.text.width(note, face);
+            if right - x + nw + 16.0 < row.w - 260.0 {
+                x -= nw + 14.0;
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    note,
+                    face,
+                    x,
+                    y,
+                    h,
+                    p.muted,
+                    Rect::new(x, y, nw + 1.0, h),
+                );
+            }
+        }
         right - x
     }
 

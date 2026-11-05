@@ -120,6 +120,11 @@ pub struct Entry {
     /// Drawn as a section's heading, its label in capitals, with its badge
     /// as a count and its action on hover.
     pub heading: bool,
+    /// The label struck through, as a deleted file's.
+    pub strike: bool,
+    /// A small note in the code font after the label, as a mode change's
+    /// `644 → 755`.
+    pub chip: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

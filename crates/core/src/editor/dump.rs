@@ -375,7 +375,12 @@ fn dump_side(o: &mut String, which: &str, side: &SideView) {
                 };
                 let label = match &e.swap {
                     Some(s) => format!("{} {}~{}~{}{}", s.line, s.before, s.old, s.new, s.after),
+                    None if e.strike => format!("~{}~", e.label),
                     None => e.label.clone(),
+                };
+                let label = match &e.chip {
+                    Some(chip) => format!("{label} [{chip}]"),
+                    None => label,
                 };
                 format!(
                     "{}{twisty}{check}{label}{detail}{counts}{badge}{links}",

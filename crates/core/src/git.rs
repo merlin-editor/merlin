@@ -96,6 +96,37 @@ impl FileDiff {
         patch(self, change.hunk, Some(&change.lines), reverse)
     }
 
+    /// Whether git calls it binary, with no text to compare.
+    pub fn binary(&self) -> bool {
+        self.header.contains("Binary files ") || self.header.contains("GIT binary patch")
+    }
+
+    /// A change of its mode alone, as `644 → 755`.
+    pub fn mode_change(&self) -> Option<String> {
+        let mode = |key: &str| {
+            self.header
+                .lines()
+                .find_map(|l| l.strip_prefix(key))
+                .map(|m| m.trim().trim_start_matches("100").to_string())
+        };
+        Some(format!("{} → {}", mode("old mode ")?, mode("new mode ")?))
+    }
+
+    /// A submodule's move from one commit to another, by their short
+    /// hashes.
+    pub fn submodule(&self) -> Option<String> {
+        let lines = self.hunks.first()?.lines.as_slice();
+        let commit = |kind: char| {
+            lines.iter().find_map(|l| {
+                (l.kind == kind)
+                    .then(|| l.text.strip_prefix("Subproject commit "))
+                    .flatten()
+                    .map(|h| h.chars().take(6).collect::<String>())
+            })
+        };
+        Some(format!("{} → {}", commit('-')?, commit('+')?))
+    }
+
     /// The hunk and line where line `number` (from 1) was added, for `'+'`
     /// (counted in the new text), or removed, for `'-'` (in the old).
     pub fn find(&self, kind: char, number: usize) -> Option<(usize, usize)> {

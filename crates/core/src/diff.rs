@@ -121,6 +121,11 @@ pub fn signs(old: &str, new: &str) -> Vec<Option<Sign>> {
     signs
 }
 
+/// How alike two texts are, by their lines: 1 the same, 0 nothing alike.
+pub fn similarity(old: &str, new: &str) -> f32 {
+    ops(old, new).ratio()
+}
+
 /// Each run of changed lines from `old` to `new`: the lines it had in
 /// `old` and has in `new`, by line number. Ops next to each other join, as
 /// the gutter marks them as one.
