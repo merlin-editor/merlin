@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Git: new, deleted and moved files</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.w{width:1280px;height:800px;background:#0f1012;font-family:Inter,sans-serif;color:#d4d5da;display:flex;flex-direction:column;font-size:13px;overflow:hidden}
+.bar{height:40px;display:flex;align-items:center;gap:10px;padding:0 12px;flex-shrink:0}
+.logo{width:20px;height:20px;border-radius:5px;background:#7c9cff;color:#0f1012;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
+.search{margin:0 auto;width:400px;height:26px;border-radius:7px;background:#1c1d21;border:1px solid #2c2d33;color:#8e9099;display:flex;align-items:center;gap:8px;padding:0 10px;font-size:12.5px;box-sizing:border-box}
+.mid{flex:1;display:flex;gap:6px;padding-right:6px;min-height:0}
+.rail{width:44px;display:flex;flex-direction:column;align-items:center;gap:18px;padding-top:8px;color:#8e9099;flex-shrink:0}
+.island{background:#17181b;border-radius:10px;display:flex;flex-direction:column;min-width:0;overflow:hidden;position:relative}
+.tabs{height:32px;display:flex;align-items:center;gap:3px;padding:0 6px;flex-shrink:0}
+.tab{height:24px;padding:0 10px;border-radius:6px;display:flex;align-items:center;gap:6px;color:#8e9099;font-size:12.5px}
+.tab.on{background:#26272c;color:#eef0f3;box-shadow:inset 0 0 0 1px #2c2d33}
+.ic{width:14px;height:14px;border-radius:3px;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;background:#3a2a1e;color:#f5a97f}
+.code{font-family:'JetBrains Mono',monospace;font-size:13px;line-height:22px;white-space:pre}
+.ln{display:inline-block;width:36px;text-align:right;padding-right:18px;color:#7a7d86;position:relative}
+.sig{position:absolute;right:6px;top:3px;width:3px;height:16px;border-radius:1px}
+.k{color:#c4a7e7}.s{color:#a6d189}.f{color:#f0c674}.t{color:#9ccfd8}.c{color:#7f8794}.n{color:#f5a97f}
+.add{background:#24301f}.del{background:#3a1d1d}
+.blame{font-family:Inter,sans-serif;font-size:12px;color:#7f8794;margin-left:28px}
+.side{width:300px;flex-shrink:0}
+.h{height:30px;display:flex;align-items:center;gap:6px;padding:0 12px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#8e9099}
+.f-row{height:26px;display:flex;align-items:center;gap:8px;padding:0 12px 0 20px;font-size:12.5px;color:#d4d5da}
+.f-row.on{background:#262b3d}
+.st{margin-left:auto;font-weight:600;font-size:11.5px}
+.mini{height:22px;display:flex;align-items:center;gap:8px;padding:0 12px 0 42px;font-size:11.5px;color:#8e9099;font-family:'JetBrains Mono',monospace}
+.btn{height:26px;border-radius:6px;padding:0 10px;font-size:12px;font-family:Inter,sans-serif;display:inline-flex;align-items:center;gap:6px;border:1px solid #2c2d33;background:#1f2024;color:#d4d5da}
+.btn.p{background:#7c9cff;color:#0f1012;border-color:#7c9cff;font-weight:600}
+.status{height:24px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px;color:#8e9099;flex-shrink:0}
+.label{position:absolute;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#7c9cff}
+.w{position:relative}
+.dl{font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:21px}
+.row{display:flex;height:21px;white-space:pre}
+.nn{display:inline-block;width:30px;text-align:right;padding-right:10px;color:#7a7d86;flex-shrink:0}
+.cb{width:20px;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+.box{width:12px;height:12px;border-radius:3px;border:1px solid #4a4d57;box-sizing:border-box;display:flex;align-items:center;justify-content:center;font-size:9px;font-family:Inter,sans-serif;font-weight:700;color:#0f1012}
+.box.on{background:#7c9cff;border-color:#7c9cff}
+.g-add{background:#24301f}.g-del{background:#3a1d1d}
+.w-add{background:#35502c;border-radius:2px}.w-del{background:#5a2a2a;border-radius:2px}
+.pv{position:absolute;background:#141518;border:1px solid #2c2d33;border-radius:8px;overflow:hidden}
+.pt{height:30px;display:flex;align-items:center;gap:8px;padding:0 10px;background:#1c1d21;border-bottom:1px solid #2c2d33;font-size:12px;color:#8e9099;white-space:nowrap}
+.pt b{color:#d4d5da;font-weight:500}
+.pt .btn{height:22px}
+.note{position:absolute;font-size:11.5px;color:#8e9099;line-height:1.5}
+.f-row .dim{color:#7a7d86}
+.chip{font-size:10.5px;padding:1px 6px;border-radius:4px;background:#26272c;color:#8e9099;font-family:'JetBrains Mono',monospace}
+.f-row{gap:7px}
+</style>
+
+</helmet>
+<div class="w">
+  <div class="bar">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#8e9099" stroke-width="1.5" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
+    <div class="logo">m</div><strong style="font-size:13px;color:#eef0f3;font-weight:600">merlin</strong>
+    <span style="color:#8e9099;font-size:12px">⑂ editor-rework</span>
+    <div class="search">Search files, commands and symbols</div>
+  </div>
+  <div class="mid">
+    <div class="rail">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M5 2.5h6l4 4v11H5z"/></svg>
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="9" cy="9" r="5.5"/><path d="M13 13l4.5 4.5"/></svg>
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="#eef0f3" stroke-width="1.5" aria-hidden="true"><circle cx="6" cy="4.5" r="2"/><circle cx="6" cy="15.5" r="2"/><circle cx="14" cy="8" r="2"/><path d="M6 6.5v7M14 10c0 3-8 2-8 3.5"/></svg>
+    </div>
+    <div class="island side" style="width:300px">
+      <div class="h">Source Control<span style="margin-left:auto;text-transform:none;letter-spacing:0;font-weight:500">⑂ editor-rework</span></div>
+      <div style="padding:4px 12px 8px"><div style="height:44px;border:1px solid #2c2d33;border-radius:6px;background:#1f2024;padding:6px 8px;font-size:12.5px;color:#7a7d86;box-sizing:border-box">Message (Ctrl+Enter commits)</div></div>
+      <div class="h" style="color:#e5534b">Merge Conflicts<span style="margin-left:auto">1</span></div>
+      <div class="f-row"><span class="ic">RS</span>lib.rs<span class="st" style="color:#e5534b">!</span></div>
+      <div class="h">Staged<span style="margin-left:auto">2</span></div>
+      <div class="f-row on"><span class="ic">RS</span><span><span class="dim">src/</span>colours.rs</span><span class="dim" style="font-size:11.5px">← palette.rs</span><span class="st" style="color:#5aa0e6">R</span></div>
+      <div class="f-row"><span class="ic" style="background:#2a2f1e;color:#c9d77f">SH</span>build.sh<span class="chip">644 → 755</span><span class="st" style="color:#e3b341">M</span></div>
+      <div class="h">Changes<span style="margin-left:auto">5</span></div>
+      <div class="f-row"><span class="ic" style="background:#2a2433;color:#c4a7e7">TO</span>tasks.toml<span class="st" style="color:#6cc070">U</span></div>
+      <div class="f-row"><span class="ic">RS</span><span style="text-decoration:line-through;color:#8e9099">old_theme.rs</span><span class="st" style="color:#e5534b">D</span></div>
+      <div class="f-row"><span class="ic" style="background:#233029;color:#8fd19e">IM</span>icon.png<span class="dim" style="font-size:11.5px">24 → 31 KB</span><span class="st" style="color:#e3b341">M</span></div>
+      <div class="f-row"><span class="ic" style="background:#26272c;color:#8e9099">⑂</span>vendor/fonts<span class="chip">a1b2c3 → d4e5f6</span><span class="st" style="color:#e3b341">M</span></div>
+      <div class="f-row"><span class="ic">RS</span><span><span class="dim">src/</span>tabs.rs</span><span class="dim" style="font-size:11.5px">← bar.rs?</span><span class="st" style="color:#8e9099">R?</span></div>
+      <div style="padding:12px 12px 0;font-size:11.5px;color:#8e9099;line-height:1.5">A move shows as one row: the new name, then where it came from. Before it's staged, "R?" marks a deleted and a new file merlin thinks are the same, since git can't tell yet. Hovering it says how alike they are.</div>
+    </div>
+    <div class="island" style="flex:1">
+      <span class="label" style="left:20px;top:14px;width:420px">A new file: one column</span>
+      <div class="pv" style="left:20px;top:34px;width:440px">
+        <div class="pt"><b>tasks.toml (changes)</b><span>· New file, not in the last commit</span><span style="flex:1"></span><span class="btn">Stage File</span></div>
+        <div class="dl" style="padding:4px 0"><div class="row g-add"><span class="cb"><span class="box on">✓</span></span><span class="nn">1</span><span><span class="c"># Tasks for Run Task (Ctrl+Shift+B)</span></span></div><div class="row g-add"><span class="cb"><span class="box on">✓</span></span><span class="nn">2</span><span>[test]</span></div><div class="row g-add"><span class="cb"><span class="box on">✓</span></span><span class="nn">3</span><span>command = <span class="s">"cargo test --workspace"</span></span></div><div class="row g-add"><span class="cb"><span class="box "></span></span><span class="nn">4</span><span></span></div><div class="row g-add"><span class="cb"><span class="box "></span></span><span class="nn">5</span><span>[lint]</span></div><div class="row g-add"><span class="cb"><span class="box "></span></span><span class="nn">6</span><span>command = <span class="s">"cargo clippy"</span></span></div></div>
+      </div>
+      <div class="note" style="left:20px;top:206px;width:440px">No empty left pane. The boxes still stage part of it: here only the test task. Revert deletes the file, so it asks first. Its menu adds Add to .gitignore.</div>
+
+      <span class="label" style="left:484px;top:14px;width:420px">A deleted file: what was there</span>
+      <div class="pv" style="left:484px;top:34px;width:420px">
+        <div class="pt"><b style="text-decoration:line-through">old_theme.rs</b><span>· Deleted · last in 3f2a9c1, 2 weeks ago</span><span style="flex:1"></span><span class="btn">Restore</span></div>
+        <div class="dl" style="padding:4px 0"><div class="row g-del"><span class="cb"></span><span class="nn">1</span><span><span class="k">use</span> crate::<span class="t">Rgb</span>;</span></div><div class="row g-del"><span class="cb"></span><span class="nn">2</span><span></span></div><div class="row g-del"><span class="cb"></span><span class="nn">3</span><span><span class="c">/// The theme before islands.</span></span></div><div class="row g-del"><span class="cb"></span><span class="nn">4</span><span><span class="k">pub const</span> <span class="t">OLD</span>: [<span class="t">Rgb</span>; <span class="n">4</span>] = [</span></div><div class="row g-del"><span class="cb"></span><span class="nn">5</span><span>    <span class="t">Rgb</span>::<span class="f">hex</span>(<span class="n">0x1e1e1e</span>),</span></div></div>
+      </div>
+      <div class="note" style="left:484px;top:185px;width:420px">Read-only. Restore brings it back from the last commit and can be undone. Staging stages the deletion.</div>
+
+      <span class="label" style="left:20px;top:272px;width:420px">A moved file: the usual diff</span>
+      <div class="pv" style="left:20px;top:292px;width:440px">
+        <div class="pt"><b>colours.rs (changes)</b><span>· Moved from palette.rs · 94% the same</span></div>
+        <div class="dl" style="padding:4px 0"><div class="row "><span class="cb"></span><span class="nn">12</span><span><span class="k">pub fn</span> <span class="f">shade</span>(base: <span class="t">Rgb</span>, amount: <span class="t">f32</span>) -&gt; <span class="t">Rgb</span> {</span></div><div class="row g-del"><span class="cb"></span><span class="nn">−</span><span>    <span class="k">let</span> mix = amount.<span class="f">clamp</span>(<span class="w-del"><span class="n">0.0</span></span>, <span class="n">1.0</span>);</span></div><div class="row g-add"><span class="cb"></span><span class="nn">+</span><span>    <span class="k">let</span> mix = amount.<span class="f">clamp</span>(<span class="w-add"><span class="n">-1.0</span></span>, <span class="n">1.0</span>);</span></div><div class="row "><span class="cb"></span><span class="nn">14</span><span>    <span class="k">let</span> target = <span class="k">if</span> mix &gt; <span class="n">0.0</span> { <span class="t">WHITE</span> } …</span></div></div>
+      </div>
+      <div class="note" style="left:20px;top:420px;width:440px">Side by side or inline like any change, between the old path and the new. With nothing else changed it says "Moved, no changes". Staging stages both paths, and « on the row moves it back.</div>
+
+      <span class="label" style="left:484px;top:272px;width:420px">Binary files: no text diff</span>
+      <div class="pv" style="left:484px;top:292px;width:420px">
+        <div class="pt"><b>icon.png (changes)</b><span>· Image · 24 KB → 31 KB</span></div>
+        <div style="display:flex"><div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 0">
+      <div style="width:64px;height:64px;border-radius:14px;background:repeating-conic-gradient(#1f2024 0 25%,#26272c 0 50%) 0 0/12px 12px;display:flex;align-items:center;justify-content:center"><div style="width:44px;height:44px;border-radius:10px;background:#5a6fb8;color:#0f1012;font-weight:700;display:flex;align-items:center;justify-content:center">m</div></div>
+      <span style="font-size:11.5px;color:#8e9099">Last commit · 64×64</span></div><div style="width:1px;background:#2c2d33"></div><div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 0">
+      <div style="width:64px;height:64px;border-radius:14px;background:repeating-conic-gradient(#1f2024 0 25%,#26272c 0 50%) 0 0/12px 12px;display:flex;align-items:center;justify-content:center"><div style="width:44px;height:44px;border-radius:10px;background:#7c9cff;color:#0f1012;font-weight:700;display:flex;align-items:center;justify-content:center">m</div></div>
+      <span style="font-size:11.5px;color:#8e9099">Now · 128×128</span></div></div>
+      </div>
+      <div class="note" style="left:484px;top:430px;width:420px">Images side by side. Other binary files say only their sizes. Text files over 2 MB say so and have Diff Anyway.</div>
+
+      <span class="label" style="left:20px;top:500px;width:880px">The rarer ones</span>
+      <div style="position:absolute;left:20px;top:524px;width:884px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+        <div class="pv" style="position:relative"><div class="pt"><b>build.sh</b><span>· Mode 644 → 755</span></div><div style="padding:10px;font-size:11.5px;color:#8e9099;line-height:1.5">A chip on the row. When only the mode changed, the tab says "Now executable" and nothing else.</div></div>
+        <div class="pv" style="position:relative"><div class="pt"><b>vendor/fonts</b><span>· Submodule</span></div><div style="padding:10px;font-size:11.5px;color:#8e9099;line-height:1.5;font-family:'JetBrains Mono',monospace"><span class="hash" style="color:#7c9cff">d4e5f6</span> Add Inter 4<br><span style="color:#7c9cff">b7c8d9</span> Hinting off<br><span style="font-family:Inter,sans-serif">2 commits since a1b2c3</span></div></div>
+        <div class="pv" style="position:relative"><div class="pt"><b style="color:#e5534b">lib.rs</b><span>· 3 conflicts</span><span style="flex:1"></span><span class="btn p">Resolve</span></div><div style="padding:10px;font-size:11.5px;color:#8e9099;line-height:1.5">Opens the merge editor. Staging marks it resolved, and Commit waits until none are left.</div></div>
+      </div>
+      <div style="position:absolute;left:20px;bottom:16px;right:24px;font-size:11.5px;color:#8e9099">Ignored files stay hidden. <b style="color:#d4d5da;font-weight:600">Show Ignored</b> in the panel's menu lists them, dimmed.</div>
+    </div>
+  </div>
+  <div class="status"><span>⑂ editor-rework</span><span>↑1</span><span>⊗ 0 ⚠ 0</span><span style="color:#e5534b">1 conflict</span><span style="margin-left:auto">Rust</span></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
