@@ -70,3 +70,19 @@ fn missing_files_and_bad_lines_are_skipped() {
     assert_eq!(r.editor.open_files(), [Some(PathBuf::from("a.txt"))]);
     assert!(r.screen().contains("Ln 3, Col 1"), "{}", r.screen());
 }
+
+#[test]
+fn a_restored_group_keeps_its_share_beside_a_new_one() {
+    let mut s = session();
+    s.run("key ctrl+p; type b.txt; key enter");
+    let mut s = restored(&s.editor.workspace());
+    s.run("cmd view.split");
+    let shares: Vec<f32> = s
+        .editor
+        .window_view()
+        .groups
+        .iter()
+        .map(|g| g.width)
+        .collect();
+    assert_eq!(shares, [1.0, 1.0], "even, not all for the new one");
+}

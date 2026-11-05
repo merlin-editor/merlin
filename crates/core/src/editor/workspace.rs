@@ -35,6 +35,8 @@ pub struct Tab {
     pub column: usize,
     /// The first line in view.
     pub scroll: usize,
+    /// Pinned at the start of its group's tabs.
+    pub pinned: bool,
 }
 
 impl Workspace {
@@ -44,6 +46,7 @@ impl Workspace {
     /// focus 1
     /// group right 0
     /// tab 12:4 3 src/main.rs
+    /// pin 0:0 0 Cargo.toml
     /// group down 1
     /// ```
     pub fn to_text(&self) -> String {
@@ -53,7 +56,8 @@ impl Workspace {
             out += &format!("group {side} {}\n", group.active);
             for tab in &group.tabs {
                 out += &format!(
-                    "tab {}:{} {} {}\n",
+                    "{} {}:{} {} {}\n",
+                    if tab.pinned { "pin" } else { "tab" },
                     tab.line,
                     tab.column,
                     tab.scroll,
@@ -76,7 +80,7 @@ impl Workspace {
                     tabs: Vec::new(),
                     active: active.parse().unwrap_or(0),
                 }),
-                (Some("tab"), Some(at), Some(scroll), Some(path)) => {
+                (Some(kind @ ("tab" | "pin")), Some(at), Some(scroll), Some(path)) => {
                     let Some(group) = ws.groups.last_mut() else {
                         continue;
                     };
@@ -86,6 +90,7 @@ impl Workspace {
                         line: line.parse().unwrap_or(0),
                         column: column.parse().unwrap_or(0),
                         scroll: scroll.parse().unwrap_or(0),
+                        pinned: kind == "pin",
                     });
                 }
                 _ => {}
@@ -139,6 +144,7 @@ impl Editor {
                     line,
                     column,
                     scroll: view.scroll,
+                    pinned: group.pinned.contains(&id),
                 });
             }
             if state.tabs.is_empty() {
@@ -192,6 +198,9 @@ impl Editor {
                 if !group.tabs.contains(&doc.id) {
                     group.tabs.push(doc.id);
                     these.push((doc.id, view));
+                }
+                if tab.pinned {
+                    group.pinned.insert(doc.id);
                 }
                 if t == state.active {
                     active = Some(doc.id);

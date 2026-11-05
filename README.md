@@ -133,7 +133,13 @@ with its own tabs. A file open in two groups shares its text, but each keeps
 its own cursor and scroll, and an edit in one moves the other's cursor along.
 Files open in the focused group; `Ctrl+1`, `Ctrl+2` and `Ctrl+3` or a click
 move between groups. Drag a tab along the tab row to reorder it, or onto
-another group to move it there; a group whose last tab goes closes.
+another group to move it there; a group whose last tab goes closes. Drop
+it on a side of a group's code, which shades where it would go, to split
+there, as you can a file dragged from the Explorer. A middle click closes
+a tab, a double click on a strip's empty end opens a new file, and the
+wheel scrolls a strip whose tabs don't fit. A tab's menu pins it: pinned
+tabs stay first, show only their icon, and Close Others, Close Saved and
+Close All leave them open.
 
 Drag the edge between two groups to resize them. Closing a file with
 unsaved changes, or quitting with some, asks first: Save, Don't Save or

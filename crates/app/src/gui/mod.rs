@@ -26,6 +26,8 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result};
+use merlin_core::editor::Edge;
+use merlin_core::panel::Node;
 use merlin_core::{Event, Key, KeyCode, MouseKind, Pointer, Side, TextView, UiEvent, WindowView};
 use merlin_plugins::PluginHost;
 use softbuffer::{Context, Surface};
@@ -51,12 +53,30 @@ use scene::{Bitmaps, Scene};
 
 /// How often open files are checked for changes on disk, and plugins for
 /// rebuilds.
-/// A tab held down: its name, where the press was, and whether it has
-/// moved far enough to be a drag.
+/// A tab or a file of a side's view held down: its name and icon, where
+/// the press was, and whether it has moved far enough to be a drag.
 struct TabDrag {
     name: String,
+    icon: Option<(char, merlin_core::style::Hue)>,
     from: (f32, f32),
     moved: bool,
+    /// A file's element in a side's view, and the clicks pressed on it,
+    /// which go to it on release unless it was dragged.
+    entry: Option<(Side, usize, u8)>,
+}
+
+/// Where a dragged tab or file would land.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Landing {
+    /// Before a tab of a group's strip, or at its end.
+    Strip { group: usize, at: Option<usize> },
+    /// On a group's code: on a side of it, to split, or in its middle,
+    /// shading `zone`.
+    Body {
+        group: usize,
+        edge: Option<Edge>,
+        zone: Rect,
+    },
 }
 
 /// How far a tab moves before it's dragged rather than clicked.
@@ -108,6 +128,8 @@ pub fn run(app: &mut App) -> Result<()> {
         viewports: Vec::new(),
         resized_to: (0, 0),
         tab_drag: None,
+        drop: None,
+        strips: Vec::new(),
         cursor_icon: CursorIcon::Default,
         blink_from: Instant::now(),
         caret_drawn: 1.0,
@@ -206,6 +228,10 @@ struct Gui<'a> {
     resized_to: (u16, u16),
     /// A tab pressed on, and whether it's being dragged yet.
     tab_drag: Option<TabDrag>,
+    /// Where it would land now.
+    drop: Option<Landing>,
+    /// Each group's tab strip's scroll, as the frame last kept it.
+    strips: Vec<(f32, usize)>,
     /// The mouse pointer's shape now.
     cursor_icon: CursorIcon,
     /// The last input, which restarts the caret's blink.
@@ -643,6 +669,9 @@ impl Gui<'_> {
                     clicks,
                 }))
             }
+            // A file opens on release, so it can be dragged first.
+            Hit::Ui(UiEvent::Target { side, index, .. })
+                if self.hold_entry(side, index, clicks, at) => {}
             Hit::Ui(UiEvent::Target { side, index, .. }) => {
                 self.dispatch(Event::Ui(UiEvent::Target {
                     side,
@@ -654,6 +683,23 @@ impl Gui<'_> {
             Hit::Command(command) => self.dispatch(Event::Command(command.into())),
             Hit::Key(key) => self.dispatch(Event::Key(key)),
             Hit::Sash(side) => self.sash = Some(side),
+            // A double click on a strip's empty end opens a new file there.
+            Hit::TabStrip(group) if clicks >= 2 => {
+                let view = self.app.editor.window_view();
+                let g = group.unwrap_or(0);
+                if let Some(index) = view
+                    .groups
+                    .get(g)
+                    .and_then(|g| g.tabs.iter().position(|t| t.active))
+                {
+                    self.dispatch(Event::Ui(UiEvent::GroupTab {
+                        group: g,
+                        index,
+                        clicks: 1,
+                    }));
+                }
+                self.dispatch(Event::Command("file.new".into()));
+            }
             Hit::Side(_) | Hit::Block | Hit::TabStrip(_) => {}
         }
     }
@@ -668,29 +714,133 @@ impl Gui<'_> {
         if let Some(tab) = tabs.and_then(|t| t.get(index)) {
             self.tab_drag = Some(TabDrag {
                 name: tab.name.clone(),
+                icon: Some(tab.icon),
                 from: at,
                 moved: false,
+                entry: None,
             });
         }
     }
 
-    /// A dragged tab let go at `at`: before the tab there, at the end of
-    /// the strip there, or at the end of the group whose code it's over.
-    fn drop_tab(&mut self, at: (f32, f32)) {
+    /// A file in a side's view pressed on, its `index`th element: held, to
+    /// drag into the editor, if it's a file. Whether it was.
+    fn hold_entry(&mut self, side: Side, index: usize, clicks: u8, at: (f32, f32)) -> bool {
+        let view = self.app.editor.window_view();
+        let sv = match side {
+            Side::Left => view.left.as_ref(),
+            Side::Right => view.right.as_ref(),
+            Side::Bottom => view.bottom.as_ref(),
+        };
+        let Some(sv) = sv else { return false };
+        let file = sv
+            .nodes
+            .iter()
+            .zip(&sv.targets)
+            .find_map(|(node, t)| match node {
+                Node::Entry(e) if *t == Some(index) && e.id.starts_with("f:") => Some(e),
+                _ => None,
+            });
+        let Some(file) = file else { return false };
+        self.tab_drag = Some(TabDrag {
+            name: file.label.clone(),
+            icon: file.icon,
+            from: at,
+            moved: false,
+            entry: Some((side, index, clicks)),
+        });
+        true
+    }
+
+    /// Where a tab or file dragged to `at` would land: on a tab or the
+    /// strip, or on a group's code, on the side it's nearest if it's near
+    /// one. A tab dropped on its own group's middle, or its group's only
+    /// tab on any of it, goes nowhere new.
+    fn drop_at(&self, at: (f32, f32)) -> Option<Landing> {
         let view = self.app.editor.window_view();
         let focused = view.groups.iter().position(|g| g.focused).unwrap_or(0);
-        let target = match self.hit_at(at).map(|(_, h)| h.clone()) {
-            Some(Hit::Ui(UiEvent::Tab { index, .. })) => Some((focused, Some(index))),
-            Some(Hit::Ui(UiEvent::GroupTab { group, index, .. })) => Some((group, Some(index))),
-            Some(Hit::Ui(UiEvent::CloseTab(index))) => Some((focused, Some(index))),
-            Some(Hit::Ui(UiEvent::CloseGroupTab { group, index })) => Some((group, Some(index))),
+        let strip = match self.hit_at(at).map(|(_, h)| h.clone()) {
+            Some(Hit::Ui(UiEvent::Tab { index, .. } | UiEvent::CloseTab(index))) => {
+                Some((focused, Some(index)))
+            }
+            Some(Hit::Ui(
+                UiEvent::GroupTab { group, index, .. } | UiEvent::CloseGroupTab { group, index },
+            )) => Some((group, Some(index))),
             Some(Hit::TabStrip(group)) => Some((group.unwrap_or(focused), None)),
-            Some(Hit::Text) => self.group_at(at).map(|g| (g, None)),
             _ => None,
         };
-        if let Some((group, at)) = target {
-            self.dispatch(Event::Ui(UiEvent::DropTab { group, at }));
+        if let Some((group, at)) = strip {
+            return Some(Landing::Strip { group, at });
         }
+        let (x, y) = at;
+        let (group, area) = self.areas.groups.iter().enumerate().find(|(_, a)| {
+            let body = a.body();
+            body.contains(x, y)
+        })?;
+        let body = area.body();
+        let (fx, fy) = ((x - body.x) / body.w, (y - body.y) / body.h);
+        let near = [
+            (fx, Edge::Left),
+            (1.0 - fx, Edge::Right),
+            (fy, Edge::Up),
+            (1.0 - fy, Edge::Down),
+        ]
+        .into_iter()
+        .min_by(|a, b| a.0.total_cmp(&b.0))?;
+        let edge = (near.0 < 0.3).then_some(near.1);
+        let dragging_tab = self.tab_drag.as_ref().is_some_and(|d| d.entry.is_none());
+        if dragging_tab && group == focused {
+            let alone = view.groups.get(group).is_some_and(|g| g.tabs.len() <= 1);
+            if edge.is_none() || alone {
+                return None;
+            }
+        }
+        let (hw, hh) = (body.w / 2.0, body.h / 2.0);
+        let zone = match edge {
+            None => body,
+            Some(Edge::Left) => Rect::new(body.x, body.y, hw, body.h),
+            Some(Edge::Right) => Rect::new(body.x + hw, body.y, hw, body.h),
+            Some(Edge::Up) => Rect::new(body.x, body.y, body.w, hh),
+            Some(Edge::Down) => Rect::new(body.x, body.y + hh, body.w, hh),
+        };
+        Some(Landing::Body { group, edge, zone })
+    }
+
+    /// A dragged tab or file let go at `at`, where [`Self::drop_at`]
+    /// says.
+    fn drop_tab(&mut self, at: (f32, f32), entry: Option<(Side, usize, u8)>) {
+        let Some(target) = self.drop_at(at) else {
+            return;
+        };
+        let event = match (target, entry) {
+            (Landing::Strip { group, at }, None) => UiEvent::DropTab { group, at },
+            (
+                Landing::Body {
+                    group, edge: None, ..
+                },
+                None,
+            ) => UiEvent::DropTab { group, at: None },
+            (
+                Landing::Body {
+                    group,
+                    edge: Some(edge),
+                    ..
+                },
+                None,
+            ) => UiEvent::SplitTab { group, edge },
+            (Landing::Strip { group, .. }, Some((side, index, _))) => UiEvent::DropEntry {
+                side,
+                index,
+                group,
+                edge: None,
+            },
+            (Landing::Body { group, edge, .. }, Some((side, index, _))) => UiEvent::DropEntry {
+                side,
+                index,
+                group,
+                edge,
+            },
+        };
+        self.dispatch(Event::Ui(event));
     }
 
     /// The pointer's shape for what it's over: an I-beam over the code, a
@@ -709,6 +859,21 @@ impl Gui<'_> {
             return;
         };
         let over = self.hit_at(at).map(|(_, h)| h.clone());
+        // Over a tab strip, it scrolls the tabs along.
+        let strip = match over {
+            Some(Hit::TabStrip(group)) => Some(group.unwrap_or(0)),
+            Some(Hit::Ui(
+                UiEvent::GroupTab { group, .. } | UiEvent::CloseGroupTab { group, .. },
+            )) => Some(group),
+            _ => None,
+        };
+        if let Some(g) = strip {
+            if let Some(strip) = self.strips.get_mut(g) {
+                strip.0 -= lines as f32 * 40.0;
+            }
+            self.redraw();
+            return;
+        }
         let side = match over {
             Some(Hit::Side(side)) => Some(side),
             Some(Hit::Ui(UiEvent::Target { side, .. })) => Some(side),
@@ -991,7 +1156,12 @@ impl Gui<'_> {
                 .tab_drag
                 .as_ref()
                 .filter(|d| d.moved)
-                .map(|d| d.name.clone()),
+                .map(|d| (d.name.clone(), d.icon)),
+            drop_zone: match self.drop {
+                Some(Landing::Body { zone, .. }) => Some(zone),
+                _ => None,
+            },
+            strips: std::mem::take(&mut self.strips),
         };
         f.base(&view, &areas, &mut self.state, w, h);
         for text in &texts {
@@ -1051,6 +1221,7 @@ impl Gui<'_> {
         f.floating(&view, &areas, cell, self.context_at, w, h);
         f.overlays(&view, &areas, w, h);
         self.hits = std::mem::take(&mut f.hits);
+        self.strips = std::mem::take(&mut f.strips);
         self.tips = std::mem::take(&mut f.tips);
         self.tip_drawn = tip;
         let shown_ok = match &mut shown.backend {
@@ -1329,8 +1500,16 @@ impl ApplicationHandler for Gui<'_> {
                 {
                     self.redraw();
                 } else if let Some(drag) = self.tab_drag.take() {
+                    self.drop = None;
                     if drag.moved {
-                        self.drop_tab(at);
+                        self.drop_tab(at, drag.entry);
+                    } else if let Some((side, index, clicks)) = drag.entry {
+                        // Not dragged: a click, which opens it.
+                        self.dispatch(Event::Ui(UiEvent::Target {
+                            side,
+                            index,
+                            clicks,
+                        }));
                     }
                     self.set_pointer(CursorIcon::Default);
                     self.redraw();
@@ -1515,6 +1694,7 @@ impl Gui<'_> {
             }
             if drag.moved {
                 self.set_pointer(CursorIcon::Grabbing);
+                self.drop = self.drop_at(at);
                 self.redraw();
             }
             return;

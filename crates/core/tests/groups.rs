@@ -169,3 +169,189 @@ fn dragging_a_tab_along_the_tab_row_reorders_it() {
     drag_tab(&mut s, 0, 1, 0, Some(0));
     assert_eq!(tabs(&s), [["b.txt", "a.txt"]]);
 }
+
+/// Each group's tab names, and whether it's under the one before.
+fn layout(s: &Session) -> Vec<(Vec<String>, bool)> {
+    s.editor
+        .window_view()
+        .groups
+        .iter()
+        .map(|g| (g.tabs.iter().map(|t| t.name.clone()).collect(), g.below))
+        .collect()
+}
+
+fn names(names: &[&str], below: bool) -> (Vec<String>, bool) {
+    (names.iter().map(|n| n.to_string()).collect(), below)
+}
+
+#[test]
+fn dropping_a_tab_on_a_side_of_the_code_splits_there() {
+    use merlin_core::editor::Edge;
+    let mut s = session();
+    s.run("key ctrl+p; type b.txt; key enter");
+    // b.txt onto the right half: a new column, b.txt moved there.
+    ui(
+        &mut s,
+        UiEvent::SplitTab {
+            group: 0,
+            edge: Edge::Right,
+        },
+    );
+    assert_eq!(
+        layout(&s),
+        [names(&["a.txt"], false), names(&["b.txt"], false)]
+    );
+    assert_eq!(s.text(), "bee\n", "the moved tab is focused");
+    // Its only tab on its own side: nothing to split.
+    ui(
+        &mut s,
+        UiEvent::SplitTab {
+            group: 1,
+            edge: Edge::Left,
+        },
+    );
+    assert_eq!(layout(&s).len(), 2);
+    // Onto the top of the first group: above it, in its column.
+    ui(
+        &mut s,
+        UiEvent::SplitTab {
+            group: 0,
+            edge: Edge::Up,
+        },
+    );
+    assert_eq!(
+        layout(&s),
+        [names(&["b.txt"], false), names(&["a.txt"], true)]
+    );
+    // And onto the left of that column: a column before it.
+    ui(
+        &mut s,
+        UiEvent::GroupTab {
+            group: 1,
+            index: 0,
+            clicks: 1,
+        },
+    );
+    s.run("key ctrl+p; type b.txt; key enter");
+    ui(
+        &mut s,
+        UiEvent::SplitTab {
+            group: 1,
+            edge: Edge::Left,
+        },
+    );
+    assert_eq!(
+        layout(&s),
+        [
+            names(&["b.txt"], false),
+            names(&["b.txt"], false),
+            names(&["a.txt"], true)
+        ]
+    );
+}
+
+#[test]
+fn split_left_and_up_put_the_new_group_before() {
+    let mut s = session();
+    s.run("cmd view.split_left");
+    assert_eq!(
+        layout(&s),
+        [names(&["a.txt"], false), names(&["a.txt"], false)]
+    );
+    let focused = s.editor.window_view().groups.iter().position(|g| g.focused);
+    assert_eq!(focused, Some(0), "the new group, on the left");
+    s.run("cmd view.split_up");
+    let below: Vec<bool> = layout(&s).iter().map(|g| g.1).collect();
+    assert_eq!(below, [false, true, false]);
+}
+
+#[test]
+fn a_file_dropped_from_the_explorer_opens_where_it_lands() {
+    use merlin_core::editor::Edge;
+    let mut s = session();
+    s.run("key ctrl+shift+e; key esc");
+    let (side, index) = s.entry("b.txt").expect("in the Explorer");
+    s.send(Event::Ui(UiEvent::DropEntry {
+        side,
+        index,
+        group: 0,
+        edge: Some(Edge::Down),
+    }));
+    assert_eq!(
+        layout(&s),
+        [names(&["a.txt"], false), names(&["b.txt"], true)]
+    );
+    let tab = &s.editor.window_view().groups[1].tabs[0];
+    assert!(!tab.preview, "kept, not a preview");
+    // On the middle: a tab of that group.
+    s.files.insert("c.txt".into(), "sea\n".into());
+    s.run("key ctrl+shift+e; key esc");
+    let (side, index) = s.entry("c.txt").unwrap();
+    s.send(Event::Ui(UiEvent::DropEntry {
+        side,
+        index,
+        group: 0,
+        edge: None,
+    }));
+    assert_eq!(layout(&s)[0], names(&["a.txt", "c.txt"], false));
+}
+
+#[test]
+fn pinned_tabs_stay_first_and_closing_others_skips_them() {
+    let mut s = session();
+    s.files.insert("c.txt".into(), "sea\n".into());
+    s.run("key ctrl+p; type b.txt; key enter; key ctrl+p; type c.txt; key enter");
+    s.run("cmd file.pin");
+    assert_eq!(tabs(&s), [["c.txt", "a.txt", "b.txt"]]);
+    assert!(s.editor.window_view().groups[0].tabs[0].pinned);
+    // Dragging an unpinned tab before it leaves it after.
+    drag_tab(&mut s, 0, 2, 0, Some(0));
+    assert_eq!(tabs(&s), [["c.txt", "b.txt", "a.txt"]]);
+    s.run("cmd file.close_others");
+    assert_eq!(tabs(&s), [["c.txt", "b.txt"]], "b.txt was focused");
+    s.run("cmd file.close_all");
+    assert_eq!(tabs(&s), [["c.txt"]], "the pinned one stays");
+    s.run("key ctrl+1; cmd file.unpin");
+    assert!(!s.editor.window_view().groups[0].tabs[0].pinned);
+}
+
+#[test]
+fn the_tab_menu_offers_what_applies() {
+    let mut s = session();
+    s.send(Event::Ui(UiEvent::TabMenu));
+    let labels = |s: &Session| -> Vec<String> {
+        s.editor
+            .window_view()
+            .context
+            .map(|c| c.items.into_iter().map(|i| i.label).collect())
+            .unwrap_or_default()
+    };
+    let menu = labels(&s);
+    assert!(
+        menu.contains(&"Pin".into()) && !menu.contains(&"Unpin".into()),
+        "{menu:?}"
+    );
+    assert!(!menu.contains(&"Keep Open".into()), "not a preview");
+    for item in [
+        "Close Saved",
+        "Copy Relative Path",
+        "Reveal in Explorer View",
+        "Split Up",
+        "Split Left",
+    ] {
+        assert!(menu.contains(&item.into()), "{item} in {menu:?}");
+    }
+    s.run("key esc; cmd file.pin");
+    s.send(Event::Ui(UiEvent::TabMenu));
+    assert!(labels(&s).contains(&"Unpin".into()));
+}
+
+#[test]
+fn pins_are_kept_with_the_workspace() {
+    let mut s = session();
+    s.run("key ctrl+p; type b.txt; key enter; cmd file.pin");
+    let text = s.editor.workspace().to_text();
+    assert!(text.contains("pin 0:0 0 b.txt"), "{text}");
+    let ws = merlin_core::editor::Workspace::parse(&text);
+    assert!(ws.groups[0].tabs[0].pinned);
+}

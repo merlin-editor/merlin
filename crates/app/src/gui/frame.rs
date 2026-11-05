@@ -11,6 +11,7 @@ use merlin_core::{
 };
 
 use super::canvas::{Canvas, Face, Pictures, Rect, Text};
+use super::scene::Prim;
 use crate::packs::{Fallback, Icon, Icons, Tint};
 use crate::theme::{self, Palette, mix};
 
@@ -20,7 +21,14 @@ const RAIL_W: f32 = 44.0;
 const SIDE_W: f32 = 260.0;
 const RIGHT_W: f32 = 320.0;
 const BOTTOM_H: f32 = 240.0;
-const TABS_H: f32 = 38.0;
+const TABS_H: f32 = 32.0;
+/// A tab: how far it sits in from the strip's top and bottom, its corners,
+/// the room before its icon, a pinned one's width, and the gap between.
+const TAB_INSET: f32 = 3.0;
+const TAB_RADIUS: f32 = 6.0;
+const TAB_PAD: f32 = 10.0;
+const PINNED_W: f32 = 36.0;
+const TAB_GAP: f32 = 3.0;
 const CRUMBS_H: f32 = 28.0;
 const HEADER_H: f32 = 38.0;
 const ROW_H: f32 = 26.0;
@@ -120,8 +128,13 @@ pub struct Frame<'a> {
     pub pictures: &'a mut Pictures,
     /// Rows a little shorter, for more on screen.
     pub compact: bool,
-    /// The name of a tab being dragged.
-    pub tab_drag: Option<String>,
+    /// The name and icon of a tab or file being dragged.
+    pub tab_drag: Option<(String, Option<(char, merlin_core::style::Hue)>)>,
+    /// Where it would land, shaded.
+    pub drop_zone: Option<Rect>,
+    /// Each group's tab strip: how far it's scrolled, and the active tab
+    /// it last scrolled to. Drawing keeps them in range.
+    pub strips: Vec<(f32, usize)>,
     /// The side edges' hits, added after the code's so they win.
     pub sash_hits: Vec<(Rect, Hit)>,
     /// What each icon is, for a tooltip when the mouse rests on it.
@@ -271,6 +284,18 @@ pub fn group_areas(
 }
 
 impl GroupArea {
+    /// The group under its tabs: breadcrumbs, code, minimap and
+    /// scrollbar, where a dragged tab or file can land.
+    pub fn body(&self) -> Rect {
+        let top = self.crumbs.map_or(self.text.y, |c| c.y);
+        Rect::new(
+            self.text.x,
+            top,
+            self.bar.right() - self.text.x,
+            self.text.bottom() - top,
+        )
+    }
+
     /// A group's tabs on top, then its breadcrumbs, then its code with
     /// the minimap and scrollbar on its right. A narrow group drops the
     /// minimap first.
@@ -348,15 +373,7 @@ impl Frame<'_> {
             }
             self.sash_hits.push((r, Hit::Sash(side)));
         }
-        // Hairlines between the groups, lit while dragged or under the
-        // mouse.
         for &(r, sash) in &a.group_sashes {
-            let line = match sash {
-                GroupSash::Column(_) => Rect::new(r.x + SASH, r.y, DIVIDER, r.h),
-                GroupSash::Row(_) => Rect::new(r.x, r.y + SASH, r.w, DIVIDER),
-            };
-            let lit = self.hovered(r);
-            self.canvas.fill(line, if lit { p.accent } else { p.line });
             self.sash_hits.push((r, Hit::GroupSash(sash)));
         }
         for group in &a.groups {
@@ -1730,11 +1747,12 @@ impl Frame<'_> {
     /// A strip of tabs in `row`, for group `group` when there are several.
     /// With more tabs than fit, it starts late enough for the active one to
     /// show. While a tab is dragged, a bar marks where it would go.
+    /// A group's tabs as rounded pills, pinned ones first as only their
+    /// icons, scrolled along when they don't all fit, with the split and
+    /// more buttons at the right end.
     fn tab_strip(&mut self, tabs: &[TabView], row: Rect, group: Option<usize>, focused: bool) {
         let p = self.p;
-        self.canvas
-            .fill(Rect::new(row.x, row.bottom() - 1.0, row.w, 1.0), p.line);
-        // Empty strip takes drops too, at the end.
+        // Empty strip takes drops too, at the end, and a double click.
         self.hit(row, Hit::TabStrip(group));
         let face_of = |tab: &TabView| {
             if tab.preview {
@@ -1746,67 +1764,140 @@ impl Frame<'_> {
         let widths: Vec<f32> = tabs
             .iter()
             .map(|t| {
-                let nw = self.text.width(&t.name, face_of(t));
-                12.0 + 14.0 + 7.0 + nw + 7.0 + 16.0 + 10.0
+                if t.pinned {
+                    PINNED_W
+                } else {
+                    let nw = self.text.width(&t.name, face_of(t));
+                    TAB_PAD + 14.0 + 7.0 + nw + 5.0 + 18.0 + 6.0
+                }
             })
             .collect();
-        let room = row.w - 76.0;
-        let active = tabs.iter().position(|t| t.active).unwrap_or(0);
-        let mut first = 0;
-        while first < active && widths[first..=active].iter().map(|w| w + 2.0).sum::<f32>() > room {
-            first += 1;
+        let (left, right) = (row.x + 6.0, row.right() - 72.0);
+        let room = (right - left).max(0.0);
+        let starts: Vec<f32> = widths
+            .iter()
+            .scan(0.0, |x, w| {
+                let at = *x;
+                *x += w + TAB_GAP;
+                Some(at)
+            })
+            .collect();
+        let total = widths.iter().map(|w| w + TAB_GAP).sum::<f32>() - TAB_GAP;
+        // Scrolled to the active tab when it changes, else where the wheel
+        // left it.
+        let g = group.unwrap_or(0);
+        if self.strips.len() <= g {
+            self.strips.resize(g + 1, (0.0, usize::MAX));
         }
-        let mut x = row.x + 6.0;
-        let end = row.right() - 70.0;
-        for (i, tab) in tabs.iter().enumerate().skip(first) {
-            let face = face_of(tab);
-            let nw = self.text.width(&tab.name, face);
+        let active = tabs.iter().position(|t| t.active).unwrap_or(0);
+        let (mut offset, revealed) = self.strips[g];
+        if revealed != active
+            && let (Some(&x), Some(&w)) = (starts.get(active), widths.get(active))
+        {
+            if x < offset {
+                offset = x;
+            } else if x + w > offset + room {
+                offset = x + w - room;
+            }
+        }
+        offset = offset.clamp(0.0, (total - room).max(0.0));
+        self.strips[g] = (offset, active);
+
+        let first_prim = self.canvas.scene.prims.len();
+        let clip = Rect::new(left, row.y, room, row.h);
+        let pill_h = row.h - 2.0 * TAB_INSET;
+        for (i, tab) in tabs.iter().enumerate() {
             let w = widths[i];
-            if x + w > end && i > first {
-                break;
+            let x = left + starts[i] - offset;
+            if x + w < left || x > right {
+                continue;
             }
-            let r = Rect::new(x, row.y, w, row.h - 1.0);
-            let hovered = self.hovered(r) && self.tab_drag.is_none();
-            if tab.active {
-                self.canvas
-                    .fill(r, if focused { p.raised } else { p.island });
-                if focused {
-                    self.canvas.round(
-                        Rect::new(r.x + 8.0, r.bottom() - 1.0, r.w - 16.0, 2.0),
-                        1.0,
-                        p.accent,
-                    );
-                }
+            let r = Rect::new(x, row.y + TAB_INSET, w, pill_h);
+            let shown = Rect::new(x.max(left), r.y, (x + w).min(right) - x.max(left), r.h);
+            let hovered = self.hovered(shown) && self.tab_drag.is_none();
+            // The active tab stands out from a hovered one by its edge,
+            // in the focused group.
+            if tab.active && focused {
+                self.canvas.outline(r, TAB_RADIUS, 1.0, p.border, p.chip);
+            } else if tab.active {
+                self.canvas.round(r, TAB_RADIUS, p.raised);
             } else if hovered {
-                self.canvas.fill(r, p.hover);
+                self.canvas.round(r, TAB_RADIUS, p.hover);
             }
-            if self.tab_drag.is_some() && self.hovered(r) {
+            if self.tab_drag.is_some() && self.hovered(shown) {
                 self.canvas.round(
-                    Rect::new(r.x - 1.0, r.y + 6.0, 2.0, r.h - 12.0),
+                    Rect::new(r.x - 2.5, r.y + 3.0, 2.0, r.h - 6.0),
                     1.0,
                     p.accent,
                 );
             }
+            let icon_x = if tab.pinned {
+                x + (w - 14.0) / 2.0
+            } else {
+                x + TAB_PAD
+            };
             self.file_icon(
                 &tab.name,
                 Some(tab.icon),
-                x + 12.0,
+                icon_x,
                 r.y + (r.h - 14.0) / 2.0,
                 14.0,
-                row,
+                clip,
             );
-            let fg = if tab.active { p.bright } else { p.muted };
+            let (tab_hit, close_hit) = match group {
+                Some(group) => (
+                    UiEvent::GroupTab {
+                        group,
+                        index: i,
+                        clicks: 1,
+                    },
+                    UiEvent::CloseGroupTab { group, index: i },
+                ),
+                None => (
+                    UiEvent::Tab {
+                        index: i,
+                        clicks: 1,
+                    },
+                    UiEvent::CloseTab(i),
+                ),
+            };
+            self.hit(shown, Hit::Ui(tab_hit));
+            if tab.pinned {
+                // Only its icon: the name is in its tooltip, and changes a
+                // dot in its corner.
+                self.tips.push((shown, tab.name.clone()));
+                if tab.dirty {
+                    self.canvas.round(
+                        Rect::new(r.right() - 9.0, r.y + 4.0, 5.0, 5.0),
+                        2.5,
+                        p.muted,
+                    );
+                }
+                continue;
+            }
+            let face = face_of(tab);
+            let nw = self.text.width(&tab.name, face);
+            let fg = match (tab.active, focused) {
+                (true, true) => p.bright,
+                (true, false) => p.text,
+                _ => p.muted,
+            };
             self.text.draw_in_row(
                 &mut self.canvas,
                 &tab.name,
                 face,
-                x + 33.0,
+                x + TAB_PAD + 21.0,
                 r.y,
                 r.h,
                 fg,
-                row,
+                clip,
             );
-            let close = Rect::new(x + 33.0 + nw + 5.0, r.y + (r.h - 18.0) / 2.0, 18.0, 18.0);
+            let close = Rect::new(
+                x + TAB_PAD + 21.0 + nw + 5.0,
+                r.y + (r.h - 18.0) / 2.0,
+                18.0,
+                18.0,
+            );
             let mark = if tab.dirty && !self.hovered(close) {
                 Some('●')
             } else if tab.active || hovered {
@@ -1828,30 +1919,20 @@ impl Frame<'_> {
                     close.y,
                     18.0,
                     p.muted,
-                    row,
+                    clip,
                 );
             }
-            let (tab_hit, close_hit) = match group {
-                Some(group) => (
-                    UiEvent::GroupTab {
-                        group,
-                        index: i,
-                        clicks: 1,
-                    },
-                    UiEvent::CloseGroupTab { group, index: i },
-                ),
-                None => (
-                    UiEvent::Tab {
-                        index: i,
-                        clicks: 1,
-                    },
-                    UiEvent::CloseTab(i),
-                ),
-            };
-            self.hit(r, Hit::Ui(tab_hit));
-            self.hit(close, Hit::Ui(close_hit));
-            x += w + 2.0;
+            if close.x >= left && close.right() <= right {
+                self.hit(close, Hit::Ui(close_hit));
+            }
         }
+        // Tabs scrolled part way out are cut at the strip's ends.
+        let s = self.canvas.scale;
+        clip_cols(
+            &mut self.canvas.scene.prims[first_prim..],
+            left * s,
+            right * s,
+        );
         // Split the editor, at the right end.
         let mid = row.y + (row.h - 28.0) / 2.0;
         self.icon_button(
@@ -1917,28 +1998,54 @@ impl Frame<'_> {
     /// Each group's tabs and breadcrumbs above its code, and the tab being
     /// dragged under the mouse.
     fn group_heads(&mut self, view: &WindowView, a: &Areas) {
+        // Hairlines between the groups, over the code so nothing hides
+        // them, lit while dragged or under the mouse.
+        let p = self.p;
+        for &(r, sash) in &a.group_sashes {
+            let line = match sash {
+                GroupSash::Column(_) => Rect::new(r.x + SASH, r.y, DIVIDER, r.h),
+                GroupSash::Row(_) => Rect::new(r.x, r.y + SASH, r.w, DIVIDER),
+            };
+            let lit = self.hovered(r);
+            self.canvas.fill(line, if lit { p.accent } else { p.line });
+        }
         for (g, (group, area)) in view.groups.iter().zip(&a.groups).enumerate() {
             self.tab_strip(&group.tabs, area.tabs, Some(g), group.focused);
             if let Some(row) = area.crumbs {
                 self.crumb_row(&group.crumbs, row, Some(g));
             }
         }
-        if let (Some(name), Some((px, py))) = (self.tab_drag.clone(), self.pointer) {
+        // Where a dragged tab or file would land: a side of a group, or
+        // all of it.
+        if let Some(z) = self.drop_zone {
+            let p = self.p;
+            self.canvas.tint(z, 8.0, p.accent, 36);
+            for edge in [
+                Rect::new(z.x + 8.0, z.y, z.w - 16.0, 1.0),
+                Rect::new(z.x + 8.0, z.bottom() - 1.0, z.w - 16.0, 1.0),
+                Rect::new(z.x, z.y + 8.0, 1.0, z.h - 16.0),
+                Rect::new(z.right() - 1.0, z.y + 8.0, 1.0, z.h - 16.0),
+            ] {
+                self.canvas.tint(edge, 0.0, p.accent, 150);
+            }
+        }
+        if let (Some((name, icon)), Some((px, py))) = (self.tab_drag.clone(), self.pointer) {
             let p = self.p;
             let face = Face::ui(13.0);
             let r = Rect::new(
                 px + 12.0,
                 py + 8.0,
-                self.text.width(&name, face) + 24.0,
-                28.0,
+                TAB_PAD + 21.0 + self.text.width(&name, face) + TAB_PAD,
+                26.0,
             );
-            self.canvas.shadow(r, 6.0, theme::is_light(&p));
-            self.canvas.outline(r, 6.0, 1.0, p.accent, p.raised);
+            self.canvas.shadow(r, TAB_RADIUS, theme::is_light(&p));
+            self.canvas.outline(r, TAB_RADIUS, 1.0, p.accent, p.raised);
+            self.file_icon(&name, icon, r.x + TAB_PAD, r.y + 6.0, 14.0, r);
             self.text.draw_in_row(
                 &mut self.canvas,
                 &name,
                 face,
-                r.x + 12.0,
+                r.x + TAB_PAD + 21.0,
                 r.y,
                 r.h,
                 p.bright,
@@ -2277,4 +2384,29 @@ fn plain(markdown: &str) -> String {
         .join("\n")
         .replace("**", "")
         .replace('`', "")
+}
+
+/// Cuts what was drawn to between physical `left` and `right`.
+fn clip_cols(prims: &mut [Prim], left: f32, right: f32) {
+    for prim in prims {
+        match prim {
+            Prim::Quad { rect, .. } | Prim::Shadow { rect, .. } => {
+                if rect[2] <= left || rect[0] >= right {
+                    *rect = [0.0; 4];
+                } else {
+                    rect[0] = rect[0].max(left);
+                    rect[2] = rect[2].min(right);
+                }
+            }
+            Prim::Line { a, b, .. } => {
+                if a[0].max(b[0]) < left || a[0].min(b[0]) > right {
+                    (*a, *b) = ([-64.0, -64.0], [-64.0, -64.0]);
+                }
+            }
+            Prim::Glyph { clip, .. } | Prim::Image { clip, .. } => {
+                clip[0] = clip[0].max(left.floor() as i32);
+                clip[2] = clip[2].min(right.ceil() as i32);
+            }
+        }
+    }
 }

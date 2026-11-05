@@ -6,7 +6,7 @@
 //! Other groups keep theirs in `saved`, and are drawn from there, so each
 //! group has its own extra cursors and its own folds, as VS Code has it.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::Editor;
 use crate::buffer::Change;
@@ -109,7 +109,7 @@ impl View {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct Group {
     /// Document ids, in tab order.
     pub tabs: Vec<u64>,
@@ -124,6 +124,24 @@ pub(crate) struct Group {
     /// every group.
     pub width: f32,
     pub height: f32,
+    /// Tabs pinned at the start of the strip, which closing others skips.
+    pub pinned: HashSet<u64>,
+}
+
+/// No tabs yet, with an even share of the room: a share of nothing would
+/// leave it no room beside groups with theirs.
+impl Default for Group {
+    fn default() -> Self {
+        Self {
+            tabs: Vec::new(),
+            active: 0,
+            saved: HashMap::new(),
+            below: false,
+            width: 1.0,
+            height: 1.0,
+            pinned: HashSet::new(),
+        }
+    }
 }
 
 impl Group {
@@ -131,12 +149,24 @@ impl Group {
         Self {
             tabs: vec![id],
             active: id,
-            saved: HashMap::new(),
-            below: false,
-            width: 1.0,
-            height: 1.0,
+            ..Self::default()
         }
     }
+
+    /// Puts the pinned tabs first, each lot in its own order.
+    pub fn order_pinned(&mut self) {
+        let pinned = &self.pinned;
+        self.tabs.sort_by_key(|id| !pinned.contains(id));
+    }
+}
+
+/// A side of a group, to split it on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Edge {
+    Left,
+    Right,
+    Up,
+    Down,
 }
 
 /// A group being drawn, other than the focused one.
@@ -250,29 +280,103 @@ impl Editor {
         }
     }
 
-    /// Opens the current document in a new group to the right, or below,
-    /// as VS Code's Split Editor and Split Editor Down do.
-    pub(crate) fn split(&mut self, down: bool) {
+    /// Opens the current document in a new group on `edge` of the focused
+    /// one, as VS Code's Split Editor commands do.
+    pub(crate) fn split(&mut self, edge: Edge) {
+        self.split_to(self.group, edge, false);
+    }
+
+    /// Opens the current document in a new group on `edge` of group `g`,
+    /// moving it there from the focused group if `moving`, as dropping a
+    /// tab on a group's side does.
+    pub(crate) fn split_to(&mut self, g: usize, edge: Edge, moving: bool) {
+        if g >= self.groups.len() {
+            return;
+        }
+        let id = self.doc().id;
+        let from = self.group;
+        // A group's only tab, dropped on its own side: nothing to split.
+        if moving && from == g && self.groups[g].tabs.len() == 1 {
+            return;
+        }
         if self.groups.len() >= MAX_GROUPS {
             return self.notify(format!("At most {MAX_GROUPS} editor groups"));
         }
-        let id = self.doc().id;
-        let view = View::of(self.doc());
-        self.groups[self.group].saved.insert(id, view);
-        // A new column goes after the whole column of the focused group.
-        let mut at = self.group + 1;
-        if !down {
-            while self.groups.get(at).is_some_and(|g| g.below) {
-                at += 1;
-            }
+        // The column `g` is in: its first group and its last.
+        let head = (0..=g).rev().find(|&k| !self.groups[k].below).unwrap_or(0);
+        let mut end = g;
+        while self.groups.get(end + 1).is_some_and(|n| n.below) {
+            end += 1;
         }
-        let group = Group {
-            below: down,
-            ..Group::new(id)
+        let mut group = Group::new(id);
+        let at = match edge {
+            Edge::Right => end + 1,
+            Edge::Left => head,
+            Edge::Down | Edge::Up => {
+                // Half of the group's height each, in its column's width.
+                let old = &mut self.groups[g];
+                old.height /= 2.0;
+                group.height = old.height;
+                group.width = old.width;
+                if edge == Edge::Down {
+                    group.below = true;
+                    g + 1
+                } else {
+                    group.below = old.below;
+                    old.below = true;
+                    g
+                }
+            }
         };
         self.groups.insert(at, group);
-        self.group = at;
-        self.shown = (self.group, id);
+        let from = if from >= at { from + 1 } else { from };
+        let mut new = at;
+        if moving {
+            let src = &mut self.groups[from];
+            let pos = src.tabs.iter().position(|&t| t == id).unwrap_or(0);
+            src.tabs.retain(|&t| t != id);
+            src.saved.remove(&id);
+            src.pinned.remove(&id);
+            if let Some(&next) = src.tabs.get(pos.min(src.tabs.len().saturating_sub(1))) {
+                src.active = next;
+            }
+            if src.tabs.is_empty() {
+                self.remove_group(from);
+                if new > from {
+                    new -= 1;
+                }
+            }
+        } else {
+            let view = View::of(self.doc());
+            self.groups[from].saved.insert(id, view);
+        }
+        self.group = new;
+        self.take_over(id);
+        self.shown = (new, id);
+    }
+
+    /// Pins the current tab at the start of its group's strip, or unpins
+    /// it after the pinned ones.
+    pub(crate) fn pin(&mut self, pin: bool) {
+        let id = self.doc().id;
+        let group = &mut self.groups[self.group];
+        if pin {
+            // Last of the pinned ones.
+            group.tabs.retain(|&t| t != id);
+            let at = group
+                .tabs
+                .iter()
+                .filter(|t| group.pinned.contains(t))
+                .count();
+            group.tabs.insert(at, id);
+            group.pinned.insert(id);
+            if self.preview == Some(id) {
+                self.preview = None;
+            }
+        } else {
+            group.pinned.remove(&id);
+            group.order_pinned();
+        }
     }
 
     /// Takes a group out, keeping the next one in its column.
@@ -292,9 +396,11 @@ impl Editor {
         }
         let from = self.group;
         if g == from {
-            let tabs = &mut self.groups[g].tabs;
-            tabs.retain(|&t| t != id);
-            tabs.insert(at.unwrap_or(tabs.len()).min(tabs.len()), id);
+            let group = &mut self.groups[g];
+            group.tabs.retain(|&t| t != id);
+            let at = at.unwrap_or(group.tabs.len()).min(group.tabs.len());
+            group.tabs.insert(at, id);
+            group.order_pinned();
             return;
         }
         let view = View::of(self.doc());
@@ -305,10 +411,12 @@ impl Editor {
         if let Some(&next) = src.tabs.get(pos.min(src.tabs.len().saturating_sub(1))) {
             src.active = next;
         }
+        src.pinned.remove(&id);
         let dst = &mut self.groups[g];
         dst.tabs.retain(|&t| t != id);
         dst.tabs
             .insert(at.unwrap_or(dst.tabs.len()).min(dst.tabs.len()), id);
+        dst.order_pinned();
         dst.active = id;
         dst.saved.insert(id, view);
         let mut g = g;
@@ -390,6 +498,7 @@ impl Editor {
         for group in &mut self.groups {
             group.tabs.retain(|id| open.contains(id));
             group.saved.retain(|id, _| open.contains(id));
+            group.pinned.retain(|id| open.contains(id));
         }
         // Groups left without tabs close, unless it's the last.
         while self.groups.len() > 1 {
@@ -419,6 +528,7 @@ impl Editor {
             if !group.tabs.contains(&group.active) {
                 group.active = *group.tabs.last().unwrap_or(&current);
             }
+            group.order_pinned();
         }
         let (was_group, was) = self.shown;
         if (was_group, was) != (self.group, current) {

@@ -301,6 +301,18 @@ impl Editor {
         }
     }
 
+    /// Shows the Explorer, whatever the side bar showed, with the open
+    /// file focused in it.
+    pub(crate) fn reveal_in_explorer(&mut self, fx: &mut Vec<Effect>) {
+        let bar = self.bar_mut(Side::Left);
+        bar.visible = true;
+        bar.active = Some(EXPLORER.into());
+        self.refresh_view(EXPLORER, fx);
+        self.build_views();
+        self.focus_panel(Side::Left);
+        self.reveal_current();
+    }
+
     /// Focuses the open file in the Explorer, opening its folders.
     fn reveal_current(&mut self) {
         let current = self

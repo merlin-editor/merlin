@@ -176,7 +176,6 @@ fn mark_colour(p: &Palette, style: Style) -> u32 {
 /// left, matches and selections in the middle, problems on the right, and
 /// the thumb over them.
 pub fn draw_vbar(canvas: &mut Canvas, p: &Palette, track: Rect, v: &TextView, shown: Shown) {
-    canvas.fill(Rect::new(track.x, track.y, 1.0, track.h), p.line);
     let lane = track.w / 3.0;
     for &(at, style) in &v.scrollbar.marks {
         let x = match style {

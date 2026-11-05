@@ -8,7 +8,7 @@ use super::chrome::Action;
 use super::context::{ContextView, PopupView};
 use super::find::{FindAction, FindView};
 use super::menu::MenuView;
-use super::{Editor, Effect, Focus, Side, Source};
+use super::{Edge, Editor, Effect, Focus, Side, Source};
 use crate::icons::{Icon, icon};
 use crate::panel::{Node, Target};
 use crate::style::Hue;
@@ -75,6 +75,20 @@ pub enum UiEvent {
     DropTab {
         group: usize,
         at: Option<usize>,
+    },
+    /// The focused tab dropped on a side of group `group`'s code: it moves
+    /// to a new group there.
+    SplitTab {
+        group: usize,
+        edge: Edge,
+    },
+    /// A file of a side's view (its `index`th element) dropped on group
+    /// `group`'s code: it opens there, or in a new group on `edge`.
+    DropEntry {
+        side: Side,
+        index: usize,
+        group: usize,
+        edge: Option<Edge>,
     },
     /// The sashes between groups were dragged: each group's new width and
     /// height shares, as in [`super::tabs::GroupView`].
@@ -165,6 +179,8 @@ pub struct TabView {
     pub active: bool,
     pub dirty: bool,
     pub preview: bool,
+    /// Pinned at the start of the strip, drawn as only its icon.
+    pub pinned: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -419,6 +435,13 @@ impl Editor {
                 }
             }
             UiEvent::DropTab { group, at } => self.drop_tab_at(group, at),
+            UiEvent::SplitTab { group, edge } => self.split_to(group, edge, true),
+            UiEvent::DropEntry {
+                side,
+                index,
+                group,
+                edge,
+            } => self.drop_entry(side, index, group, edge, fx),
             UiEvent::DialogButton(i) => self.answer(i, fx),
             UiEvent::GroupSizes(sizes) => {
                 for (group, (w, h)) in self.groups.iter_mut().zip(sizes) {

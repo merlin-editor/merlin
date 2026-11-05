@@ -11,6 +11,7 @@ mod files;
 mod find;
 pub(crate) mod fold;
 mod groups;
+pub use groups::Edge;
 pub(crate) mod guides;
 mod keymap;
 mod keys;
@@ -684,6 +685,8 @@ pub struct Editor {
     preview: Option<u64>,
     /// A file asked for as a preview, until it arrives.
     opening_preview: Option<PathBuf>,
+    /// A file dropped on a group's side, to split there once it arrives.
+    opening_split: Option<(PathBuf, groups::Edge)>,
     /// 1, 2 or 3 while handling a single, double or triple click; else 0.
     clicks: u8,
     /// Keys bound in the settings, and the commands they run.
@@ -784,6 +787,7 @@ impl Editor {
             shown: (0, 0),
             preview: None,
             opening_preview: None,
+            opening_split: None,
             clicks: 0,
             outline_for: None,
             languages: Vec::new(),
@@ -1052,7 +1056,10 @@ impl Editor {
                 self.preedit = (!text.is_empty()).then_some((text, cursor));
             }
             Event::SaveFailed(err) => self.error(format!("Save failed: {err}")),
-            Event::Opened { path, text } => self.opened(path, &text),
+            Event::Opened { path, text } => {
+                self.opened(path.clone(), &text);
+                self.split_opened(&path);
+            }
             Event::Restore(ws) => self.restore(ws),
             Event::Settings(settings) => self.apply_settings(settings),
             Event::TextColours {

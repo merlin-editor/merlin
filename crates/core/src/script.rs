@@ -396,6 +396,19 @@ impl Session {
     /// Clicks the entry, item or button in a side panel whose label holds
     /// `label`, as a window does: `clicks` 2 for a double click.
     pub fn click_entry(&mut self, label: &str, clicks: u8) {
+        let Some((side, index)) = self.entry(label) else {
+            panic!("no {label:?} in a side panel:\n{}", self.screen());
+        };
+        self.send(Event::Ui(crate::UiEvent::Target {
+            side,
+            index,
+            clicks,
+        }));
+    }
+
+    /// The side and target of the entry, item or button in a side panel
+    /// whose label holds `label`.
+    pub fn entry(&self, label: &str) -> Option<(crate::Side, usize)> {
         let view = self.editor.window_view();
         let sides = [
             (crate::Side::Left, &view.left),
@@ -417,16 +430,11 @@ impl Session {
                     continue;
                 };
                 if let Some(first) = sv.targets.get(i).copied().flatten() {
-                    self.send(Event::Ui(crate::UiEvent::Target {
-                        side,
-                        index: first + k,
-                        clicks,
-                    }));
-                    return;
+                    return Some((side, first + k));
                 }
             }
         }
-        panic!("no {label:?} in a side panel:\n{}", self.screen());
+        None
     }
 
     /// Where the primary cursor is drawn, in the focused group's grid.
