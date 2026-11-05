@@ -582,13 +582,13 @@ impl Editor {
                         depth: 1,
                         check: Some(if *on { Check::On } else { Check::Off }),
                         tone: if *on { Tone::Normal } else { Tone::Muted },
-                        swap: Some(Swap {
+                        swap: Some(Box::new(Swap {
                             line: start.0 as usize + 1,
                             before: before.trim_start().to_string(),
                             old: chars[a..b].iter().collect(),
                             new: if *on { new.clone() } else { String::new() },
                             after: chars[b..].iter().collect(),
-                        }),
+                        })),
                         detail: if *on {
                             String::new()
                         } else {

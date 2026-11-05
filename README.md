@@ -390,7 +390,12 @@ Source Control lists what changed since the last commit, staged changes
 first, as VS Code does; opening a file there shows its changes as a diff,
 side by side when the window is wide enough, and Enter jumps to that line in
 the file. `+` beside a file stages it and `−` unstages it, Stage All stages
-everything, and a message with Enter or Commit commits what's staged.
+everything, and a message with Enter or Commit commits what's staged. A
+file's arrow (or Right) unfolds its changes, each with its line: Stage or
+Unstage one alone, or Discard it. Discarding asks nothing and the notice
+has Undo; a file git doesn't track goes to the trash, after asking. A
+file's right-click menu opens it or its changes, stages, discards (Ctrl+Del),
+copies its path or shows it in the Explorer.
 
 Files changed on disk, by another program or a `git checkout`, reload by themselves,
 as one step you can undo. One with unsaved changes asks first: Reload from
@@ -562,8 +567,7 @@ Other languages work too: anything that builds a WASI 0.2 component for
 - A wrapped line taller than the view can't scroll part way. Without a
   language server, folds go by indentation and symbols are found by
   keyword. Only one plugin's symbols or folds count for a file at a time.
-- Git can stage whole files and commit, but not stage parts of a file,
-  discard changes, push, or blame.
+- Git can't push, pull or blame yet, or stage single lines.
 - Settings have no editor of their own (they're a TOML file), and the
   theme is VS Code's Dark Modern, with no others yet.
 - Completions don't add imports, and renames don't create, move or delete

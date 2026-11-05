@@ -308,7 +308,43 @@ Built, each checked in the window with rust-analyzer:
 
 The language server features are all built. Next in
 [`feature-research.md`](feature-research.md)'s order is **Git**, from
-[`mockups/Git.dc.html`](mockups/Git.dc.html).
+[`mockups/Git.dc.html`](mockups/Git.dc.html), with
+[`GitSync.dc.html`](mockups/GitSync.dc.html),
+[`Compare.dc.html`](mockups/Compare.dc.html) and
+[`GitFiles.dc.html`](mockups/GitFiles.dc.html). It's built in slices, each
+committed:
+
+- **Staging and discarding single changes, built.**
+  - After each status the app runs `git diff --relative` and
+    `git diff --cached --relative` and sends `Event::GitDiffs`;
+    `crates/core/src/git.rs` parses them (`FileDiff`, `Hunk`).
+  - Git joins changes a few lines apart into one hunk, so Source Control
+    shows each run of changed lines (`FileDiff::changes`) on its own row,
+    as the gutter does. Staging one is a patch of only its lines
+    (`git::patch` with chosen lines): left out, an added line is dropped and
+    a removed one kept (backwards for `-R`).
+  - `GitAction::Apply` runs `git apply --recount`, with
+    `--directory=<prefix>` when the project is a folder inside the
+    repository (git takes patch paths from the top, and skips others
+    silently).
+  - A file's row has an arrow (`Entry.fold`, `UiEvent::Fold`) and its
+    counts (`Entry.counts`). Change rows have `Entry.links`: Stage, with
+    Discard shown before it on hover so Stage never moves.
+  - `GitAction::Discard` reads the file first and answers
+    `Event::Discarded`; the notice has Undo (`GitAction::Undiscard` writes
+    it back), and the reload notice stays quiet for it. An untracked file
+    asks `Ask::Trash` instead.
+  - The file menu is `scm::SCM_ITEMS`; Ctrl+Del discards from the list.
+  - Where it lives: `crates/core/src/editor/scm.rs`; `Git::run` and
+    `Git::diffs` in `crates/app/src/main.rs`.
+  - Tests: `git::tests`, and the hunk and discard tests at the end of
+    `crates/core/tests/workbench.rs`.
+  - Checked in the window: unfold, Stage, Unstage, Discard and Undo, and
+    the menu.
+- Still to build, in order: the side-by-side diff with stage boxes
+  (Compare), the change peek from the gutter with Alt+F5 and Alt+F3, push,
+  pull and sync with their notices (GitSync), blame, and new, deleted and
+  moved files (GitFiles).
 
 Saved for later, by the user's choice:
 
@@ -400,7 +436,7 @@ These are suggestions; nothing of them is written yet.
   straight into core `Event`s. The Rust SDK's re-exports are in
   `sdk/rust/src/lib.rs`; add new types to both lists there.
 - Checks before each commit:
-  - `cargo test --workspace`: 351 tests passed with find references
+  - `cargo test --workspace`: 358 tests passed with staging single changes
   - `cargo clippy --workspace --all-targets`
   - in `plugins/lsp`: `cargo clippy --release --target wasm32-wasip2`
   - `cargo fmt --all`

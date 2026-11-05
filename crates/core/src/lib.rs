@@ -9,6 +9,7 @@ pub mod doc;
 pub mod edit;
 pub mod editor;
 mod fuzzy;
+pub mod git;
 pub mod history;
 mod icons;
 pub mod indent;

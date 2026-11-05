@@ -210,10 +210,16 @@ impl Editor {
                         .iter()
                         .chain(super::tabs::TAB_ITEMS)
                         .chain(super::files::EXPLORER_ITEMS)
+                        .chain(super::scm::SCM_ITEMS)
                         .find(|(i, _)| *i == id)
                         .map_or(id, |(_, l)| l)
                         .to_string(),
-                    key: self.key_hint(id),
+                    key: self.key_hint(id).or_else(|| {
+                        super::scm::SCM_KEYS
+                            .iter()
+                            .find(|(i, _)| *i == id)
+                            .map(|(_, k)| k.to_string())
+                    }),
                 },
             })
             .collect();

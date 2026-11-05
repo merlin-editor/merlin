@@ -105,7 +105,18 @@ pub struct Entry {
     /// A checkbox after the arrow, clicked on its own.
     pub check: Option<Check>,
     /// Shown in place of the label.
-    pub swap: Option<Swap>,
+    pub swap: Option<Box<Swap>>,
+    /// An arrow that unfolds what's under a row that isn't a folder, such
+    /// as a changed file's hunks: whether it's open. Clicked on its own.
+    pub fold: Option<bool>,
+    /// Lines added and removed, after the label in green and red.
+    pub counts: Option<(usize, usize)>,
+    /// Buttons as words at the row's end, such as Stage, with their ids:
+    /// the first always shows, the rest while the row is hovered. They take
+    /// focus after the entry and its action.
+    pub links: Vec<(String, String)>,
+    /// The label and detail in the code font, as a hunk's line.
+    pub code: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -139,6 +150,7 @@ impl Panel {
                 Node::Item { id, .. } => vec![Target::Button(id.clone())],
                 Node::Entry(e) => std::iter::once(Target::Button(e.id.clone()))
                     .chain(e.action.as_ref().map(|(_, id)| Target::Button(id.clone())))
+                    .chain(e.links.iter().map(|(_, id)| Target::Button(id.clone())))
                     .collect(),
                 Node::Input { id, .. } => vec![Target::Input(id.clone())],
                 _ => Vec::new(),

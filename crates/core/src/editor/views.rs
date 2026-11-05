@@ -72,6 +72,16 @@ pub(crate) struct Git {
     /// index, and changes not staged.
     pub staged: Vec<(String, char)>,
     pub changed: Vec<(String, char)>,
+    /// Each file's hunks, staged and not, by path.
+    pub staged_diffs: HashMap<String, crate::git::FileDiff>,
+    pub changed_diffs: HashMap<String, crate::git::FileDiff>,
+    /// Files whose hunks are unfolded: `s:` and a path in Staged, `c:` in
+    /// Changes.
+    pub open: HashSet<String>,
+    /// The last file discarded and its text before, for Undo.
+    pub discarded: Option<(String, String)>,
+    /// The Source Control row a right-click menu is for.
+    pub menu_row: Option<String>,
     /// Bumped on every update, so views built from it know to rebuild.
     pub version: u64,
 }
@@ -586,10 +596,17 @@ impl Editor {
             nodes.push(Node::Styled("No changes".into(), Tone::Muted));
         }
         // Staged changes first, with − to unstage; then the rest, with + to
-        // stage, as VS Code lists them.
-        for (title, list, action, prefix) in [
-            ("Staged Changes", &git.staged, '−', "u:"),
-            ("Changes", &git.changed, '+', "a:"),
+        // stage, as VS Code lists them. A file's hunks unfold under it.
+        for (title, list, diffs, action, prefix, key) in [
+            (
+                "Staged Changes",
+                &git.staged,
+                &git.staged_diffs,
+                '−',
+                "u:",
+                "s",
+            ),
+            ("Changes", &git.changed, &git.changed_diffs, '+', "a:", "c"),
         ] {
             if list.is_empty() {
                 continue;
@@ -597,8 +614,10 @@ impl Editor {
             nodes.push(Node::Heading(format!("{title}  {}", list.len())));
             for (path, status) in list {
                 let (dir, name) = path.rsplit_once('/').unwrap_or(("", path));
+                let diff = diffs.get(path).filter(|d| !d.hunks.is_empty());
+                let open = git.open.contains(&format!("{key}:{path}"));
                 nodes.push(Node::Entry(Entry {
-                    id: format!("c:{path}"),
+                    id: format!("c{}:{path}", if key == "s" { "s" } else { "" }),
                     label: name.to_string(),
                     tone: tone(*status),
                     icon: Some(file_icon(name, self.nerd)),
@@ -606,8 +625,34 @@ impl Editor {
                     badge: letter(*status).to_string(),
                     badge_tone: tone(*status),
                     action: Some((action, format!("{prefix}{path}"))),
+                    fold: diff.map(|_| open),
+                    // A blank where others have their arrow, to line up.
+                    twisty: Some(' '),
+                    counts: diff.map(crate::git::FileDiff::counts),
                     ..Default::default()
                 }));
+                let Some(diff) = diff.filter(|_| open) else {
+                    continue;
+                };
+                for (i, change) in diff.changes().iter().enumerate() {
+                    let links = if key == "s" {
+                        vec![("Unstage".into(), format!("hu:{path}:{i}"))]
+                    } else {
+                        vec![
+                            ("Stage".into(), format!("hs:{path}:{i}")),
+                            ("Discard".into(), format!("hd:{path}:{i}")),
+                        ]
+                    };
+                    nodes.push(Node::Entry(Entry {
+                        id: format!("hk:{key}:{path}:{i}"),
+                        label: format!("@@ {}", change.line),
+                        detail: change.summary.clone(),
+                        depth: 1,
+                        code: true,
+                        links,
+                        ..Default::default()
+                    }));
+                }
             }
         }
         nodes
@@ -732,8 +777,9 @@ impl Editor {
             }
         } else if let Some(line) = id.strip_prefix("o:").and_then(|l| l.parse().ok()) {
             self.go_to_block(line);
-        } else if let Some(path) = id.strip_prefix("c:") {
+        } else if let Some(path) = id.strip_prefix("c:").or_else(|| id.strip_prefix("cs:")) {
             fx.push(Effect::OpenDiff(PathBuf::from(path)));
+        } else if self.hunk_click(id, fx) {
         } else if let Some(path) = id.strip_prefix("a:") {
             fx.push(Effect::Git(GitAction::Stage(path.into())));
         } else if let Some(path) = id.strip_prefix("u:") {

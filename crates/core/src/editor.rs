@@ -31,6 +31,7 @@ mod rename;
 pub(crate) use rename::RENAME as RENAME_REVIEW;
 pub use rename::RenameView;
 mod save;
+mod scm;
 mod scroll;
 mod select;
 mod settings;
@@ -380,6 +381,20 @@ pub enum Event {
         staged: Vec<(String, char)>,
         changed: Vec<(String, char)>,
     },
+    /// Every changed file's hunks, staged and not, sent after
+    /// [`Event::GitStatus`].
+    GitDiffs {
+        staged: Vec<crate::git::FileDiff>,
+        changed: Vec<crate::git::FileDiff>,
+    },
+    /// A file's changes went back to the last commit, after
+    /// [`GitAction::Discard`]: all of them, or one. Its text before, for
+    /// Undo.
+    Discarded {
+        path: String,
+        before: String,
+        all: bool,
+    },
     /// A file's changes since the last commit, to look at, asked for with
     /// [`Effect::OpenDiff`].
     ShowDiff {
@@ -520,6 +535,25 @@ pub enum GitAction {
     StageAll,
     UnstageAll,
     Commit(String),
+    /// `git apply` a patch from [`crate::git::patch`]: to the index when
+    /// `cached`, and backwards when `reverse`.
+    Apply {
+        patch: String,
+        cached: bool,
+        reverse: bool,
+    },
+    /// Puts a file's changes back as they are in the index: the patch's
+    /// lines when given, else all of them. Answered with
+    /// [`Event::Discarded`].
+    Discard {
+        path: String,
+        patch: Option<String>,
+    },
+    /// Writes a discarded file's text back.
+    Undiscard {
+        path: String,
+        text: String,
+    },
 }
 
 /// Exactly one part of the UI has focus, and only it gets keys and pastes.
@@ -1468,6 +1502,15 @@ impl Editor {
                 self.git.changed = changed;
                 self.git.version += 1;
             }
+            Event::GitDiffs { staged, changed } => {
+                let by_path = |list: Vec<crate::git::FileDiff>| {
+                    list.into_iter().map(|d| (d.path.clone(), d)).collect()
+                };
+                self.git.staged_diffs = by_path(staged);
+                self.git.changed_diffs = by_path(changed);
+                self.git.version += 1;
+            }
+            Event::Discarded { path, before, all } => self.discarded(path, before, all),
             Event::ShowDiff { path, old, new } => {
                 let id = path.display().to_string();
                 self.show_review(String::new(), id, path, &old, &new);
@@ -2019,7 +2062,15 @@ impl Editor {
         replace_text(doc, &old, text);
         doc.buffer.mark_saved(doc.buffer.revision());
         let name = doc.name();
-        self.notify(format!("Reloaded {name}, changed on disk"));
+        // A discard from Source Control says so itself, with Undo.
+        let discarded = self
+            .git
+            .discarded
+            .as_ref()
+            .is_some_and(|(p, _)| doc.buffer.path.as_deref() == Some(std::path::Path::new(p)));
+        if !discarded {
+            self.notify(format!("Reloaded {name}, changed on disk"));
+        }
     }
 
     fn word_start(&self, pos: usize) -> usize {

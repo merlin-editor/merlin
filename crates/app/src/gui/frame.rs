@@ -2815,7 +2815,8 @@ impl Frame<'_> {
             Node::Entry(e) => {
                 let row = Rect::new(r.x + 6.0, r.y, r.w - 12.0, r.h);
                 row_bg(self, row);
-                let check = self.entry(e, row, clip);
+                let hits = self.entry(e, row, clip);
+                let check = hits.check;
                 if let Some(index) = target {
                     self.hit(
                         row,
@@ -2835,6 +2836,20 @@ impl Frame<'_> {
                             Hit::Ui(UiEvent::Target {
                                 side,
                                 index: index + 1,
+                                clicks: 1,
+                            }),
+                        );
+                    }
+                    if let Some(f) = hits.fold {
+                        self.hit(f, Hit::Ui(UiEvent::Fold { side, index }));
+                    }
+                    let first_link = index + 1 + usize::from(e.action.is_some());
+                    for (j, l) in hits.links.iter().enumerate() {
+                        self.hit(
+                            *l,
+                            Hit::Ui(UiEvent::Target {
+                                side,
+                                index: first_link + j,
                                 clicks: 1,
                             }),
                         );
@@ -3111,14 +3126,21 @@ impl Frame<'_> {
         at - x
     }
 
-    /// A tree row: indent, arrow, checkbox, icon, name, detail, and a badge
-    /// at the end. Returns where its checkbox is, to click.
-    fn entry(&mut self, e: &Entry, row: Rect, clip: Rect) -> Option<Rect> {
+    /// A tree row: indent, arrow, checkbox, icon, name, detail, counts,
+    /// and a badge and buttons at the end. Returns where its checkbox,
+    /// arrow and buttons are, to click.
+    fn entry(&mut self, e: &Entry, row: Rect, clip: Rect) -> EntryHits {
         let p = self.p;
         let mut x = row.x + 8.0 + e.depth as f32 * 14.0;
         let mid = row.y + row.h / 2.0;
+        let mut hits = EntryHits::default();
+        if let Some(open) = e.fold {
+            self.canvas.chevron(x + 5.0, mid, 7.0, open, p.muted);
+            hits.fold = Some(Rect::new(x - 4.0, row.y, 20.0, row.h));
+            x += 16.0;
+        }
         // Folders have an open or closed arrow; files a blank in its place.
-        let folder = match e.twisty {
+        let folder = match e.twisty.filter(|_| e.fold.is_none()) {
             Some(t @ ('▾' | '▸' | '\u{eab4}' | '\u{eab6}')) => {
                 let open = matches!(t, '▾' | '\u{eab4}');
                 self.canvas.chevron(x + 5.0, mid, 7.0, open, p.muted);
@@ -3131,7 +3153,7 @@ impl Frame<'_> {
             }
             None => None,
         };
-        let check = e.check.map(|check| {
+        hits.check = e.check.map(|check| {
             self.checkbox(check, x, mid);
             x += 22.0;
             Rect::new(x - 26.0, row.y, 26.0, row.h)
@@ -3150,13 +3172,40 @@ impl Frame<'_> {
             }
             None => {}
         }
-        let face = Face::ui(13.0);
+        let face = if e.code {
+            Face::mono(12.0)
+        } else {
+            Face::ui(13.0)
+        };
+        let detail_face = if e.code {
+            Face::mono(11.5)
+        } else {
+            Face::ui(12.0)
+        };
         let badge_w = if e.badge.is_empty() {
             0.0
         } else {
             self.text.width(&e.badge, Face::ui(11.0).bold()) + 14.0
         };
-        let room = (row.right() - x - badge_w - if e.action.is_some() { 26.0 } else { 0.0 } - 6.0)
+        let link_face = Face::ui(11.5);
+        let hovered = self.hovered(row);
+        let links: Vec<&(String, String)> = e
+            .links
+            .iter()
+            .enumerate()
+            .filter(|(j, _)| *j == 0 || hovered)
+            .map(|(_, l)| l)
+            .collect();
+        let links_w: f32 = links
+            .iter()
+            .map(|(l, _)| self.text.width(l, link_face) + 12.0)
+            .sum();
+        let room = (row.right()
+            - x
+            - badge_w
+            - links_w
+            - if e.action.is_some() { 26.0 } else { 0.0 }
+            - 6.0)
             .max(0.0);
         let colour = match e.tone {
             Tone::Normal => p.text,
@@ -3181,20 +3230,68 @@ impl Frame<'_> {
                 )
             }
         };
+        let mut used = lw;
         if !e.detail.is_empty() && lw + 12.0 < room {
-            let detail = self.text.fit(&e.detail, Face::ui(12.0), room - lw - 8.0);
-            self.text.draw_in_row(
-                &mut self.canvas,
-                &detail,
-                Face::ui(12.0),
-                x + lw + 8.0,
-                row.y,
-                row.h,
-                p.muted,
-                clip,
-            );
+            let detail = self.text.fit(&e.detail, detail_face, room - lw - 8.0);
+            used += 8.0
+                + self.text.draw_in_row(
+                    &mut self.canvas,
+                    &detail,
+                    detail_face,
+                    x + lw + 8.0,
+                    row.y,
+                    row.h,
+                    p.muted,
+                    clip,
+                );
+        }
+        // Lines added and removed, in green and red.
+        if let Some((added, removed)) = e.counts {
+            let count = Face::ui(11.5);
+            let mut at = x + used + 8.0;
+            for (n, sign, colour) in [(added, '+', p.success), (removed, '−', p.error)] {
+                if n == 0 {
+                    continue;
+                }
+                let text = format!("{sign}{n}");
+                if at + self.text.width(&text, count) > x + room {
+                    break;
+                }
+                at += self.text.draw_in_row(
+                    &mut self.canvas,
+                    &text,
+                    count,
+                    at,
+                    row.y,
+                    row.h,
+                    colour,
+                    clip,
+                ) + 6.0;
+            }
         }
         let mut right = row.right() - 8.0;
+        // Buttons as words: the first always, in green, at the end, so it
+        // stays put; the rest before it while the row is hovered.
+        for (j, (label, _)) in links.iter().enumerate() {
+            let w = self.text.width(label, link_face);
+            let r = Rect::new(right - w - 6.0, row.y + 3.0, w + 12.0, row.h - 6.0);
+            if self.hovered(r) {
+                self.canvas.round(r, 5.0, p.chip);
+            }
+            let colour = if j == 0 { p.success } else { p.muted };
+            self.text.draw_in_row(
+                &mut self.canvas,
+                label,
+                link_face,
+                right - w,
+                row.y,
+                row.h,
+                colour,
+                clip,
+            );
+            hits.links.push(r);
+            right -= w + 12.0;
+        }
         if !e.badge.is_empty() {
             let face = Face::ui(11.0).bold();
             let bw = self.text.width(&e.badge, face);
@@ -3244,7 +3341,7 @@ impl Frame<'_> {
                 clip,
             );
         }
-        check
+        hits
     }
 
     /// A file type's letters in a small rounded square of its colour.
@@ -3901,6 +3998,15 @@ fn tone_colour(p: &Palette, tone: Tone) -> u32 {
         Tone::Success => p.success,
         Tone::Badge => p.text,
     }
+}
+
+/// Where a tree row's checkbox, arrow and buttons are, to click.
+#[derive(Default)]
+struct EntryHits {
+    check: Option<Rect>,
+    fold: Option<Rect>,
+    /// The buttons shown, in order; ones hidden till hover aren't here.
+    links: Vec<Rect>,
 }
 
 /// `EXPLORER` as `Explorer`; titles already in mixed case stay.

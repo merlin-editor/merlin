@@ -500,3 +500,179 @@ fn source_control_stages_unstages_and_commits() {
     assert!(s.effects.iter().all(|e| !matches!(e, Effect::Git(_))));
     assert!(s.screen().contains("Nothing staged"), "{}", s.screen());
 }
+
+const PALETTE_DIFF: &str = "\
+diff --git a/src/palette.rs b/src/palette.rs
+index 1111111..2222222 100644
+--- a/src/palette.rs
++++ b/src/palette.rs
+@@ -1,3 +1,4 @@
++/// A colour a few steps from the accent.
+ pub fn shade(accent: u32, step: u32) -> u32 {
+-    accent + step
++    accent + step * 2
+ }
+@@ -5,4 +6,4 @@ pub fn shade(accent: u32, step: u32) -> u32 {
+ pub fn theme_colours(accent: u32) -> Vec<u32> {
+-    let steps = [1u32, 2, 3];
++    let steps = [1u32, 2, 3, 4];
+     steps.iter().map(|s| shade(accent, *s)).collect()
+ }
+";
+
+fn changed_palette(s: &mut Session) {
+    s.send(Event::GitStatus {
+        branch: Some("main".into()),
+        files: vec![("src/palette.rs".into(), 'M'), ("new.txt".into(), '?')],
+        staged: vec![],
+        changed: vec![("src/palette.rs".into(), 'M'), ("new.txt".into(), '?')],
+    });
+    s.send(Event::GitDiffs {
+        staged: vec![],
+        changed: merlin_core::git::parse(PALETTE_DIFF),
+    });
+}
+
+fn target(s: &Session, id: &str) -> usize {
+    let left = s.editor.window_view().left.unwrap();
+    let targets = Panel {
+        title: String::new(),
+        nodes: left.nodes.clone(),
+    }
+    .targets();
+    targets
+        .iter()
+        .position(|t| matches!(t, merlin_core::panel::Target::Button(b) if b == id))
+        .unwrap_or_else(|| panic!("no {id} in {targets:?}"))
+}
+
+fn click_target(s: &mut Session, id: &str) {
+    let index = target(s, id);
+    s.send(Event::Ui(merlin_core::UiEvent::Target {
+        side: merlin_core::Side::Left,
+        index,
+        clicks: 1,
+    }));
+}
+
+#[test]
+fn a_changed_files_hunks_unfold_under_it_to_stage_one_at_a_time() {
+    let mut s = session();
+    changed_palette(&mut s);
+    s.run("key ctrl+shift+g");
+    let screen = s.screen();
+    assert!(
+        screen.contains("▸ palette.rs  src  +3 −2  M"),
+        "a file shows its counts, folded: {screen}"
+    );
+    // Its arrow unfolds the hunks, each with its line, its first change,
+    // and Stage and Discard.
+    let index = target(&s, "c:src/palette.rs");
+    s.send(Event::Ui(merlin_core::UiEvent::Fold {
+        side: merlin_core::Side::Left,
+        index,
+    }));
+    let screen = s.screen();
+    assert!(screen.contains("▾ palette.rs"), "{screen}");
+    assert!(
+        screen.contains("@@ 1  /// A colour a few steps from the accent.  [Stage]  [Discard]"),
+        "{screen}"
+    );
+    assert!(screen.contains("@@ 3  accent + step * 2"), "{screen}");
+    assert!(
+        screen.contains("@@ 7  let steps = [1u32, 2, 3, 4];"),
+        "{screen}"
+    );
+    // Stage applies that change alone to the index.
+    click_target(&mut s, "hs:src/palette.rs:2");
+    let staged = s.effects.iter().find_map(|e| match e {
+        Effect::Git(GitAction::Apply {
+            patch,
+            cached: true,
+            reverse: false,
+        }) => Some(patch.clone()),
+        _ => None,
+    });
+    let staged = staged.expect("a patch to stage");
+    assert!(staged.contains("@@ -5,4 +6,4 @@"), "{staged}");
+    assert!(!staged.contains("A colour"), "only that hunk: {staged}");
+}
+
+#[test]
+fn discarding_a_hunk_or_a_file_can_be_undone() {
+    let mut s = session();
+    changed_palette(&mut s);
+    s.run("key ctrl+shift+g");
+    s.send(Event::Ui(merlin_core::UiEvent::Fold {
+        side: merlin_core::Side::Left,
+        index: target(&s, "c:src/palette.rs"),
+    }));
+    click_target(&mut s, "hd:src/palette.rs:0");
+    assert!(
+        s.effects.iter().any(|e| matches!(
+            e,
+            Effect::Git(GitAction::Discard { path, patch: Some(p) })
+                if path == "src/palette.rs" && p.contains("+/// A colour")
+        )),
+        "{:?}",
+        s.effects
+    );
+    // Discarding asks nothing, and says so with Undo.
+    s.send(Event::Discarded {
+        path: "src/palette.rs".into(),
+        before: "the text before\n".into(),
+        all: false,
+    });
+    let screen = s.screen();
+    assert!(
+        screen.contains("Discarded a change to palette.rs"),
+        "{screen}"
+    );
+    s.effects.clear();
+    s.send(Event::Ui(merlin_core::UiEvent::ToastButton(0)));
+    assert!(
+        s.effects.contains(&Effect::Git(GitAction::Undiscard {
+            path: "src/palette.rs".into(),
+            text: "the text before\n".into(),
+        })),
+        "{:?}",
+        s.effects
+    );
+    // The file's menu discards all of it; a file git doesn't track goes
+    // to the trash, after asking.
+    s.effects.clear();
+    s.send(Event::Ui(merlin_core::UiEvent::TargetMenu {
+        side: merlin_core::Side::Left,
+        index: target(&s, "c:src/palette.rs"),
+    }));
+    let screen = s.screen();
+    assert!(screen.contains("Discard Changes"), "{screen}");
+    assert!(screen.contains("Ctrl+Del"), "{screen}");
+    s.send(Event::Ui(merlin_core::UiEvent::CloseContext));
+    s.effects.clear();
+    s.send(Event::Ui(merlin_core::UiEvent::TargetMenu {
+        side: merlin_core::Side::Left,
+        index: target(&s, "c:src/palette.rs"),
+    }));
+    let items = s.editor.window_view().context.unwrap().items;
+    let discard = items
+        .iter()
+        .position(|i| i.label == "Discard Changes")
+        .unwrap();
+    s.send(Event::Ui(merlin_core::UiEvent::ContextItem(discard)));
+    assert!(s.effects.contains(&Effect::Git(GitAction::Discard {
+        path: "src/palette.rs".into(),
+        patch: None,
+    })));
+    s.send(Event::Ui(merlin_core::UiEvent::TargetMenu {
+        side: merlin_core::Side::Left,
+        index: target(&s, "c:new.txt"),
+    }));
+    s.send(Event::Ui(merlin_core::UiEvent::ContextItem(discard)));
+    let dialog = s
+        .editor
+        .window_view()
+        .dialog
+        .expect("an untracked file asks");
+    assert_eq!(dialog.title, "Are you sure you want to delete 'new.txt'?");
+}

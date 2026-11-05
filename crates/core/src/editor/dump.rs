@@ -336,7 +336,15 @@ fn dump_side(o: &mut String, which: &str, side: &SideView) {
                 .join(" "),
             Node::Item { label, .. } => label.clone(),
             Node::Entry(e) => {
-                let twisty = e.twisty.map_or(String::new(), |t| format!("{t} "));
+                let twisty = match e.fold {
+                    Some(true) => "▾ ".to_string(),
+                    Some(false) => "▸ ".to_string(),
+                    None => e.twisty.map_or(String::new(), |t| format!("{t} ")),
+                };
+                let counts = e
+                    .counts
+                    .map_or(String::new(), |(a, r)| format!("  +{a} −{r}"));
+                let links: String = e.links.iter().map(|(l, _)| format!("  [{l}]")).collect();
                 let detail = if e.detail.is_empty() {
                     String::new()
                 } else {
@@ -358,7 +366,7 @@ fn dump_side(o: &mut String, which: &str, side: &SideView) {
                     None => e.label.clone(),
                 };
                 format!(
-                    "{}{twisty}{check}{label}{detail}{badge}",
+                    "{}{twisty}{check}{label}{detail}{counts}{badge}{links}",
                     "  ".repeat(e.depth)
                 )
             }

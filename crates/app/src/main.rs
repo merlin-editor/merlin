@@ -385,7 +385,10 @@ impl App {
                         let commit = matches!(action, GitAction::Commit(_));
                         let git = self.git_info();
                         self.jobs.run(Lane::Git, move || {
-                            let done = git.run(action);
+                            let mut done = git.run(action);
+                            if !commit && matches!(done.last(), Some(Event::GitStatus { .. })) {
+                                done.push(git.diffs());
+                            }
                             Box::new(move |app: &mut App| {
                                 if commit {
                                     // The new commit is the base for gutter
@@ -393,7 +396,7 @@ impl App {
                                     app.git_index = None;
                                     app.check_disk();
                                 }
-                                vec![done]
+                                done
                             })
                         });
                     }
@@ -727,13 +730,14 @@ impl App {
         let git = self.git_info();
         self.jobs.run(Lane::Git, move || {
             let status = git.status();
+            let diffs = git.diffs();
             Box::new(move |app: &mut App| {
                 // git status can touch the index; that's not a commit.
                 app.git_index = app
                     .git_dir
                     .as_ref()
                     .and_then(|d| modified(&d.join("index")));
-                vec![status]
+                vec![status, diffs]
             })
         });
     }
@@ -1169,39 +1173,129 @@ impl Git {
         }
     }
 
-    /// Runs what Source Control asked for, and says how it went.
-    fn run(&self, action: GitAction) -> Event {
-        let args: Vec<&str> = match &action {
-            GitAction::Stage(path) => vec!["add", "--", path],
-            GitAction::Unstage(path) => vec!["restore", "--staged", "--", path],
-            GitAction::StageAll => vec!["add", "--all", "--", "."],
-            GitAction::UnstageAll => vec!["restore", "--staged", "--", "."],
-            GitAction::Commit(message) => vec!["commit", "--quiet", "-m", message],
-        };
-        let output = Command::new("git")
-            .args(&args)
-            .current_dir(&self.root)
-            .stdin(std::process::Stdio::null())
-            .output();
-        match output {
-            Ok(o) if o.status.success() => match action {
-                GitAction::Commit(message) => {
-                    let first = message.lines().next().unwrap_or_default().to_string();
-                    Event::Notify(format!("Committed: {first}"))
-                }
-                _ => self.status(),
-            },
-            Ok(o) => {
-                let err = String::from_utf8_lossy(&o.stderr);
-                let out = String::from_utf8_lossy(&o.stdout);
-                let text = if err.trim().is_empty() { out } else { err };
-                let first = text
-                    .lines()
-                    .find(|l| !l.trim().is_empty())
-                    .unwrap_or("failed");
-                Event::Error(format!("git {}: {first}", args[0]))
+    /// Each changed file's hunks: in the index, and not yet staged.
+    fn diffs(&self) -> Event {
+        let diff = |cached: bool| {
+            if !self.repo {
+                return Vec::new();
             }
-            Err(err) => Event::Error(format!("git: {err}")),
+            let mut args = vec!["diff", "--no-color", "--no-ext-diff", "--relative"];
+            if cached {
+                args.push("--cached");
+            }
+            Command::new("git")
+                .args(&args)
+                .current_dir(&self.root)
+                .stdin(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .output()
+                .ok()
+                .filter(|o| o.status.success())
+                .map(|o| merlin_core::git::parse(&String::from_utf8_lossy(&o.stdout)))
+                .unwrap_or_default()
+        };
+        Event::GitDiffs {
+            staged: diff(true),
+            changed: diff(false),
+        }
+    }
+
+    /// `git apply` of a patch from `git diff --relative`, whose paths are
+    /// the project's: git takes them from the repository's top.
+    fn apply(&self, patch: &str, cached: bool, reverse: bool) -> Result<(), String> {
+        let directory = format!("--directory={}", self.prefix);
+        let mut args = vec!["apply", "--recount", "--whitespace=nowarn"];
+        if !self.prefix.is_empty() {
+            args.push(&directory);
+        }
+        if cached {
+            args.push("--cached");
+        }
+        if reverse {
+            args.push("-R");
+        }
+        args.push("-");
+        self.git(&args, Some(patch))
+    }
+
+    /// Runs git with `args`, and `input` on its standard input. Returns the
+    /// first line of what it said when it failed.
+    fn git(&self, args: &[&str], input: Option<&str>) -> Result<(), String> {
+        use std::io::Write;
+        let mut child = Command::new("git")
+            .args(args)
+            .current_dir(&self.root)
+            .stdin(if input.is_some() {
+                std::process::Stdio::piped()
+            } else {
+                std::process::Stdio::null()
+            })
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("git: {e}"))?;
+        if let (Some(text), Some(mut stdin)) = (input, child.stdin.take()) {
+            let _ = stdin.write_all(text.as_bytes());
+        }
+        let o = child.wait_with_output().map_err(|e| format!("git: {e}"))?;
+        if o.status.success() {
+            return Ok(());
+        }
+        let err = String::from_utf8_lossy(&o.stderr);
+        let out = String::from_utf8_lossy(&o.stdout);
+        let text = if err.trim().is_empty() { out } else { err };
+        let first = text
+            .lines()
+            .find(|l| !l.trim().is_empty())
+            .unwrap_or("failed")
+            .trim_start_matches("error: ")
+            .to_string();
+        Err(format!("git {}: {first}", args[0]))
+    }
+
+    /// Runs what Source Control asked for, and says how it went.
+    fn run(&self, action: GitAction) -> Vec<Event> {
+        let done = match &action {
+            GitAction::Stage(path) => self.git(&["add", "--", path], None),
+            GitAction::Unstage(path) => self.git(&["restore", "--staged", "--", path], None),
+            GitAction::StageAll => self.git(&["add", "--all", "--", "."], None),
+            GitAction::UnstageAll => self.git(&["restore", "--staged", "--", "."], None),
+            GitAction::Commit(message) => self.git(&["commit", "--quiet", "-m", message], None),
+            GitAction::Apply {
+                patch,
+                cached,
+                reverse,
+            } => self.apply(patch, *cached, *reverse),
+            GitAction::Discard { path, patch } => {
+                let file = self.root.join(path);
+                let before = fs::read_to_string(&file).unwrap_or_default();
+                let done = match patch {
+                    Some(patch) => self.apply(patch, false, true),
+                    None => self.git(&["restore", "--worktree", "--", path], None),
+                };
+                return match done {
+                    Ok(()) => vec![
+                        Event::Discarded {
+                            path: path.clone(),
+                            before,
+                            all: patch.is_none(),
+                        },
+                        self.status(),
+                    ],
+                    Err(e) => vec![Event::Error(e)],
+                };
+            }
+            GitAction::Undiscard { path, text } => {
+                fs::write(self.root.join(path), text).map_err(|e| format!("{path}: {e}"))
+            }
+        };
+        match (done, action) {
+            (Ok(()), GitAction::Commit(message)) => {
+                let first = message.lines().next().unwrap_or_default().to_string();
+                vec![Event::Notify(format!("Committed: {first}"))]
+            }
+            (Ok(()), _) => vec![self.status()],
+            (Err(e), _) => vec![Event::Error(e)],
         }
     }
 }

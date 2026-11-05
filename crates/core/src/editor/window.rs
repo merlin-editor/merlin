@@ -45,6 +45,12 @@ pub enum UiEvent {
         side: Side,
         index: usize,
     },
+    /// A row's arrow that unfolds what's under it, by the row's index among
+    /// the panel's targets.
+    Fold {
+        side: Side,
+        index: usize,
+    },
     /// The peek view's `i`th list row shown, clicked.
     PeekRow {
         index: usize,
@@ -494,6 +500,12 @@ impl Editor {
                         _ => None,
                     };
                     self.open_explorer_menu(row);
+                } else if self.active_panel_name(side).as_deref() == Some(super::views::CHANGES) {
+                    let row = match self.panel_targets(side).into_iter().nth(index) {
+                        Some(crate::panel::Target::Button(id)) => Some(id),
+                        _ => None,
+                    };
+                    self.open_scm_menu(row);
                 }
             }
             UiEvent::SideMenu(side) => {
@@ -551,6 +563,7 @@ impl Editor {
                     self.toggle_row();
                 }
             }
+            UiEvent::Fold { side, index } => self.fold_clicked(side, index),
             UiEvent::Press(id) => self.view_click(&id, fx),
             UiEvent::PeekRow { index, clicks } => self.peek_clicked(index, clicks, fx),
             UiEvent::PeekClose => self.peek = None,
@@ -596,7 +609,7 @@ fn target_count(node: &Node) -> usize {
     match node {
         Node::Button(_) | Node::Item { .. } | Node::Input { .. } => 1,
         Node::Buttons(bs) => bs.len(),
-        Node::Entry(e) => 1 + e.action.is_some() as usize,
+        Node::Entry(e) => 1 + e.action.is_some() as usize + e.links.len(),
         _ => 0,
     }
 }
