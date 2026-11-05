@@ -328,12 +328,13 @@ fn source_control_lists_changes_and_opens_their_diff() {
     });
     let screen = s.screen();
     assert!(screen.contains("[main.rs (changes)]"), "{screen}");
-    assert!(screen.contains("Enter open the file"), "{screen}");
+    assert!(screen.contains("Alt+S stage"), "{screen}");
+    // Typing there edits the file, on the changed line; nothing's
+    // answered, and Esc goes back to the file.
     s.run("type y");
     assert!(answers(&s).is_empty(), "nothing to answer");
-    s.run("key enter");
-    assert_eq!(s.text(), "fn a() {}\nfn b() {}\n");
-    assert_eq!(s.editor.cursor_utf16(), (1, 0), "on the changed line");
+    s.run("key esc");
+    assert_eq!(s.text(), "fn a() {}\nyfn b() {}\n");
 }
 
 #[test]
@@ -832,4 +833,94 @@ fn reverting_a_change_goes_back_to_the_last_commit() {
     // Alt+S still opens the Selection menu outside the changes tab.
     let bar = s.editor.window_view().diff_bar.expect("the bar");
     assert_eq!((bar.change, bar.changes), (2, 3));
+}
+
+#[test]
+fn typing_in_the_changes_tab_edits_the_file() {
+    let mut s = Session::new(NOW_PALETTE, Some("src/palette.rs"), 160, 16);
+    s.send(Event::GitStatus {
+        branch: Some("main".into()),
+        files: vec![("src/palette.rs".into(), 'M')],
+        staged: vec![],
+        changed: vec![("src/palette.rs".into(), 'M')],
+    });
+    s.send(Event::ShowDiff {
+        path: "src/palette.rs".into(),
+        old: HEAD_PALETTE.into(),
+        new: NOW_PALETTE.into(),
+    });
+    assert!(
+        s.screen().contains("[palette.rs (changes)]"),
+        "{}",
+        s.screen()
+    );
+    // The cursor starts on the first change, the added doc comment.
+    s.run("type X");
+    let views = s.editor.text_views();
+    let new_side: String = views[1]
+        .lines
+        .iter()
+        .map(|l| l.chars.iter().collect::<String>() + "\n")
+        .collect();
+    assert!(new_side.contains("X/// A colour"), "{new_side}");
+    assert_eq!(
+        views[1].carets.first().and_then(|c| c.cell),
+        Some((1, 0)),
+        "the cursor shows after the X"
+    );
+    // The file has it, unsaved, and staging waits for a save.
+    s.send(Event::Ui(merlin_core::UiEvent::DiffStage(0)));
+    assert!(
+        s.screen().contains("Save palette.rs first"),
+        "{}",
+        s.screen()
+    );
+    assert!(applied(&s).is_empty());
+    // Ctrl+S saves the file, and once git has the saved file the boxes
+    // come back.
+    s.run("key ctrl+s");
+    assert!(
+        s.saved
+            .iter()
+            .any(|(p, t)| p.ends_with("palette.rs") && t.starts_with("X///")),
+        "{:?}",
+        s.saved
+    );
+    let changed = "\
+diff --git a/src/palette.rs b/src/palette.rs
+--- a/src/palette.rs
++++ b/src/palette.rs
+@@ -1,3 +1,4 @@
++X/// A colour a few steps from the accent.
+ pub fn shade(accent: u32, step: u32) -> u32 {
+-    accent + step
++    accent + step * 2
+ }
+";
+    s.send(Event::GitDiffs {
+        staged: vec![],
+        changed: merlin_core::git::parse(changed),
+    });
+    s.send(Event::ShowDiff {
+        path: "src/palette.rs".into(),
+        old: HEAD_PALETTE.into(),
+        new: format!("X{NOW_PALETTE}"),
+    });
+    let marks = s.editor.text_views()[1].diff.clone().unwrap();
+    assert!(marks.rows.iter().any(|m| m.line.is_some()), "{marks:?}");
+    // Undo in the tab undoes in the file.
+    s.run("key ctrl+z");
+    let views = s.editor.text_views();
+    let new_side: String = views[1]
+        .lines
+        .iter()
+        .map(|l| l.chars.iter().collect::<String>() + "\n")
+        .collect();
+    assert!(!new_side.contains("X/// A colour"), "{new_side}");
+    // The last commit's side is read-only.
+    s.run("key down down");
+    s.run("type Y");
+    assert!(s.screen().contains("can't be edited"), "{}", s.screen());
+    s.run("key esc");
+    assert_eq!(s.text(), NOW_PALETTE);
 }

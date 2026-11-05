@@ -258,6 +258,30 @@ impl Editor {
                     })
                     .collect();
                 let gutter = if git && !old { gutter + 2 } else { gutter };
+                // The cursor, on the side its line is on: a changes tab is
+                // edited on its new side.
+                let carets = shown
+                    .iter()
+                    .enumerate()
+                    .find(|(_, (l, r))| if old { *l } else { *r } == Some(cur))
+                    .filter(|_| focused && (git || !old))
+                    .map(|(row, _)| {
+                        let start = doc.line_start(cur);
+                        let col: usize = doc
+                            .line_chars(cur)
+                            .into_iter()
+                            .take(v.cursor - start)
+                            .map(|c| crate::style::char_width(c).max(1))
+                            .sum();
+                        let cell = col.checked_sub(v.hscroll).map(|x| (x as u16, row as u16));
+                        CaretView {
+                            line: cur,
+                            col: v.cursor - start,
+                            cell,
+                        }
+                    })
+                    .into_iter()
+                    .collect();
                 TextView {
                     group: self.pane(),
                     top_row: v.scroll as f64,
@@ -273,7 +297,7 @@ impl Editor {
                     wrapping: false,
                     focused,
                     lines,
-                    carets: Vec::new(),
+                    carets,
                     preedit: None,
                     sticky: Vec::new(),
                     scrollbar: self.scrollbar_view(),

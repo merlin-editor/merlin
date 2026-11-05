@@ -123,6 +123,14 @@ impl Editor {
         if self.terminal_key(key, fx) {
             return;
         }
+        // Typing in a file's changes since the last commit edits the file.
+        if self.focus == Focus::Editor
+            && self.chord.is_none()
+            && self.in_changes_tab()
+            && self.edits_file(key)
+        {
+            return self.through_file(fx, |e, fx| e.key(key, fx));
+        }
         // An open completion or code action list takes the keys it uses
         // first.
         if self.focus == Focus::Editor

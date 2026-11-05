@@ -389,7 +389,8 @@ to one cursor.
 Source Control lists what changed since the last commit, staged changes
 first, as VS Code does; opening a file there shows its changes since the
 last commit as a diff, side by side when the window is wide enough (Alt+I
-switches), and Enter jumps to that line in the file. Side by side, each
+switches). The new side can be edited: typing there edits the file, which
+opens as a tab beside it, and Ctrl+S saves it. Side by side, each
 change has a box in the gap between the halves that stages it (Alt+S) and
 a « that reverts it to the last commit (Alt+R), and each changed row has
 its own box; Alt+F5 and Alt+F3 go to the next and previous change, and the
@@ -571,8 +572,8 @@ Other languages work too: anything that builds a WASI 0.2 component for
 - A wrapped line taller than the view can't scroll part way. Without a
   language server, folds go by indentation and symbols are found by
   keyword. Only one plugin's symbols or folds count for a file at a time.
-- Git can't push, pull or blame yet, and the changes tab can't be edited
-  yet or stage single lines inline.
+- Git can't push, pull or blame yet. The changes tab has its boxes only
+  side by side, not inline, and stages only what's saved.
 - Settings have no editor of their own (they're a TOML file), and the
   theme is VS Code's Dark Modern, with no others yet.
 - Completions don't add imports, and renames don't create, move or delete

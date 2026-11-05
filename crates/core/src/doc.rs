@@ -14,6 +14,7 @@ pub const TAB_WIDTH: usize = 4;
 
 /// A change a plugin proposes, shown read-only for the user to accept or
 /// reject. The buffer holds the diff's lines.
+#[derive(Clone)]
 pub struct Review {
     pub plugin: String,
     pub id: String,

@@ -774,6 +774,9 @@ pub struct Editor {
     diff_inline: Option<bool>,
     /// Changes tabs asked for again, to keep their place when they come.
     diff_refresh: HashSet<PathBuf>,
+    /// A changes tab's file being opened beside it, which mustn't take
+    /// its place.
+    opening_beside: Option<PathBuf>,
     /// Signature help: the document, where the call was when it showed,
     /// and the signature.
     signature: Option<(u64, usize, crate::lang::Signature)>,
@@ -932,6 +935,7 @@ impl Editor {
             peek_asked: None,
             diff_inline: None,
             diff_refresh: HashSet::new(),
+            opening_beside: None,
             signature: None,
             diagnostics: HashMap::new(),
             diagnostics_version: 0,
@@ -1279,10 +1283,13 @@ impl Editor {
             }
             Event::Clipboard(text) => {
                 let text = text.unwrap_or_else(|| self.clipboard.clone());
-                if !text.is_empty()
-                    && !self.rename_paste(&text)
-                    && !self.terminal_paste(&text, &mut fx)
+                if text.is_empty()
+                    || self.rename_paste(&text)
+                    || self.terminal_paste(&text, &mut fx)
                 {
+                } else if self.focus == Focus::Editor && self.in_changes_tab() {
+                    self.through_file(&mut fx, |e, _| e.paste(&text));
+                } else {
                     self.paste(&text);
                 }
             }
@@ -1531,8 +1538,19 @@ impl Editor {
             Event::Discarded { path, before, all } => self.discarded(path, before, all),
             Event::ShowDiff { path, old, new } => {
                 let id = path.display().to_string();
-                self.show_review(String::new(), id, path, &old, &new);
+                let refresh = self.diff_refresh.contains(&path);
+                // An open file's text, unsaved edits and all, is what the
+                // tab shows and edits.
+                let new = self
+                    .docs
+                    .iter()
+                    .find(|d| d.buffer.path.as_ref() == Some(&path))
+                    .map_or(new, |d| d.buffer.text());
+                self.show_review(String::new(), id, path.clone(), &old, &new);
                 self.mark_staged();
+                if !refresh {
+                    self.open_beside(path, &mut fx);
+                }
             }
         }
         let shown = self.docs[self.current].id;
@@ -1679,6 +1697,21 @@ impl Editor {
     }
 
     fn opened(&mut self, path: PathBuf, text: &str) {
+        // A changes tab's file opens as the tab after it, and the changes
+        // tab stays shown.
+        if self.opening_beside.as_ref() == Some(&path) {
+            self.opening_beside = None;
+            if !self
+                .docs
+                .iter()
+                .any(|d| d.buffer.path.as_ref() == Some(&path))
+            {
+                let doc = Doc::new(self.new_id(), text, Some(path.clone()));
+                self.docs.insert(self.current + 1, doc);
+                self.place_marks(&path);
+            }
+            return;
+        }
         self.focus = Focus::Editor;
         let as_preview = self.opening_preview.take().is_some_and(|p| p == path);
         if let Some(i) = self
@@ -1948,28 +1981,16 @@ impl Editor {
         if key.ctrl || key.alt {
             return false;
         }
-        // Changes since the last commit are only looked at: Enter opens the
-        // file at that line.
+        // Changes since the last commit edit their file, which keys that
+        // type reach first; Esc goes back.
         if plugin.is_empty() {
             match key.code {
-                Enter => {
-                    let line = self.doc().line_col(self.doc().cursor).0;
-                    let review = self.doc().review.as_ref().unwrap();
-                    let (path, number) = (
-                        review.path.clone(),
-                        review.lines.get(line).map_or(0, |l| l.1),
-                    );
-                    self.open_at(path, number as u32, 0, fx);
-                }
-                Char(']') => self.next_change(true),
-                Char('[') => self.next_change(false),
                 Esc => {
                     if let Some(i) = self.docs.iter().position(|d| d.id == back_to) {
                         self.current = i;
                     }
                 }
-                Left | Right | Up | Down | Home | End | PageUp | PageDown => return false,
-                _ => self.notify(self.review_hint().into()),
+                _ => return false,
             }
             return true;
         }
@@ -2000,7 +2021,9 @@ impl Editor {
     /// The keys a review takes.
     pub(crate) fn review_hint(&self) -> &'static str {
         match &self.doc().review {
-            Some(r) if r.plugin.is_empty() => "Enter open the file · ] next change · Esc back",
+            Some(r) if r.plugin.is_empty() => {
+                "Alt+S stage · Alt+R revert · Alt+F5 next change · Esc back"
+            }
             Some(r) if r.plugin == rename::RENAME => {
                 "Reviewing a rename: Enter applies, Esc discards"
             }

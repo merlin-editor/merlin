@@ -366,11 +366,22 @@ committed:
     elsewhere.
   - Open changes tabs ask for their diff again after each `GitDiffs`, and
     keep their place (`diff_refresh`).
-  - Not yet: editing the new side, and boxes inline.
+  - **Editing the new side:** keys that change the text (typing, and the
+    commands in `compare::FILE_EDITS`, Ctrl+S among them) run in the
+    file's own document at the same place (`through_file`), then the tab
+    is rebuilt from the file's text (`rebuild_changes`) with the cursor
+    where the edit left it. Paste goes the same way. The file opens as a
+    tab beside the changes tab (`open_beside`, `opening_beside`). The last
+    commit's side says it can't be edited. While the file has unsaved
+    edits the row boxes hide and a box says to save first, as git sees
+    only the disk.
+  - Enter, `]` and `[` no longer open the file or move between changes in
+    a changes tab: they type. Alt+F5 and Alt+F3 move.
+  - Not yet: boxes inline.
   - Tests: the changes tab tests at the end of
     `crates/core/tests/workbench.rs`.
   - Checked in the window: Alt+I, a change's box, «, and Undo.
-- Still to build, in order: editing the changes tab's new side, the change peek from the gutter with Alt+F5 and Alt+F3, push,
+- Still to build, in order: the change peek from the gutter with Alt+F5 and Alt+F3, push,
   pull and sync with their notices (GitSync), blame, and new, deleted and
   moved files (GitFiles).
 
@@ -464,7 +475,7 @@ These are suggestions; nothing of them is written yet.
   straight into core `Event`s. The Rust SDK's re-exports are in
   `sdk/rust/src/lib.rs`; add new types to both lists there.
 - Checks before each commit:
-  - `cargo test --workspace`: 361 tests passed with the changes tab side by side
+  - `cargo test --workspace`: 362 tests passed with editing the changes tab
   - `cargo clippy --workspace --all-targets`
   - in `plugins/lsp`: `cargo clippy --release --target wasm32-wasip2`
   - `cargo fmt --all`
