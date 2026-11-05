@@ -77,7 +77,7 @@ are mostly in the VS Code half.
 | 3798 | open | Change the font size and font of the workbench | **Missing.** Only `MERLIN_UI_FONT` (family, env var) and zoom. Quick win. |
 | 2876 | built | Floating windows | Missing. Needs a design: big. |
 | 2618 | built | Several project folders in one window | Missing. |
-| 2411 | built | Tabs for the integrated terminal | **No terminal at all.** Big. |
+| 2411 | built | Tabs for the integrated terminal | Has it: tabs and splits (`493d5f0`). |
 | 2285 | built | Git status in the Explorer | Has it. |
 | 1933 | open | Customise mouse shortcuts | Missing. Niche. |
 | 1510 | open | Problems for the whole project, not just open files | Depends on the language server. |
@@ -97,7 +97,7 @@ are mostly in the VS Code half.
 | 1000 | built | Grid layout for editors | Has it (splits in four directions). |
 | 945 | open | Several workspaces in one window | Missing. |
 | 856 | open | Grouped tabs, as in Chrome | Missing. |
-| 810 | open | Pull the terminal out into its own window | No terminal. |
+| 810 | open | Pull the terminal out into its own window | Missing; the terminal is in the panel. |
 | 747 | built | Indent guides in the Explorer | Check. |
 | 739 | open | Tree-sitter highlighting | Has it, through plugins. |
 | 722 | open | Moving status bar items | Missing. Niche. |
@@ -157,6 +157,7 @@ are mostly in the VS Code half.
 - system file dialogs, the clipboard, the selection clipboard and IME
 - dialogs for unsaved changes and changes on disk
 - wasm plugins with settings, panels, processes and secrets
+- an integrated terminal with tabs and splits
 
 **Lacks:** these are found in the code and in the README's "Not done yet".
 - **Find:** only smart case. There are no case, whole-word, regex or
@@ -173,7 +174,8 @@ are mostly in the VS Code half.
   don't add imports.
 - **Git:** no staging or discarding of parts of a file, no blame, no push,
   no diff of two files, and no merge editor.
-- **Running code:** no terminal, no tasks, no test runner and no debugger.
+- **Running code:** no tasks, no test runner and no debugger. (The
+  terminal is now built.)
 - **Keys:** no Vim or Helix mode, no which-key, no macros.
 - **Windows:** one folder per window. There are no floating or second
   windows.
@@ -227,9 +229,11 @@ mark each **Built** here with its commit.
 
 These are ordered by votes against effort.
 
-1. **Integrated terminal** (**Built**, see `crates/app/src/terminal.rs` and
-   `crates/core/src/editor/terminal.rs`; not yet: mouse reporting to
-   programs, shell profiles, restoring terminals with the workspace): a
+1. **Integrated terminal** (**Built and done**, `493d5f0` and `7ee4884`;
+   see `crates/app/src/terminal.rs` and `crates/core/src/editor/terminal.rs`.
+   Resizing checked with htop on maximise, restore and split. Left for
+   later: mouse reporting to programs, shell profiles, restoring terminals
+   with the workspace): a
    bottom panel tab, with tabs for each shell
    and splits. Use the `alacritty_terminal` crate for the VT state and a
    pty, drawn by merlin's own renderer.
