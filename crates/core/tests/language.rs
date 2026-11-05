@@ -538,3 +538,48 @@ fn the_cards_code_opens_its_page_and_go_to_definition_goes_from_the_word() {
     );
     assert!(hover(&s).is_none());
 }
+
+#[test]
+fn a_hovers_code_is_coloured_by_its_languages_plugin() {
+    use merlin_core::Syntax;
+    use merlin_core::lang::PluginToken;
+    let mut s = hovering("fn main() {}\n");
+    s.send(Event::ShowHover(
+        "```rust\nimpl<T> [T]\npub const fn len(&self) -> usize\n```\nDocs.".into(),
+    ));
+    let colours = |s: &Session| match s.editor.window_view().popup.unwrap().kind {
+        merlin_core::PopupKind::Hover { colours, .. } => colours,
+        _ => unreachable!(),
+    };
+    assert!(
+        colours(&s).iter().all(Vec::is_empty),
+        "none until they come"
+    );
+    let text = "impl<T> [T]\npub const fn len(&self) -> usize";
+    assert_eq!(
+        s.editor.colour_requests(),
+        [("rust".to_string(), text.to_string())],
+        "the block is asked of the plugin that adds its language"
+    );
+    let token = |line, a, b, kind| PluginToken {
+        start: (line, a),
+        end: (line, b),
+        kind,
+    };
+    s.send(Event::TextColours {
+        language: "rust".into(),
+        text: text.into(),
+        tokens: vec![
+            token(0, 0, 4, Syntax::Keyword),
+            token(1, 13, 16, Syntax::Function),
+        ],
+    });
+    let colours = colours(&s);
+    assert_eq!(colours[1], [(0, 4, Syntax::Keyword)]);
+    assert_eq!(
+        colours[2],
+        [(13, 16, Syntax::Function)],
+        "by the line's own characters"
+    );
+    assert!(colours[4].is_empty(), "prose isn't code");
+}

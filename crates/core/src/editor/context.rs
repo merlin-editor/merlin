@@ -6,6 +6,7 @@ use super::{Editor, Effect, Focus, Popup};
 use crate::icons::{Icon, icon};
 use crate::key::{Key, KeyCode};
 use crate::lang::Severity;
+use merlin_syntax::Syntax;
 
 /// The right-click menu's commands, by id; `-` is a separator. Plugin
 /// commands that aren't loaded are left out.
@@ -99,6 +100,9 @@ pub enum PopupKind {
         lines: Vec<String>,
         /// Whether it can go to the definition of what it's about.
         definition: bool,
+        /// The colours of each of `lines` that's code, by character, as the
+        /// plugin that adds its language gives them; empty for the rest.
+        colours: Vec<Vec<(usize, usize, Syntax)>>,
     },
     /// Labels and details, and the one Enter takes.
     Completion {
@@ -408,6 +412,53 @@ impl Editor {
         }
     }
 
+    /// The colours of a hover's code blocks, a line each: each block as the
+    /// language its fence names, or else as the file's, coloured by the
+    /// plugin that adds that language. Asked for the first time they're
+    /// wanted, so they come a frame later.
+    fn hover_colours(&self, lines: &[String]) -> Vec<Vec<(usize, usize, Syntax)>> {
+        let mut out = vec![Vec::new(); lines.len()];
+        let file = self
+            .doc()
+            .buffer
+            .path
+            .as_ref()
+            .and_then(|p| p.extension())
+            .map(|e| e.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let mut i = 0;
+        while i < lines.len() {
+            let Some(fence) = lines[i].trim().strip_prefix("```") else {
+                i += 1;
+                continue;
+            };
+            let language = if fence.trim().is_empty() {
+                file.clone()
+            } else {
+                fence.trim().to_string()
+            };
+            let first = i + 1;
+            let end = (first..lines.len())
+                .find(|&k| lines[k].trim().starts_with("```"))
+                .unwrap_or(lines.len());
+            let text = lines[first..end].join("\n");
+            let spans = self.colours.get(&language, &text).unwrap_or_default();
+            // Split the block's spans into its lines.
+            let mut start = 0;
+            for (k, line) in lines[first..end].iter().enumerate() {
+                let len = line.chars().count();
+                out[first + k] = spans
+                    .iter()
+                    .filter(|&&(a, b, _)| a < start + len && b > start)
+                    .map(|&(a, b, kind)| (a.max(start) - start, b.min(start + len) - start, kind))
+                    .collect();
+                start += len + 1;
+            }
+            i = end + 1;
+        }
+        out
+    }
+
     fn has_lsp(&self, command: &str) -> bool {
         self.plugins
             .iter()
@@ -493,6 +544,7 @@ impl Editor {
                 problems: problems.clone(),
                 lines: lines.clone(),
                 definition: !lines.is_empty() && self.has_lsp("definition"),
+                colours: self.hover_colours(lines),
             },
             Popup::Completion { selected, .. } => PopupKind::Completion {
                 items: self

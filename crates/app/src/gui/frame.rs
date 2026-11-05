@@ -895,7 +895,8 @@ impl Frame<'_> {
                 problems,
                 lines,
                 definition,
-            } => self.hover_card(problems, lines, *definition, anchor, a, ch),
+                colours,
+            } => self.hover_card(problems, lines, colours, *definition, anchor, a, ch),
             PopupKind::Completion { items, selected } => {
                 self.completions(items, *selected, anchor, a, ch)
             }
@@ -992,13 +993,14 @@ impl Frame<'_> {
         &mut self,
         problems: &[ProblemView],
         lines: &[String],
+        colours: &[Spans],
         definition: bool,
         anchor: (f32, f32),
         a: &Areas,
         ch: f32,
     ) {
         let p = self.p;
-        let parts = hover_parts(lines);
+        let parts = hover_parts(lines, colours);
         if problems.is_empty() && parts.is_empty() {
             return;
         }
@@ -1012,7 +1014,7 @@ impl Frame<'_> {
         }
         for part in &parts {
             widest = widest.max(match part {
-                Part::Code(line) => self.text.width(line, CODE) + 24.0,
+                Part::Code(line, _) => self.text.width(line, CODE) + 24.0,
                 Part::Prose(text) => self.rich_width(text, PROSE) + 24.0,
                 Part::Gap => 0.0,
             });
@@ -1141,19 +1143,7 @@ impl Frame<'_> {
                 Op::Divider => self
                     .canvas
                     .fill(Rect::new(r.x + 1.0, y, r.w - 2.0, 1.0), p.border),
-                Op::Code(line) => {
-                    let shown = self.text.fit(&line, CODE, r.w - 24.0);
-                    self.text.draw_in_row(
-                        &mut self.canvas,
-                        &shown,
-                        CODE,
-                        r.x + 12.0,
-                        y,
-                        h,
-                        p.text,
-                        clip,
-                    );
-                }
+                Op::Code(line, spans) => self.code_line(&line, &spans, r.x + 12.0, y, h, clip),
                 Op::Prose(line) => {
                     self.draw_rich(&line, r.x + 12.0, y, h, PROSE, p.muted, p.text, clip)
                 }
@@ -1250,8 +1240,8 @@ impl Frame<'_> {
             }
             for part in parts {
                 match part {
-                    Part::Code(line) => {
-                        ops.push((y, 19.0, Op::Code(line.clone())));
+                    Part::Code(line, spans) => {
+                        ops.push((y, 19.0, Op::Code(line.clone(), spans.clone())));
                         y += 19.0;
                     }
                     Part::Prose(text) => {
@@ -1269,6 +1259,41 @@ impl Frame<'_> {
             }
         }
         ops
+    }
+
+    /// A line of code in a card, in the colours its language's plugin
+    /// gave, by character.
+    #[allow(clippy::too_many_arguments)]
+    fn code_line(&mut self, line: &str, spans: &Spans, mut x: f32, y: f32, h: f32, clip: Rect) {
+        let p = self.p;
+        let chars: Vec<char> = line.chars().collect();
+        let mut runs: Vec<(String, u32)> = Vec::new();
+        let mut at = 0;
+        for &(start, end, syntax) in spans {
+            let (start, end) = (start.min(chars.len()), end.min(chars.len()));
+            if start < at || start >= end {
+                continue;
+            }
+            if start > at {
+                runs.push((chars[at..start].iter().collect(), p.text));
+            }
+            let colour = theme::code(&p, syntax).unwrap_or(p.text);
+            runs.push((chars[start..end].iter().collect(), colour));
+            at = end;
+        }
+        if at < chars.len() {
+            runs.push((chars[at..].iter().collect(), p.text));
+        }
+        for (text, colour) in runs {
+            let max = clip.right() - 12.0 - x;
+            if max <= 0.0 {
+                break;
+            }
+            let shown = self.text.fit(&text, CODE, max);
+            self.text
+                .draw_in_row(&mut self.canvas, &shown, CODE, x, y, h, colour, clip);
+            x += self.text.width(&shown, CODE);
+        }
     }
 
     /// A severity's badge: its mark in a round chip of its colour.
@@ -3164,11 +3189,15 @@ const MESSAGE: (Face, Face) = (Face::ui(13.0).medium(), Face::mono(12.5));
 const PROSE: (Face, Face) = (Face::ui(12.0), Face::mono(11.5));
 const CODE: Face = Face::mono(12.5);
 
+/// Coloured runs of a line, by character.
+type Spans = Vec<(usize, usize, merlin_core::Syntax)>;
+
 /// What a language server's hover says, to draw: its code, its prose
 /// joined into paragraphs, and room between.
 #[derive(Clone, Debug, PartialEq)]
 enum Part {
-    Code(String),
+    /// A line of code, and its colours by character.
+    Code(String, Spans),
     Prose(String),
     Gap,
 }
@@ -3176,12 +3205,12 @@ enum Part {
 /// The code in a hover, then its docs up to their first heading, at most
 /// two paragraphs: the signature and what it does, as the card has room
 /// for. Rules and runs of blank lines are room between.
-fn hover_parts(lines: &[String]) -> Vec<Part> {
+fn hover_parts(lines: &[String], colours: &[Spans]) -> Vec<Part> {
     let mut parts: Vec<Part> = Vec::new();
     let mut code = false;
     let mut paragraphs = 0;
     let mut code_lines = 0;
-    for line in lines {
+    for (i, line) in lines.iter().enumerate() {
         let trimmed = line.trim();
         if trimmed.starts_with("```") {
             code = !code;
@@ -3193,7 +3222,8 @@ fn hover_parts(lines: &[String]) -> Vec<Part> {
         if code {
             code_lines += 1;
             if code_lines <= 8 {
-                parts.push(Part::Code(line.trim_end().to_string()));
+                let spans = colours.get(i).cloned().unwrap_or_default();
+                parts.push(Part::Code(line.trim_end().to_string(), spans));
             }
             continue;
         }
@@ -3246,7 +3276,7 @@ enum Op {
     Source(usize),
     Buttons,
     Divider,
-    Code(String),
+    Code(String, Spans),
     Prose(Vec<(String, bool)>),
     Definition,
 }
@@ -3263,12 +3293,12 @@ mod tests {
             .map(String::from)
             .collect();
         assert_eq!(
-            hover_parts(&hover),
+            hover_parts(&hover, &[]),
             [
-                Part::Code("core::slice".into()),
+                Part::Code("core::slice".into(), Vec::new()),
                 Part::Gap,
-                Part::Code("impl<T> [T]".into()),
-                Part::Code("pub const fn len(&self) -> usize".into()),
+                Part::Code("impl<T> [T]".into(), Vec::new()),
+                Part::Code("pub const fn len(&self) -> usize".into(), Vec::new()),
                 Part::Gap,
                 Part::Prose("Returns the number of elements in the slice.".into()),
             ]

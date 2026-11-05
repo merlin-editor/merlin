@@ -89,7 +89,10 @@ Built, each checked in the window with rust-analyzer:
     `codeDescription`, opened with `xdg-open`), and "also from" for the
     other checkers that report it
   - quiet Copy and Problems links on the right, the left kept for fixes
-  - a divider, then the server's hover: its code in the code font, the
+  - a divider, then the server's hover: its code in the code font and
+    coloured by the plugin that adds its language (`colour-text`, the
+    same route diffs and Markdown code blocks take; see
+    `hover_colours` in `context.rs`), the
     first two paragraphs of its docs up to a heading, and Go to
     definition (F12, a new core command `go.definition`)
 
