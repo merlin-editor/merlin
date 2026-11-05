@@ -1255,6 +1255,21 @@ impl Gui<'_> {
         }
         // The peek views, in the rows they open between the lines.
         let row_h = grid.cell_h as f32 / s;
+        // A changes tab's boxes, in the gap between its halves.
+        for text in &texts {
+            let Some(area) = areas.groups.get(text.group) else {
+                continue;
+            };
+            if text.diff.is_none() {
+                continue;
+            }
+            let glide = match self.glide {
+                Some((g, ..)) if g == text.group => glide,
+                _ => 0.0,
+            };
+            let y0 = area.text.y + (text.area.y as f32 - text.top_frac) * row_h + glide / s;
+            f.diff_marks(text, area.text, grid.cell_w as f32 / s, row_h, y0);
+        }
         for text in &texts {
             let (Some(peek), Some(area)) = (&text.peek, areas.groups.get(text.group)) else {
                 continue;

@@ -147,6 +147,9 @@ impl Editor {
         if id.starts_with("scm.") {
             return self.scm_command(id, fx);
         }
+        if id.starts_with("diff.") {
+            return self.diff_command(id, fx);
+        }
         match id {
             "file.save" => match self.doc().buffer.path {
                 Some(_) => self.save_formatted(fx),

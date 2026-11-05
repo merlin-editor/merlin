@@ -153,7 +153,12 @@ impl Editor {
     pub(crate) fn split_rows(&self) -> Option<Vec<(Option<usize>, Option<usize>)>> {
         use crate::diff::LineKind;
         let review = self.doc().review.as_ref()?;
-        if self.layout().text.w < SPLIT_WIDTH {
+        let width = self.layout().text.w;
+        let split = match self.diff_inline {
+            Some(inline) if review.plugin.is_empty() => !inline && width >= SPLIT_WIDTH / 2,
+            _ => width >= SPLIT_WIDTH,
+        };
+        if !split {
             return None;
         }
         let lines = &review.lines;

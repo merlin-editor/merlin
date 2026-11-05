@@ -176,7 +176,10 @@ pub(crate) fn builtin() -> Vec<Binding> {
             })
             .collect()
     };
-    let mut all = one(GLOBAL_KEYS, "");
+    // The changes tab's keys come first: Alt+S stages there, and opens the
+    // Selection menu elsewhere.
+    let mut all = one(super::keys::DIFF_KEYS, "isInDiffEditor");
+    all.extend(one(GLOBAL_KEYS, ""));
     all.extend(one(EDITOR_KEYS, "editorTextFocus"));
     all.extend(CHORDS.iter().filter_map(|(a, b, id)| {
         Some(Binding {
@@ -216,6 +219,7 @@ impl Editor {
             "auxiliaryBarFocus" => flag(self.focus == Focus::Panel),
             "menuFocus" => flag(self.focus == Focus::Menu),
             "multipleEditorGroups" => flag(self.groups.len() > 1),
+            "isInDiffEditor" => flag(self.focus == Focus::Editor && self.in_changes_tab()),
             _ => None,
         }
     }

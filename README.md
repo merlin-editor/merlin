@@ -387,9 +387,13 @@ pasting as many lines as there are cursors puts one at each. Esc goes back
 to one cursor.
 
 Source Control lists what changed since the last commit, staged changes
-first, as VS Code does; opening a file there shows its changes as a diff,
-side by side when the window is wide enough, and Enter jumps to that line in
-the file. `+` beside a file stages it and `−` unstages it, Stage All stages
+first, as VS Code does; opening a file there shows its changes since the
+last commit as a diff, side by side when the window is wide enough (Alt+I
+switches), and Enter jumps to that line in the file. Side by side, each
+change has a box in the gap between the halves that stages it (Alt+S) and
+a « that reverts it to the last commit (Alt+R), and each changed row has
+its own box; Alt+F5 and Alt+F3 go to the next and previous change, and the
+status bar says how many are staged. `+` beside a file stages it and `−` unstages it, Stage All stages
 everything, and a message with Enter or Commit commits what's staged. A
 file's arrow (or Right) unfolds its changes, each with its line: Stage or
 Unstage one alone, or Discard it. Discarding asks nothing and the notice
@@ -567,7 +571,8 @@ Other languages work too: anything that builds a WASI 0.2 component for
 - A wrapped line taller than the view can't scroll part way. Without a
   language server, folds go by indentation and symbols are found by
   keyword. Only one plugin's symbols or folds count for a file at a time.
-- Git can't push, pull or blame yet, or stage single lines.
+- Git can't push, pull or blame yet, and the changes tab can't be edited
+  yet or stage single lines inline.
 - Settings have no editor of their own (they're a TOML file), and the
   theme is VS Code's Dark Modern, with no others yet.
 - Completions don't add imports, and renames don't create, move or delete

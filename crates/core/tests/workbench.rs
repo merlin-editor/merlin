@@ -676,3 +676,160 @@ fn discarding_a_hunk_or_a_file_can_be_undone() {
         .expect("an untracked file asks");
     assert_eq!(dialog.title, "Are you sure you want to delete 'new.txt'?");
 }
+
+const HEAD_PALETTE: &str = "\
+pub fn shade(accent: u32, step: u32) -> u32 {
+    accent + step
+}
+
+pub fn theme_colours(accent: u32) -> Vec<u32> {
+    let steps = [1u32, 2, 3];
+    steps.iter().map(|s| shade(accent, *s)).collect()
+}
+";
+
+const NOW_PALETTE: &str = "\
+/// A colour a few steps from the accent.
+pub fn shade(accent: u32, step: u32) -> u32 {
+    accent + step * 2
+}
+
+pub fn theme_colours(accent: u32) -> Vec<u32> {
+    let steps = [1u32, 2, 3, 4];
+    steps.iter().map(|s| shade(accent, *s)).collect()
+}
+";
+
+/// The palette's changes tab, wide, with the steps change staged.
+fn palette_changes() -> Session {
+    let mut s = Session::new("fn a() {}\n", Some("src/main.rs"), 160, 16);
+    s.send(Event::GitStatus {
+        branch: Some("main".into()),
+        files: vec![("src/palette.rs".into(), 'M')],
+        staged: vec![("src/palette.rs".into(), 'M')],
+        changed: vec![("src/palette.rs".into(), 'M')],
+    });
+    let staged = "\
+diff --git a/src/palette.rs b/src/palette.rs
+--- a/src/palette.rs
++++ b/src/palette.rs
+@@ -5,4 +5,4 @@ pub fn shade(accent: u32, step: u32) -> u32 {
+ pub fn theme_colours(accent: u32) -> Vec<u32> {
+-    let steps = [1u32, 2, 3];
++    let steps = [1u32, 2, 3, 4];
+     steps.iter().map(|s| shade(accent, *s)).collect()
+ }
+";
+    let changed = "\
+diff --git a/src/palette.rs b/src/palette.rs
+--- a/src/palette.rs
++++ b/src/palette.rs
+@@ -1,3 +1,4 @@
++/// A colour a few steps from the accent.
+ pub fn shade(accent: u32, step: u32) -> u32 {
+-    accent + step
++    accent + step * 2
+ }
+";
+    s.send(Event::GitDiffs {
+        staged: merlin_core::git::parse(staged),
+        changed: merlin_core::git::parse(changed),
+    });
+    s.send(Event::ShowDiff {
+        path: "src/palette.rs".into(),
+        old: HEAD_PALETTE.into(),
+        new: NOW_PALETTE.into(),
+    });
+    s
+}
+
+fn applied(s: &Session) -> Vec<(String, bool)> {
+    s.effects
+        .iter()
+        .filter_map(|e| match e {
+            Effect::Git(GitAction::Apply { patch, reverse, .. }) => Some((patch.clone(), *reverse)),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn the_changes_tab_has_a_box_for_each_change_and_line() {
+    let mut s = palette_changes();
+    let views = s.editor.text_views();
+    assert_eq!(views.len(), 2, "side by side");
+    let marks = views[1].diff.clone().expect("the new side's marks");
+    let changes: Vec<_> = marks.rows.iter().filter_map(|m| m.change).collect();
+    use merlin_core::panel::Check;
+    assert_eq!(
+        changes.iter().map(|c| c.1).collect::<Vec<_>>(),
+        [Check::Off, Check::Off, Check::On],
+        "the steps change is staged"
+    );
+    // A removed line pairs with the line that replaced it: a hatched row
+    // on the old side where the doc comment was added.
+    assert_eq!(views[0].diff.as_ref().unwrap().fillers, [0]);
+    assert!(
+        s.screen().contains("Staged 1 of 3 changes"),
+        "{}",
+        s.screen()
+    );
+    // The first box stages only the doc comment.
+    s.send(Event::Ui(merlin_core::UiEvent::DiffStage(0)));
+    let got = applied(&s);
+    assert_eq!(got.len(), 1);
+    assert!(!got[0].1);
+    assert!(got[0].0.contains("+/// A colour"), "{}", got[0].0);
+    assert!(!got[0].0.contains("+    accent + step * 2"), "{}", got[0].0);
+    // The staged change's box unstages it, from the staged diff.
+    s.effects.clear();
+    s.send(Event::Ui(merlin_core::UiEvent::DiffStage(2)));
+    let got = applied(&s);
+    assert!(got[0].1, "backwards");
+    assert!(got[0].0.contains("+    let steps = [1u32, 2, 3, 4];"));
+    // A row's own box: the changed line, its old and new halves.
+    s.effects.clear();
+    let row = marks
+        .rows
+        .iter()
+        .filter_map(|m| m.line)
+        .nth(1)
+        .expect("the second change's row");
+    assert!(!row.1);
+    s.send(Event::Ui(merlin_core::UiEvent::DiffLine(row.0)));
+    let got = applied(&s);
+    assert!(
+        got[0]
+            .0
+            .contains("-    accent + step\n+    accent + step * 2\n }"),
+        "{}",
+        got[0].0
+    );
+    assert!(!got[0].0.contains("+/// A colour"), "{}", got[0].0);
+}
+
+#[test]
+fn reverting_a_change_goes_back_to_the_last_commit() {
+    let mut s = palette_changes();
+    // The cursor starts on the first change; Alt+F5 goes to the next.
+    s.run("key alt+f5");
+    s.run("key alt+r");
+    let patch = s.effects.iter().find_map(|e| match e {
+        Effect::Git(GitAction::Discard { patch: Some(p), .. }) => Some(p.clone()),
+        _ => None,
+    });
+    let patch = patch.expect("a patch to revert");
+    assert!(
+        patch.contains("-    accent + step\n+    accent + step * 2\n"),
+        "{patch}"
+    );
+    assert!(!patch.contains("A colour"), "only that change: {patch}");
+    // Alt+I shows it inline, and again side by side.
+    s.run("key alt+i");
+    assert_eq!(s.editor.text_views().len(), 1);
+    s.run("key alt+i");
+    assert_eq!(s.editor.text_views().len(), 2);
+    // Alt+S still opens the Selection menu outside the changes tab.
+    let bar = s.editor.window_view().diff_bar.expect("the bar");
+    assert_eq!((bar.change, bar.changes), (2, 3));
+}

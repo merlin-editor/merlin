@@ -60,6 +60,11 @@ pub enum UiEvent {
     PeekClose,
     PeekToSearch,
     PeekScroll(i32),
+    /// A changes tab's box for change `n`, its « for it, and a changed
+    /// buffer line's own box.
+    DiffStage(usize),
+    DiffRevert(usize),
+    DiffLine(usize),
     /// A button that isn't one of a panel's targets, such as a header's.
     Press(String),
     /// One of a side's panel titles, to show that panel.
@@ -148,6 +153,8 @@ pub struct WindowView {
     /// left, bottom, right.
     pub shown: [bool; 3],
     pub tabs: Vec<TabView>,
+    /// The changes tab's bar, at the right of the focused group's tabs.
+    pub diff_bar: Option<super::compare::DiffBarView>,
     pub crumbs: Vec<String>,
     pub status: Vec<StatusView>,
     /// The problem under the cursor, for the middle of the status bar.
@@ -425,6 +432,7 @@ impl Editor {
                 self.bar(Side::Right).visible,
             ],
             tabs,
+            diff_bar: self.diff_bar(),
             crumbs,
             status,
             problem,
@@ -564,6 +572,9 @@ impl Editor {
                 }
             }
             UiEvent::Fold { side, index } => self.fold_clicked(side, index),
+            UiEvent::DiffStage(n) => self.toggle_change(n, fx),
+            UiEvent::DiffRevert(n) => self.revert_change(n, fx),
+            UiEvent::DiffLine(line) => self.toggle_line(line, fx),
             UiEvent::Press(id) => self.view_click(&id, fx),
             UiEvent::PeekRow { index, clicks } => self.peek_clicked(index, clicks, fx),
             UiEvent::PeekClose => self.peek = None,

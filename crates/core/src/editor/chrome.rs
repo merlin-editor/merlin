@@ -105,6 +105,14 @@ impl Editor {
                 Style::StatusAccent,
                 None,
             ));
+        } else if let Some((staged, changes)) = self.staged_count() {
+            let s = if changes == 1 { "" } else { "s" };
+            left.push((
+                format!(" Staged {staged} of {changes} change{s} "),
+                Style::StatusAccent,
+                None,
+            ));
+            left.push((format!("  {}", self.review_hint()), Style::Status, None));
         } else if doc.review.is_some() {
             left.push((format!("  {}", self.review_hint()), Style::Status, None));
         }

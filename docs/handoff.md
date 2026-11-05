@@ -341,8 +341,36 @@ committed:
     `crates/core/tests/workbench.rs`.
   - Checked in the window: unfold, Stage, Unstage, Discard and Undo, and
     the menu.
-- Still to build, in order: the side-by-side diff with stage boxes
-  (Compare), the change peek from the gutter with Alt+F5 and Alt+F3, push,
+- **The changes tab side by side with boxes, built** (Compare):
+  - The tab compares the last commit with the working tree, the whole
+    file (`compare::WHOLE_FILE` context). Which changed lines are staged
+    comes from the two diffs Source Control has (`compare::mark_staged`,
+    `Review.staged`): an added line is staged unless the index's diff to
+    the working tree adds it; a removed one is staged when the staged diff
+    removes it.
+  - Staging lines builds one patch from the index's diff, unstaging one
+    from the staged diff (`set_staged`, `git::patch_lines`), with
+    `FileDiff::find` and `map_line` to move between the commit's, the
+    index's and the working tree's line numbers.
+  - « (`revert_change`) unstages the change, then reverse-applies a patch
+    made from the tab's own lines (`revert_patch`), with Undo.
+  - Side by side has a 7-column gap (`text_view::GAP`) and two more gutter
+    columns on the new side. The new side's `TextView.diff` has
+    `DiffMarks`: each change's box and «, each changed row's box (a
+    removed line and the one that replaced it go together), and rows to
+    hatch; the window draws them in `Frame::diff_marks`.
+  - The bar at the right of the tabs is `WindowView.diff_bar`
+    (`Frame::diff_bar`); Stage File and Revert File drop out under 900 px.
+  - Keys are `keys::DIFF_KEYS` with `when` `isInDiffEditor`, tried before
+    the rest, so Alt+S stages there and opens the Selection menu
+    elsewhere.
+  - Open changes tabs ask for their diff again after each `GitDiffs`, and
+    keep their place (`diff_refresh`).
+  - Not yet: editing the new side, and boxes inline.
+  - Tests: the changes tab tests at the end of
+    `crates/core/tests/workbench.rs`.
+  - Checked in the window: Alt+I, a change's box, «, and Undo.
+- Still to build, in order: editing the changes tab's new side, the change peek from the gutter with Alt+F5 and Alt+F3, push,
   pull and sync with their notices (GitSync), blame, and new, deleted and
   moved files (GitFiles).
 
@@ -436,7 +464,7 @@ These are suggestions; nothing of them is written yet.
   straight into core `Event`s. The Rust SDK's re-exports are in
   `sdk/rust/src/lib.rs`; add new types to both lists there.
 - Checks before each commit:
-  - `cargo test --workspace`: 358 tests passed with staging single changes
+  - `cargo test --workspace`: 361 tests passed with the changes tab side by side
   - `cargo clippy --workspace --all-targets`
   - in `plugins/lsp`: `cargo clippy --release --target wasm32-wasip2`
   - `cargo fmt --all`

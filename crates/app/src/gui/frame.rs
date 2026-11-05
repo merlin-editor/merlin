@@ -3,13 +3,14 @@
 //! rounded islands on a darker ground, and a thin status bar. Drawing also
 //! records what each clickable part does.
 
-use merlin_core::editor::{PeekItem, PeekView, RenameView};
+use merlin_core::editor::{DiffBarView, PeekItem, PeekView, RenameView};
 use merlin_core::lang::{ActionKind, CodeAction};
 use merlin_core::panel::{Check, Entry, Node, Swap, Tone};
 use merlin_core::{
     ContextItem, ContextView, DialogView, FindAction, FindView, HoverButton, Key, KeyCode,
     MenuView, PaletteView, PopupKind, PopupView, ProblemView, Severity, Side, SideView,
-    SignatureView, TabView, TerminalView, ToastView, UiEvent, WindowView, editor::GroupView,
+    SignatureView, TabView, TerminalView, TextView, ToastView, UiEvent, WindowView,
+    editor::GroupView,
 };
 
 use super::canvas::{Canvas, Face, Pictures, Rect, Text};
@@ -3403,10 +3404,20 @@ impl Frame<'_> {
     /// A group's tabs as rounded pills, pinned ones first as only their
     /// icons, scrolled along when they don't all fit, with the split and
     /// more buttons at the right end.
-    fn tab_strip(&mut self, tabs: &[TabView], row: Rect, group: Option<usize>, focused: bool) {
+    fn tab_strip(
+        &mut self,
+        tabs: &[TabView],
+        row: Rect,
+        group: Option<usize>,
+        focused: bool,
+        bar: Option<&DiffBarView>,
+    ) {
         let p = self.p;
         // Empty strip takes drops too, at the end, and a double click.
         self.hit(row, Hit::TabStrip(group));
+        // A changes tab's bar takes the strip's right end, before its
+        // buttons.
+        let bar_w = bar.map_or(0.0, |b| self.diff_bar(b, row, row.right() - 72.0));
         let face_of = |tab: &TabView| {
             if tab.preview {
                 Face::ui(13.0).italic()
@@ -3425,7 +3436,7 @@ impl Frame<'_> {
                 }
             })
             .collect();
-        let (left, right) = (row.x + 6.0, row.right() - 72.0);
+        let (left, right) = (row.x + 6.0, row.right() - 72.0 - bar_w);
         let room = (right - left).max(0.0);
         let starts: Vec<f32> = widths
             .iter()
@@ -3604,6 +3615,193 @@ impl Frame<'_> {
         );
     }
 
+    /// The changes tab's bar, ending at `right`: which change, arrows to
+    /// the next and previous, side by side or inline, and Stage File and
+    /// Revert File. Returns its width.
+    fn diff_bar(&mut self, bar: &DiffBarView, row: Rect, right: f32) -> f32 {
+        let p = self.p;
+        let face = Face::ui(12.0);
+        let h = 22.0;
+        let y = row.y + (row.h - h) / 2.0;
+        let mut x = right - 6.0;
+        let button = |f: &mut Self, label: &str, command: &'static str, x: &mut f32| {
+            let w = f.text.width(label, face) + 18.0;
+            *x -= w;
+            let r = Rect::new(*x, y, w, h);
+            let hovered = f.hovered(r);
+            f.canvas
+                .round(r, 6.0, if hovered { p.border } else { p.chip });
+            f.text
+                .draw_in_row(&mut f.canvas, label, face, r.x + 9.0, y, h, p.bright, r);
+            f.hit(r, Hit::Command(command));
+            *x -= 6.0;
+        };
+        // A narrow strip keeps its room for the tabs; the file's buttons
+        // are in Source Control too.
+        if row.w >= 900.0 {
+            button(self, "Revert File", "diff.revert_file", &mut x);
+            button(self, "Stage File", "diff.stage_file", &mut x);
+        }
+        // Side by side or inline, the one shown lit.
+        let segs = [("Inline", true), ("Side by side", false)];
+        let widths: Vec<f32> = segs
+            .iter()
+            .map(|(l, _)| self.text.width(l, face) + 20.0)
+            .collect();
+        let total: f32 = widths.iter().sum();
+        x -= total;
+        let seg = Rect::new(x, y, total, h);
+        self.canvas.frame(seg, 6.0, 1.0, p.border, 0);
+        let mut sx = seg.right();
+        for ((label, inline), w) in segs.iter().zip(&widths) {
+            sx -= w;
+            let r = Rect::new(sx, y, *w, h);
+            let on = bar.inline == *inline;
+            if on {
+                self.canvas.round(r.inset(1.0), 5.0, p.raised);
+            } else {
+                self.hit(r, Hit::Command("diff.inline"));
+            }
+            let colour = if on { p.bright } else { p.muted };
+            self.text
+                .draw_in_row(&mut self.canvas, label, face, r.x + 10.0, y, h, colour, r);
+        }
+        x -= 10.0;
+        // The arrows, then which change it is.
+        for (glyph, command) in [("↓", "diff.next"), ("↑", "diff.prev")] {
+            x -= 20.0;
+            let r = Rect::new(x, y, 20.0, h);
+            if self.hovered(r) {
+                self.canvas.round(r, 5.0, p.hover);
+            }
+            let gw = self.text.width(glyph, face);
+            self.text.draw_in_row(
+                &mut self.canvas,
+                glyph,
+                face,
+                r.x + (20.0 - gw) / 2.0,
+                y,
+                h,
+                p.muted,
+                r,
+            );
+            self.hit(r, Hit::Command(command));
+        }
+        let label = if bar.changes == 0 {
+            "No changes".to_string()
+        } else {
+            format!("Change {} of {}", bar.change.max(1), bar.changes)
+        };
+        let lw = self.text.width(&label, face);
+        x -= lw + 6.0;
+        self.text.draw_in_row(
+            &mut self.canvas,
+            &label,
+            face,
+            x,
+            y,
+            h,
+            p.text,
+            Rect::new(x, y, lw + 1.0, h),
+        );
+        right - x
+    }
+
+    /// A changes tab's boxes and « buttons in the gap between its halves,
+    /// each changed row's box before the new side's numbers, and the rows
+    /// with no line hatched. `text` is the group's text area, and `y0` the
+    /// top of the view's first row.
+    pub fn diff_marks(&mut self, view: &TextView, text: Rect, cell_w: f32, row_h: f32, y0: f32) {
+        let Some(marks) = &view.diff else { return };
+        let p = self.p;
+        let col_x = |c: u16| text.x + c as f32 * cell_w;
+        let row_y = |r: i32| y0 + r as f32 * row_h;
+        let side = Rect::new(
+            col_x(view.area.x),
+            text.y,
+            view.area.w as f32 * cell_w,
+            text.h,
+        );
+        // Hatching where a side has no line.
+        for &r in &marks.fillers {
+            let row = Rect::new(side.x, row_y(r), side.w, row_h);
+            if row.bottom() <= text.y || row.y >= text.bottom() {
+                continue;
+            }
+            self.canvas.fill(row, p.island);
+            let colour = mix(p.line, p.island, 0.6);
+            let mut x0 = row.x - row.h;
+            while x0 < row.right() {
+                let (mut a, mut b) = ((x0, row.bottom()), (x0 + row.h, row.y));
+                if a.0 < row.x {
+                    a = (row.x, row.bottom() - (row.x - a.0));
+                }
+                if b.0 > row.right() {
+                    b = (row.right(), row.y + (b.0 - row.right()));
+                }
+                self.canvas.line(a, b, 1.0, colour);
+                x0 += 6.0;
+            }
+        }
+        let gap = Rect::new(
+            col_x(marks.gap.0),
+            text.y,
+            marks.gap.1 as f32 * cell_w,
+            text.h,
+        );
+        for m in &marks.rows {
+            let y = row_y(m.row);
+            if y + row_h <= text.y || y >= text.bottom() {
+                continue;
+            }
+            let mid = y + row_h / 2.0;
+            if let Some((index, check, rows)) = m.change {
+                // The change's band across the gap, its « and its box.
+                let band = Rect::new(gap.x, y, gap.w, rows as f32 * row_h);
+                let band = Rect::new(band.x, band.y.max(text.y), band.w, band.h);
+                self.canvas.fill(band, mix(p.accent, p.island, 0.1));
+                let revert = Rect::new(gap.x + gap.w / 2.0 - 24.0, mid - 9.0, 22.0, 18.0);
+                let hovered = self.hovered(revert);
+                self.canvas
+                    .round(revert, 4.0, if hovered { p.border } else { p.chip });
+                let face = Face::ui(12.0);
+                let gw = self.text.width("«", face);
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    "«",
+                    face,
+                    revert.x + (22.0 - gw) / 2.0,
+                    revert.y,
+                    18.0,
+                    p.bright,
+                    revert,
+                );
+                self.tips
+                    .push((revert, "Revert to the last commit (Alt+R)".into()));
+                self.hit(revert, Hit::Ui(UiEvent::DiffRevert(index)));
+                let bx = gap.x + gap.w / 2.0 + 4.0;
+                self.checkbox(check, bx, mid);
+                let b = Rect::new(bx - 3.0, y, 20.0, row_h);
+                self.tips.push((b, "Stage this change (Alt+S)".into()));
+                self.hit(b, Hit::Ui(UiEvent::DiffStage(index)));
+            }
+            if let Some((line, staged)) = m.line {
+                let x = col_x(view.area.x) + cell_w * 0.5;
+                // A staged row has a blue edge.
+                if staged {
+                    self.canvas
+                        .fill(Rect::new(col_x(view.area.x), y, 3.0, row_h), p.accent);
+                }
+                let check = if staged { Check::On } else { Check::Off };
+                self.checkbox(check, x, mid);
+                self.hit(
+                    Rect::new(x - 3.0, y, 20.0, row_h),
+                    Hit::Ui(UiEvent::DiffLine(line)),
+                );
+            }
+        }
+    }
+
     fn crumb_row(&mut self, crumbs: &[String], row: Rect, group: Option<usize>) {
         let p = self.p;
         let face = Face::ui(12.0);
@@ -3663,7 +3861,8 @@ impl Frame<'_> {
             self.canvas.fill(line, if lit { p.accent } else { p.line });
         }
         for (g, (group, area)) in view.groups.iter().zip(&a.groups).enumerate() {
-            self.tab_strip(&group.tabs, area.tabs, Some(g), group.focused);
+            let bar = view.diff_bar.as_ref().filter(|_| group.focused);
+            self.tab_strip(&group.tabs, area.tabs, Some(g), group.focused, bar);
             if let Some(row) = area.crumbs {
                 self.crumb_row(&group.crumbs, row, Some(g));
             }

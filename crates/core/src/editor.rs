@@ -3,6 +3,7 @@ mod carets;
 mod chrome;
 mod colours;
 mod commands;
+mod compare;
 mod context;
 mod crumbs;
 mod dialog;
@@ -26,6 +27,7 @@ mod overview;
 mod palette;
 mod panels;
 mod peek;
+pub use compare::{DiffBarView, DiffMark, DiffMarks};
 pub use peek::{PeekItem, PeekView, PreviewLine};
 mod rename;
 pub(crate) use rename::RENAME as RENAME_REVIEW;
@@ -67,7 +69,7 @@ pub use workspace::{GroupState, Tab, Workspace};
 pub use wrap::Row as WrapRow;
 
 use std::cmp::Reverse;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use commands::BUILTIN;
@@ -767,6 +769,11 @@ pub struct Editor {
     /// the document, line and name.
     peek: Option<peek::Peek>,
     peek_asked: Option<(u64, usize, String)>,
+    /// Changes tabs show side by side or inline as the user chose with
+    /// Alt+I, else as wide as the window is.
+    diff_inline: Option<bool>,
+    /// Changes tabs asked for again, to keep their place when they come.
+    diff_refresh: HashSet<PathBuf>,
     /// Signature help: the document, where the call was when it showed,
     /// and the signature.
     signature: Option<(u64, usize, crate::lang::Signature)>,
@@ -923,6 +930,8 @@ impl Editor {
             rename_review: None,
             peek: None,
             peek_asked: None,
+            diff_inline: None,
+            diff_refresh: HashSet::new(),
             signature: None,
             diagnostics: HashMap::new(),
             diagnostics_version: 0,
@@ -1509,11 +1518,21 @@ impl Editor {
                 self.git.staged_diffs = by_path(staged);
                 self.git.changed_diffs = by_path(changed);
                 self.git.version += 1;
+                // Open changes tabs follow what changed on disk and in the
+                // index.
+                for doc in &self.docs {
+                    if let Some(r) = doc.review.as_ref().filter(|r| r.plugin.is_empty()) {
+                        self.diff_refresh.insert(r.path.clone());
+                        fx.push(Effect::OpenDiff(r.path.clone()));
+                    }
+                }
+                self.mark_staged();
             }
             Event::Discarded { path, before, all } => self.discarded(path, before, all),
             Event::ShowDiff { path, old, new } => {
                 let id = path.display().to_string();
                 self.show_review(String::new(), id, path, &old, &new);
+                self.mark_staged();
             }
         }
         let shown = self.docs[self.current].id;
@@ -1826,16 +1845,24 @@ impl Editor {
     }
 
     fn show_review(&mut self, plugin: String, id: String, path: PathBuf, old: &str, new: &str) {
+        let refresh = plugin.is_empty() && self.diff_refresh.remove(&path);
         let back_to = match &self.doc().review {
             Some(review) => review.back_to,
             None => self.doc().id,
         };
         let doc_id = self.new_id();
-        let doc = Doc::review(
+        // Changes since the last commit show the whole file, to edit.
+        let context = if plugin.is_empty() {
+            compare::WHOLE_FILE
+        } else {
+            3
+        };
+        let doc = Doc::review_in(
             doc_id,
             (plugin.clone(), id.clone(), path, back_to),
             old,
             new,
+            context,
         );
         let same = |d: &Doc| {
             d.review
@@ -1843,6 +1870,20 @@ impl Editor {
                 .is_some_and(|r| r.plugin == plugin && r.id == id)
         };
         match self.docs.iter().position(same) {
+            // The same changes again, as the file or the index changed:
+            // the tab keeps its place, and focus stays where it is.
+            Some(i) if refresh => {
+                let (cursor, scroll) = (self.docs[i].cursor, self.docs[i].scroll);
+                let id = self.docs[i].id;
+                self.docs[i] = doc;
+                self.docs[i].id = id;
+                let len = self.docs[i].buffer.rope().len_chars();
+                let line = self.docs[i].line_col(cursor.min(len)).0;
+                self.docs[i].cursor = self.docs[i].line_start(line.min(self.docs[i].last_line()));
+                self.docs[i].scroll = scroll.min(self.docs[i].last_line());
+                self.colour_review(i);
+                return;
+            }
             Some(i) => {
                 self.docs[i] = doc;
                 self.current = i;

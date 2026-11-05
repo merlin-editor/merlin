@@ -63,6 +63,9 @@ pub struct TextView {
     pub bulb: Option<usize>,
     /// The references peek view, in the rows it opens after its line.
     pub peek: Option<super::PeekView>,
+    /// On the new side of a changes tab side by side: the boxes and
+    /// buttons in the gap and before the numbers, and the rows to hatch.
+    pub diff: Option<super::compare::DiffMarks>,
 }
 
 /// A line of the file on screen.
@@ -192,21 +195,26 @@ impl Editor {
             .to_string()
             .len()
             .max(3);
+        let git = review.plugin.is_empty();
+        // A changes tab has its boxes in a wider gap, and each changed
+        // line's own box before the new side's numbers.
+        let gap = if git { GAP } else { 2 };
         let gutter = digits + 2;
-        let half = area.w.saturating_sub(2) / 2;
+        let half = area.w.saturating_sub(gap) / 2;
         let cur = doc.line_col(v.cursor).0;
         let focused = self.focus == Focus::Editor && !self.drawing_other();
         let halves = [
             (Rect { w: half, ..area }, true),
             (
                 Rect {
-                    x: area.x + half + 1,
-                    w: area.w - half - 1,
+                    x: area.x + half + gap,
+                    w: area.w.saturating_sub(half + gap),
                     ..area
                 },
                 false,
             ),
         ];
+        let marks = self.diff_marks(rows, first, area.h as usize, (area.x + half, gap));
         halves
             .into_iter()
             .map(|(rect, old)| {
@@ -228,23 +236,28 @@ impl Editor {
                             LineKind::Same if line == cur && focused => (' ', Style::CurrentLine),
                             LineKind::Same => (' ', Style::Normal),
                         };
+                        let gutter = if git && !old { gutter + 2 } else { gutter };
                         let mut l = self.plain_line(line, row as i32, gutter, true);
+                        let boxes = if git && !old { "  " } else { "" };
                         l.number = if kind == LineKind::Gap {
-                            " ".repeat(digits + 1)
+                            " ".repeat(digits + 1 + boxes.len())
                         } else {
-                            format!("{:>digits$} ", number + 1)
+                            format!("{boxes}{:>digits$} ", number + 1)
                         };
                         l.number_style = if line == cur {
                             Style::GutterActive
                         } else {
                             Style::Gutter
                         };
-                        l.sign = Some((sign, base));
+                        // Colour says it side by side; the changes tab's boxes
+                        // take the room.
+                        l.sign = (!git).then_some((sign, base));
                         l.base = base;
                         l.styles = vec![base; l.chars.len()];
                         Some(l)
                     })
                     .collect();
+                let gutter = if git && !old { gutter + 2 } else { gutter };
                 TextView {
                     group: self.pane(),
                     top_row: v.scroll as f64,
@@ -267,6 +280,9 @@ impl Editor {
                     minimap: None,
                     bulb: None,
                     peek: None,
+                    diff: marks
+                        .as_ref()
+                        .map(|(o, n)| if old { o.clone() } else { n.clone() }),
                 }
             })
             .collect()
@@ -341,6 +357,7 @@ impl Editor {
             minimap: self.minimap_view(),
             bulb: if focused { self.bulb_line() } else { None },
             peek: None,
+            diff: None,
         };
         let bottom = area.h as i32 + overscan as i32;
         let mut row = -above;
@@ -646,6 +663,9 @@ impl Editor {
 pub(super) fn visible_lines(scroll: usize, rows: usize, lines: usize) -> std::ops::Range<usize> {
     scroll.min(lines)..(scroll + rows).min(lines)
 }
+
+/// Columns between the halves of a changes tab side by side.
+const GAP: u16 = 7;
 
 /// The first side-by-side row to show, for a view scrolled to `scroll`.
 pub(crate) fn split_first(rows: &[(Option<usize>, Option<usize>)], scroll: usize) -> usize {

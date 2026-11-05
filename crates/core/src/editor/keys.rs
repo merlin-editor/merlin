@@ -3,6 +3,15 @@
 use super::keymap::{Binding, From, When, spec_of};
 use super::*;
 
+/// Keys in a file's changes since the last commit.
+pub(super) const DIFF_KEYS: &[(&str, &str)] = &[
+    ("alt+f5", "diff.next"),
+    ("alt+f3", "diff.prev"),
+    ("alt+i", "diff.inline"),
+    ("alt+s", "diff.stage"),
+    ("alt+r", "diff.revert"),
+];
+
 /// Keys that work wherever focus is, as VS Code binds them on Linux.
 pub(super) const GLOBAL_KEYS: &[(&str, &str)] = &[
     ("ctrl+s", "file.save"),

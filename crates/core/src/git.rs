@@ -96,6 +96,73 @@ impl FileDiff {
         patch(self, change.hunk, Some(&change.lines), reverse)
     }
 
+    /// The hunk and line where line `number` (from 1) was added, for `'+'`
+    /// (counted in the new text), or removed, for `'-'` (in the old).
+    pub fn find(&self, kind: char, number: usize) -> Option<(usize, usize)> {
+        for (h, hunk) in self.hunks.iter().enumerate() {
+            // A hunk at the very start of an empty side says line 0.
+            let (mut old, mut new) = (hunk.old_start.max(1), hunk.new_start.max(1));
+            for (i, l) in hunk.lines.iter().enumerate() {
+                match l.kind {
+                    '+' if kind == '+' && new == number => return Some((h, i)),
+                    '-' if kind == '-' && old == number => return Some((h, i)),
+                    _ => {}
+                }
+                if l.kind != '+' {
+                    old += 1;
+                }
+                if l.kind != '-' {
+                    new += 1;
+                }
+            }
+        }
+        None
+    }
+
+    /// Where unchanged line `number` of the new text (from 1) is in the
+    /// old, or the other way with `to_new`.
+    pub fn map_line(&self, number: usize, to_new: bool) -> usize {
+        let mut shift: isize = 0;
+        for hunk in &self.hunks {
+            let (old_start, new_start) = (hunk.old_start, hunk.new_start);
+            let start = if to_new { old_start } else { new_start };
+            let (added, removed) = hunk.counts();
+            let len_here = if to_new {
+                hunk.lines.len() - added
+            } else {
+                hunk.lines.len() - removed
+            };
+            if number < start {
+                break;
+            }
+            if number < start + len_here {
+                // Inside the hunk: walk to it.
+                let (mut old, mut new) = (old_start, new_start);
+                for l in &hunk.lines {
+                    let here = if to_new { old } else { new };
+                    if l.kind == ' ' && here == number {
+                        return if to_new { new } else { old };
+                    }
+                    if l.kind != '+' {
+                        old += 1;
+                    }
+                    if l.kind != '-' {
+                        new += 1;
+                    }
+                }
+                return if to_new { new } else { old };
+            }
+            shift = if to_new {
+                (new_start + hunk.lines.len() - removed) as isize
+                    - (old_start + hunk.lines.len() - added) as isize
+            } else {
+                (old_start + hunk.lines.len() - added) as isize
+                    - (new_start + hunk.lines.len() - removed) as isize
+            };
+        }
+        (number as isize + shift).max(1) as usize
+    }
+
     /// Lines added and removed in all of the file's hunks.
     pub fn counts(&self) -> (usize, usize) {
         self.hunks.iter().fold((0, 0), |(a, r), h| {
@@ -221,6 +288,19 @@ fn starts(rest: &str) -> (usize, usize) {
     let old = num(parts.next());
     let new = num(parts.next());
     (old, new)
+}
+
+/// A patch for `git apply` of some lines of several hunks: each hunk's
+/// index and the indices of its lines taken. See [`patch`].
+pub fn patch_lines(file: &FileDiff, chosen: &[(usize, Vec<usize>)], reverse: bool) -> String {
+    let mut out = file.header.clone();
+    let mut hunks: Vec<&(usize, Vec<usize>)> = chosen.iter().collect();
+    hunks.sort_by_key(|(h, _)| *h);
+    for (h, lines) in hunks {
+        let one = patch(file, *h, Some(lines), reverse);
+        out.push_str(&one[file.header.len()..]);
+    }
+    out
 }
 
 /// A patch for `git apply` of hunk `index` of `file`, with only the lines
@@ -368,6 +448,25 @@ index 3333333..4444444 100644
             ),
             "{p}"
         );
+    }
+
+    #[test]
+    fn lines_are_found_and_mapped_across_hunks() {
+        let files = parse(DIFF);
+        let f = &files[0];
+        assert_eq!(f.find('+', 1), Some((0, 0)));
+        assert_eq!(f.find('-', 2), Some((0, 2)));
+        assert_eq!(f.find('+', 7), Some((1, 2)));
+        assert_eq!(f.find('-', 6), Some((1, 1)));
+        // Old line 2 is new line 3, and the line after the last hunk moves
+        // by one too.
+        assert_eq!(f.map_line(1, true), 2);
+        assert_eq!(f.map_line(4, false), 3);
+        assert_eq!(f.map_line(20, true), 21);
+        assert_eq!(f.map_line(21, false), 20);
+        let p = patch_lines(f, &[(1, vec![1, 2]), (0, vec![0])], false);
+        assert_eq!(p.matches("diff --git").count(), 1);
+        assert!(p.find("@@ -1,3").unwrap() < p.find("@@ -5,4").unwrap());
     }
 
     #[test]

@@ -28,6 +28,9 @@ pub struct Review {
     /// Changed words in the buffer, as character ranges, to tint more than
     /// their lines.
     pub words: Vec<(usize, usize)>,
+    /// For changes since the last commit: whether each changed buffer line
+    /// is staged. `None` for unchanged lines.
+    pub staged: Vec<Option<bool>>,
 }
 
 /// A cursor besides the document's own, with its selection.
@@ -145,8 +148,20 @@ impl Doc {
 
     /// A read-only document showing the change from `old` to `new`.
     pub fn review(id: u64, review: (String, String, PathBuf, u64), old: &str, new: &str) -> Self {
+        Self::review_in(id, review, old, new, 3)
+    }
+
+    /// A review with `context` unchanged lines around each change, and the
+    /// rest left out.
+    pub fn review_in(
+        id: u64,
+        review: (String, String, PathBuf, u64),
+        old: &str,
+        new: &str,
+        context: usize,
+    ) -> Self {
         let (plugin, change, path, back_to) = review;
-        let mut lines = diff::unified(old, new, 3);
+        let mut lines = diff::unified(old, new, context);
         if lines.is_empty() {
             lines.push(diff::DiffLine {
                 kind: LineKind::Gap,
@@ -170,6 +185,7 @@ impl Doc {
             old_numbers: lines.iter().map(|l| l.old_number).collect(),
             back_to,
             words: Vec::new(),
+            staged: Vec::new(),
         });
         doc
     }
