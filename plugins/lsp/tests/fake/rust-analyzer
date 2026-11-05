@@ -84,6 +84,19 @@ while True:
         send({"id": message["id"], "result": {"contents": {
             "kind": "markdown", "value": "```rust\nfn main()\n```\n\n---\n\nThe entry point.",
         }}})
+    elif method == "textDocument/codeAction":
+        uri = params["textDocument"]["uri"]
+        span = {"start": {"line": 1, "character": 8}, "end": {"line": 1, "character": 9}}
+        send({"id": message["id"], "result": [
+            {"title": "Extract into a variable", "kind": "refactor.extract",
+             "edit": {"documentChanges": [{"textDocument": {"uri": uri, "version": 1},
+                                           "edits": [{"range": span, "newText": "x"}]}]}},
+            {"title": "Run a command", "command": "fake.command"},
+            {"title": "Can't here", "kind": "refactor", "disabled": {"reason": "no"},
+             "edit": {"changes": {}}},
+            {"title": "Rename to `_v`", "kind": "quickfix", "isPreferred": True,
+             "edit": {"changes": {uri: [{"range": span, "newText": "_v"}]}}},
+        ]})
     elif method == "textDocument/definition":
         uri = params["textDocument"]["uri"]
         send({"id": message["id"], "result": [{

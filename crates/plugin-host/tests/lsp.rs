@@ -196,3 +196,40 @@ fn semantic_tokens_symbols_and_folds_come_from_the_server() {
         }
     }
 }
+
+#[test]
+fn code_actions_come_with_their_edits_and_one_chosen_is_made() {
+    use merlin_core::lang::{ActionKind, FileEdit};
+    let mut host = started();
+    host.run_command("lsp", "code-actions", snapshot());
+    let event = wait_for(&mut host, "code actions", |e| {
+        matches!(e, Event::ShowCodeActions(_))
+    });
+    let Event::ShowCodeActions(actions) = event else {
+        unreachable!()
+    };
+    let listed: Vec<(&str, ActionKind, bool)> = actions
+        .iter()
+        .map(|a| (a.title.as_str(), a.kind, a.preferred))
+        .collect();
+    assert_eq!(
+        listed,
+        [
+            ("Extract into a variable", ActionKind::Refactor, false),
+            ("Rename to `_v`", ActionKind::QuickFix, true),
+        ],
+        "a bare command and a disabled action are left out"
+    );
+    let events = host.pick("lsp", "code-actions", &actions[1].id, snapshot());
+    let edits = events.into_iter().find_map(|e| match e {
+        Event::ApplyEdits(edits) => Some(edits),
+        _ => None,
+    });
+    assert_eq!(
+        edits,
+        Some(vec![FileEdit {
+            path: "src/main.rs".into(),
+            edits: vec![((1, 8), (1, 9), "_v".into())],
+        }])
+    );
+}

@@ -458,6 +458,31 @@ impl Fonts {
                     other => self.cell_glyph(other, canvas, gutter_x, y0, colour),
                 }
             }
+            // The code actions' lightbulb, in its room left of the number.
+            if view.bulb == Some(l.line) {
+                let x0 = gutter_x + view.signs as usize as f32 * cw;
+                let size = (ch * 0.72).min(cw * 2.0 - 2.0 * s).round();
+                let (bx, by) = (
+                    (x0 + (cw * 2.0 - size) / 2.0).round(),
+                    (y0 + (ch - size) / 2.0).round(),
+                );
+                quad(
+                    canvas,
+                    [bx, by, bx + size, by + size],
+                    3.0 * s,
+                    theme::mix(p.warning, p.island, 0.2),
+                );
+                // A bulb: its glass, and the base under it.
+                let (cx, cy, r) = (bx + size / 2.0, by + size * 0.42, size * 0.22);
+                quad(canvas, [cx - r, cy - r, cx + r, cy + r], r, p.warning);
+                let w = r * 0.55;
+                quad(
+                    canvas,
+                    [cx - w, cy + r * 0.6, cx + w, cy + r * 1.55],
+                    s * 0.5,
+                    p.warning,
+                );
+            }
             if let Some(folded) = l.fold_arrow {
                 let cx = (text_x - cw * 0.5) / s;
                 let cy = (y0 + ch * 0.5) / s;

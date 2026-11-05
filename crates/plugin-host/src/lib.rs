@@ -471,6 +471,45 @@ impl host::Host for State {
         });
     }
 
+    fn show_code_actions(&mut self, actions: Vec<types::CodeAction>) {
+        use merlin_core::lang::{ActionKind, CodeAction};
+        self.events.push(Event::ShowCodeActions(
+            actions
+                .into_iter()
+                .map(|a| CodeAction {
+                    id: a.id,
+                    title: a.title,
+                    kind: match a.kind {
+                        types::ActionKind::QuickFix => ActionKind::QuickFix,
+                        types::ActionKind::Refactor => ActionKind::Refactor,
+                        types::ActionKind::Source => ActionKind::Source,
+                        types::ActionKind::Other => ActionKind::Other,
+                    },
+                    preferred: a.preferred,
+                })
+                .collect(),
+        ));
+    }
+
+    fn apply_edits(&mut self, edits: Vec<types::FileEdit>) -> Result<(), String> {
+        self.need(self.permissions.editor_write, "editor-write")?;
+        let at = |p: types::Position| (p.line, p.column);
+        self.events.push(Event::ApplyEdits(
+            edits
+                .into_iter()
+                .map(|f| merlin_core::lang::FileEdit {
+                    path: self.snapshot.local(&f.path),
+                    edits: f
+                        .edits
+                        .into_iter()
+                        .map(|e| (at(e.start), at(e.end), e.text))
+                        .collect(),
+                })
+                .collect(),
+        ));
+        Ok(())
+    }
+
     fn insert_text(&mut self, text: String) -> Result<(), String> {
         self.need(self.permissions.editor_write, "editor-write")?;
         self.events.push(Event::InsertText(text));

@@ -1,3 +1,4 @@
+mod actions;
 mod carets;
 mod chrome;
 mod colours;
@@ -279,6 +280,11 @@ pub enum Event {
     ShowCompletions(Vec<Completion>),
     /// The signature of the call the cursor is in, or none to hide it.
     ShowSignature(Option<crate::lang::Signature>),
+    /// The code actions at the cursor, answering the `code-actions`
+    /// command.
+    ShowCodeActions(Vec<crate::lang::CodeAction>),
+    /// Changes to files from a plugin, such as a code action's.
+    ApplyEdits(Vec<crate::lang::FileEdit>),
     /// Opens a file at a line and UTF-16 column, as go-to-definition does.
     OpenAt {
         path: PathBuf,
@@ -584,6 +590,13 @@ enum Popup {
         problems: Vec<context::ProblemView>,
         lines: Vec<String>,
         span: Option<(usize, usize)>,
+        /// The code actions at the problems, for the fix it offers.
+        fixes: Vec<crate::lang::CodeAction>,
+    },
+    /// Code actions to choose from, grouped by kind.
+    Actions {
+        actions: Vec<crate::lang::CodeAction>,
+        selected: usize,
     },
     Completion {
         items: Vec<Completion>,
@@ -683,6 +696,8 @@ pub struct Editor {
     probe: Option<(usize, usize)>,
     /// Where a hover the mouse brought up is about, instead of the cursor.
     hover_anchor: Option<usize>,
+    /// Code actions asked for, and edits waiting for their files to open.
+    actions: actions::Actions,
     /// Signature help: the document, where the call was when it showed,
     /// and the signature.
     signature: Option<(u64, usize, crate::lang::Signature)>,
@@ -830,6 +845,7 @@ impl Editor {
             context: None,
             probe: None,
             hover_anchor: None,
+            actions: Default::default(),
             signature: None,
             diagnostics: HashMap::new(),
             diagnostics_version: 0,
@@ -1032,6 +1048,13 @@ impl Editor {
                     .collect::<Vec<_>>()
                     .join("\n"),
             ),
+            Popup::Actions { actions, .. } => Some(
+                actions
+                    .iter()
+                    .map(|a| a.title.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            ),
             Popup::Completion { .. } => Some(
                 self.completions()
                     .iter()
@@ -1146,6 +1169,7 @@ impl Editor {
             Event::Opened { path, text } => {
                 self.opened(path.clone(), &text);
                 self.split_opened(&path);
+                self.opened_for_edits(&path);
             }
             Event::FileConfig { path, config } => self.file_config(&path, config),
             Event::AutoSave(why) => self.auto_save(why, &mut fx),
@@ -1305,6 +1329,8 @@ impl Editor {
                     self.show_hover(lines);
                 }
             }
+            Event::ShowCodeActions(actions) => self.show_code_actions(actions),
+            Event::ApplyEdits(edits) => self.apply_file_edits(edits, &mut fx),
             Event::ShowSignature(signature) => {
                 let doc = self.doc().id;
                 self.signature = match signature {
@@ -2026,6 +2052,8 @@ impl Editor {
                 self.popup = None;
                 key.code == KeyCode::Esc
             }
+            // Its own keys are in `actions_key`, which can choose one.
+            Some(Popup::Actions { .. }) => false,
             Some(Popup::Completion { selected, .. }) => match key.code {
                 KeyCode::Up if plain => {
                     *selected = selected.saturating_sub(1);

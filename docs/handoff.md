@@ -121,23 +121,73 @@ Built, each checked in the window with rust-analyzer:
     `frame.rs`.
   - Tests: the hover tests at the end of `crates/core/tests/language.rs`.
 
+- **Code actions** (`Language.dc.html`).
+  - **Ctrl+.** (`edit.quick_fix`) lists the actions at the cursor in a
+    card grouped as Quick Fix, Refactor, Source and More Actions. The
+    server's preferred fix is chosen and marked with a bulb. The arrows
+    move, Enter or a click makes it, Esc closes.
+  - **The lightbulb** shows on the cursor's line when the line has a
+    problem worse than a hint, and a click lists the actions. The plugin
+    never hears about cursor moves, so the bulb can't wait for the
+    server's answer. It sits in two cells of room the gutter gets in code
+    a language plugin adds, while the LSP plugin is loaded
+    (`bulb_room` in `layout.rs`). The right-aligned numbers have it as
+    padding.
+  - **The hover card over a problem** asks for the actions too. It
+    shows the preferred quick fix (else the first) as its primary
+    button, and More fixes (Ctrl .) lists them all at the problem.
+  - The "Format the file" row in the mock-up's card waits for format.
+
+  API, all new imports:
+  - `show-code-actions(list<code-action>)` answers the plugin command
+    `code-actions`. The core asks it from Ctrl+., the bulb and the hover,
+    and keeps a queue of what each request was for
+    (`actions::ActionsFor`).
+  - Choosing one calls the existing `on-pick` with picker
+    `code-actions`.
+  - `apply-edits(list<file-edit>)` needs `editor-write`. The LSP
+    plugin's manifest now asks for it, so **the user sees its
+    permission card once** in the Language panel.
+  - Each file's edits are one undo step. A file that isn't open is
+    opened in a tab, changed and left unsaved (`opened_for_edits`).
+
+  The LSP plugin:
+  - It asks `textDocument/codeAction` for the cursor, with the line's
+    diagnostics as context.
+  - It keeps each action's workspace edit by id, and forgets them when
+    the text changes.
+  - It leaves out disabled actions and bare commands, which would need
+    `workspace/executeCommand`.
+  - Of a workspace edit it makes `changes` and `documentChanges`' text
+    edits, not file creates, renames or deletes.
+  - It doesn't advertise `resolveSupport`, so rust-analyzer sends the
+    edits with the list.
+
+  Where it lives: `crates/core/src/editor/actions.rs`;
+  `Frame::actions_card`, `fix_button` and `more_button` in `frame.rs`;
+  the bulb in `code.rs`.
+
+  Tests: the code action tests at the end of
+  `crates/core/tests/language.rs`, and
+  `code_actions_come_with_their_edits_and_one_chosen_is_made` in
+  `crates/plugin-host/tests/lsp.rs` (the fake server answers
+  `textDocument/codeAction`).
+
+  Checked in the window with rust-analyzer: rustc's "prefix it with an
+  underscore" fix from the menu and from the hover card, and undoing it.
+  For this project's `u32`/`usize` mismatch, rust-analyzer offers no
+  quick fix at all, only refactors.
+
 Not built yet, in the order to do them:
 
-1. **Code actions and the lightbulb.** The mock-up has a lightbulb in the
-   gutter on the cursor's line, and a card with **Quick Fix** and
-   **Refactor** groups, the preferred fix highlighted, and "Format the
-   file Ctrl Shift I" at the bottom. Keys: Ctrl+. and a click on the bulb.
-2. **Format and format on save.** Ctrl+Shift+I, and a setting
+1. **Format and format on save.** Ctrl+Shift+I, and a setting
    `editor.format_on_save`.
-3. **Rename.** F2 opens an inline box over the name, with "Enter to
+2. **Rename.** F2 opens an inline box over the name, with "Enter to
    rename N places in M files · Shift+Enter to review first".
-4. **The rest of the problem hover.** Its first part is built (see
-   **Problems in the hover card** above). Still to do, from
-   [`mockups/Hover.dc.html`](mockups/Hover.dc.html):
-   - the server's preferred fix as one button, and More fixes (Ctrl+.),
-     once code actions (item 1) exist
-   - scrolling a long hover with the keyboard (↑ ↓ once it's focused)
-5. **Find references** has its own mock-up (`References.dc.html`), the
+3. **The rest of the problem hover:** scrolling a long hover with the
+   keyboard (↑ ↓ once it's focused), from
+   [`mockups/Hover.dc.html`](mockups/Hover.dc.html).
+4. **Find references** has its own mock-up (`References.dc.html`), the
    next item after these.
 
 #### A suggested design for what's left
@@ -223,7 +273,7 @@ These are suggestions; nothing of them is written yet.
   straight into core `Event`s. The Rust SDK's re-exports are in
   `sdk/rust/src/lib.rs`; add new types to both lists there.
 - Checks before each commit:
-  - `cargo test --workspace`: 318 tests passed with the problem hover
+  - `cargo test --workspace`: 328 tests passed with code actions
   - `cargo clippy --workspace --all-targets`
   - in `plugins/lsp`: `cargo clippy --release --target wasm32-wasip2`
   - `cargo fmt --all`
@@ -252,6 +302,14 @@ recreate them:
   types text.
   Send a chord's keys as separate calls (`wtype -M ctrl -k k -m ctrl`,
   then the same for `i`). One call drops the second key.
+- **Grants:** to test a plugin that asks for more permissions without
+  touching the user's grants, run merlin with `XDG_DATA_HOME` set to a
+  scratch folder holding a copy of `~/.local/share/merlin/grants.toml`,
+  and allow the card there. Plugins still load from
+  `~/.config/merlin/plugins`.
+- **Focus:** windows move. Read merlin's position from `hyprctl clients
+  -j` before each move, and check `hyprctl activewindow` is merlin
+  before typing. Keys once went to another app.
 - **Mouse:** `hyprctl dispatch movecursor` moves the cursor without
   sending the window any motion, so hovers never fire. Warp there, then
   nudge it with a virtual mouse, using python's `evdev`

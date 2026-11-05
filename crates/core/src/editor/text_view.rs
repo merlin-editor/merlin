@@ -58,6 +58,9 @@ pub struct TextView {
     /// The scrollbar's ruler, and the minimap when it's on.
     pub scrollbar: ScrollbarView,
     pub minimap: Option<MinimapView>,
+    /// The line a lightbulb shows on, in the gutter's left: the cursor's,
+    /// when it has a problem code actions might fix.
+    pub bulb: Option<usize>,
 }
 
 /// A line of the file on screen.
@@ -260,6 +263,7 @@ impl Editor {
                     sticky: Vec::new(),
                     scrollbar: self.scrollbar_view(),
                     minimap: None,
+                    bulb: None,
                 }
             })
             .collect()
@@ -332,6 +336,7 @@ impl Editor {
             sticky: Vec::new(),
             scrollbar: self.scrollbar_view(),
             minimap: self.minimap_view(),
+            bulb: if focused { self.bulb_line() } else { None },
         };
         let bottom = area.h as i32 + overscan as i32;
         let mut row = -above;

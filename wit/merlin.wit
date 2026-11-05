@@ -181,6 +181,32 @@ interface types {
     text: string,
   }
 
+  /// What a code action does, for the group it's listed in.
+  enum action-kind {
+    quick-fix,
+    refactor,
+    source,
+    other,
+  }
+
+  /// Something the user can do to the code at the cursor, such as fixing a
+  /// problem. Choosing it calls `on-pick` with picker `code-actions` and
+  /// its id. The preferred one is the likeliest fix.
+  record code-action {
+    id: string,
+    title: string,
+    kind: action-kind,
+    preferred: bool,
+  }
+
+  /// Changes to one file, each in the text as it is before any of them,
+  /// as an LSP workspace edit has them. The path is relative to the
+  /// workspace root, or absolute.
+  record file-edit {
+    path: string,
+    edits: list<text-change>,
+  }
+
   /// Selected text and where it is.
   record selection {
     start: position,
@@ -254,7 +280,7 @@ interface types {
 /// What the editor offers a plugin. Calls that need a permission check the
 /// plugin's manifest and return an error naming the permission if denied.
 interface host {
-  use types.{framing, pick-item, position, selection, text-change, diagnostic, detailed-diagnostic, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint, signature};
+  use types.{framing, pick-item, position, selection, text-change, diagnostic, detailed-diagnostic, code-action, file-edit, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint, signature};
 
   /// Text of the active buffer. Needs `editor-read`.
   active-text: func() -> result<string, string>;
@@ -318,6 +344,15 @@ interface host {
   /// Shows a call's signature over the line being typed, until the cursor
   /// leaves the line, Escape, or this is called with none.
   show-signature: func(signature: option<signature>);
+
+  /// Answers the editor's `code-actions` command with the actions at the
+  /// cursor, for the editor to list (Ctrl+.) or offer in the hover card.
+  show-code-actions: func(actions: list<code-action>);
+
+  /// Changes files, each file's changes as one undo step. A file that
+  /// isn't open is opened, changed and left unsaved. Needs
+  /// `editor-write`.
+  apply-edits: func(edits: list<file-edit>) -> result<_, string>;
 
   /// Shows text next to the cursor until the next key.
   show-hover: func(text: string);

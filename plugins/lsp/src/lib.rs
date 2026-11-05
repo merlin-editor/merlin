@@ -90,6 +90,7 @@ enum Request {
     Initialize,
     Hover,
     Definition,
+    CodeActions,
     /// Whether the user asked, so an empty answer is worth saying.
     Completion {
         manual: bool,
@@ -186,6 +187,13 @@ struct Lsp {
     signature: bool,
     /// Diagnostics by absolute path, for the panel.
     problems: BTreeMap<String, Vec<Problem>>,
+    /// The workspace edit of each code action shown, by the id the editor
+    /// has for it. They're for the text as it was, so a change forgets
+    /// them.
+    #[serde(default)]
+    actions: BTreeMap<String, Value>,
+    #[serde(default)]
+    next_action: u64,
 }
 
 impl Server {
@@ -643,6 +651,43 @@ fn hover_text(contents: &Value) -> String {
     lines.join("\n").trim().to_string()
 }
 
+/// A workspace edit's changes to files' text, as `changes` or as
+/// `documentChanges`; creating, renaming and deleting files aren't done.
+fn file_edits(edit: &Value) -> Vec<FileEdit> {
+    let text_edits = |list: &Value| -> Vec<TextChange> {
+        list.as_array()
+            .into_iter()
+            .flatten()
+            .map(|e| TextChange {
+                start: position(&e["range"]["start"]),
+                end: position(&e["range"]["end"]),
+                text: e["newText"].as_str().unwrap_or_default().to_string(),
+            })
+            .collect()
+    };
+    let mut files = Vec::new();
+    if let Some(changes) = edit["changes"].as_object() {
+        for (uri, list) in changes {
+            if let Some(path) = path_of(uri) {
+                files.push(FileEdit {
+                    path,
+                    edits: text_edits(list),
+                });
+            }
+        }
+    }
+    for change in edit["documentChanges"].as_array().into_iter().flatten() {
+        if let Some(path) = change["textDocument"]["uri"].as_str().and_then(path_of) {
+            files.push(FileEdit {
+                path,
+                edits: text_edits(&change["edits"]),
+            });
+        }
+    }
+    files.retain(|f| !f.edits.is_empty());
+    files
+}
+
 fn position(value: &Value) -> Position {
     Position {
         line: value["line"].as_u64().unwrap_or(0) as u32,
@@ -723,6 +768,19 @@ impl Lsp {
                             "hover": {"contentFormat": ["markdown", "plaintext"]},
                             "completion": {"completionItem": {"snippetSupport": false}},
                             "definition": {},
+                            "codeAction": {
+                                "codeActionLiteralSupport": {
+                                    "codeActionKind": {
+                                        "valueSet": [
+                                            "", "quickfix", "refactor", "refactor.extract",
+                                            "refactor.inline", "refactor.rewrite", "source",
+                                            "source.organizeImports",
+                                        ],
+                                    },
+                                },
+                                "isPreferredSupport": true,
+                                "disabledSupport": true,
+                            },
                             "signatureHelp": {
                                 "signatureInformation": {
                                     "documentationFormat": ["plaintext", "markdown"],
@@ -773,10 +831,33 @@ impl Lsp {
         if !server.opened.contains_key(&path) {
             server.sync(&path, language, &text);
         }
-        let params = json!({
-            "textDocument": {"uri": uri(&path)},
-            "position": {"line": cursor.line, "character": cursor.column},
-        });
+        let here = json!({"line": cursor.line, "character": cursor.column});
+        let params = if matches!(request, Request::CodeActions) {
+            // With the problems on the cursor's line, which the fixes are for.
+            let line = cursor.line as u64;
+            let on_line = |d: &&Value| {
+                let start = d["range"]["start"]["line"].as_u64().unwrap_or(u64::MAX);
+                let end = d["range"]["end"]["line"].as_u64().unwrap_or(0);
+                (start..=end).contains(&line)
+            };
+            let diagnostics: Vec<Value> = [&server.pushed, &server.pulled]
+                .into_iter()
+                .filter_map(|m| m.get(&path))
+                .flatten()
+                .filter(on_line)
+                .cloned()
+                .collect();
+            json!({
+                "textDocument": {"uri": uri(&path)},
+                "range": {"start": here, "end": here},
+                "context": {"diagnostics": diagnostics, "triggerKind": 1},
+            })
+        } else {
+            json!({
+                "textDocument": {"uri": uri(&path)},
+                "position": here,
+            })
+        };
         if matches!(request, Request::Completion { .. }) {
             server.latest_completion = server.next_id + 1;
         }
@@ -1006,6 +1087,34 @@ impl Lsp {
                 Some(text) if !text.is_empty() => host::show_hover(&text),
                 _ => host::notify("Nothing to show here"),
             },
+            Request::CodeActions => {
+                let list = result.as_array().cloned().unwrap_or_default();
+                let mut actions = Vec::new();
+                for item in list {
+                    // Only actions that say their edit: a bare command
+                    // would need the server to run it.
+                    let Some(edit) = item.get("edit").filter(|_| item.get("disabled").is_none())
+                    else {
+                        continue;
+                    };
+                    self.next_action += 1;
+                    let id = self.next_action.to_string();
+                    let kind = item["kind"].as_str().unwrap_or_default();
+                    actions.push(CodeAction {
+                        id: id.clone(),
+                        title: item["title"].as_str().unwrap_or_default().to_string(),
+                        kind: match kind.split('.').next().unwrap_or_default() {
+                            "quickfix" => ActionKind::QuickFix,
+                            "refactor" => ActionKind::Refactor,
+                            "source" => ActionKind::Source,
+                            _ => ActionKind::Other,
+                        },
+                        preferred: item["isPreferred"].as_bool().unwrap_or(false),
+                    });
+                    self.actions.insert(id, edit.clone());
+                }
+                host::show_code_actions(&actions);
+            }
             Request::Definition => {
                 let first = match result {
                     Value::Array(list) => list.first(),
@@ -1153,6 +1262,8 @@ impl Plugin for Lsp {
             Command::new("complete", "Language: Complete").key("ctrl+space"),
             Command::new("problems", "Language: Show Problems").key("alt+p"),
             Command::new("restart", "Language: Restart Servers"),
+            // Ctrl+. in the editor, which offers them its own way.
+            Command::new("code-actions", "Language: Code Actions"),
         ]
     }
 
@@ -1160,6 +1271,7 @@ impl Plugin for Lsp {
         match id {
             "hover" => self.ask("textDocument/hover", Request::Hover),
             "definition" => self.ask("textDocument/definition", Request::Definition),
+            "code-actions" => self.ask("textDocument/codeAction", Request::CodeActions),
             "complete" => self.ask(
                 "textDocument/completion",
                 Request::Completion { manual: true },
@@ -1177,7 +1289,26 @@ impl Plugin for Lsp {
         }
     }
 
+    fn pick(&mut self, picker: &str, item: &str) {
+        if picker != "code-actions" {
+            return;
+        }
+        let Some(edit) = self.actions.get(item) else {
+            return host::notify("That code action is out of date: try again");
+        };
+        let edits = file_edits(edit);
+        if edits.is_empty() {
+            return host::notify("That code action changes nothing");
+        }
+        if let Err(err) = host::apply_edits(&edits) {
+            host::notify(&err);
+        }
+    }
+
     fn buffer(&mut self, event: BufferEvent) {
+        if matches!(event, BufferEvent::Changed | BufferEvent::Switched) {
+            self.actions.clear();
+        }
         let Some((path, spec, language)) = self.active() else {
             return;
         };

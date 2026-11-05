@@ -2,6 +2,7 @@
 //! and completion as cards by the text they're about. Hover also comes
 //! from resting the mouse on a word, as other editors do it.
 
+use super::actions::ActionsFor;
 use super::{Editor, Effect, Focus, Popup};
 use crate::icons::{Icon, icon};
 use crate::key::{Key, KeyCode};
@@ -74,6 +75,10 @@ pub enum HoverButton {
     Link(usize),
     /// Go to the definition of the word the card is about.
     Definition,
+    /// Make the likeliest fix.
+    Fix,
+    /// List every fix and action at the problem.
+    MoreFixes,
 }
 
 /// A problem in a hover card: what it says, and what reported it.
@@ -103,6 +108,14 @@ pub enum PopupKind {
         /// The colours of each of `lines` that's code, by character, as the
         /// plugin that adds its language gives them; empty for the rest.
         colours: Vec<Vec<(usize, usize, Syntax)>>,
+        /// The likeliest fix, by its title, and whether there are others.
+        fix: Option<String>,
+        more_fixes: bool,
+    },
+    /// Code actions grouped by kind, and the one Enter takes.
+    Actions {
+        actions: Vec<crate::lang::CodeAction>,
+        selected: usize,
     },
     /// Labels and details, and the one Enter takes.
     Completion {
@@ -276,6 +289,7 @@ impl Editor {
                 problems,
                 lines: Vec::new(),
                 span: Some(join(span, word)),
+                fixes: Vec::new(),
             });
         }
         if let Some(word) = word
@@ -286,6 +300,10 @@ impl Editor {
                 plugin: "lsp".into(),
                 command: "hover".into(),
             });
+        }
+        // And what would fix them, for the card's buttons.
+        if self.popup.is_some() {
+            self.ask_actions(ActionsFor::Hover, fx);
         }
     }
 
@@ -300,12 +318,16 @@ impl Editor {
             problems,
             lines: Vec::new(),
             span: None,
+            fixes: Vec::new(),
         });
         if self.has_lsp("hover") {
             fx.push(Effect::PluginCommand {
                 plugin: "lsp".into(),
                 command: "hover".into(),
             });
+        }
+        if self.popup.is_some() {
+            self.ask_actions(ActionsFor::Hover, fx);
         }
     }
 
@@ -331,6 +353,7 @@ impl Editor {
             problems,
             lines: server,
             span,
+            fixes: Vec::new(),
         });
     }
 
@@ -459,7 +482,7 @@ impl Editor {
         out
     }
 
-    fn has_lsp(&self, command: &str) -> bool {
+    pub(crate) fn has_lsp(&self, command: &str) -> bool {
         self.plugins
             .iter()
             .any(|p| p.name == "lsp" && p.commands.iter().any(|c| c.id == command))
@@ -512,6 +535,15 @@ impl Editor {
                     fx.push(Effect::OpenUrl(p.link.clone()));
                 }
             }
+            HoverButton::Fix => {
+                if let Some(Popup::Hover { fixes, .. }) = &self.popup
+                    && let Some(fix) = Self::hover_fix(fixes)
+                {
+                    let id = fix.id.clone();
+                    self.choose_action(id, fx);
+                }
+            }
+            HoverButton::MoreFixes => self.more_fixes(),
             HoverButton::Definition => {
                 // The mouse has left the word for the card, so the cursor
                 // goes to it first.
@@ -526,9 +558,17 @@ impl Editor {
     }
 
     /// Where the cursor counts as being for plugins: the hovered word
-    /// while a hover is asked for, else the cursor.
+    /// while a hover is asked for, or the problem the mouse's hover card
+    /// is about, else the cursor.
     pub(crate) fn plugin_cursor(&self) -> usize {
-        self.probe.map_or(self.doc().cursor, |(start, _)| start)
+        let hovered = match self.popup {
+            Some(Popup::Hover { .. }) => self.hover_anchor,
+            _ => None,
+        };
+        self.probe
+            .map(|(start, _)| start)
+            .or(hovered)
+            .unwrap_or(self.doc().cursor)
     }
 
     pub(crate) fn popup_view(&self) -> Option<PopupView> {
@@ -539,12 +579,24 @@ impl Editor {
         let anchor = (x.saturating_sub(text.x), y.saturating_sub(text.y));
         let kind = match popup {
             Popup::Hover {
-                problems, lines, ..
-            } => PopupKind::Hover {
-                problems: problems.clone(),
-                lines: lines.clone(),
-                definition: !lines.is_empty() && self.has_lsp("definition"),
-                colours: self.hover_colours(lines),
+                problems,
+                lines,
+                fixes,
+                ..
+            } => {
+                let fix = Self::hover_fix(fixes);
+                PopupKind::Hover {
+                    problems: problems.clone(),
+                    lines: lines.clone(),
+                    definition: !lines.is_empty() && self.has_lsp("definition"),
+                    colours: self.hover_colours(lines),
+                    fix: fix.map(|f| f.title.clone()),
+                    more_fixes: fixes.len() > fix.is_some() as usize,
+                }
+            }
+            Popup::Actions { actions, selected } => PopupKind::Actions {
+                actions: actions.clone(),
+                selected: *selected,
             },
             Popup::Completion { selected, .. } => PopupKind::Completion {
                 items: self

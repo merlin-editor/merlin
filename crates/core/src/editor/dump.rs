@@ -93,6 +93,13 @@ impl Editor {
                                 let _ = writeln!(o, "  {line}");
                             }
                         }
+                        PopupKind::Actions { actions, selected } => {
+                            let _ = writeln!(o, "code actions:");
+                            for (i, a) in actions.iter().enumerate() {
+                                let mark = if i == *selected { "›" } else { " " };
+                                let _ = writeln!(o, " {mark} {:?} {}", a.kind, a.title);
+                            }
+                        }
                         PopupKind::Completion { items, selected } => {
                             let _ = writeln!(o, "completions:");
                             for (i, (label, detail)) in items.iter().enumerate() {

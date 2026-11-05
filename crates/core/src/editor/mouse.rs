@@ -48,6 +48,11 @@ impl Editor {
                 self.set_cursor(pos);
                 fx.push(Effect::ReadSelection);
             }
+            // A press on the lightbulb lists the code actions.
+            MouseKind::Down if here && self.on_bulb(x, y) => {
+                self.popup = None;
+                self.code_actions(fx);
+            }
             kind => {
                 // A drag goes on in the group it began in.
                 if !here && kind != MouseKind::Down {
@@ -68,6 +73,21 @@ impl Editor {
                 );
             }
         }
+    }
+
+    /// Whether cell (`x`, `y`) is the lightbulb: its room in the gutter,
+    /// after the sign, on its line.
+    fn on_bulb(&self, x: u16, y: u16) -> bool {
+        let text = self.layout().text;
+        let Some(line) = self.bulb_line() else {
+            return false;
+        };
+        let from = text.x + self.has_signs() as u16;
+        if !text.contains(x, y) || x < from || x >= from + self.bulb_room() as u16 {
+            return false;
+        }
+        let pos = self.pos_at_screen(text.x + self.gutter() as u16, y);
+        self.doc().line_col(pos).0 == line
     }
 
     /// Does `f` in group `g`, without focusing it.

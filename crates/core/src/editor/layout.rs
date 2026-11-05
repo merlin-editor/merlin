@@ -78,14 +78,27 @@ impl Editor {
         doc.review.is_some() || doc.git_base.is_some()
     }
 
-    /// The gutter's width: signs, line numbers and a space.
+    /// The gutter's width: signs, room for the lightbulb, line numbers and
+    /// a space.
     pub(crate) fn gutter(&self) -> usize {
         let doc = self.doc();
         let biggest = match &doc.review {
             Some(review) => review.lines.iter().map(|(_, n)| n + 1).max().unwrap_or(1),
             None => doc.buffer.rope().len_lines(),
         };
-        biggest.to_string().len().max(3) + 1 + self.has_signs() as usize
+        biggest.to_string().len().max(3) + 1 + self.has_signs() as usize + self.bulb_room()
+    }
+
+    /// Cells left of the line numbers for the code actions' lightbulb: in
+    /// code a plugin adds the language of, while a language server could
+    /// offer them. The numbers are right-aligned, so it's their padding.
+    pub(crate) fn bulb_room(&self) -> usize {
+        let code = self.doc().review.is_none() && self.plugin_language().is_some();
+        if code && self.has_lsp("code-actions") {
+            2
+        } else {
+            0
+        }
     }
 
     pub(crate) fn scroll_to_cursor(&mut self) {

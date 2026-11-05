@@ -5,5 +5,7 @@ component = "target/wasm32-wasip2/release/lsp.wasm"
 
 [permissions]
 editor-read = true
+# To make the code actions you choose.
+editor-write = true
 # The language servers it may start, for the files you open.
 processes = ["rust-analyzer", "gopls", "clangd", "pyright-langserver", "typescript-language-server"]

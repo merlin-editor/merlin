@@ -3,6 +3,7 @@
 //! rounded islands on a darker ground, and a thin status bar. Drawing also
 //! records what each clickable part does.
 
+use merlin_core::lang::{ActionKind, CodeAction};
 use merlin_core::panel::{Entry, Node, Tone};
 use merlin_core::{
     ContextItem, ContextView, DialogView, FindAction, FindView, HoverButton, Key, KeyCode,
@@ -896,7 +897,22 @@ impl Frame<'_> {
                 lines,
                 definition,
                 colours,
-            } => self.hover_card(problems, lines, colours, *definition, anchor, a, ch),
+                fix,
+                more_fixes,
+            } => {
+                let card = HoverCard {
+                    problems,
+                    lines,
+                    colours,
+                    definition: *definition,
+                    fix: fix.as_deref(),
+                    more_fixes: *more_fixes,
+                };
+                self.hover_card(&card, anchor, a, ch)
+            }
+            PopupKind::Actions { actions, selected } => {
+                self.actions_card(actions, *selected, anchor, a, ch)
+            }
             PopupKind::Completion { items, selected } => {
                 self.completions(items, *selected, anchor, a, ch)
             }
@@ -988,17 +1004,15 @@ impl Frame<'_> {
     /// severity's badge, its message and notes, what reported it and its
     /// code; then, under a divider, the signature in code and the first of
     /// the docs, and Go to definition.
-    #[allow(clippy::too_many_arguments)]
-    fn hover_card(
-        &mut self,
-        problems: &[ProblemView],
-        lines: &[String],
-        colours: &[Spans],
-        definition: bool,
-        anchor: (f32, f32),
-        a: &Areas,
-        ch: f32,
-    ) {
+    fn hover_card(&mut self, card: &HoverCard, anchor: (f32, f32), a: &Areas, ch: f32) {
+        let HoverCard {
+            problems,
+            lines,
+            colours,
+            definition,
+            fix,
+            more_fixes,
+        } = *card;
         let p = self.p;
         let parts = hover_parts(lines, colours);
         if problems.is_empty() && parts.is_empty() {
@@ -1018,6 +1032,11 @@ impl Frame<'_> {
                 Part::Prose(text) => self.rich_width(text, PROSE) + 24.0,
                 Part::Gap => 0.0,
             });
+        }
+        // Room for the fix, More fixes, Copy and Problems in a row.
+        if let Some(title) = fix {
+            let tw = self.rich_width(title, (Face::ui(12.0), Face::mono(11.5)));
+            widest = widest.max(38.0 + tw + 36.0 + 6.0 + 120.0 + 130.0);
         }
         let min = if problems.is_empty() { 200.0 } else { 340.0 };
         let w = widest.clamp(min, 560.0);
@@ -1112,7 +1131,25 @@ impl Frame<'_> {
                     }
                 }
                 Op::Buttons => {
-                    // Quiet links at the right; the left is for fixes.
+                    // The likeliest fix and the rest on the left, quiet
+                    // links on the right.
+                    let links = Face::ui(12.0);
+                    let links_w =
+                        self.text.width("Problems", links) + self.text.width("Copy", links) + 24.0;
+                    let label = if fix.is_some() { "More fixes" } else { "Fixes" };
+                    let more_w = if more_fixes {
+                        self.more_width(label) + 6.0
+                    } else {
+                        0.0
+                    };
+                    let mut fx = text_x;
+                    if let Some(title) = fix {
+                        let room = r.right() - 8.0 - links_w - 8.0 - more_w - fx;
+                        fx += self.fix_button(title, fx, y, h, room) + 6.0;
+                    }
+                    if more_fixes {
+                        self.more_button(label, fx, y, h);
+                    }
                     let mut x = r.right() - 8.0;
                     for (label, button) in [
                         ("Problems", HoverButton::Problems),
@@ -1169,6 +1206,166 @@ impl Frame<'_> {
                     );
                     self.chip("F12", r.x + 12.0 + lw + 8.0, y + (h - 16.0) / 2.0, false);
                     self.hit(link, Hit::Ui(UiEvent::Hover(HoverButton::Definition)));
+                }
+            }
+        }
+    }
+
+    /// The hover card's likeliest fix: a bulb and its title, as the
+    /// primary button. Returns its width.
+    fn fix_button(&mut self, title: &str, x: f32, y: f32, h: f32, room: f32) -> f32 {
+        let p = self.p;
+        let face = (Face::ui(12.0), Face::mono(11.5));
+        let tw = self.rich_width(title, face).min((room - 36.0).max(60.0));
+        let b = Rect::new(x, y, tw + 36.0, h);
+        let hovered = self.hovered(b);
+        let fill = if hovered {
+            mix(p.accent, p.widget, 0.32)
+        } else {
+            mix(p.accent, p.widget, 0.2)
+        };
+        self.canvas
+            .outline(b, 5.0, 1.0, mix(p.accent, p.widget, 0.45), fill);
+        self.bulb_icon(x + 8.0, y + (h - 12.0) / 2.0, 12.0, p.warning);
+        let line = self
+            .wrap_rich(title, face, f32::MAX)
+            .into_iter()
+            .next()
+            .unwrap_or_default();
+        // `draw_rich` stops 12 short of the clip, so this ends 10 inside.
+        let clip = Rect::new(x, y, b.w + 2.0, h);
+        self.draw_rich(&line, x + 26.0, y, h, face, p.bright, p.bright, clip);
+        self.hit(b, Hit::Ui(UiEvent::Hover(HoverButton::Fix)));
+        b.w
+    }
+
+    fn more_width(&mut self, label: &str) -> f32 {
+        let key_w = self.text.width("Ctrl .", Face::ui(11.0)) + 12.0;
+        self.text.width(label, Face::ui(12.0)) + key_w + 24.0
+    }
+
+    /// More fixes, with its key.
+    fn more_button(&mut self, label: &str, x: f32, y: f32, h: f32) {
+        let p = self.p;
+        let face = Face::ui(12.0);
+        let tw = self.text.width(label, face);
+        let b = Rect::new(x, y, self.more_width(label), h);
+        let hovered = self.hovered(b);
+        self.canvas
+            .round(b, 5.0, if hovered { p.border } else { p.chip });
+        self.text
+            .draw_in_row(&mut self.canvas, label, face, x + 9.0, y, h, p.text, b);
+        self.chip("Ctrl .", x + tw + 15.0, y + (h - 16.0) / 2.0, false);
+        self.hit(b, Hit::Ui(UiEvent::Hover(HoverButton::MoreFixes)));
+    }
+
+    /// A lightbulb in a `size` square at (`x`, `y`): its glass and base.
+    fn bulb_icon(&mut self, x: f32, y: f32, size: f32, colour: u32) {
+        let (cx, cy, r) = (x + size / 2.0, y + size * 0.4, size * 0.3);
+        self.canvas
+            .round(Rect::new(cx - r, cy - r, r * 2.0, r * 2.0), r, colour);
+        let w = r * 0.6;
+        self.canvas.round(
+            Rect::new(cx - w, cy + r * 0.6, w * 2.0, r * 1.0),
+            1.0,
+            colour,
+        );
+    }
+
+    /// Code actions by the cursor, grouped as Quick Fix, Refactor, Source
+    /// and More Actions, the one Enter takes lit up and the server's
+    /// preferred fix marked with a bulb.
+    fn actions_card(
+        &mut self,
+        actions: &[CodeAction],
+        selected: usize,
+        anchor: (f32, f32),
+        a: &Areas,
+        ch: f32,
+    ) {
+        let p = self.p;
+        let face = (Face::ui(12.5), Face::mono(12.0));
+        const SHOWN: usize = 14;
+        let first = selected.saturating_sub(SHOWN - 1);
+        let shown: Vec<(usize, &CodeAction)> =
+            actions.iter().enumerate().skip(first).take(SHOWN).collect();
+        if shown.is_empty() {
+            return;
+        }
+        let mut widest: f32 = 0.0;
+        for (_, action) in &shown {
+            widest = widest.max(self.rich_width(&action.title, face));
+        }
+        let w = (widest + 52.0).clamp(260.0, 520.0);
+        // Rows: a group's title before its first action, a rule between.
+        let (row_h, title_h, rule_h) = (28.0, 22.0, 9.0);
+        let mut layout: Vec<(f32, Option<usize>, Option<ActionKind>)> = Vec::new();
+        let mut y = 4.0;
+        let mut group = None;
+        for &(i, action) in &shown {
+            if group != Some(action.kind) {
+                if group.is_some() {
+                    layout.push((y, None, None));
+                    y += rule_h;
+                }
+                layout.push((y, None, Some(action.kind)));
+                y += title_h;
+                group = Some(action.kind);
+            }
+            layout.push((y, Some(i), None));
+            y += row_h;
+        }
+        let r = self.card_place(anchor, w, y + 4.0, a, ch);
+        self.canvas.shadow(r, 8.0, theme::is_light(&p));
+        self.canvas.outline(r, 8.0, 1.0, p.border, p.widget);
+        self.hit(r, Hit::Block);
+        for (top, row, title) in layout {
+            let ry = r.y + top;
+            match (row, title) {
+                (None, Some(kind)) => {
+                    let label = match kind {
+                        ActionKind::QuickFix => "Quick Fix",
+                        ActionKind::Refactor => "Refactor",
+                        ActionKind::Source => "Source",
+                        ActionKind::Other => "More Actions",
+                    };
+                    let f = Face::ui(11.0);
+                    self.text.draw_in_row(
+                        &mut self.canvas,
+                        label,
+                        f,
+                        r.x + 14.0,
+                        ry,
+                        title_h,
+                        p.muted,
+                        r,
+                    );
+                }
+                (None, None) => self.canvas.fill(
+                    Rect::new(r.x + 6.0, ry + rule_h / 2.0, r.w - 12.0, 1.0),
+                    p.border,
+                ),
+                (Some(i), _) => {
+                    let action = &actions[i];
+                    let b = Rect::new(r.x + 4.0, ry, r.w - 8.0, row_h);
+                    let hovered = self.hovered(b);
+                    if i == selected {
+                        self.canvas.round(b, 5.0, p.focus_row);
+                    } else if hovered {
+                        self.canvas.round(b, 5.0, p.hover);
+                    }
+                    if action.preferred {
+                        self.bulb_icon(b.x + 8.0, ry + (row_h - 12.0) / 2.0, 12.0, p.warning);
+                    }
+                    let colour = if i == selected { p.bright } else { p.text };
+                    let line = self
+                        .wrap_rich(&action.title, face, f32::MAX)
+                        .into_iter()
+                        .next()
+                        .unwrap_or_default();
+                    let clip = Rect::new(b.x, ry, b.w - 4.0, row_h);
+                    self.draw_rich(&line, b.x + 28.0, ry, row_h, face, colour, colour, clip);
+                    self.hit(b, Hit::Ui(UiEvent::Action(i)));
                 }
             }
         }
@@ -3181,6 +3378,16 @@ fn clip_cols(prims: &mut [Prim], left: f32, right: f32) {
             }
         }
     }
+}
+
+/// What a hover card shows.
+struct HoverCard<'a> {
+    problems: &'a [ProblemView],
+    lines: &'a [String],
+    colours: &'a [Spans],
+    definition: bool,
+    fix: Option<&'a str>,
+    more_fixes: bool,
 }
 
 /// The faces of a hover's message, and of its prose, each with the face

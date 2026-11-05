@@ -88,6 +88,7 @@ pub(super) const EDITOR_KEYS: &[(&str, &str)] = &[
     ("shift+alt+right", "edit.expand_selection"),
     ("shift+alt+left", "edit.shrink_selection"),
     ("ctrl+u", "edit.cursor_undo"),
+    ("ctrl+.", "edit.quick_fix"),
 ];
 
 /// Two keys in a row, as VS Code's Ctrl+K chords.
@@ -108,8 +109,9 @@ impl Editor {
         if self.terminal_key(key, fx) {
             return;
         }
-        // An open completion list takes the keys it uses first.
-        if self.focus == Focus::Editor && self.popup_key(key) {
+        // An open completion or code action list takes the keys it uses
+        // first.
+        if self.focus == Focus::Editor && (self.actions_key(key, fx) || self.popup_key(key)) {
             return;
         }
         if let Some(first) = self.chord.take() {

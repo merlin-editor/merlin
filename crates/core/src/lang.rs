@@ -34,6 +34,35 @@ pub struct Completion {
     pub insert: String,
 }
 
+/// What a code action does, for the group it's listed in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ActionKind {
+    QuickFix,
+    Refactor,
+    Source,
+    Other,
+}
+
+/// Something to do to the code at the cursor, from a plugin: chosen by
+/// its id.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CodeAction {
+    pub id: String,
+    pub title: String,
+    pub kind: ActionKind,
+    pub preferred: bool,
+}
+
+/// A range by line and UTF-16 column, and what replaces it.
+pub type TextEdit = ((u32, u32), (u32, u32), String);
+
+/// Changes to one file, each in the text before any of them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FileEdit {
+    pub path: std::path::PathBuf,
+    pub edits: Vec<TextEdit>,
+}
+
 /// A function's signature as a call is typed: its label, the parameter
 /// the cursor is in as a range of the label's characters, a line of its
 /// documentation, and which of how many overloads it is.

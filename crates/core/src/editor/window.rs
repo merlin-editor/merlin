@@ -109,6 +109,8 @@ pub enum UiEvent {
     SideMenu(Side),
     /// A button in the hover card.
     Hover(super::context::HoverButton),
+    /// A row of the code action list, by its index.
+    Action(usize),
 }
 
 /// What the window draws around the text.
@@ -424,6 +426,7 @@ impl Editor {
         match event {
             UiEvent::ContextItem(i) => self.context_item(i, fx),
             UiEvent::Hover(button) => self.hover_button(button, fx),
+            UiEvent::Action(i) => self.action_clicked(i, fx),
             UiEvent::CloseContext => self.close_context(),
             UiEvent::MenuTitle(i) => self.menu_title(i),
             UiEvent::MenuItem(i) => self.menu_item(i, fx),

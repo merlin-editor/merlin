@@ -583,3 +583,214 @@ fn a_hovers_code_is_coloured_by_its_languages_plugin() {
     );
     assert!(colours[4].is_empty(), "prose isn't code");
 }
+
+fn with_actions(text: &str) -> Session {
+    let mut s = hovering(text);
+    s.send(Event::RegisterPlugin {
+        plugin: "lsp".into(),
+        commands: ["hover", "code-actions"]
+            .map(|id| merlin_core::Command {
+                id: id.into(),
+                title: id.into(),
+                key: None,
+            })
+            .into(),
+    });
+    s
+}
+
+fn action(
+    id: &str,
+    title: &str,
+    kind: merlin_core::lang::ActionKind,
+    preferred: bool,
+) -> merlin_core::lang::CodeAction {
+    merlin_core::lang::CodeAction {
+        id: id.into(),
+        title: title.into(),
+        kind,
+        preferred,
+    }
+}
+
+fn asked_for_actions(s: &Session) -> bool {
+    s.effects
+        .iter()
+        .any(|e| matches!(e, Effect::PluginCommand { command, .. } if command == "code-actions"))
+}
+
+#[test]
+fn ctrl_dot_lists_code_actions_grouped_with_the_preferred_one_chosen() {
+    use merlin_core::lang::ActionKind::*;
+    let mut s = with_actions("let count: u32 = steps.len();\n");
+    s.run("key ctrl+.");
+    assert!(asked_for_actions(&s));
+    s.send(Event::ShowCodeActions(vec![
+        action("1", "Extract into a variable", Refactor, false),
+        action("2", "Change the type to `usize`", QuickFix, false),
+        action("3", "Convert with `u32::try_from`", QuickFix, true),
+    ]));
+    let Some(merlin_core::PopupKind::Actions { actions, selected }) =
+        s.editor.window_view().popup.map(|p| p.kind)
+    else {
+        panic!("the list shows");
+    };
+    let titles: Vec<&str> = actions.iter().map(|a| a.title.as_str()).collect();
+    assert_eq!(
+        titles,
+        [
+            "Change the type to `usize`",
+            "Convert with `u32::try_from`",
+            "Extract into a variable"
+        ],
+        "quick fixes first, in the server's order"
+    );
+    assert_eq!(selected, 1, "the preferred fix is chosen");
+    s.effects.clear();
+    s.run("key down\nkey enter");
+    assert_eq!(
+        s.effects,
+        [Effect::PluginPick {
+            plugin: "lsp".into(),
+            picker: "code-actions".into(),
+            item: "1".into(),
+        }]
+    );
+    assert_eq!(s.editor.popup_text(), None);
+}
+
+#[test]
+fn a_plugins_edits_are_one_undo_step_and_other_files_open_for_them() {
+    use merlin_core::lang::FileEdit;
+    let mut s = with_actions("let count: u32 = steps.len();\n");
+    s.files.insert("lib.rs".into(), "fn a() {}\n".into());
+    s.send(Event::ApplyEdits(vec![
+        FileEdit {
+            path: "main.rs".into(),
+            edits: vec![
+                ((0, 11), (0, 14), "usize".into()),
+                ((0, 0), (0, 0), "// fixed\n".into()),
+            ],
+        },
+        FileEdit {
+            path: "lib.rs".into(),
+            edits: vec![((0, 3), (0, 4), "b".into())],
+        },
+    ]));
+    assert_eq!(
+        s.text(),
+        "fn b() {}\n",
+        "the other file opened, and changed"
+    );
+    assert!(s.editor.buffer().is_dirty(), "and left unsaved");
+    s.run("key ctrl+tab");
+    s.send(Event::Ui(merlin_core::UiEvent::Tab {
+        index: 0,
+        clicks: 1,
+    }));
+    assert_eq!(s.text(), "// fixed\nlet count: usize = steps.len();\n");
+    s.run("key ctrl+z");
+    assert_eq!(s.text(), "let count: u32 = steps.len();\n", "one undo step");
+}
+
+#[test]
+fn the_hover_card_offers_the_likeliest_fix() {
+    use merlin_core::lang::ActionKind::*;
+    use merlin_core::{HoverButton, MouseKind::Rest, UiEvent};
+    let mut s = with_actions("let count: u32 = steps.len();\n");
+    s.send(mismatched());
+    s.effects.clear();
+    mouse(&mut s, Rest, 0, 23);
+    assert!(asked_for_actions(&s), "the card asks what would fix it");
+    s.send(Event::ShowCodeActions(vec![
+        action("1", "Extract into a variable", Refactor, false),
+        action("2", "Convert with `u32::try_from`", QuickFix, true),
+    ]));
+    let Some(merlin_core::PopupKind::Hover {
+        fix, more_fixes, ..
+    }) = s.editor.window_view().popup.map(|p| p.kind)
+    else {
+        panic!("the card shows");
+    };
+    assert_eq!(fix.as_deref(), Some("Convert with `u32::try_from`"));
+    assert!(more_fixes);
+    s.effects.clear();
+    s.send(Event::Ui(UiEvent::Hover(HoverButton::Fix)));
+    assert_eq!(
+        s.effects,
+        [Effect::PluginPick {
+            plugin: "lsp".into(),
+            picker: "code-actions".into(),
+            item: "2".into(),
+        }]
+    );
+}
+
+#[test]
+fn more_fixes_lists_them_all_at_the_problem() {
+    use merlin_core::lang::ActionKind::*;
+    use merlin_core::{HoverButton, MouseKind::Rest, UiEvent};
+    let mut s = with_actions("let count: u32 = steps.len();\n");
+    s.send(mismatched());
+    mouse(&mut s, Rest, 0, 23);
+    s.send(Event::ShowCodeActions(vec![
+        action("1", "Extract into a variable", Refactor, false),
+        action("2", "Convert with `u32::try_from`", QuickFix, true),
+    ]));
+    s.send(Event::Ui(UiEvent::Hover(HoverButton::MoreFixes)));
+    assert_eq!(
+        s.editor.popup_text().as_deref(),
+        Some("Convert with `u32::try_from`\nExtract into a variable")
+    );
+    assert_eq!(s.editor.cursor_utf16(), (0, 23), "at the problem");
+}
+
+#[test]
+fn a_lightbulb_shows_on_the_cursors_line_with_a_problem_and_lists_actions() {
+    let mut s = with_actions("fn main() {\n    let count: u32 = steps.len();\n}\n");
+    s.send(Event::RegisterLanguages {
+        plugin: "rust".into(),
+        languages: vec![merlin_core::lang::Language {
+            id: "rust".into(),
+            name: "Rust".into(),
+            extensions: vec!["rs".into()],
+            ..Default::default()
+        }],
+    });
+    let gutter_before = {
+        let mut plain = rust("fn main() {}\n");
+        plain.send(Event::Viewports(vec![(60, 8)]));
+        plain.editor.text_views()[0].gutter
+    };
+    s.send(Event::SetDiagnostics {
+        plugin: "lsp".into(),
+        path: "main.rs".into(),
+        diagnostics: vec![Diagnostic {
+            start: (1, 21),
+            end: (1, 32),
+            message: "mismatched types".into(),
+            ..Default::default()
+        }],
+    });
+    let view = s.editor.text_views().remove(0);
+    assert_eq!(view.bulb, None, "not on the cursor's line");
+    assert_eq!(view.gutter, gutter_before + 2, "but there's room for it");
+    s.run("key down");
+    let view = s.editor.text_views().remove(0);
+    assert_eq!(view.bulb, Some(1));
+    // A press on it lists the actions.
+    s.effects.clear();
+    let (x, y) = s.editor.text_origin();
+    let gutter = view.gutter as u16;
+    s.send(Event::Pointer(merlin_core::Pointer {
+        group: 0,
+        kind: merlin_core::MouseKind::Down,
+        row: (y + 1) as f32,
+        col: (x - gutter) as f32 + 0.5,
+        shift: false,
+        alt: false,
+        ctrl: false,
+        clicks: 1,
+    }));
+    assert!(asked_for_actions(&s));
+}
