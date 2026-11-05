@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Debugging</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.w{width:1280px;height:800px;background:#0f1012;font-family:Inter,sans-serif;color:#d4d5da;display:flex;flex-direction:column;font-size:13px;overflow:hidden;position:relative}
+.bar{height:40px;display:flex;align-items:center;gap:10px;padding:0 12px;flex-shrink:0}
+.logo{width:20px;height:20px;border-radius:5px;background:#7c9cff;color:#0f1012;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
+.mid{flex:1;display:flex;gap:6px;padding-right:6px;min-height:0}
+.rail{width:44px;display:flex;flex-direction:column;align-items:center;gap:18px;padding-top:8px;color:#8e9099;flex-shrink:0}
+.col{flex:1;display:flex;flex-direction:column;gap:6px;min-width:0}
+.island{background:#17181b;border-radius:10px;display:flex;flex-direction:column;min-width:0;overflow:hidden;position:relative}
+.tabs{height:32px;display:flex;align-items:center;gap:3px;padding:0 6px;flex-shrink:0}
+.tab{height:24px;padding:0 10px;border-radius:6px;display:flex;align-items:center;gap:6px;color:#8e9099;font-size:12.5px}
+.tab.on{background:#26272c;color:#eef0f3;box-shadow:inset 0 0 0 1px #2c2d33}
+.ic{width:14px;height:14px;border-radius:3px;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;background:#3a2a1e;color:#f5a97f}
+.code{font-family:'JetBrains Mono',monospace;font-size:13px;line-height:22px;white-space:pre;padding:4px 0}
+.ln{display:inline-block;width:56px;text-align:right;padding-right:16px;color:#7a7d86;position:relative}
+.bp{position:absolute;left:12px;top:5px;width:11px;height:11px;border-radius:50%;background:#e5534b}
+.k{color:#c4a7e7}.s{color:#a6d189}.f{color:#f0c674}.t{color:#9ccfd8}.c{color:#7f8794}.n{color:#f5a97f}
+.here{background:rgba(227,179,65,.13);box-shadow:inset 3px 0 0 #e3b341}
+.val{font-family:Inter,sans-serif;font-size:12px;color:#9ccfd8;background:#1b2427;border-radius:4px;padding:1px 6px;margin-left:18px}
+.side{width:300px;flex-shrink:0}
+.h{height:28px;display:flex;align-items:center;gap:6px;padding:0 12px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#8e9099;border-top:1px solid #222328}
+.v{height:22px;display:flex;align-items:center;gap:6px;font-size:12.5px;font-family:'JetBrains Mono',monospace;padding-right:12px;white-space:nowrap}
+.v .nm{color:#c4a7e7}.v .ty{margin-left:auto;font-family:Inter,sans-serif;font-size:11px;color:#8e9099}
+.frame{height:24px;display:flex;align-items:center;gap:8px;padding:0 12px;font-size:12.5px}
+.frame .at{margin-left:auto;font-size:11.5px;color:#8e9099}
+.tool{position:absolute;left:540px;top:48px;height:34px;display:flex;align-items:center;gap:2px;padding:0 6px;background:#1c1d21;border:1px solid #2c2d33;border-radius:9px;box-shadow:0 8px 22px rgba(0,0,0,.45)}
+.tb{width:30px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;background:none;border:0;padding:0}
+.term{font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:19px;white-space:pre;padding:6px 12px}
+.status{height:24px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px;flex-shrink:0;background:#2a2416;color:#e3b341;border-radius:0}
+</style>
+</helmet>
+<div class="w">
+  <div class="bar">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#8e9099" stroke-width="1.5" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
+    <div class="logo">m</div><strong style="font-size:13px;color:#eef0f3;font-weight:600">merlin</strong>
+  </div>
+  <div class="mid">
+    <div class="rail">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M5 2.5h6l4 4v11H5z"/></svg>
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="#eef0f3" stroke-width="1.5" aria-hidden="true"><path d="M7 5.5a3 3 0 0 1 6 0M6 8h8v5a4 4 0 0 1-8 0zM3 10h3M14 10h3M3.5 15.5L6 14M16.5 15.5L14 14M10 9v8"/></svg>
+    </div>
+    <div class="island side">
+      <div style="height:34px;display:flex;align-items:center;gap:8px;padding:0 12px;font-size:12.5px"><span style="width:8px;height:8px;border-radius:50%;background:#e3b341"></span>merlin (lldb)<span style="margin-left:auto;font-size:11.5px;color:#e3b341">Paused on breakpoint</span></div>
+      <div class="h">Variables</div>
+      <div class="v" style="padding-left:12px"><span style="color:#8e9099">▾</span>Locals</div>
+      <div class="v" style="padding-left:28px"><span class="nm">i</span>= <span class="n">2</span><span class="ty">usize</span></div>
+      <div class="v" style="padding-left:28px"><span class="nm">c</span>= <span class="s">"#89b4fa"</span><span class="ty">&amp;&amp;str</span></div>
+      <div class="v" style="padding-left:16px"><span style="color:#8e9099">▸</span><span class="nm">colours</span>= [3]<span class="ty">[&amp;str; 3]</span></div>
+      <div class="h">Watch<span style="margin-left:auto;font-weight:500;text-transform:none;letter-spacing:0">+</span></div>
+      <div class="v" style="padding-left:12px"><span class="nm">colours.len()</span>= <span class="n">3</span></div>
+      <div class="h">Call Stack</div>
+      <div class="frame" style="background:#262b3d"><span style="color:#e3b341">▸</span>main::print_all<span class="at">main.rs:6</span></div>
+      <div class="frame">main::main<span class="at">main.rs:12</span></div>
+      <div class="frame" style="color:#8e9099">std::rt::lang_start<span class="at">3 more</span></div>
+      <div class="h">Breakpoints</div>
+      <div class="frame"><span style="width:9px;height:9px;border-radius:50%;background:#e5534b"></span>main.rs<span class="at">6</span></div>
+      <div class="frame"><span style="width:9px;height:9px;border-radius:50%;border:1.5px solid #e5534b;box-sizing:border-box"></span>main.rs · i == 2<span class="at">9</span></div>
+    </div>
+    <div class="col">
+      <div class="island" style="flex:1">
+        <div class="tabs"><div class="tab on"><span class="ic">RS</span>main.rs</div></div>
+        <div class="code"><span class="ln">3</span><span class="k">fn</span> <span class="f">print_all</span>() {
+<span class="ln">4</span>    <span class="k">let</span> colours = [<span class="s">"#a6e3a1"</span>, <span class="s">"#89b4fa"</span>, <span class="s">"#f38ba8"</span>];<span class="val">colours = [3]</span>
+<span class="ln">5</span>    <span class="k">for</span> (i, c) <span class="k">in</span> colours.<span class="f">iter</span>().<span class="f">enumerate</span>() {<span class="val">i = 2, c = "#89b4fa"</span>
+<div class="here"><span class="ln"><span class="bp"></span><svg style="position:absolute;left:26px;top:5px" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2h5l3 4-3 4H2z" fill="#e3b341"/></svg>6</span>        <span class="f">println!</span>(<span class="s">"{i}: {c}"</span>);</div><span class="ln">7</span>    }
+<span class="ln">8</span>    <span class="k">for</span> c <span class="k">in</span> colours {
+<span class="ln"><span class="bp" style="background:none;border:1.5px solid #e5534b;box-sizing:border-box"></span>9</span>        <span class="f">check</span>(c);
+<span class="ln">10</span>    }
+<span class="ln">11</span>}</div>
+      </div>
+      <div class="island" style="height:210px;flex-shrink:0">
+        <div style="height:34px;display:flex;align-items:center;gap:14px;padding:0 18px;font-size:12.5px;color:#8e9099"><span>Problems</span><span>Output</span><span>Terminal</span><span style="color:#eef0f3;border-bottom:2px solid #7c9cff;padding-bottom:3px">Debug Console</span></div>
+        <div class="term"><span style="color:#8e9099">0: #a6e3a1</span>
+<span style="color:#8e9099">1: #89b4fa</span>
+<span style="color:#7c9cff">›</span> c.len()
+<span style="color:#f5a97f">7</span>
+<span style="color:#7c9cff">›</span> <span style="background:#d4d5da;color:#17181b"> </span></div>
+      </div>
+    </div>
+  </div>
+  <div class="status"><span>● Debugging merlin</span><span>Paused at main.rs:6</span><span style="margin-left:auto">Ln 6, Col 9</span><span>Rust</span></div>
+  <div class="tool" role="toolbar" aria-label="Debug">
+    <svg width="10" height="16" viewBox="0 0 10 16" fill="#5f626b" aria-hidden="true"><circle cx="3" cy="4" r="1.2"/><circle cx="7" cy="4" r="1.2"/><circle cx="3" cy="8" r="1.2"/><circle cx="7" cy="8" r="1.2"/><circle cx="3" cy="12" r="1.2"/><circle cx="7" cy="12" r="1.2"/></svg>
+    <button class="tb" aria-label="Continue (F5)" style="background:#1f2e1f"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 2v10M6 2l6 5-6 5z" fill="#6cc070" stroke="#6cc070" stroke-width="1.4"/></svg></button>
+    <button class="tb" aria-label="Step over (F10)"><svg width="16" height="14" viewBox="0 0 16 14" fill="none" stroke="#7c9cff" stroke-width="1.5" aria-hidden="true"><path d="M2 8a6 6 0 0 1 11-2M13 2v4H9"/><circle cx="8" cy="11.5" r="1.5" fill="#7c9cff"/></svg></button>
+    <button class="tb" aria-label="Step into (F11)"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#7c9cff" stroke-width="1.5" aria-hidden="true"><path d="M7 1v7M4 5l3 3 3-3"/><circle cx="7" cy="11.5" r="1.5" fill="#7c9cff"/></svg></button>
+    <button class="tb" aria-label="Step out (Shift+F11)"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#7c9cff" stroke-width="1.5" aria-hidden="true"><path d="M7 8V1M4 4l3-3 3 3"/><circle cx="7" cy="11.5" r="1.5" fill="#7c9cff"/></svg></button>
+    <button class="tb" aria-label="Restart (Ctrl+Shift+F5)"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#6cc070" stroke-width="1.5" aria-hidden="true"><path d="M11.5 7A4.5 4.5 0 1 1 9 3M9 1v2.5h2.5"/></svg></button>
+    <button class="tb" aria-label="Stop (Shift+F5)"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><rect x="1" y="1" width="10" height="10" rx="1.5" fill="#f0807a"/></svg></button>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

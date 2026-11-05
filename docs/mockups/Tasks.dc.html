@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tasks and tests</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.w{width:1280px;height:800px;background:#0f1012;font-family:Inter,sans-serif;color:#d4d5da;display:flex;flex-direction:column;font-size:13px;overflow:hidden;position:relative}
+.bar{height:40px;display:flex;align-items:center;gap:10px;padding:0 12px;flex-shrink:0}
+.logo{width:20px;height:20px;border-radius:5px;background:#7c9cff;color:#0f1012;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
+.search{margin:0 auto;width:400px;height:26px;border-radius:7px;background:#1c1d21;border:1px solid #2c2d33;color:#8e9099;display:flex;align-items:center;gap:8px;padding:0 10px;font-size:12.5px;box-sizing:border-box}
+.mid{flex:1;display:flex;gap:6px;padding-right:6px;min-height:0}
+.rail{width:44px;display:flex;flex-direction:column;align-items:center;gap:18px;padding-top:8px;color:#8e9099;flex-shrink:0}
+.col{flex:1;display:flex;flex-direction:column;gap:6px;min-width:0}
+.island{background:#17181b;border-radius:10px;display:flex;flex-direction:column;min-width:0;overflow:hidden;position:relative}
+.tabs{height:32px;display:flex;align-items:center;gap:3px;padding:0 6px;flex-shrink:0}
+.tab{height:24px;padding:0 10px;border-radius:6px;display:flex;align-items:center;gap:6px;color:#8e9099;font-size:12.5px}
+.tab.on{background:#26272c;color:#eef0f3;box-shadow:inset 0 0 0 1px #2c2d33}
+.ic{width:14px;height:14px;border-radius:3px;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;background:#3a2a1e;color:#f5a97f}
+.code{font-family:'JetBrains Mono',monospace;font-size:13px;line-height:22px;white-space:pre;padding:4px 0}
+.ln{display:inline-block;width:56px;text-align:right;padding-right:16px;color:#7a7d86;position:relative}
+.run{position:absolute;left:8px;top:4px}
+.k{color:#c4a7e7}.s{color:#a6d189}.f{color:#f0c674}.t{color:#9ccfd8}.c{color:#7f8794}.n{color:#f5a97f}
+.lens{font-family:Inter,sans-serif;font-size:11.5px;color:#8e9099;padding-left:72px;height:18px;display:flex;gap:12px;align-items:center}
+.lens a{color:#8e9099;text-decoration:none}
+.side{width:290px;flex-shrink:0}
+.h{height:30px;display:flex;align-items:center;gap:6px;padding:0 12px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#8e9099}
+.t-row{height:24px;display:flex;align-items:center;gap:7px;font-size:12.5px;color:#d4d5da;padding-right:12px}
+.t-row .d{margin-left:auto;font-size:11px;color:#8e9099}
+.term{font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:19px;white-space:pre;padding:6px 12px}
+.g{color:#6cc070}.r{color:#f0807a}.m{color:#8e9099}.b{color:#7c9cff}
+.pal{position:absolute;left:440px;top:46px;width:520px;background:#1c1d21;border:1px solid #2c2d33;border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.5);padding:6px}
+.pin{height:32px;border:1px solid #7c9cff;border-radius:6px;background:#1f2024;display:flex;align-items:center;padding:0 10px;font-size:13px;color:#eef0f3;margin-bottom:4px}
+.pi{height:30px;display:flex;align-items:center;gap:10px;padding:0 10px;border-radius:6px;font-size:13px}
+.pi.on{background:#262b3d;color:#eef0f3}
+.src{margin-left:auto;font-size:11.5px;color:#8e9099}
+.kbd{font-size:11px;background:#26272c;border-radius:4px;padding:1px 6px;color:#b4b6bd}
+.status{height:24px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px;color:#8e9099;flex-shrink:0}
+</style>
+</helmet>
+<div class="w">
+  <div class="bar">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#8e9099" stroke-width="1.5" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
+    <div class="logo">m</div><strong style="font-size:13px;color:#eef0f3;font-weight:600">merlin</strong>
+    <div class="search" style="visibility:hidden">Search</div>
+  </div>
+  <div class="mid">
+    <div class="rail">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M5 2.5h6l4 4v11H5z"/></svg>
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="9" cy="9" r="5.5"/><path d="M13 13l4.5 4.5"/></svg>
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="#eef0f3" stroke-width="1.5" aria-hidden="true"><path d="M7 3h6M8 3v5l-4 8h12l-4-8V3"/></svg>
+    </div>
+    <div class="island side">
+      <div class="h">Tests<span style="margin-left:auto;text-transform:none;letter-spacing:0;font-weight:500"><span class="g">31 ✓</span> <span class="r">1 ✕</span></span></div>
+      <div style="display:flex;gap:6px;padding:0 12px 8px"><span class="kbd" style="padding:3px 8px">▶ Run All</span><span class="kbd" style="padding:3px 8px">Run Failed</span><span class="kbd" style="padding:3px 8px">⟳ On Save</span></div>
+      <div class="t-row" style="padding-left:12px"><span class="r">✕</span>merlin-core<span class="d">0.4s</span></div>
+      <div class="t-row" style="padding-left:28px"><span class="g">✓</span>tests/find.rs<span class="d">8</span></div>
+      <div class="t-row" style="padding-left:28px"><span class="r">✕</span>tests/saving.rs<span class="d">11</span></div>
+      <div class="t-row" style="padding-left:44px;background:#262b3d"><span class="r">✕</span>trims_on_save<span class="d">2ms</span></div>
+      <div class="t-row" style="padding-left:44px"><span class="g">✓</span>auto_save_after_a_delay<span class="d">1ms</span></div>
+      <div class="t-row" style="padding-left:44px"><span class="g">✓</span>editorconfig_wins<span class="d">1ms</span></div>
+      <div class="t-row" style="padding-left:28px"><span class="g">✓</span>tests/groups.rs<span class="d">24</span></div>
+      <div class="t-row" style="padding-left:12px"><span class="g">✓</span>merlin<span class="d">0.2s</span></div>
+      <div class="t-row" style="padding-left:12px;color:#8e9099"><span>○</span>merlin-plugins<span class="d">not run</span></div>
+      <div class="h" style="margin-top:8px">Tasks</div>
+      <div class="t-row" style="padding-left:12px"><span class="g">●</span>cargo watch<span class="d">running</span></div>
+      <div class="t-row" style="padding-left:12px"><span class="m">○</span>cargo build --release</div>
+    </div>
+    <div class="col">
+      <div class="island" style="flex:1">
+        <div class="tabs"><div class="tab on"><span class="ic">RS</span>saving.rs</div></div>
+        <div class="code"><span class="ln">24</span><span class="k">#[test]</span>
+<div class="lens"><a href="#">▶ Run Test</a><a href="#">Debug</a><span class="r">✕ failed 2 min ago</span></div><span class="ln"><svg class="run" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5" fill="#3a1d1d"/><path d="M4 4l4 4M8 4l-4 4" stroke="#f0807a" stroke-width="1.4"/></svg>25</span><span class="k">fn</span> <span class="f">trims_on_save</span>() {
+<span class="ln">26</span>    <span class="k">let mut</span> s = <span class="f">session</span>(<span class="s">"a  \nb"</span>, <span class="s">"x.rs"</span>);
+<span class="ln">27</span>    s.<span class="f">run</span>(<span class="s">"key ctrl+s"</span>);
+<span class="ln">28</span>    <span class="f">assert_eq!</span>(s.files[<span class="s">"x.rs"</span>], <span class="s">"a\nb\n"</span>);
+<span class="ln"></span>    <span style="font-family:Inter,sans-serif;font-size:12px;color:#f0807a;background:#2a1a1a;border-radius:5px;padding:3px 8px">left: "a\nb"  right: "a\nb\n" — the final newline wasn't added</span>
+<span class="ln">29</span>}
+<span class="ln">30</span>
+<span class="ln">31</span><span class="k">#[test]</span>
+<span class="ln"><svg class="run" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5" fill="#1f2e1f"/><path d="M3.5 6.2l1.7 1.6 3.3-3.6" stroke="#6cc070" stroke-width="1.4" fill="none"/></svg>32</span><span class="k">fn</span> <span class="f">auto_save_after_a_delay</span>() {</div>
+      </div>
+      <div class="island" style="height:220px;flex-shrink:0">
+        <div style="height:34px;display:flex;align-items:center;gap:14px;padding:0 18px;font-size:12.5px;color:#8e9099"><span>Problems</span><span>Output</span><span style="color:#eef0f3;border-bottom:2px solid #7c9cff;padding-bottom:3px">Terminal: cargo test</span></div>
+        <div class="term"><span class="m">❯ cargo test -p merlin-core --test saving trims_on_save</span>
+running 1 test
+test trims_on_save ... <span class="r">FAILED</span>
+  left: "a\nb"
+ right: "a\nb\n"
+test result: <span class="r">FAILED</span>. 0 passed; 1 failed   <span class="b">crates/core/tests/saving.rs:28</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="status"><span>⑂ main</span><span class="r">✕ 1 test failed</span><span>● cargo watch</span><span style="margin-left:auto">Ln 25, Col 4</span><span>Rust</span></div>
+  <div class="pal">
+    <div class="pin">Run Task<span style="color:#8e9099;margin-left:6px">› </span><span style="width:1.5px;height:15px;background:#7c9cff"></span></div>
+    <div class="pi on">cargo test<span class="src">Cargo.toml</span><span class="kbd">Ctrl Shift T</span></div>
+    <div class="pi">cargo build --release<span class="src">Cargo.toml</span></div>
+    <div class="pi">cargo clippy --workspace<span class="src">Cargo.toml</span></div>
+    <div class="pi">check-budgets<span class="src">.merlin/tasks.toml</span></div>
+    <div class="pi">dev<span class="src">package.json</span></div>
+    <div class="pi" style="color:#8e9099">Configure tasks…</div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

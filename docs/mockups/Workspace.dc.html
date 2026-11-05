@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Several folders and a second window</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.w{width:1280px;height:800px;background:#08090a;font-family:Inter,sans-serif;color:#d4d5da;font-size:13px;overflow:hidden;position:relative}
+.win{position:absolute;background:#0f1012;border-radius:12px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 0 0 1px #24252a}
+.bar{height:40px;display:flex;align-items:center;gap:10px;padding:0 12px;flex-shrink:0}
+.logo{width:20px;height:20px;border-radius:5px;background:#7c9cff;color:#0f1012;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
+.mid{flex:1;display:flex;gap:6px;padding-right:6px;min-height:0}
+.rail{width:44px;flex-shrink:0}
+.island{background:#17181b;border-radius:10px;display:flex;flex-direction:column;min-width:0;overflow:hidden}
+.tabs{height:32px;display:flex;align-items:center;gap:3px;padding:0 6px;flex-shrink:0}
+.tab{height:24px;padding:0 10px;border-radius:6px;display:flex;align-items:center;gap:6px;color:#8e9099;font-size:12.5px}
+.tab.on{background:#26272c;color:#eef0f3;box-shadow:inset 0 0 0 1px #2c2d33}
+.ic{width:14px;height:14px;border-radius:3px;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;background:#3a2a1e;color:#f5a97f;flex-shrink:0}
+.code{font-family:'JetBrains Mono',monospace;font-size:13px;line-height:22px;white-space:pre;padding:4px 0}
+.ln{display:inline-block;width:40px;text-align:right;padding-right:16px;color:#7a7d86}
+.k{color:#c4a7e7}.s{color:#a6d189}.f{color:#f0c674}.t{color:#9ccfd8}.c{color:#7f8794}.n{color:#f5a97f}
+.h{height:30px;display:flex;align-items:center;padding:0 12px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#8e9099}
+.root{height:26px;display:flex;align-items:center;gap:6px;padding:0 10px;font-size:12px;font-weight:600;color:#eef0f3;letter-spacing:.02em}
+.root .br{margin-left:auto;font-weight:400;font-size:11px;color:#8e9099}
+.e{height:24px;display:flex;align-items:center;gap:7px;font-size:12.5px;color:#d4d5da;padding-right:10px}
+.status{height:24px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px;color:#8e9099;flex-shrink:0}
+.label{position:absolute;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#7c9cff}
+</style>
+</helmet>
+<div class="w">
+  <div class="win" style="left:0;top:0;width:1280px;height:800px;border-radius:0;box-shadow:none">
+    <div class="bar">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#8e9099" stroke-width="1.5" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
+      <div class="logo">m</div><strong style="font-size:13px;color:#eef0f3;font-weight:600">merlin + strata</strong><span style="color:#8e9099;font-size:12px">2 folders</span>
+    </div>
+    <div class="mid">
+      <div class="rail"></div>
+      <div class="island" style="width:270px;flex-shrink:0">
+        <div class="h">Explorer</div>
+        <div class="root"><svg width="10" height="10" viewBox="0 0 10 10" fill="#8e9099" aria-hidden="true"><path d="M2 3l3 3.5L8 3z"/></svg>MERLIN<span class="br">⑂ editor-rework</span></div>
+        <div class="e" style="padding-left:22px"><svg width="10" height="10" viewBox="0 0 10 10" fill="#8e9099" aria-hidden="true"><path d="M2 3l3 3.5L8 3z"/></svg>crates</div>
+        <div class="e" style="padding-left:38px"><svg width="10" height="10" viewBox="0 0 10 10" fill="#8e9099" aria-hidden="true"><path d="M3 2l3.5 3L3 8z"/></svg>app</div>
+        <div class="e" style="padding-left:38px"><svg width="10" height="10" viewBox="0 0 10 10" fill="#8e9099" aria-hidden="true"><path d="M3 2l3.5 3L3 8z"/></svg>core</div>
+        <div class="e" style="padding-left:22px"><span class="ic" style="background:#1e2a3a;color:#7fb0ff">MD</span>README.md</div>
+        <div class="e" style="padding-left:22px"><span class="ic" style="background:#1e2a3a;color:#7fb0ff">TO</span>Cargo.toml</div>
+        <div class="root" style="margin-top:6px"><svg width="10" height="10" viewBox="0 0 10 10" fill="#8e9099" aria-hidden="true"><path d="M2 3l3 3.5L8 3z"/></svg>STRATA<span class="br">⑂ main</span></div>
+        <div class="e" style="padding-left:22px"><svg width="10" height="10" viewBox="0 0 10 10" fill="#8e9099" aria-hidden="true"><path d="M3 2l3.5 3L3 8z"/></svg>src</div>
+        <div class="e" style="padding-left:22px"><span class="ic" style="background:#1e2a3a;color:#7fb0ff">CM</span>CMakeLists.txt</div>
+        <div class="e" style="padding-left:12px;margin-top:8px;color:#8e9099"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M6 2v8M2 6h8"/></svg>Add Folder…</div>
+        <div style="padding:16px 12px 0;font-size:11.5px;color:#8e9099;line-height:1.5">Each folder keeps its own git branch, settings and language servers. Go to File, Search and Source Control cover both, grouped by folder.</div>
+      </div>
+      <div class="island" style="flex:1">
+        <div class="tabs"><div class="tab on"><span class="ic">RS</span>editor.rs<span style="color:#8e9099;font-size:11px">merlin</span></div><div class="tab"><span class="ic" style="background:#1e2a3a;color:#7fb0ff">C+</span>render.cpp<span style="color:#8e9099;font-size:11px">strata</span></div></div>
+        <div class="code"><span class="ln">1</span><span class="k">mod</span> carets;
+<span class="ln">2</span><span class="k">mod</span> chrome;
+<span class="ln">3</span><span class="k">mod</span> colours;</div>
+      </div>
+    </div>
+    <div class="status"><span>merlin: ⑂ editor-rework</span><span>strata: ⑂ main</span><span style="margin-left:auto">Ln 1, Col 1</span><span>Rust</span></div>
+  </div>
+  <div class="win" style="left:640px;top:330px;width:600px;height:430px;box-shadow:0 0 0 1px #2c2d33,0 24px 60px rgba(0,0,0,.6)">
+    <div class="bar" style="height:34px"><div class="logo" style="width:16px;height:16px;font-size:10px">m</div><span style="font-size:12.5px;color:#eef0f3">render.cpp — strata</span><span style="margin-left:auto;color:#8e9099;font-size:11.5px">Second window</span></div>
+    <div class="mid" style="padding:0 6px 6px">
+      <div class="island" style="flex:1">
+        <div class="tabs"><div class="tab on"><span class="ic" style="background:#1e2a3a;color:#7fb0ff">C+</span>render.cpp</div></div>
+        <div class="code"><span class="ln">14</span><span class="k">void</span> <span class="f">Renderer::draw</span>(<span class="t">Frame</span>&amp; frame) {
+<span class="ln">15</span>    <span class="k">for</span> (<span class="k">auto</span>&amp; layer : frame.layers) {
+<span class="ln">16</span>        <span class="f">submit</span>(layer);
+<span class="ln">17</span>    }
+<span class="ln">18</span>}</div>
+      </div>
+    </div>
+  </div>
+  <span class="label" style="left:660px;top:300px">Drag a tab out of the window, or Move to New Window in its menu</span>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

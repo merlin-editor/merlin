@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Find references</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.w{width:1280px;height:800px;background:#0f1012;font-family:Inter,sans-serif;color:#d4d5da;display:flex;flex-direction:column;font-size:13px;overflow:hidden}
+.bar{height:40px;display:flex;align-items:center;gap:10px;padding:0 12px;flex-shrink:0}
+.logo{width:20px;height:20px;border-radius:5px;background:#7c9cff;color:#0f1012;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
+.search{margin:0 auto;width:400px;height:26px;border-radius:7px;background:#1c1d21;border:1px solid #2c2d33;color:#8e9099;display:flex;align-items:center;gap:8px;padding:0 10px;font-size:12.5px;box-sizing:border-box}
+.mid{flex:1;display:flex;gap:6px;padding-right:6px;min-height:0}
+.rail{width:44px;flex-shrink:0}
+.island{background:#17181b;border-radius:10px;display:flex;flex-direction:column;min-width:0;overflow:hidden;position:relative}
+.tabs{height:32px;display:flex;align-items:center;gap:3px;padding:0 6px;flex-shrink:0}
+.tab{height:24px;padding:0 10px;border-radius:6px;display:flex;align-items:center;gap:6px;color:#8e9099;font-size:12.5px}
+.tab.on{background:#26272c;color:#eef0f3;box-shadow:inset 0 0 0 1px #2c2d33}
+.ic{width:14px;height:14px;border-radius:3px;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;background:#3a2a1e;color:#f5a97f}
+.code{font-family:'JetBrains Mono',monospace;font-size:13px;line-height:22px;white-space:pre}
+.ln{display:inline-block;width:40px;text-align:right;padding-right:20px;color:#7a7d86}
+.k{color:#c4a7e7}.s{color:#a6d189}.f{color:#f0c674}.t{color:#9ccfd8}.c{color:#7f8794}.n{color:#f5a97f}
+.hl{background:#4a3a1e;border-radius:2px}
+.peek{margin:4px 0 4px 40px;border:1px solid #7c9cff;border-radius:8px;background:#141518;display:flex;flex-direction:column;overflow:hidden}
+.phead{height:30px;display:flex;align-items:center;gap:10px;padding:0 12px;background:#1c1d21;border-bottom:1px solid #2c2d33;font-size:12.5px}
+.ref{height:24px;display:flex;align-items:center;gap:8px;padding:0 10px 0 26px;font-size:12px;color:#b4b6bd;font-family:'JetBrains Mono',monospace;white-space:nowrap;overflow:hidden}
+.ref.on{background:#262b3d;color:#eef0f3}
+.file{height:26px;display:flex;align-items:center;gap:6px;padding:0 10px;font-size:12.5px;color:#d4d5da}
+.badge{margin-left:auto;font-size:11px;color:#8e9099;background:#26272c;border-radius:8px;padding:0 6px}
+.status{height:24px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px;color:#8e9099;flex-shrink:0}
+.btn{width:24px;height:24px;border-radius:5px;display:flex;align-items:center;justify-content:center;color:#8e9099;background:none;border:0;padding:0}
+</style>
+</helmet>
+<div class="w">
+  <div class="bar">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#8e9099" stroke-width="1.5" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
+    <div class="logo">m</div><strong style="font-size:13px;color:#eef0f3;font-weight:600">merlin</strong>
+    <div class="search">Search files, commands and symbols</div>
+  </div>
+  <div class="mid">
+    <div class="rail"></div>
+    <div class="island" style="flex:1">
+      <div class="tabs"><div class="tab on"><span class="ic">RS</span>palette.rs</div><div class="tab"><span class="ic">RS</span>theme.rs</div></div>
+      <div class="code" style="padding-top:4px"><span class="ln">18</span><span class="c">/// A colour lighter or darker by `amount`, from -1 to 1.</span>
+<span class="ln">19</span><span class="k">#[must_use]</span>
+<span class="ln">20</span><span class="k">pub fn</span> <span class="hl"><span class="f">shade</span></span>(base: <span class="t">Rgb</span>, amount: <span class="t">f32</span>) -&gt; <span class="t">Rgb</span> {</div>
+      <div class="peek" style="height:330px">
+        <div class="phead"><strong style="font-weight:600;color:#eef0f3">shade</strong><span style="color:#8e9099">7 references in 3 files</span><span style="flex:1"></span>
+          <button class="btn" aria-label="Open all in the Search view"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2" y="2" width="10" height="10" rx="1.5"/><path d="M5 2v10"/></svg></button>
+          <button class="btn" aria-label="Close"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 3l6 6M9 3l-6 6"/></svg></button>
+        </div>
+        <div style="flex:1;display:flex;min-height:0">
+          <div class="code" style="flex:1;padding:6px 0;background:#17181b"><span class="ln">40</span>    <span class="k">let</span> hover = <span class="hl"><span class="f">shade</span></span>(p.island, <span class="n">0.04</span>);
+<span class="ln">41</span>    <span class="k">let</span> raised = <span class="hl"><span class="f">shade</span></span>(p.island, <span class="n">0.07</span>);
+<span class="ln">42</span>    <span class="k">let</span> chip = <span class="hl"><span class="f">shade</span></span>(p.island, <span class="n">0.10</span>);
+<span class="ln">43</span>    <span class="c">// The ground is darker than any island.</span>
+<span class="ln">44</span>    <span class="k">let</span> ground = <span class="hl"><span class="f">shade</span></span>(p.island, <span class="n">-0.35</span>);
+<span class="ln">45</span>    <span class="t">Palette</span> { hover, raised, chip, ground, ..p }
+<span class="ln">46</span>}</div>
+          <div style="width:330px;border-left:1px solid #2c2d33;padding:4px 0;overflow:hidden">
+            <div class="file"><svg width="10" height="10" viewBox="0 0 10 10" fill="#8e9099" aria-hidden="true"><path d="M2 3l3 3.5L8 3z"/></svg><span class="ic">RS</span>theme.rs<span style="color:#8e9099;font-size:11.5px">src</span><span class="badge">4</span></div>
+            <div class="ref on">40  let hover = shade(p.island, 0.04);</div>
+            <div class="ref">41  let raised = shade(p.island, 0.07);</div>
+            <div class="ref">42  let chip = shade(p.island, 0.10);</div>
+            <div class="ref">44  let ground = shade(p.island, -0.35);</div>
+            <div class="file"><svg width="10" height="10" viewBox="0 0 10 10" fill="#8e9099" aria-hidden="true"><path d="M2 3l3 3.5L8 3z"/></svg><span class="ic">RS</span>palette.rs<span style="color:#8e9099;font-size:11.5px">src</span><span class="badge">2</span></div>
+            <div class="ref">29  steps.iter().map(|s| shade(accent…</div>
+            <div class="ref">61  shade(base, -amount)</div>
+            <div class="file"><svg width="10" height="10" viewBox="0 0 10 10" fill="#8e9099" aria-hidden="true"><path d="M3 2l3.5 3L3 8z"/></svg><span class="ic">RS</span>palette.rs<span style="color:#8e9099;font-size:11.5px">tests</span><span class="badge">1</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="code"><span class="ln">21</span>    <span class="k">let</span> mix = amount.<span class="f">clamp</span>(<span class="n">-1.0</span>, <span class="n">1.0</span>);
+<span class="ln">22</span>    <span class="k">let</span> target = <span class="k">if</span> mix &gt; <span class="n">0.0</span> { <span class="t">WHITE</span> } <span class="k">else</span> { <span class="t">BLACK</span> };
+<span class="ln">23</span>    <span class="t">Rgb</span>::<span class="f">lerp</span>(base, target, mix.<span class="f">abs</span>())
+<span class="ln">24</span>}</div>
+      <div style="position:absolute;right:20px;bottom:16px;font-size:11.5px;color:#8e9099;background:#1c1d21;border:1px solid #2c2d33;border-radius:6px;padding:6px 10px">Shift+F12 peeks · Enter opens the reference · F4 / Shift+F4 step through · Esc closes</div>
+    </div>
+  </div>
+  <div class="status"><span>⑂ main</span><span>⊗ 0 ⚠ 0</span><span style="margin-left:auto">Ln 20, Col 9</span><span>Rust</span></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

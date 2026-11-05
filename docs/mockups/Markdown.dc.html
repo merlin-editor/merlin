@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Markdown preview</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.w{width:1280px;height:800px;background:#0f1012;font-family:Inter,sans-serif;color:#d4d5da;display:flex;flex-direction:column;font-size:13px;overflow:hidden}
+.bar{height:40px;display:flex;align-items:center;gap:10px;padding:0 12px;flex-shrink:0}
+.logo{width:20px;height:20px;border-radius:5px;background:#7c9cff;color:#0f1012;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
+.mid{flex:1;display:flex;gap:6px;padding:0 6px 0 50px;min-height:0}
+.island{background:#17181b;border-radius:10px;display:flex;flex-direction:column;min-width:0;overflow:hidden;flex:1}
+.tabs{height:32px;display:flex;align-items:center;gap:3px;padding:0 6px;flex-shrink:0}
+.tab{height:24px;padding:0 10px;border-radius:6px;display:flex;align-items:center;gap:6px;color:#8e9099;font-size:12.5px}
+.tab.on{background:#26272c;color:#eef0f3;box-shadow:inset 0 0 0 1px #2c2d33}
+.ic{width:14px;height:14px;border-radius:3px;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;background:#1e2a3a;color:#7fb0ff}
+.code{font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:21px;white-space:pre;padding:4px 0}
+.ln{display:inline-block;width:36px;text-align:right;padding-right:14px;color:#7a7d86}
+.h1{color:#7c9cff;font-weight:600}.b{color:#f0c674}.m{color:#7f8794}.l{color:#9ccfd8}
+.cur{background:#1d1e23}
+.pv{padding:20px 32px;overflow:hidden;line-height:1.6;font-size:14px}
+.pv h1{font-size:24px;margin:0 0 10px;color:#eef0f3;font-weight:650;border-bottom:1px solid #222328;padding-bottom:8px}
+.pv h2{font-size:17px;margin:20px 0 8px;color:#eef0f3;font-weight:600}
+.pv p{margin:0 0 10px;color:#d4d5da}
+.pv code{font-family:'JetBrains Mono',monospace;font-size:12.5px;background:#1f2024;border-radius:4px;padding:1px 5px}
+.pv table{border-collapse:collapse;font-size:13px;margin:6px 0 12px}
+.pv th,.pv td{border:1px solid #2c2d33;padding:5px 12px;text-align:left}
+.pv th{background:#1c1d21;color:#eef0f3;font-weight:600}
+.node{position:absolute;height:32px;border-radius:7px;background:#1f2638;border:1px solid #7c9cff;display:flex;align-items:center;justify-content:center;font-size:12.5px;color:#eef0f3;box-sizing:border-box}
+.status{height:24px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px;color:#8e9099;flex-shrink:0}
+</style>
+</helmet>
+<div class="w">
+  <div class="bar">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#8e9099" stroke-width="1.5" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
+    <div class="logo">m</div><strong style="font-size:13px;color:#eef0f3;font-weight:600">merlin</strong>
+  </div>
+  <div class="mid">
+    <div class="island">
+      <div class="tabs"><div class="tab on"><span class="ic">MD</span>DESIGN.md</div></div>
+      <div class="code"><span class="ln">1</span><span class="h1"># How merlin draws a frame</span>
+<span class="ln">2</span>
+<span class="ln">3</span>The core is a <span class="b">**pure reducer**</span>: events in,
+<span class="ln">4</span>effects out. The window draws what it says.
+<span class="ln">5</span>
+<span class="ln">6</span><span class="h1">## The loop</span>
+<span class="ln">7</span>
+<span class="ln">8</span><span class="m">```mermaid</span>
+<span class="ln">9</span>flowchart LR
+<div class="cur"><span class="ln">10</span>  Input --&gt; Core --&gt; Effects</div><span class="ln">11</span>  Core --&gt; Views --&gt; Window
+<span class="ln">12</span><span class="m">```</span>
+<span class="ln">13</span>
+<span class="ln">14</span><span class="h1">## Budgets</span>
+<span class="ln">15</span>
+<span class="ln">16</span>| What | Budget |
+<span class="ln">17</span>|---|---|
+<span class="ln">18</span>| Memory | <span class="l">`100 MB`</span> |
+<span class="ln">19</span>| Idle wakeups | <span class="l">`1 per 10 s`</span> |</div>
+    </div>
+    <div class="island">
+      <div class="tabs"><div class="tab on"><svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="#b4b6bd" stroke-width="1.4" aria-hidden="true"><path d="M1 7s2.2-4 6-4 6 4 6 4-2.2 4-6 4-6-4-6-4z"/><circle cx="7" cy="7" r="1.8"/></svg>Preview DESIGN.md</div><span style="margin-left:auto;font-size:11.5px;color:#8e9099;padding-right:8px">Scrolls with the source</span></div>
+      <div class="pv">
+        <h1>How merlin draws a frame</h1>
+        <p>The core is a <strong>pure reducer</strong>: events in, effects out. The window draws what it says.</p>
+        <h2>The loop</h2>
+        <div style="position:relative;height:120px;border:1px solid #222328;border-radius:8px;background:#141518;margin-bottom:12px;box-shadow:inset 3px 0 0 #7c9cff" role="img" aria-label="Flowchart: Input to Core to Effects; Core to Views to Window">
+          <div class="node" style="left:24px;top:20px;width:90px">Input</div>
+          <div class="node" style="left:164px;top:44px;width:90px">Core</div>
+          <div class="node" style="left:304px;top:20px;width:100px">Effects</div>
+          <div class="node" style="left:304px;top:70px;width:100px">Views</div>
+          <div class="node" style="left:450px;top:70px;width:100px">Window</div>
+          <div style="position:absolute;left:114px;top:44px;width:50px;height:1.5px;background:#8e9099;transform:rotate(25deg);transform-origin:left"></div>
+          <div style="position:absolute;left:254px;top:56px;width:50px;height:1.5px;background:#8e9099;transform:rotate(-25deg);transform-origin:left"></div>
+          <div style="position:absolute;left:254px;top:64px;width:50px;height:1.5px;background:#8e9099;transform:rotate(25deg);transform-origin:left"></div>
+          <div style="position:absolute;left:404px;top:86px;width:46px;height:1.5px;background:#8e9099"></div>
+        </div>
+        <h2>Budgets</h2>
+        <table><thead><tr><th>What</th><th>Budget</th></tr></thead><tbody><tr><td>Memory</td><td><code>100 MB</code></td></tr><tr><td>Idle wakeups</td><td><code>1 per 10 s</code></td></tr></tbody></table>
+      </div>
+    </div>
+  </div>
+  <div class="status"><span>⑂ main</span><span style="margin-left:auto">Ln 10, Col 3</span><span>Markdown</span><span>Ctrl+K V opens the preview beside</span></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

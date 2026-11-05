@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Merge editor</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.w{width:1280px;height:800px;background:#0f1012;font-family:Inter,sans-serif;color:#d4d5da;display:flex;flex-direction:column;font-size:13px;overflow:hidden}
+.bar{height:40px;display:flex;align-items:center;gap:10px;padding:0 12px;flex-shrink:0}
+.logo{width:20px;height:20px;border-radius:5px;background:#7c9cff;color:#0f1012;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
+.search{margin:0 auto;width:400px;height:26px;border-radius:7px;background:#1c1d21;border:1px solid #2c2d33;color:#8e9099;display:flex;align-items:center;gap:8px;padding:0 10px;font-size:12.5px;box-sizing:border-box}
+.mid{flex:1;display:flex;gap:6px;padding:0 6px 0 50px;min-height:0}
+.island{background:#17181b;border-radius:10px;display:flex;flex-direction:column;min-width:0;overflow:hidden;position:relative}
+.tabs{height:32px;display:flex;align-items:center;gap:3px;padding:0 6px;flex-shrink:0}
+.tab{height:24px;padding:0 10px;border-radius:6px;display:flex;align-items:center;gap:6px;color:#8e9099;font-size:12.5px}
+.tab.on{background:#26272c;color:#eef0f3;box-shadow:inset 0 0 0 1px #2c2d33}
+.ic{width:14px;height:14px;border-radius:3px;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;background:#3a2a1e;color:#f5a97f}
+.code{font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:21px;white-space:pre}
+.ln{display:inline-block;width:32px;text-align:right;padding-right:14px;color:#7a7d86}
+.k{color:#c4a7e7}.s{color:#a6d189}.f{color:#f0c674}.t{color:#9ccfd8}.c{color:#7f8794}.n{color:#f5a97f}
+.pane{flex:1;display:flex;flex-direction:column;min-width:0;border:1px solid #222328;border-radius:8px;overflow:hidden;background:#17181b}
+.ph{height:30px;display:flex;align-items:center;gap:8px;padding:0 10px;background:#1c1d21;border-bottom:1px solid #222328;font-size:12px;color:#8e9099;flex-shrink:0}
+.who{font-weight:600;color:#eef0f3}
+.inc{background:rgba(90,160,230,.14);box-shadow:inset 3px 0 0 #5aa0e6}
+.cur{background:rgba(108,192,112,.13);box-shadow:inset 3px 0 0 #6cc070}
+.conf{background:rgba(240,128,122,.10);box-shadow:inset 3px 0 0 #f0807a}
+.act{font-family:Inter,sans-serif;font-size:11.5px;color:#7c9cff;padding:2px 46px;display:flex;gap:14px;background:#17181b}
+.btn{height:26px;border-radius:6px;padding:0 10px;font-size:12px;display:inline-flex;align-items:center;gap:6px;border:1px solid #2c2d33;background:#1f2024;color:#d4d5da}
+.btn.p{background:#7c9cff;color:#0f1012;border-color:#7c9cff;font-weight:600}
+.status{height:24px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px;color:#8e9099;flex-shrink:0}
+</style>
+</helmet>
+<div class="w">
+  <div class="bar">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#8e9099" stroke-width="1.5" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
+    <div class="logo">m</div><strong style="font-size:13px;color:#eef0f3;font-weight:600">merlin</strong>
+    <span style="color:#8e9099;font-size:12px">⑂ main · merging feature/themes</span>
+    <div class="search">Search files, commands and symbols</div>
+  </div>
+  <div class="mid">
+    <div class="island" style="flex:1;padding:0 8px 8px">
+      <div class="tabs" style="padding:0"><div class="tab on"><span class="ic">RS</span>theme.rs<span style="color:#f0807a;font-size:11px;margin-left:4px">Merging</span></div>
+        <span style="flex:1"></span><span style="font-size:12px;color:#f0807a;margin-right:10px">2 conflicts left</span><span style="font-size:12px;color:#8e9099;margin-right:10px">↑ ↓</span><span class="btn p">Complete Merge</span></div>
+      <div style="display:flex;gap:8px;height:300px;margin-top:6px">
+        <div class="pane">
+          <div class="ph"><span class="who">Incoming</span><span>feature/themes · a41c9e2</span></div>
+          <div class="code" style="padding:4px 0"><span class="ln">40</span><span class="k">let</span> hover = <span class="f">shade</span>(p.island, <span class="n">0.04</span>);
+<div class="inc"><span class="ln">41</span><span class="k">let</span> raised = <span class="f">shade</span>(p.island, <span class="n">0.09</span>);</div><div class="inc"><span class="ln">42</span><span class="k">let</span> chip = <span class="f">tint</span>(p.island, p.accent, <span class="n">0.12</span>);</div><div class="act">Accept Incoming</div><span class="ln">43</span><span class="c">// The ground is darker than any island.</span>
+<div class="inc"><span class="ln">44</span><span class="k">let</span> ground = <span class="f">shade</span>(p.island, <span class="n">-0.4</span>);</div><div class="act">Accept Incoming</div></div>
+        </div>
+        <div class="pane">
+          <div class="ph"><span class="who">Current</span><span>main · 0e890a1</span></div>
+          <div class="code" style="padding:4px 0"><span class="ln">40</span><span class="k">let</span> hover = <span class="f">shade</span>(p.island, <span class="n">0.04</span>);
+<div class="cur"><span class="ln">41</span><span class="k">let</span> raised = <span class="f">shade</span>(p.island, <span class="n">0.07</span>);</div><div class="cur"><span class="ln">42</span><span class="k">let</span> chip = <span class="f">shade</span>(p.island, <span class="n">0.10</span>);</div><div class="act">Accept Current</div><span class="ln">43</span><span class="c">// The ground is darker than any island.</span>
+<div class="cur"><span class="ln">44</span><span class="k">let</span> ground = <span class="f">shade</span>(p.island, <span class="n">-0.35</span>);</div><div class="act">Accept Current</div></div>
+        </div>
+      </div>
+      <div class="pane" style="margin-top:8px">
+        <div class="ph"><span class="who">Result</span><span>theme.rs, as it will be saved</span><span style="flex:1"></span><span>Base shows through until you choose</span></div>
+        <div class="code" style="padding:4px 0"><span class="ln">40</span><span class="k">let</span> hover = <span class="f">shade</span>(p.island, <span class="n">0.04</span>);
+<div class="inc"><span class="ln">41</span><span class="k">let</span> raised = <span class="f">shade</span>(p.island, <span class="n">0.09</span>);</div><div class="cur"><span class="ln">42</span><span class="k">let</span> chip = <span class="f">shade</span>(p.island, <span class="n">0.10</span>);</div><div class="act" style="color:#8e9099">Chose a line from each · <span style="color:#7c9cff">Accept Both</span> · <span style="color:#7c9cff">Reset</span></div><span class="ln">43</span><span class="c">// The ground is darker than any island.</span>
+<div class="conf"><span class="ln">44</span><span class="k">let</span> ground = <span class="f">shade</span>(p.island, <span class="n">-0.3</span>);</div><div class="act" style="color:#f0807a">Conflict: unchanged from the base · <span style="color:#7c9cff">Accept Incoming</span> · <span style="color:#7c9cff">Accept Current</span> · <span style="color:#7c9cff">Accept Both</span></div><span class="ln">45</span><span class="t">Palette</span> { hover, raised, chip, ground, ..p }
+<span class="ln">46</span>}</div>
+      </div>
+      <div style="display:flex;gap:16px;font-size:11.5px;color:#8e9099;padding:10px 4px 0"><span><b style="color:#d4d5da;font-weight:600">Compare Files</b> uses the top two panes alone: pick two files, or a file and the clipboard, from the palette or the Explorer's menu.</span></div>
+    </div>
+  </div>
+  <div class="status"><span>⑂ main</span><span style="color:#f0807a">Merging: 2 conflicts in 1 file</span><span style="margin-left:auto">Ln 44, Col 1</span><span>Rust</span></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

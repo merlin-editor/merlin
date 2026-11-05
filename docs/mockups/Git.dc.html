@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Git: hunks, blame, push and pull</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.w{width:1280px;height:800px;background:#0f1012;font-family:Inter,sans-serif;color:#d4d5da;display:flex;flex-direction:column;font-size:13px;overflow:hidden}
+.bar{height:40px;display:flex;align-items:center;gap:10px;padding:0 12px;flex-shrink:0}
+.logo{width:20px;height:20px;border-radius:5px;background:#7c9cff;color:#0f1012;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
+.search{margin:0 auto;width:400px;height:26px;border-radius:7px;background:#1c1d21;border:1px solid #2c2d33;color:#8e9099;display:flex;align-items:center;gap:8px;padding:0 10px;font-size:12.5px;box-sizing:border-box}
+.mid{flex:1;display:flex;gap:6px;padding-right:6px;min-height:0}
+.rail{width:44px;display:flex;flex-direction:column;align-items:center;gap:18px;padding-top:8px;color:#8e9099;flex-shrink:0}
+.island{background:#17181b;border-radius:10px;display:flex;flex-direction:column;min-width:0;overflow:hidden;position:relative}
+.tabs{height:32px;display:flex;align-items:center;gap:3px;padding:0 6px;flex-shrink:0}
+.tab{height:24px;padding:0 10px;border-radius:6px;display:flex;align-items:center;gap:6px;color:#8e9099;font-size:12.5px}
+.tab.on{background:#26272c;color:#eef0f3;box-shadow:inset 0 0 0 1px #2c2d33}
+.ic{width:14px;height:14px;border-radius:3px;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;background:#3a2a1e;color:#f5a97f}
+.code{font-family:'JetBrains Mono',monospace;font-size:13px;line-height:22px;white-space:pre}
+.ln{display:inline-block;width:36px;text-align:right;padding-right:18px;color:#7a7d86;position:relative}
+.sig{position:absolute;right:6px;top:3px;width:3px;height:16px;border-radius:1px}
+.k{color:#c4a7e7}.s{color:#a6d189}.f{color:#f0c674}.t{color:#9ccfd8}.c{color:#7f8794}.n{color:#f5a97f}
+.add{background:#24301f}.del{background:#3a1d1d}
+.blame{font-family:Inter,sans-serif;font-size:12px;color:#7f8794;margin-left:28px}
+.side{width:300px;flex-shrink:0}
+.h{height:30px;display:flex;align-items:center;gap:6px;padding:0 12px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#8e9099}
+.f-row{height:26px;display:flex;align-items:center;gap:8px;padding:0 12px 0 20px;font-size:12.5px;color:#d4d5da}
+.f-row.on{background:#262b3d}
+.st{margin-left:auto;font-weight:600;font-size:11.5px}
+.mini{height:22px;display:flex;align-items:center;gap:8px;padding:0 12px 0 42px;font-size:11.5px;color:#8e9099;font-family:'JetBrains Mono',monospace}
+.btn{height:26px;border-radius:6px;padding:0 10px;font-size:12px;font-family:Inter,sans-serif;display:inline-flex;align-items:center;gap:6px;border:1px solid #2c2d33;background:#1f2024;color:#d4d5da}
+.btn.p{background:#7c9cff;color:#0f1012;border-color:#7c9cff;font-weight:600}
+.status{height:24px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px;color:#8e9099;flex-shrink:0}
+.label{position:absolute;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#7c9cff}
+</style>
+</helmet>
+<div class="w">
+  <div class="bar">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#8e9099" stroke-width="1.5" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
+    <div class="logo">m</div><strong style="font-size:13px;color:#eef0f3;font-weight:600">merlin</strong>
+    <span style="color:#8e9099;font-size:12px">⑂ editor-rework</span>
+    <div class="search">Search files, commands and symbols</div>
+  </div>
+  <div class="mid">
+    <div class="rail">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M5 2.5h6l4 4v11H5z"/></svg>
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="9" cy="9" r="5.5"/><path d="M13 13l4.5 4.5"/></svg>
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="#eef0f3" stroke-width="1.5" aria-hidden="true"><circle cx="6" cy="4.5" r="2"/><circle cx="6" cy="15.5" r="2"/><circle cx="14" cy="8" r="2"/><path d="M6 6.5v7M14 10c0 3-8 2-8 3.5"/></svg>
+    </div>
+    <div class="island side">
+      <div class="h">Source Control<span style="margin-left:auto;text-transform:none;letter-spacing:0;font-weight:500">⑂ editor-rework</span></div>
+      <div style="padding:4px 12px 8px"><div style="height:56px;border:1px solid #2c2d33;border-radius:6px;background:#1f2024;padding:6px 8px;font-size:12.5px;color:#d4d5da;box-sizing:border-box">Shade colours from the island</div>
+        <div style="display:flex;gap:6px;margin-top:8px"><span class="btn p" style="flex:1;justify-content:center">✓ Commit</span><span class="btn">↑1 Push</span><span class="btn">↓2</span></div></div>
+      <div class="h">Staged<span style="margin-left:auto">1</span></div>
+      <div class="f-row"><span class="ic">RS</span>theme.rs<span class="st" style="color:#5aa0e6">M</span></div>
+      <div class="h">Changes<span style="margin-left:auto">2</span></div>
+      <div class="f-row on"><svg width="10" height="10" viewBox="0 0 10 10" fill="#8e9099" aria-hidden="true"><path d="M2 3l3 3.5L8 3z"/></svg><span class="ic">RS</span>palette.rs<span style="color:#6cc070;font-size:11.5px">+6</span><span style="color:#f0807a;font-size:11.5px">−2</span><span class="st" style="color:#5aa0e6">M</span></div>
+      <div class="mini"><span style="color:#d4d5da">@@ 18</span> doc comment<span style="margin-left:auto;font-family:Inter,sans-serif;color:#6cc070">Stage</span></div>
+      <div class="mini" style="background:#1d1e22"><span style="color:#d4d5da">@@ 21</span> clamp to -1..1<span style="margin-left:auto;font-family:Inter,sans-serif;color:#6cc070">Stage</span></div>
+      <div class="f-row"><span class="ic" style="background:#1e2a3a;color:#7fb0ff">MD</span>README.md<span class="st" style="color:#6cc070">U</span></div>
+      <div style="padding:14px 12px 0;font-size:11.5px;color:#8e9099;line-height:1.5">A file's hunks unfold under it, so parts of a file can be staged without opening it.</div>
+    </div>
+    <div class="island" style="flex:1">
+      <div class="tabs"><div class="tab on"><span class="ic">RS</span>palette.rs</div></div>
+      <div class="code" style="padding-top:4px"><span class="ln">17</span>
+<span class="ln">18<span class="sig" style="background:#6cc070"></span></span><span class="c">/// A colour lighter or darker by `amount`, from -1 to 1.</span>
+<span class="ln">19</span><span class="k">#[must_use]</span>
+<span class="ln">20</span><span class="k">pub fn</span> <span class="f">shade</span>(base: <span class="t">Rgb</span>, amount: <span class="t">f32</span>) -&gt; <span class="t">Rgb</span> {<span class="blame">marc, 3 days ago · Rounded tabs and dropping a tab to split</span>
+<span class="ln">21<span class="sig" style="background:#5aa0e6"></span></span>    <span class="k">let</span> mix = amount.<span class="f">clamp</span>(<span class="n">-1.0</span>, <span class="n">1.0</span>);</div>
+      <div style="margin:2px 12px 2px 36px;border:1px solid #2c2d33;border-radius:8px;overflow:hidden;background:#141518">
+        <div style="height:30px;display:flex;align-items:center;gap:8px;padding:0 10px;background:#1c1d21;border-bottom:1px solid #2c2d33;font-size:12px;color:#8e9099">
+          <span style="color:#d4d5da">Change 2 of 3</span><span>· since the last commit</span><span style="flex:1"></span>
+          <span class="btn" style="height:22px">Stage</span><span class="btn" style="height:22px">Revert</span>
+          <span style="padding:0 4px">↑</span><span style="padding:0 4px">↓</span><span style="padding:0 4px">✕</span>
+        </div>
+        <div class="code"><div class="del"><span class="ln" style="color:#f0807a">−</span>    <span class="k">let</span> mix = amount.<span class="f">clamp</span>(<span class="n">0.0</span>, <span class="n">1.0</span>);</div><div class="add"><span class="ln" style="color:#6cc070">+</span>    <span class="k">let</span> mix = amount.<span class="f">clamp</span>(<span class="n">-1.0</span>, <span class="n">1.0</span>);</div></div>
+      </div>
+      <div class="code"><span class="ln">22</span>    <span class="k">let</span> target = <span class="k">if</span> mix &gt; <span class="n">0.0</span> { <span class="t">WHITE</span> } <span class="k">else</span> { <span class="t">BLACK</span> };
+<span class="ln">23</span>    <span class="t">Rgb</span>::<span class="f">lerp</span>(base, target, mix.<span class="f">abs</span>())
+<span class="ln">24</span>}
+<span class="ln">25</span>
+<span class="ln">26<span class="sig" style="background:#e5534b;height:3px;top:-2px"></span></span><span class="k">pub fn</span> <span class="f">theme_colours</span>(accent: <span class="t">Rgb</span>) -&gt; <span class="t">Vec</span>&lt;<span class="t">Rgb</span>&gt; {</div>
+      <span class="label" style="left:640px;top:72px">Blame for the cursor's line, faint, after a pause</span>
+      <span class="label" style="left:640px;top:178px">A click on a gutter bar opens the change in place</span>
+      <div style="position:absolute;left:24px;bottom:18px;right:24px;display:flex;gap:16px;font-size:11.5px;color:#8e9099">
+        <span><b style="color:#d4d5da;font-weight:600">Alt+F5 / Alt+F3</b> next / previous change</span><span><b style="color:#d4d5da;font-weight:600">Git: Blame</b> in the palette shows the whole file's</span>
+      </div>
+    </div>
+  </div>
+  <div class="status"><span>⑂ editor-rework</span><span>↓2 ↑1</span><span>⊗ 0 ⚠ 0</span><span style="margin-left:auto">Ln 20, Col 9</span><span>Rust</span></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

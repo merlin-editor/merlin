@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Vim mode, which-key and macros</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.w{width:1280px;height:800px;background:#0f1012;font-family:Inter,sans-serif;color:#d4d5da;display:flex;flex-direction:column;font-size:13px;overflow:hidden}
+.bar{height:40px;display:flex;align-items:center;gap:10px;padding:0 12px;flex-shrink:0}
+.logo{width:20px;height:20px;border-radius:5px;background:#7c9cff;color:#0f1012;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
+.mid{flex:1;display:flex;gap:6px;padding:0 6px 0 50px;min-height:0}
+.island{background:#17181b;border-radius:10px;display:flex;flex-direction:column;min-width:0;overflow:hidden;position:relative}
+.tabs{height:32px;display:flex;align-items:center;gap:3px;padding:0 6px;flex-shrink:0}
+.tab{height:24px;padding:0 10px;border-radius:6px;display:flex;align-items:center;gap:6px;color:#8e9099;font-size:12.5px}
+.tab.on{background:#26272c;color:#eef0f3;box-shadow:inset 0 0 0 1px #2c2d33}
+.ic{width:14px;height:14px;border-radius:3px;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;background:#3a2a1e;color:#f5a97f}
+.code{font-family:'JetBrains Mono',monospace;font-size:13px;line-height:22px;white-space:pre;padding:4px 0}
+.ln{display:inline-block;width:40px;text-align:right;padding-right:16px;color:#7a7d86}
+.rel{color:#5f626b}
+.k{color:#c4a7e7}.s{color:#a6d189}.f{color:#f0c674}.t{color:#9ccfd8}.c{color:#7f8794}.n{color:#f5a97f}
+.blk{background:#d4d5da;color:#17181b}
+.wk{position:absolute;left:12px;right:12px;bottom:12px;background:#1c1d21;border:1px solid #2c2d33;border-radius:10px;box-shadow:0 -6px 24px rgba(0,0,0,.4);padding:12px 16px}
+.wkh{display:flex;align-items:center;gap:10px;font-size:12.5px;margin-bottom:10px}
+.chord{font-family:'JetBrains Mono',monospace;font-size:12px;background:#26272c;border-radius:4px;padding:2px 7px;color:#eef0f3}
+.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px 24px}
+.wi{height:24px;display:flex;align-items:center;gap:10px;font-size:12.5px}
+.wi .kk{font-family:'JetBrains Mono',monospace;color:#f0c674;width:18px;text-align:center;font-weight:600}
+.wi .grp{color:#7c9cff}
+.status{height:24px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px;color:#8e9099;flex-shrink:0}
+.mode{height:18px;padding:0 8px;border-radius:4px;background:#7c9cff;color:#0f1012;font-weight:700;font-size:10.5px;letter-spacing:.06em;display:flex;align-items:center}
+.rec{display:flex;align-items:center;gap:6px;color:#f0807a}
+.label{position:absolute;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#7c9cff}
+</style>
+</helmet>
+<div class="w">
+  <div class="bar">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#8e9099" stroke-width="1.5" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
+    <div class="logo">m</div><strong style="font-size:13px;color:#eef0f3;font-weight:600">merlin</strong>
+  </div>
+  <div class="mid">
+    <div class="island" style="flex:1">
+      <div class="tabs"><div class="tab on"><span class="ic">RS</span>groups.rs</div><div class="tab"><span class="ic">RS</span>tabs.rs</div></div>
+      <div class="code"><span class="ln rel">4</span><span class="k">impl</span> <span class="t">Group</span> {
+<span class="ln rel">3</span>    <span class="c">/// The tabs, pinned ones first.</span>
+<span class="ln rel">2</span>    <span class="k">pub fn</span> <span class="f">order_pinned</span>(&amp;<span class="k">mut</span> self) {
+<span class="ln rel">1</span>        <span class="k">let</span> pinned = &amp;self.pinned;
+<span class="ln" style="color:#eef0f3">112</span>        self.tabs.<span class="f">sort_by_key</span>(|t| !pinned.<span class="f">contains</span>(<span class="blk">t</span>));
+<span class="ln rel">1</span>    }
+<span class="ln rel">2</span>
+<span class="ln rel">3</span>    <span class="c">/// Splits the group toward `edge`, moving the active tab.</span>
+<span class="ln rel">4</span>    <span class="k">pub fn</span> <span class="f">split</span>(&amp;<span class="k">mut</span> self, edge: <span class="t">Edge</span>) -&gt; <span class="t">usize</span> {
+<span class="ln rel">5</span>        <span class="k">let</span> moving = self.active;</div>
+      <span class="label" style="left:620px;top:140px">Normal mode: a block cursor, relative line numbers as an option</span>
+      <div class="wk" role="dialog" aria-label="Next keys">
+        <div class="wkh"><span class="chord">Space</span><span style="color:#8e9099">then…</span><span style="margin-left:auto;font-size:11.5px;color:#8e9099">Shows after 0.5 s of waiting · Backspace goes up a level · Esc cancels</span></div>
+        <div class="grid">
+          <div class="wi"><span class="kk">f</span><span class="grp">+ files</span></div>
+          <div class="wi"><span class="kk">s</span><span class="grp">+ search</span></div>
+          <div class="wi"><span class="kk">g</span><span class="grp">+ git</span></div>
+          <div class="wi"><span class="kk">l</span><span class="grp">+ language</span></div>
+          <div class="wi"><span class="kk">p</span>Go to File</div>
+          <div class="wi"><span class="kk">/</span>Search the project</div>
+          <div class="wi"><span class="kk">b</span>Blame this line</div>
+          <div class="wi"><span class="kk">r</span>Rename symbol</div>
+          <div class="wi"><span class="kk">e</span>Explorer</div>
+          <div class="wi"><span class="kk">o</span>Outline</div>
+          <div class="wi"><span class="kk">h</span>Stage this change</div>
+          <div class="wi"><span class="kk">a</span>Code actions</div>
+          <div class="wi"><span class="kk">w</span>Save</div>
+          <div class="wi"><span class="kk">t</span>Terminal</div>
+          <div class="wi"><span class="kk">d</span>Diff with HEAD</div>
+          <div class="wi"><span class="kk">k</span>Hover</div>
+        </div>
+      </div>
+      <span class="label" style="left:24px;top:470px">Which-key: also for Ctrl+K chords in the VS Code keymap</span>
+    </div>
+  </div>
+  <div class="status"><span class="mode">NORMAL</span><span class="rec"><span style="width:8px;height:8px;border-radius:50%;background:#f0807a"></span>Recording @q</span><span style="font-family:'JetBrains Mono',monospace;color:#d4d5da">2d</span><span style="margin-left:auto">Ln 112, Col 61</span><span>Keymap: Vim</span><span>Rust</span></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

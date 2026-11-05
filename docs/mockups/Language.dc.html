@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Language features</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.w{width:1280px;height:800px;background:#0f1012;font-family:Inter,sans-serif;color:#d4d5da;display:flex;flex-direction:column;font-size:13px;overflow:hidden}
+.bar{height:40px;display:flex;align-items:center;gap:10px;padding:0 12px;flex-shrink:0}
+.logo{width:20px;height:20px;border-radius:5px;background:#7c9cff;color:#0f1012;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
+.search{margin:0 auto;width:400px;height:26px;border-radius:7px;background:#1c1d21;border:1px solid #2c2d33;color:#8e9099;display:flex;align-items:center;gap:8px;padding:0 10px;font-size:12.5px;box-sizing:border-box}
+.kbd{font-size:11px;background:#26272c;border-radius:4px;padding:1px 6px;color:#b4b6bd}
+.mid{flex:1;display:flex;gap:6px;padding-right:6px;min-height:0}
+.rail{width:44px;flex-shrink:0}
+.island{background:#17181b;border-radius:10px;display:flex;flex-direction:column;min-width:0;overflow:hidden;position:relative}
+.tabs{height:32px;display:flex;align-items:center;gap:3px;padding:0 6px;flex-shrink:0}
+.tab{height:24px;padding:0 10px;border-radius:6px;display:flex;align-items:center;gap:6px;color:#8e9099;font-size:12.5px}
+.tab.on{background:#26272c;color:#eef0f3;box-shadow:inset 0 0 0 1px #2c2d33}
+.ic{width:14px;height:14px;border-radius:3px;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;background:#3a2a1e;color:#f5a97f}
+.code{font-family:'JetBrains Mono',monospace;font-size:13px;line-height:22px;white-space:pre;padding:4px 0}
+.row{position:relative}
+.ln{display:inline-block;width:40px;text-align:right;padding-right:20px;color:#7a7d86}
+.k{color:#c4a7e7}.s{color:#a6d189}.f{color:#f0c674}.t{color:#9ccfd8}.c{color:#7f8794}.n{color:#f5a97f}
+.hint{font-family:Inter,sans-serif;font-size:11px;background:#1f2024;color:#8e9099;border-radius:4px;padding:1px 5px;margin:0 2px}
+.err{text-decoration:underline wavy #f0807a;text-underline-offset:4px}
+.lens{font-family:Inter,sans-serif;font-size:12px;color:#f0807a;margin-left:24px}
+.errline{background:rgba(240,128,122,0.07)}
+.card{position:absolute;background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.45);font-family:Inter,sans-serif}
+.item{height:28px;display:flex;align-items:center;gap:10px;padding:0 10px;border-radius:5px;font-size:12.5px;color:#d4d5da}
+.item.on{background:#262b3d;color:#eef0f3}
+.sep{height:1px;background:#2c2d33;margin:4px 6px}
+.status{height:24px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px;color:#8e9099;flex-shrink:0}
+.label{position:absolute;font-family:Inter,sans-serif;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#7c9cff}
+</style>
+</helmet>
+<div class="w">
+  <div class="bar">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#8e9099" stroke-width="1.5" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
+    <div class="logo">m</div><strong style="font-size:13px;color:#eef0f3;font-weight:600">merlin</strong>
+    <div class="search">Search files, commands and symbols<span class="kbd" style="margin-left:auto">Ctrl P</span></div>
+  </div>
+  <div class="mid">
+    <div class="rail"></div>
+    <div class="island" style="flex:1">
+      <div class="tabs"><div class="tab on"><span class="ic">RS</span>palette.rs</div></div>
+      <div style="height:22px;display:flex;align-items:center;gap:6px;padding:0 14px;font-size:12px;color:#8e9099;flex-shrink:0">src › palette.rs › <span style="color:#d4d5da">fn shade</span></div>
+      <div class="code"><div class="row"><span class="ln">20</span><span class="k">pub fn</span> <span class="f">shade</span>(base: <span class="t">Rgb</span>, amount: <span class="t">f32</span>) -&gt; <span class="t">Rgb</span> {</div><div class="row"><span class="ln">21</span>    <span class="k">let</span> mix<span class="hint">: f32</span> = amount.<span class="f">clamp</span>(<span class="n">0.0</span>, <span class="n">1.0</span>);</div><div class="row"><span class="ln">22</span>    <span class="k">let</span> target<span class="hint">: Rgb</span> = <span class="k">if</span> amount &gt; <span class="n">0.0</span> { <span class="t">WHITE</span> } <span class="k">else</span> { <span class="t">BLACK</span> };</div><div class="row"><span class="ln">23</span>    <span class="t">Rgb</span>::<span class="f">lerp</span>(<span class="hint">a:</span>base, <span class="hint">b:</span>target, <span class="hint">t:</span>mix)</div><div class="row"><span class="ln">24</span>}</div><div class="row"><span class="ln">25</span></div><div class="row"><span class="ln">26</span><span class="k">pub fn</span> <span class="f">theme_colours</span>(<span style="outline:1px solid #7c9cff;border-radius:2px">accent</span>: <span class="t">Rgb</span>) -&gt; <span class="t">Vec</span>&lt;<span class="t">Rgb</span>&gt; {</div><div class="row"><span class="ln">27</span>    <span class="k">let</span> steps<span class="hint">: [f32; 3]</span> = [<span class="n">-0.4</span>, <span class="n">0.0</span>, <span class="n">0.4</span>];</div><div class="row errline"><span class="ln" style="color:#f0807a">28</span>    <span class="k">let</span> count: <span class="t">u32</span> = <span class="err">steps.<span class="f">len</span>()</span>;<span class="lens">mismatched types: expected `u32`, found `usize`</span></div><div class="row"><span class="ln">29</span>    steps.<span class="f">iter</span>().<span class="f">map</span>(|s| <span class="f">shade</span>(accent, *s)).<span class="f">collect</span>()</div><div class="row"><span class="ln">30</span>}</div><div class="row"><span class="ln">31</span></div><div class="row"><span class="ln">32</span><span class="k">fn</span> <span class="f">swatch</span>(c: <span class="t">Rgb</span>) -&gt; <span class="t">String</span> {</div><div class="row"><span class="ln">33</span>    <span class="f">format!</span>(<span class="s">"#{:02x}{:02x}{:02x}"</span>, c.r, c.g, <span style="border-right:2px solid #7c9cff">c</span>.b)</div><div class="row"><span class="ln">34</span>}</div></div>
+
+      <!-- Rename, inline over the name -->
+      <div class="card" style="left:218px;top:205px;width:280px;padding:6px">
+        <div style="height:26px;border:1px solid #7c9cff;border-radius:5px;background:#1f2024;display:flex;align-items:center;padding:0 8px;font-family:'JetBrains Mono',monospace;font-size:13px;color:#eef0f3">base_colour<span style="width:1.5px;height:15px;background:#7c9cff;margin-left:1px"></span></div>
+        <div style="font-size:11.5px;color:#8e9099;padding:6px 2px 0">Enter to rename 4 places in 2 files · Shift+Enter to review first</div>
+      </div>
+      <span class="label" style="left:510px;top:214px">Rename (F2)</span>
+
+      <!-- Lightbulb and code actions -->
+      <div style="position:absolute;left:34px;top:226px;width:16px;height:16px;border-radius:4px;background:#3a3420;display:flex;align-items:center;justify-content:center" aria-hidden="true"><svg width="11" height="11" viewBox="0 0 12 12" fill="#e3b341"><path d="M6 1a3.5 3.5 0 0 0-2 6.4V9h4V7.4A3.5 3.5 0 0 0 6 1zM4.5 10h3v1h-3z"/></svg></div>
+      <div class="card" style="left:150px;top:254px;width:320px;padding:4px">
+        <div style="font-size:11px;color:#8e9099;padding:4px 10px 2px">Quick Fix</div>
+        <div class="item on"><svg width="12" height="12" viewBox="0 0 12 12" fill="#e3b341" aria-hidden="true"><path d="M6 1a3.5 3.5 0 0 0-2 6.4V9h4V7.4A3.5 3.5 0 0 0 6 1z"/></svg>Convert with <code style="font-family:'JetBrains Mono',monospace">u32::try_from(…).unwrap()</code></div>
+        <div class="item"><span style="width:12px"></span>Change the type to <code style="font-family:'JetBrains Mono',monospace">usize</code></div>
+        <div class="sep"></div>
+        <div style="font-size:11px;color:#8e9099;padding:2px 10px">Refactor</div>
+        <div class="item"><span style="width:12px"></span>Extract into a variable</div>
+        <div class="item"><span style="width:12px"></span>Inline <code style="font-family:'JetBrains Mono',monospace">steps</code></div>
+        <div class="item"><span style="width:12px"></span>Extract into a function</div>
+        <div class="sep"></div>
+        <div class="item" style="color:#8e9099"><span style="width:12px"></span>Format the file<span class="kbd" style="margin-left:auto">Ctrl Shift I</span></div>
+      </div>
+      <span class="label" style="left:480px;top:262px">Code actions (Ctrl+.)</span>
+
+      <!-- Signature help -->
+      <div class="card" style="left:150px;top:410px;width:470px;padding:8px 12px">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:12.5px;color:#d4d5da"><span class="k">macro</span> <span class="f">format!</span>(fmt: &amp;<span class="t">str</span>, <span style="color:#eef0f3;font-weight:600;text-decoration:underline;text-decoration-color:#7c9cff;text-underline-offset:3px">args…</span>) <span style="color:#8e9099;float:right;font-family:Inter,sans-serif;font-size:11px">1 of 1</span></div>
+        <div style="font-size:12px;color:#8e9099;margin-top:6px">Creates a <code style="font-family:'JetBrains Mono',monospace">String</code> using interpolation of runtime expressions.</div>
+      </div>
+      <span class="label" style="left:632px;top:420px">Signature help, as you type</span>
+      <span class="label" style="left:648px;top:60px">Inlay hints: types and parameter names, in a quiet chip</span>
+      <span class="label" style="left:820px;top:226px">Errors inline, at the end of the line</span>
+    </div>
+  </div>
+  <div class="status"><span>⑂ main</span><span style="color:#f0807a">⊗ 1</span><span>⚠ 0</span><span style="margin-left:auto">Ln 33, Col 47</span><span>rust-analyzer ✓</span><span>Rust</span></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

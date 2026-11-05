@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Integrated terminal</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.w{width:1280px;height:800px;background:#0f1012;font-family:Inter,sans-serif;color:#d4d5da;display:flex;flex-direction:column;font-size:13px;overflow:hidden}
+.bar{height:40px;display:flex;align-items:center;gap:10px;padding:0 12px;flex-shrink:0}
+.logo{width:20px;height:20px;border-radius:5px;background:#7c9cff;color:#0f1012;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
+.search{margin:0 auto;width:400px;height:26px;border-radius:7px;background:#1c1d21;border:1px solid #2c2d33;color:#8e9099;display:flex;align-items:center;gap:8px;padding:0 10px;font-size:12.5px;box-sizing:border-box}
+.kbd{margin-left:auto;font-size:11px;background:#26272c;border-radius:4px;padding:1px 6px;color:#b4b6bd}
+.mid{flex:1;display:flex;gap:6px;padding-right:6px;min-height:0}
+.rail{width:44px;display:flex;flex-direction:column;align-items:center;gap:18px;padding-top:8px;color:#8e9099;flex-shrink:0}
+.col{flex:1;display:flex;flex-direction:column;gap:6px;min-width:0}
+.island{background:#17181b;border-radius:10px;display:flex;flex-direction:column;min-width:0;overflow:hidden}
+.tabs{height:32px;display:flex;align-items:center;gap:3px;padding:0 6px;flex-shrink:0}
+.tab{height:24px;padding:0 10px;border-radius:6px;display:flex;align-items:center;gap:6px;color:#8e9099;font-size:12.5px}
+.tab.on{background:#26272c;color:#eef0f3;box-shadow:inset 0 0 0 1px #2c2d33}
+.ic{width:14px;height:14px;border-radius:3px;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.code{font-family:'JetBrains Mono',monospace;font-size:13px;line-height:21px;white-space:pre;padding:4px 0}
+.ln{display:inline-block;width:40px;text-align:right;padding-right:16px;color:#7a7d86}
+.k{color:#c4a7e7}.s{color:#a6d189}.f{color:#f0c674}.t{color:#9ccfd8}.c{color:#7f8794}.n{color:#f5a97f}
+.status{height:24px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px;color:#8e9099;flex-shrink:0}
+.ptabs{height:34px;display:flex;align-items:center;gap:2px;padding:0 8px;flex-shrink:0}
+.ptab{height:26px;padding:0 10px;display:flex;align-items:center;font-size:12.5px;color:#8e9099;border-radius:6px}
+.ptab.on{color:#eef0f3}
+.ptab.on span{border-bottom:2px solid #7c9cff;padding-bottom:3px}
+.icon-btn{width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#8e9099;background:none;border:0;padding:0}
+.icon-btn.hov{background:#1d1e22;color:#d4d5da}
+.term{font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:19px;white-space:pre;padding:6px 12px;color:#d4d5da}
+.g{color:#6cc070}.y{color:#e3b341}.r{color:#f0807a}.b{color:#7c9cff}.m{color:#8e9099}
+.cursor{background:#d4d5da;color:#17181b}
+.sess{display:flex;flex-direction:column;gap:2px;padding:6px;width:168px;flex-shrink:0;border-left:1px solid #222328}
+.srow{height:26px;border-radius:6px;display:flex;align-items:center;gap:8px;padding:0 8px;font-size:12.5px;color:#b4b6bd}
+.srow.on{background:#26272c;color:#eef0f3}
+.dot{width:7px;height:7px;border-radius:50%}
+</style>
+</helmet>
+<div class="w">
+  <div class="bar">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#8e9099" stroke-width="1.5" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
+    <div class="logo">m</div><strong style="font-size:13px;color:#eef0f3;font-weight:600">merlin</strong>
+    <span style="color:#8e9099;font-size:12px">⑂ editor-rework</span>
+    <div class="search"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="#8e9099" stroke-width="1.6" aria-hidden="true"><circle cx="7" cy="7" r="5"/><path d="M11 11l3.5 3.5"/></svg>Search files, commands and symbols<span class="kbd">Ctrl P</span></div>
+  </div>
+  <div class="mid">
+    <div class="rail">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M5 2.5h6l4 4v11H5z"/><path d="M11 2.5v4h4"/></svg>
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="9" cy="9" r="5.5"/><path d="M13 13l4.5 4.5"/></svg>
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="6" cy="4.5" r="2"/><circle cx="6" cy="15.5" r="2"/><circle cx="14" cy="8" r="2"/><path d="M6 6.5v7M14 10c0 3-8 2-8 3.5"/></svg>
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="11" y="3" width="6" height="6" rx="1"/><rect x="3" y="11" width="6" height="6" rx="1"/><rect x="11" y="11" width="6" height="6" rx="1"/></svg>
+    </div>
+    <div class="col">
+      <div class="island" style="flex:1">
+        <div class="tabs">
+          <div class="tab on"><span class="ic" style="background:#3a2a1e;color:#f5a97f">RS</span>main.rs<span style="color:#8e9099;margin-left:4px">×</span></div>
+          <div class="tab"><span class="ic" style="background:#3a2a1e;color:#f5a97f">RS</span>editor.rs</div>
+          <div class="tab"><span class="ic" style="background:#1e2a3a;color:#7fb0ff">TO</span>Cargo.toml</div>
+        </div>
+        <div class="code"><span class="ln">12</span><span class="k">fn</span> <span class="f">main</span>() -&gt; <span class="t">anyhow</span>::<span class="t">Result</span>&lt;()&gt; {
+<span class="ln">13</span>    <span class="k">let</span> args = <span class="t">Args</span>::<span class="f">parse</span>();
+<span class="ln">14</span>    <span class="k">let</span> root = args.root.<span class="f">unwrap_or_else</span>(<span class="f">current_dir</span>);
+<span class="ln">15</span>    <span class="c">// The window sleeps between events.</span>
+<span class="ln">16</span>    <span class="k">let</span> <span class="k">mut</span> app = <span class="t">App</span>::<span class="f">new</span>(&amp;root, &amp;args)?;
+<span class="ln">17</span>    <span class="f">gui</span>::<span class="f">run</span>(&amp;<span class="k">mut</span> app)
+<span class="ln">18</span>}</div>
+      </div>
+      <div class="island" style="height:330px;flex-shrink:0">
+        <div class="ptabs">
+          <div class="ptab">Problems</div>
+          <div class="ptab">Output</div>
+          <div class="ptab on"><span>Terminal</span></div>
+          <div style="flex:1"></div>
+          <button class="icon-btn hov" aria-label="New terminal"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M7 2v10M2 7h10"/></svg></button>
+          <button class="icon-btn" aria-label="Choose a shell or task"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 4.5l3 3 3-3"/></svg></button>
+          <button class="icon-btn" aria-label="Split the terminal"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.5" y="2" width="11" height="10" rx="1.5"/><path d="M7 2v10"/></svg></button>
+          <button class="icon-btn" aria-label="Kill the terminal"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M2.5 4h9M5.5 4V2.5h3V4M4 4l.6 7.5h4.8L10 4"/></svg></button>
+          <button class="icon-btn" aria-label="Maximise the panel"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 7.5l3-3 3 3"/></svg></button>
+          <button class="icon-btn" aria-label="Close the panel"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 3l6 6M9 3l-6 6"/></svg></button>
+        </div>
+        <div style="flex:1;display:flex;min-height:0">
+          <div class="term" style="flex:1;border-right:1px solid #222328"><span class="b">~/programming/rust/merlin</span> <span class="m">editor-rework</span> <span class="g">❯</span> cargo test -p merlin-core
+<span class="g">   Compiling</span> merlin-core v0.1.0
+<span class="g">    Finished</span> `test` profile in 4.21s
+<span class="g">     Running</span> tests/find.rs
+running 8 tests
+test result: <span class="g">ok</span>. 8 passed; 0 failed
+<span class="g">     Running</span> tests/saving.rs
+test result: <span class="g">ok</span>. 11 passed; 0 failed
+
+<span class="b">~/programming/rust/merlin</span> <span class="m">editor-rework</span> <span class="g">❯</span> <span class="cursor"> </span></div>
+          <div class="term" style="flex:1"><span class="m">[cargo watch]</span> Running `cargo clippy`
+<span class="y">warning</span>: unused variable: `rows`
+  <span class="b">--&gt;</span> crates/app/src/gui/frame.rs:<u>567</u>:13
+   <span class="b">|</span>
+<span class="b">567</span> <span class="b">|</span>         let rows = 1.0;
+   <span class="b">|</span>             <span class="y">^^^^</span>
+<span class="m">[cargo watch]</span> Waiting for changes…</div>
+          <div class="sess">
+            <div class="srow on"><span class="dot" style="background:#6cc070"></span>zsh<span style="margin-left:auto;color:#8e9099;font-size:11px">1</span></div>
+            <div class="srow"><span class="dot" style="background:#e3b341"></span>cargo watch<span style="margin-left:auto;color:#8e9099;font-size:11px">2</span></div>
+            <div class="srow"><span class="dot" style="background:#5f626b"></span>rust-analyzer log</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="status"><span>⑂ editor-rework</span><span>⊗ 0 ⚠ 1</span><span style="margin-left:auto">Ln 14, Col 9</span><span>Spaces: 4</span><span>UTF-8</span><span>LF</span><span>Rust</span></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

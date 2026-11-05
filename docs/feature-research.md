@@ -185,7 +185,9 @@ are mostly in the VS Code half.
 
 The user's decision (2026-11-05): build the quick wins straight away. For
 everything after them that changes or adds UI, make a **mock-up to review
-first**, and only build once it's approved.
+first**, and only build once it's approved. The mock-ups for list 2 below
+were approved the same day. Anything new beyond them still needs a
+mock-up first.
 
 ### 1. Quick wins (approved; built)
 
@@ -216,9 +218,12 @@ All **Built** on `editor-rework`. How each turned out:
 
 ### 2. Needs a mock-up first
 
-Mock-ups for review, one artboard each:
+**Approved on 2026-11-05: all of them** ("I love all of it"). There's one
+artboard each on the
 [merlin feature mock-ups](https://claude.ai/artifact/QzFdCBA1P32LckaUDc419F)
-(private to the user). Nothing below is approved until the user says so.
+canvas (private to the user), and copies in [`mockups/`](mockups/README.md),
+which also says what each shows. Build to them, in the order below, and
+mark each **Built** here with its commit.
 
 These are ordered by votes against effort.
 
