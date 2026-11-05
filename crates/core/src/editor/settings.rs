@@ -32,6 +32,9 @@ pub struct Settings {
     pub color_decorators: bool,
     /// A line's worst problem is written after its end.
     pub inline_diagnostics: bool,
+    /// Language servers' hints, such as types and parameter names, are
+    /// written between the characters.
+    pub inlay_hints: bool,
     /// Saving takes the spaces and tabs off the ends of lines.
     pub trim_trailing_whitespace: bool,
     /// Saving ends the file with a newline.
@@ -61,6 +64,7 @@ impl Default for Settings {
             bracket_pair_colorization: true,
             color_decorators: true,
             inline_diagnostics: true,
+            inlay_hints: true,
             trim_trailing_whitespace: false,
             insert_final_newline: false,
             auto_save: AutoSave::Off,
@@ -90,6 +94,12 @@ impl Editor {
         self.bracket_colours = settings.bracket_pair_colorization;
         self.colour_swatches = settings.color_decorators;
         self.inline_notes = settings.inline_diagnostics;
+        if self.inlay_hints && !settings.inlay_hints {
+            for doc in &mut self.docs {
+                doc.inlays.clear();
+            }
+        }
+        self.inlay_hints = settings.inlay_hints;
         self.saving.trim_trailing_whitespace = settings.trim_trailing_whitespace;
         self.saving.insert_final_newline = settings.insert_final_newline;
         self.saving.auto = settings.auto_save;

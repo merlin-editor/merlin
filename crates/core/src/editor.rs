@@ -50,7 +50,7 @@ pub use save::{AutoSave, AutoSaveWhy, FileConfig};
 pub use settings::Settings;
 pub use tabs::GroupView;
 pub use terminal::{TermOp, TermSession, TerminalView};
-pub use text_view::{CaretView, LineView, OVERSCAN, TextView};
+pub use text_view::{CaretView, InlayView, LineView, OVERSCAN, TextView};
 pub use workspace::{GroupState, Tab, Workspace};
 pub use wrap::Row as WrapRow;
 
@@ -68,7 +68,7 @@ use crate::fuzzy;
 use crate::history::{Kind, Revision};
 use crate::indent::Indent;
 use crate::key::{Key, KeyCode};
-use crate::lang::{Completion, Diagnostic, Language, Mark, PluginSymbol, PluginToken};
+use crate::lang::{Completion, Diagnostic, Inlay, Language, Mark, PluginSymbol, PluginToken};
 use crate::layers::{DocSymbol, Layer, Token};
 use crate::panel::{Panel, PickItem};
 
@@ -267,6 +267,11 @@ pub enum Event {
     SetFolds {
         path: PathBuf,
         ranges: Vec<(u32, u32)>,
+    },
+    /// A file's inlay hints from a plugin, replacing its earlier ones.
+    SetInlayHints {
+        path: PathBuf,
+        hints: Vec<crate::lang::InlayHint>,
     },
     /// Completions for the word at the cursor.
     ShowCompletions(Vec<Completion>),
@@ -749,6 +754,8 @@ pub struct Editor {
     colour_swatches: bool,
     /// Problems are written out after their lines.
     inline_notes: bool,
+    /// Inlay hints from plugins show.
+    inlay_hints: bool,
     /// Colours plugins gave for diffs and code blocks.
     colours: colours::TextColours,
     /// Languages plugins added, with the plugin that added each.
@@ -847,6 +854,7 @@ impl Editor {
             bracket_colours: true,
             colour_swatches: true,
             inline_notes: true,
+            inlay_hints: true,
             project: "merlin".into(),
             log: Vec::new(),
             problems: Vec::new(),
@@ -1246,6 +1254,23 @@ impl Editor {
                         .map(|(a, b)| (doc.pos_at_utf16(a, 0), doc.pos_at_utf16(b, 0)))
                         .collect();
                     doc.layers.folds = Some(folds);
+                }
+            }
+            Event::SetInlayHints { path, hints } => {
+                let on = self.inlay_hints;
+                if let Some(doc) = self.doc_at(&path) {
+                    let mut inlays: Vec<Inlay> = hints
+                        .into_iter()
+                        .filter(|_| on)
+                        .map(|h| Inlay {
+                            pos: doc.pos_at_utf16(h.at.0, h.at.1),
+                            cols: crate::style::str_width(&h.label) + 1,
+                            label: h.label,
+                            kind: h.kind,
+                        })
+                        .collect();
+                    inlays.sort_by_key(|i| i.pos);
+                    doc.inlays = inlays;
                 }
             }
             Event::ShowHover(text) => {

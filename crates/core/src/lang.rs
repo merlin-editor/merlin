@@ -28,6 +28,34 @@ pub struct Completion {
     pub insert: String,
 }
 
+/// What an inlay hint names, for how it's drawn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InlayKind {
+    Type,
+    Parameter,
+    Other,
+}
+
+/// A hint a language server writes between the characters, such as a
+/// variable's type or a parameter's name, at a line and UTF-16 column.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InlayHint {
+    pub at: (u32, u32),
+    pub label: String,
+    pub kind: InlayKind,
+}
+
+/// An inlay hint placed in a document, before the character at `pos`. It
+/// takes `cols` columns, so the text after it moves along, and moves
+/// with edits.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Inlay {
+    pub pos: usize,
+    pub label: String,
+    pub kind: InlayKind,
+    pub cols: usize,
+}
+
 /// A diagnostic placed in a document, by char offset. It moves with edits.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Mark {

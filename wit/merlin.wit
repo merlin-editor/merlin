@@ -203,6 +203,21 @@ interface types {
     insert: string,
   }
 
+  /// What an inlay hint names.
+  enum inlay-kind {
+    %type,
+    parameter,
+    other,
+  }
+
+  /// A hint written between the characters, before the one at `at`: a
+  /// variable's type, or a parameter's name.
+  record inlay-hint {
+    at: position,
+    label: string,
+    kind: inlay-kind,
+  }
+
   /// Something that happened to the open files.
   variant buffer-event {
     /// Another file became the active one.
@@ -217,7 +232,7 @@ interface types {
 /// What the editor offers a plugin. Calls that need a permission check the
 /// plugin's manifest and return an error naming the permission if denied.
 interface host {
-  use types.{framing, pick-item, position, selection, text-change, diagnostic, completion, setting, token, token-layer, doc-symbol, line-range, fold-range};
+  use types.{framing, pick-item, position, selection, text-change, diagnostic, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint};
 
   /// Text of the active buffer. Needs `editor-read`.
   active-text: func() -> result<string, string>;
@@ -269,6 +284,10 @@ interface host {
   /// Replaces where a file's blocks fold. Without any, they fold by
   /// indentation.
   set-folds: func(path: string, ranges: list<fold-range>);
+
+  /// Replaces a file's inlay hints. They move with edits until the plugin
+  /// sends new ones, and show unless the user turned them off.
+  set-inlay-hints: func(path: string, hints: list<inlay-hint>);
 
   /// Shows text next to the cursor until the next key.
   show-hover: func(text: string);

@@ -6,7 +6,7 @@
 //! than one row: folded lines take none.
 
 use super::Editor;
-use crate::doc::advance;
+use crate::doc::{advance, inlay_cols};
 
 /// One screen row of a line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -26,8 +26,10 @@ const ONE_ROW: Row = Row {
 };
 
 /// Breaks a line into rows of at most `width` cells. A space that doesn't
-/// fit hangs off the end of its row, as in VS Code.
-pub(crate) fn wrap(chars: &[char], width: usize) -> Vec<Row> {
+/// fit hangs off the end of its row, as in VS Code. Inlay hints, as
+/// `Doc::line_inlays` gives them, take their room and go with the
+/// character after them.
+pub(crate) fn wrap(chars: &[char], inlays: &[(usize, usize)], width: usize) -> Vec<Row> {
     let mut rows = vec![ONE_ROW];
     if width < 2 {
         return rows;
@@ -41,7 +43,8 @@ pub(crate) fn wrap(chars: &[char], width: usize) -> Vec<Row> {
     // Where the row may break: after the last space, if any.
     let mut opening: Option<(usize, usize)> = None;
     for (i, &c) in chars.iter().enumerate() {
-        let w = advance(c, d);
+        let hint = inlay_cols(inlays, i);
+        let w = hint + advance(c, d + hint);
         let row = *rows.last().unwrap();
         let room = width - row.indent;
         if d + w - row.col > room && !c.is_whitespace() && i > row.start {
@@ -78,7 +81,8 @@ impl Editor {
         if !self.wrapping() {
             return vec![ONE_ROW];
         }
-        wrap(&self.doc().line_chars(line), self.text_columns())
+        let doc = self.doc();
+        wrap(&doc.line_chars(line), &doc.line_inlays(line), self.text_columns())
     }
 
     /// A line's rows, as if it showed.
@@ -228,7 +232,7 @@ mod tests {
 
     fn starts(text: &str, width: usize) -> Vec<usize> {
         let chars: Vec<char> = text.chars().collect();
-        wrap(&chars, width).iter().map(|r| r.start).collect()
+        wrap(&chars, &[], width).iter().map(|r| r.start).collect()
     }
 
     #[test]
@@ -251,9 +255,20 @@ mod tests {
     #[test]
     fn continued_rows_keep_the_indent() {
         let chars: Vec<char> = "    aaaa bbbb cccc".chars().collect();
-        let rows = wrap(&chars, 14);
+        let rows = wrap(&chars, &[], 14);
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[1].indent, 4);
         assert_eq!(rows[1].start, 14);
+    }
+
+    #[test]
+    fn an_inlay_hint_takes_room_and_goes_with_its_character() {
+        let chars: Vec<char> = "let mix = 1".chars().collect();
+        // ": f32" before the space after `mix`: the line no longer fits in
+        // 14, and breaks after `mix`, the hint going down with the rest.
+        let rows = wrap(&chars, &[(7, 6)], 14);
+        assert_eq!(rows.iter().map(|r| r.start).collect::<Vec<_>>(), [0, 8]);
+        assert_eq!(rows[1].col, 7 + 6 + 1);
+        assert_eq!(wrap(&chars, &[], 14).len(), 1);
     }
 }

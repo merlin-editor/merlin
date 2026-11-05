@@ -123,15 +123,23 @@ impl Fonts {
                 continue;
             }
             let rows = l.shown as f32;
-            // Where each character goes, as the core places it.
+            // Where each character goes, as the core places it, and each
+            // inlay hint before the character it's with.
             let mut spots = Vec::with_capacity(l.chars.len());
+            let mut chips = Vec::with_capacity(l.inlays.len());
             let (mut d, mut r) = (0usize, 0usize);
-            for (i, &c) in l.chars.iter().enumerate() {
+            for i in 0..=l.chars.len() {
                 while r + 1 < l.rows.len() && i >= l.rows[r + 1].start {
                     r += 1;
                 }
-                let width = advance(c, d);
                 let row = &l.rows[r];
+                for inlay in l.inlays.iter().filter(|h| h.col == i) {
+                    let col = (row.indent + d - row.col) as isize - view.hscroll as isize;
+                    chips.push((Spot { row: r, col, width: inlay.cols }, &inlay.label));
+                    d += inlay.cols;
+                }
+                let Some(&c) = l.chars.get(i) else { break };
+                let width = advance(c, d);
                 let col = (row.indent + d - row.col) as isize - view.hscroll as isize;
                 spots.push(Spot { row: r, col, width });
                 d += width;
@@ -352,6 +360,37 @@ impl Fonts {
                             p.muted,
                         );
                     }
+                }
+            }
+
+            // Inlay hints: quiet chips, half a column of room either side
+            // of their text, which keeps to the code's columns.
+            for (spot, label) in &chips {
+                if spot.row >= l.shown as usize {
+                    continue;
+                }
+                let x0 = x_of(spot.col) + cw * 0.2;
+                let x1 = x_of(spot.col + spot.width as isize) - cw * 0.2;
+                if x1 <= text_x || x0 >= right {
+                    continue;
+                }
+                let y = row_y(spot.row);
+                let pad = (ch * 0.1).round();
+                clipped_quad(
+                    canvas,
+                    [x0, y + pad, x1, y + ch - pad],
+                    3.0 * s,
+                    p.raised,
+                    text_x,
+                    right,
+                );
+                let mut x = x_of(spot.col) + cw * 0.5;
+                for c in label.chars() {
+                    let w = merlin_core::style::char_width(c).max(1);
+                    if x >= text_x && x + w as f32 * cw <= right {
+                        self.wide_glyph(c, canvas, x, y, w, p.muted);
+                    }
+                    x += w as f32 * cw;
                 }
             }
 

@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use crate::buffer::{Buffer, Change};
 use crate::diff::{self, LineKind, Sign};
 use crate::indent::{self, Indent};
-use crate::lang::Mark;
+use crate::lang::{Inlay, Mark};
 use crate::layers::Layers;
 use crate::style::char_width;
 use merlin_syntax::Syntax;
@@ -80,6 +80,8 @@ pub struct Doc {
     pub hscroll: usize,
     /// Diagnostics from plugins.
     pub marks: Vec<Mark>,
+    /// Inlay hints from plugins, in order.
+    pub inlays: Vec<Inlay>,
     pub review: Option<Review>,
     /// The file as of the last commit, for gutter signs. `None` outside git.
     pub git_base: Option<String>,
@@ -117,6 +119,7 @@ impl Doc {
             scroll_sub: Sub::default(),
             hscroll: 0,
             marks: Vec::new(),
+            inlays: Vec::new(),
             review: None,
             git_base: None,
             git_signs: Vec::new(),
@@ -195,6 +198,9 @@ impl Doc {
             }
             for fold in &mut self.folds {
                 *fold = change.map(*fold);
+            }
+            for inlay in &mut self.inlays {
+                inlay.pos = change.map(inlay.pos);
             }
             self.layers.map(change);
             if !carets_placed {
@@ -310,20 +316,30 @@ impl Doc {
         self.buffer.rope().len_lines() - 1
     }
 
-    /// Where `col` on `line` is drawn, counting tabs and wide characters.
+    /// Where `col` on `line` is drawn, counting tabs, wide characters and
+    /// the inlay hints before it. A hint at `col` itself comes after: the
+    /// cursor there stays by the text before.
     pub fn display_col(&self, line: usize, col: usize) -> usize {
+        let inlays = self.line_inlays(line);
         let mut d = 0;
-        for c in self.line_chars(line).into_iter().take(col) {
+        for (i, c) in self.line_chars(line).into_iter().take(col).enumerate() {
+            d += inlay_cols(&inlays, i);
             d += advance(c, d);
         }
         d
     }
 
-    /// The character column drawn at display column `target`.
+    /// The character column drawn at display column `target`. A click on
+    /// an inlay hint lands before the character it's before.
     pub fn col_at_display(&self, line: usize, target: usize) -> usize {
+        let inlays = self.line_inlays(line);
         let mut d = 0;
         let chars = self.line_chars(line);
         for (i, c) in chars.iter().enumerate() {
+            d += inlay_cols(&inlays, i);
+            if d > target {
+                return i;
+            }
             let w = advance(*c, d);
             if d + w > target {
                 return i;
@@ -331,6 +347,22 @@ impl Doc {
             d += w;
         }
         chars.len()
+    }
+
+    /// The inlay hints on a line, as the column of the character each is
+    /// before and how many columns it takes.
+    pub fn line_inlays(&self, line: usize) -> Vec<(usize, usize)> {
+        if self.inlays.is_empty() {
+            return Vec::new();
+        }
+        let start = self.line_start(line);
+        let end = start + self.buffer.line_len(line);
+        let first = self.inlays.partition_point(|i| i.pos < start);
+        self.inlays[first..]
+            .iter()
+            .take_while(|i| i.pos <= end)
+            .map(|i| (i.pos - start, i.cols))
+            .collect()
     }
 
     /// The position of `line`, display column `target`, clamped to the text.
@@ -395,6 +427,11 @@ impl Doc {
 }
 
 /// Cells `c` takes when drawn at display column `at`.
+/// The columns the inlay hints before character `i` take.
+pub fn inlay_cols(inlays: &[(usize, usize)], i: usize) -> usize {
+    inlays.iter().filter(|(at, _)| *at == i).map(|(_, n)| n).sum()
+}
+
 pub fn advance(c: char, at: usize) -> usize {
     if c == '\t' {
         TAB_WIDTH - at % TAB_WIDTH

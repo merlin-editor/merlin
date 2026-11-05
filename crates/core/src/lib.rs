@@ -29,6 +29,6 @@ pub use editor::{
     ThemeKind, ToastView, UiEvent, UserKey, When, WindowView, Workspace,
 };
 pub use key::{Key, KeyCode};
-pub use lang::{Completion, Diagnostic, Severity};
+pub use lang::{Completion, Diagnostic, InlayHint, InlayKind, Severity};
 pub use merlin_syntax::Syntax;
 pub use panel::{Button, Entry, Node, Panel, PickItem, Tone};

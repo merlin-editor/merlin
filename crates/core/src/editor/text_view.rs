@@ -15,7 +15,7 @@ use super::overview::{MinimapView, ScrollbarView};
 use super::wrap::{self, Row};
 use super::{Editor, Focus, fold, guides};
 use crate::diff::{LineKind, Sign};
-use crate::lang::Severity;
+use crate::lang::{InlayKind, Severity};
 use crate::style::{Hue, Style};
 
 /// An editor group's text, as it's on screen now.
@@ -96,11 +96,23 @@ pub struct LineView {
     /// colour as `0xRRGGBBAA`.
     pub swatches: Vec<(usize, usize, u32)>,
     pub guides: Vec<Option<bool>>,
+    /// Inlay hints, each before the character at its column.
+    pub inlays: Vec<InlayView>,
     /// The worst problem starting on the line, shown after its end, as
     /// Error Lens does: its severity and first line.
     pub note: Option<(Severity, String)>,
     /// The line break is selected.
     pub eol_selected: bool,
+}
+
+/// An inlay hint on a line: the character it's before, the columns it
+/// takes, and what it says.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InlayView {
+    pub col: usize,
+    pub cols: usize,
+    pub label: String,
+    pub kind: InlayKind,
 }
 
 /// A cursor: where it is in the text, and on screen in the text's own
@@ -114,12 +126,12 @@ pub struct CaretView {
 
 /// A problem's message on one line: its first, and the one after when it
 /// says more, as rustc's "mismatched types" then "expected `u32`, found
-/// `usize`" do, but not a `help:` or `note:`.
+/// `usize`" do, but not a `help:`, a `note:` or the lint that's on.
 fn note_text(message: &str) -> String {
     let mut lines = message.lines().map(str::trim).filter(|l| !l.is_empty());
     let first = lines.next().unwrap_or_default().to_string();
     match lines.next() {
-        Some(more) if !more.starts_with("help:") && !more.starts_with("note:") => {
+        Some(more) if !["help:", "note:", "`#["].iter().any(|p| more.starts_with(p)) => {
             format!("{first}: {more}")
         }
         _ => first,
@@ -333,7 +345,7 @@ impl Editor {
             let end = start + chars.len();
             // The screen rows the line takes, more than one if it wraps.
             let rows = if wrapping {
-                wrap::wrap(&chars, self.text_columns())
+                wrap::wrap(&chars, &doc.line_inlays(line), self.text_columns())
             } else {
                 vec![Row {
                     start: 0,
@@ -474,6 +486,17 @@ impl Editor {
                 })
                 .collect();
             let eol_selected = selections.iter().any(|&(a, b)| (a..b).contains(&end));
+            let first = doc.inlays.partition_point(|i| i.pos < start);
+            let inlays = doc.inlays[first..]
+                .iter()
+                .take_while(|i| i.pos <= end)
+                .map(|i| InlayView {
+                    col: i.pos - start,
+                    cols: i.cols,
+                    label: i.label.clone(),
+                    kind: i.kind,
+                })
+                .collect();
             let note = note
                 .filter(|_| self.inline_notes)
                 .map(|m| (m.severity, note_text(&m.message)));
@@ -500,6 +523,7 @@ impl Editor {
                 brackets,
                 swatches,
                 guides: line_guides,
+                inlays,
                 note,
                 eol_selected,
             });
@@ -567,6 +591,7 @@ impl Editor {
             brackets: vec![None; n],
             swatches: Vec::new(),
             guides: vec![None; n],
+            inlays: Vec::new(),
             note: None,
             eol_selected: false,
         }

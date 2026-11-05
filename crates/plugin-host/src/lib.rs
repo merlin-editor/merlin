@@ -410,6 +410,24 @@ impl host::Host for State {
         });
     }
 
+    fn set_inlay_hints(&mut self, path: String, hints: Vec<types::InlayHint>) {
+        self.events.push(Event::SetInlayHints {
+            path: self.snapshot.local(&path),
+            hints: hints
+                .into_iter()
+                .map(|h| merlin_core::InlayHint {
+                    at: (h.at.line, h.at.column),
+                    label: h.label,
+                    kind: match h.kind {
+                        types::InlayKind::Type => merlin_core::InlayKind::Type,
+                        types::InlayKind::Parameter => merlin_core::InlayKind::Parameter,
+                        types::InlayKind::Other => merlin_core::InlayKind::Other,
+                    },
+                })
+                .collect(),
+        });
+    }
+
     fn show_hover(&mut self, text: String) {
         self.events.push(Event::ShowHover(text));
     }

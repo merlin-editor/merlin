@@ -1,5 +1,6 @@
 //! Language servers: diagnostics, hover, go-to-definition, completion,
-//! semantic colours, symbols and folding over the Language Server Protocol.
+//! semantic colours, symbols, folding and inlay hints over the Language
+//! Server Protocol.
 //!
 //! An ordinary plugin: it starts the server for the open file's language
 //! through the process API, which frames messages with `Content-Length`, and
@@ -111,6 +112,10 @@ enum Request {
         path: String,
         version: i32,
     },
+    InlayHints {
+        path: String,
+        version: i32,
+    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -149,6 +154,11 @@ struct Server {
     symbols: bool,
     #[serde(default)]
     folds: bool,
+    #[serde(default)]
+    inlay_hints: bool,
+    /// The last line of each open document, for asking about all of it.
+    #[serde(default)]
+    last_lines: HashMap<String, u32>,
     /// Whether it takes changes as ranges, rather than the whole text each
     /// time.
     #[serde(default)]
@@ -231,6 +241,12 @@ impl Server {
         };
         *version += 1;
         let version = *version;
+        if let Some(last) = self.last_lines.get_mut(path) {
+            for c in changes {
+                let added = c.text.matches('\n').count() as u32;
+                *last = (*last + added).saturating_sub(c.end.line - c.start.line);
+            }
+        }
         let at = |p: &Position| json!({"line": p.line, "character": p.column});
         let changes: Vec<Value> = changes
             .iter()
@@ -250,6 +266,8 @@ impl Server {
     /// Tells the server about the file's current text.
     fn sync(&mut self, path: &str, language: &str, text: &str) {
         let uri = uri(path);
+        self.last_lines
+            .insert(path.to_string(), text.matches('\n').count() as u32);
         match self.opened.get_mut(path) {
             Some(version) => {
                 *version += 1;
@@ -297,6 +315,21 @@ impl Server {
                 version,
             };
             self.request("textDocument/documentSymbol", doc.clone(), request);
+        }
+        if self.inlay_hints {
+            // To the end of the last line: servers take a column past a
+            // line's end as its end, as the protocol says.
+            let last = self.last_lines.get(&path).copied().unwrap_or(0);
+            let mut params = doc.clone();
+            params["range"] = json!({
+                "start": {"line": 0, "character": 0},
+                "end": {"line": last, "character": 1 << 20},
+            });
+            let request = Request::InlayHints {
+                path: path.clone(),
+                version,
+            };
+            self.request("textDocument/inlayHint", params, request);
         }
         if self.folds {
             self.request(
@@ -496,6 +529,26 @@ fn path_of(uri: &str) -> Option<String> {
 }
 
 /// Hover text without markdown code fences or rules.
+/// An LSP inlay hint: its label, whole or in parts, at its position.
+fn inlay_hint(hint: &Value) -> Option<InlayHint> {
+    let label = match &hint["label"] {
+        Value::String(s) => s.clone(),
+        Value::Array(parts) => parts.iter().filter_map(|p| p["value"].as_str()).collect(),
+        _ => return None,
+    };
+    let label = label.trim().to_string();
+    let kind = match hint["kind"].as_u64() {
+        Some(1) => InlayKind::Type,
+        Some(2) => InlayKind::Parameter,
+        _ => InlayKind::Other,
+    };
+    (!label.is_empty()).then(|| InlayHint {
+        at: position(&hint["position"]),
+        label,
+        kind,
+    })
+}
+
 fn hover_text(contents: &Value) -> String {
     let raw = match contents {
         Value::String(s) => s.clone(),
@@ -575,6 +628,8 @@ impl Lsp {
                     legend: Vec::new(),
                     symbols: false,
                     folds: false,
+                    inlay_hints: false,
+                    last_lines: HashMap::new(),
                     incremental: false,
                     synced: HashMap::new(),
                 };
@@ -593,6 +648,11 @@ impl Lsp {
                     let capabilities = json!({
                         "general": {"positionEncodings": ["utf-16"]},
                         "window": {"workDoneProgress": true},
+                        "workspace": {
+                            "inlayHint": {"refreshSupport": true},
+                            "semanticTokens": {"refreshSupport": true},
+                            "diagnostics": {"refreshSupport": true},
+                        },
                         "textDocument": {
                             "synchronization": {"didSave": true},
                             "hover": {"contentFormat": ["plaintext", "markdown"]},
@@ -608,6 +668,7 @@ impl Lsp {
                             },
                             "documentSymbol": {"hierarchicalDocumentSymbolSupport": true},
                             "foldingRange": {"lineFoldingOnly": true},
+                            "inlayHint": {},
                         },
                     });
                     self.servers[i].request(
@@ -674,11 +735,14 @@ impl Lsp {
             _ => Value::Null,
         };
         server.respond(id, result);
-        if method == "workspace/diagnostic/refresh" {
-            let paths: Vec<String> = server.opened.keys().cloned().collect();
-            for path in paths {
-                server.pull(&path);
+        // The server knows more now, such as once it's indexed: ask again.
+        let paths: Vec<String> = server.opened.keys().cloned().collect();
+        match method {
+            "workspace/diagnostic/refresh" => paths.iter().for_each(|p| server.pull(p)),
+            "workspace/inlayHint/refresh" | "workspace/semanticTokens/refresh" => {
+                paths.iter().for_each(|p| server.describe(p))
             }
+            _ => {}
         }
     }
 
@@ -806,6 +870,7 @@ impl Lsp {
                     | Request::Tokens { .. }
                     | Request::Symbols { .. }
                     | Request::Folds { .. }
+                    | Request::InlayHints { .. }
             );
             if !cancelled && !quiet {
                 host::notify(&format!(
@@ -830,6 +895,7 @@ impl Lsp {
                 let offered = |v: &Value| !v.is_null() && *v != Value::Bool(false);
                 server.symbols = offered(&caps["documentSymbolProvider"]);
                 server.folds = offered(&caps["foldingRangeProvider"]);
+                server.inlay_hints = offered(&caps["inlayHintProvider"]);
                 // 2 is incremental, as a number or as `change` in an object.
                 let sync = &caps["textDocumentSync"];
                 server.incremental = sync.as_u64().or_else(|| sync["change"].as_u64()) == Some(2);
@@ -903,6 +969,14 @@ impl Lsp {
                         })
                         .collect();
                     host::set_folds(&path, &ranges);
+                }
+            }
+            Request::InlayHints { path, version } => {
+                if server.opened.get(&path) == Some(&version)
+                    && let Some(list) = result.as_array()
+                {
+                    let hints: Vec<InlayHint> = list.iter().filter_map(inlay_hint).collect();
+                    host::set_inlay_hints(&path, &hints);
                 }
             }
             Request::Completion { manual } => {

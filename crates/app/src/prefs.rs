@@ -248,6 +248,7 @@ impl App {
                     toggle("Bracket pair colours", "Brackets are coloured by how deep they are.", "editor.bracket_pair_colorization", true),
                     toggle("Colour swatches", "A bar in the colour under colours written in the code, such as #e6c07b or rgb(0 120 255).", "editor.color_decorators", true),
                     toggle("Problems inline", "A line's worst error or warning is written after the end of the line.", "editor.inline_diagnostics", true),
+                    toggle("Inlay hints", "Types and parameter names from the language server, in quiet chips between the code.", "editor.inlay_hints", true),
                 ],
             ),
             (
