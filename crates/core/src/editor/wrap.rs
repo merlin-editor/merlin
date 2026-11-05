@@ -82,7 +82,11 @@ impl Editor {
             return vec![ONE_ROW];
         }
         let doc = self.doc();
-        wrap(&doc.line_chars(line), &doc.line_inlays(line), self.text_columns())
+        wrap(
+            &doc.line_chars(line),
+            &doc.line_inlays(line),
+            self.text_columns(),
+        )
     }
 
     /// A line's rows, as if it showed.

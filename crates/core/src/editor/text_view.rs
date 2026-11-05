@@ -124,14 +124,19 @@ pub struct CaretView {
     pub cell: Option<(u16, u16)>,
 }
 
-/// A problem's message on one line: its first, and the one after when it
+/// A problem's message on one line, the worst of the line's with how many
+/// others there are written after it: its first, and the one after when it
 /// says more, as rustc's "mismatched types" then "expected `u32`, found
 /// `usize`" do, but not a `help:`, a `note:` or the lint that's on.
 fn note_text(message: &str) -> String {
     let mut lines = message.lines().map(str::trim).filter(|l| !l.is_empty());
     let first = lines.next().unwrap_or_default().to_string();
     match lines.next() {
-        Some(more) if !["help:", "note:", "`#["].iter().any(|p| more.starts_with(p)) => {
+        Some(more)
+            if !["help:", "note:", "`#["]
+                .iter()
+                .any(|p| more.starts_with(p)) =>
+        {
             format!("{first}: {more}")
         }
         _ => first,
@@ -366,17 +371,23 @@ impl Editor {
             let mut marks: Vec<Option<Severity>> = vec![None; chars.len()];
             let mut worst: Option<Severity> = None;
             let mut note: Option<&crate::lang::Mark> = None;
+            // Problems starting on the line that could be written out, once
+            // each: rust-analyzer and cargo check can both report one.
+            let mut notable: Vec<String> = Vec::new();
             for mark in doc
                 .marks
                 .iter()
                 .filter(|m| m.start <= end && m.end >= start)
             {
                 worst = Some(worst.map_or(mark.severity, |w| w.min(mark.severity)));
-                if (start..=end).contains(&mark.start)
-                    && mark.severity < Severity::Hint
-                    && note.is_none_or(|n| mark.severity < n.severity)
-                {
-                    note = Some(mark);
+                if (start..=end).contains(&mark.start) && mark.severity < Severity::Hint {
+                    let text = note_text(&mark.message);
+                    if !notable.contains(&text) {
+                        notable.push(text);
+                    }
+                    if note.is_none_or(|n| mark.severity < n.severity) {
+                        note = Some(mark);
+                    }
                 }
                 let b = mark.end.max(mark.start + 1).min(end);
                 let a = mark.start.max(start).min(b.saturating_sub(1));
@@ -499,7 +510,13 @@ impl Editor {
                 .collect();
             let note = note
                 .filter(|_| self.inline_notes)
-                .map(|m| (m.severity, note_text(&m.message)));
+                .map(|m| {
+                    let text = note_text(&m.message);
+                    match notable.len().saturating_sub(1) {
+                        0 => (m.severity, text),
+                        more => (m.severity, format!("{text}  (+{more} more)")),
+                    }
+                });
             let swatches = if self.colour_swatches && doc.review.is_none() {
                 super::swatches::find(&chars)
             } else {

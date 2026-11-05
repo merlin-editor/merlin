@@ -116,6 +116,7 @@ enum Request {
         path: String,
         version: i32,
     },
+    Signature,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -180,6 +181,9 @@ struct Problem {
 #[derive(Default, Serialize, Deserialize)]
 struct Lsp {
     servers: Vec<Server>,
+    /// Whether signature help shows, so typing asks again.
+    #[serde(default)]
+    signature: bool,
     /// Diagnostics by absolute path, for the panel.
     problems: BTreeMap<String, Vec<Problem>>,
 }
@@ -529,6 +533,65 @@ fn path_of(uri: &str) -> Option<String> {
 }
 
 /// Hover text without markdown code fences or rules.
+/// An LSP signature help answer, as the editor shows it: the active
+/// signature, its active parameter as characters of the label, and the
+/// first paragraph of its documentation.
+fn signature(help: &Value) -> Option<Signature> {
+    let list = help["signatures"].as_array().filter(|l| !l.is_empty())?;
+    let index = help["activeSignature"].as_u64().unwrap_or(0) as usize;
+    let index = index.min(list.len() - 1);
+    let sig = &list[index];
+    let label = sig["label"].as_str()?.to_string();
+    let param = sig["activeParameter"]
+        .as_u64()
+        .or(help["activeParameter"].as_u64())
+        .and_then(|i| sig["parameters"].as_array()?.get(i as usize).cloned());
+    let active = param.and_then(|p| match &p["label"] {
+        // UTF-16 offsets into the label.
+        Value::Array(range) => {
+            let chars = |n: u64| {
+                let mut seen = 0;
+                label
+                    .chars()
+                    .take_while(|c| {
+                        seen += c.len_utf16() as u64;
+                        seen <= n
+                    })
+                    .count() as u32
+            };
+            Some((
+                chars(range.first()?.as_u64()?),
+                chars(range.get(1)?.as_u64()?),
+            ))
+        }
+        Value::String(name) => {
+            let at = label.find(name.as_str())?;
+            let start = label[..at].chars().count() as u32;
+            Some((start, start + name.chars().count() as u32))
+        }
+        _ => None,
+    });
+    let doc = match &sig["documentation"] {
+        Value::String(s) => s.clone(),
+        other => other["value"].as_str().unwrap_or_default().to_string(),
+    };
+    // Its first paragraph, outside any code block.
+    let doc = doc
+        .split("\n\n")
+        .find(|p| !p.trim().is_empty() && !p.trim_start().starts_with("```"))
+        .unwrap_or_default()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    Some(Signature {
+        label,
+        active,
+        doc,
+        index: index as u32,
+        count: list.len() as u32,
+    })
+}
+
 /// An LSP inlay hint: its label, whole or in parts, at its position.
 fn inlay_hint(hint: &Value) -> Option<InlayHint> {
     let label = match &hint["label"] {
@@ -658,6 +721,13 @@ impl Lsp {
                             "hover": {"contentFormat": ["plaintext", "markdown"]},
                             "completion": {"completionItem": {"snippetSupport": false}},
                             "definition": {},
+                            "signatureHelp": {
+                                "signatureInformation": {
+                                    "documentationFormat": ["plaintext", "markdown"],
+                                    "parameterInformation": {"labelOffsetSupport": true},
+                                    "activeParameterSupport": true,
+                                },
+                            },
                             "publishDiagnostics": {},
                             "diagnostic": {"dynamicRegistration": false},
                             "semanticTokens": {
@@ -871,6 +941,7 @@ impl Lsp {
                     | Request::Symbols { .. }
                     | Request::Folds { .. }
                     | Request::InlayHints { .. }
+                    | Request::Signature
             );
             if !cancelled && !quiet {
                 host::notify(&format!(
@@ -971,6 +1042,11 @@ impl Lsp {
                     host::set_folds(&path, &ranges);
                 }
             }
+            Request::Signature => {
+                let shown = signature(result);
+                self.signature = shown.is_some();
+                host::show_signature(shown.as_ref());
+            }
             Request::InlayHints { path, version } => {
                 if server.opened.get(&path) == Some(&version)
                     && let Some(list) = result.as_array()
@@ -1020,8 +1096,9 @@ impl Lsp {
         }
     }
 
-    /// Asks for completions after `.` or `::`, as most editors do.
-    fn maybe_complete(&mut self) {
+    /// Asks for completions after `.` or `::`, as most editors do, and for
+    /// signature help after `(` or `,`, or while it shows.
+    fn typed(&mut self) {
         let (Ok(text), Ok(cursor)) = (host::active_text(), host::active_cursor()) else {
             return;
         };
@@ -1041,6 +1118,9 @@ impl Lsp {
                 "textDocument/completion",
                 Request::Completion { manual: false },
             );
+        }
+        if self.signature || before.ends_with('(') || before.ends_with(',') {
+            self.ask("textDocument/signatureHelp", Request::Signature);
         }
     }
 }
@@ -1118,7 +1198,7 @@ impl Plugin for Lsp {
             server.synced.insert(path.clone(), now);
         }
         if matches!(event, BufferEvent::Changed) {
-            self.maybe_complete();
+            self.typed();
         }
     }
 

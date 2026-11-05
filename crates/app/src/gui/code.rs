@@ -135,7 +135,14 @@ impl Fonts {
                 let row = &l.rows[r];
                 for inlay in l.inlays.iter().filter(|h| h.col == i) {
                     let col = (row.indent + d - row.col) as isize - view.hscroll as isize;
-                    chips.push((Spot { row: r, col, width: inlay.cols }, &inlay.label));
+                    chips.push((
+                        Spot {
+                            row: r,
+                            col,
+                            width: inlay.cols,
+                        },
+                        &inlay.label,
+                    ));
                     d += inlay.cols;
                 }
                 let Some(&c) = l.chars.get(i) else { break };

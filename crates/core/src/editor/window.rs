@@ -130,6 +130,7 @@ pub struct WindowView {
     pub toast: Option<ToastView>,
     pub context: Option<ContextView>,
     pub popup: Option<PopupView>,
+    pub signature: Option<super::context::SignatureView>,
     pub menu: Option<MenuView>,
     pub find: Option<FindView>,
     /// Every editor group, to lay out and draw; `tabs` and `crumbs` are
@@ -405,6 +406,7 @@ impl Editor {
             toast,
             context: self.context_view(),
             popup: self.popup_view(),
+            signature: self.signature_view(),
             menu: self.menu_view(),
             find: self.find_view(),
             groups,

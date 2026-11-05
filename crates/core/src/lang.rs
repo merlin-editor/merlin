@@ -28,6 +28,18 @@ pub struct Completion {
     pub insert: String,
 }
 
+/// A function's signature as a call is typed: its label, the parameter
+/// the cursor is in as a range of the label's characters, a line of its
+/// documentation, and which of how many overloads it is.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Signature {
+    pub label: String,
+    pub active: Option<(usize, usize)>,
+    pub doc: String,
+    pub index: u32,
+    pub count: u32,
+}
+
 /// What an inlay hint names, for how it's drawn.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InlayKind {

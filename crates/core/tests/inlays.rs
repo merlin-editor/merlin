@@ -38,7 +38,12 @@ fn inlays(s: &Session, line: usize) -> Vec<(usize, usize, String)> {
     view.lines
         .iter()
         .find(|l| l.line == line)
-        .map(|l| l.inlays.iter().map(|i| (i.col, i.cols, i.label.clone())).collect())
+        .map(|l| {
+            l.inlays
+                .iter()
+                .map(|i| (i.col, i.cols, i.label.clone()))
+                .collect()
+        })
         .unwrap_or_default()
 }
 

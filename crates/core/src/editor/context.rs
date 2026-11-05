@@ -52,6 +52,14 @@ pub struct PopupView {
     pub kind: PopupKind,
 }
 
+/// Signature help over the call being typed: the cell of where the call
+/// is, and the signature.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SignatureView {
+    pub anchor: (u16, u16),
+    pub signature: crate::lang::Signature,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PopupKind {
     /// Markdown, a line each.
@@ -272,5 +280,15 @@ impl Editor {
             },
         };
         Some(PopupView { anchor, kind })
+    }
+
+    pub(crate) fn signature_view(&self) -> Option<SignatureView> {
+        let (_, at, signature) = self.signature.as_ref()?;
+        let text = self.layout().text;
+        let (x, y) = self.cell_of(*at)?;
+        Some(SignatureView {
+            anchor: (x.saturating_sub(text.x), y.saturating_sub(text.y)),
+            signature: signature.clone(),
+        })
     }
 }

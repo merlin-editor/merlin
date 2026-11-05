@@ -6,8 +6,8 @@
 use merlin_core::panel::{Entry, Node, Tone};
 use merlin_core::{
     ContextItem, ContextView, DialogView, FindAction, FindView, Key, KeyCode, MenuView,
-    PaletteView, PopupKind, PopupView, Side, SideView, TabView, TerminalView, ToastView, UiEvent,
-    WindowView, editor::GroupView,
+    PaletteView, PopupKind, PopupView, Side, SideView, SignatureView, TabView, TerminalView,
+    ToastView, UiEvent, WindowView, editor::GroupView,
 };
 
 use super::canvas::{Canvas, Face, Pictures, Rect, Text};
@@ -503,6 +503,9 @@ impl Frame<'_> {
         if let Some(popup) = &view.popup {
             self.popup(popup, a, cell);
         }
+        if let Some(signature) = &view.signature {
+            self.signature(signature, a, cell);
+        }
         if let (Some(menu), Some(at)) = (&view.context, context_at) {
             self.context(menu, at, w, h);
         }
@@ -992,6 +995,100 @@ impl Frame<'_> {
                     row,
                 );
             }
+        }
+    }
+
+    /// Signature help: a card over the line of the call being typed, or
+    /// under it when there's no room above, so it keeps clear of the
+    /// completions below. The parameter the cursor is in stands out.
+    fn signature(&mut self, view: &SignatureView, a: &Areas, (cw, ch): (f32, f32)) {
+        let p = self.p;
+        let sig = &view.signature;
+        let (ax, ay) = (
+            a.text.x + view.anchor.0 as f32 * cw,
+            a.text.y + view.anchor.1 as f32 * ch,
+        );
+        let mono = Face::mono(12.5);
+        let ui = Face::ui(12.0);
+        let chars: Vec<char> = sig.label.chars().collect();
+        let (s, e) = sig.active.unwrap_or((0, 0));
+        let (s, e) = (
+            s.min(chars.len()),
+            e.min(chars.len()).max(s.min(chars.len())),
+        );
+        let parts: [String; 3] = [
+            chars[..s].iter().collect(),
+            chars[s..e].iter().collect(),
+            chars[e..].iter().collect(),
+        ];
+        let count = format!("{} of {}", sig.index + 1, sig.count.max(1));
+        let label_w: f32 = parts
+            .iter()
+            .enumerate()
+            .map(|(k, t)| self.text.width(t, if k == 1 { mono.bold() } else { mono }))
+            .sum();
+        let count_w = self.text.width(&count, ui);
+        let pw = (label_w + count_w + 48.0).clamp(220.0, 620.0);
+        let doc_w = pw - 24.0;
+        let doc_h = if sig.doc.is_empty() {
+            0.0
+        } else {
+            self.text
+                .wrapped_height(&sig.doc, ui, doc_w)
+                .min(3.0 * 17.0)
+                + 6.0
+        };
+        let ph = 16.0 + 20.0 + doc_h;
+        let above = ay - ph - 4.0;
+        let y = if above > a.editor.y {
+            above
+        } else {
+            ay + ch + 4.0
+        };
+        let x = ax.min(a.editor.right() - pw - 8.0).max(a.editor.x + 4.0);
+        let r = Rect::new(x, y, pw, ph);
+        self.canvas.shadow(r, 8.0, theme::is_light(&p));
+        self.canvas.outline(r, 8.0, 1.0, p.border, p.widget);
+        self.hit(r, Hit::Block);
+        let row = Rect::new(r.x + 12.0, r.y + 8.0, r.w - 24.0 - count_w - 12.0, 20.0);
+        let mut tx = row.x;
+        for (k, part) in parts.iter().enumerate() {
+            let (face, colour) = if k == 1 {
+                (mono.bold(), p.bright)
+            } else {
+                (mono, p.text)
+            };
+            let w =
+                self.text
+                    .draw_in_row(&mut self.canvas, part, face, tx, row.y, row.h, colour, row);
+            if k == 1 && !part.is_empty() {
+                let under = Rect::new(tx, row.y + row.h - 2.0, w.min(row.right() - tx), 1.5);
+                self.canvas.fill(under, p.accent);
+            }
+            tx += w;
+        }
+        self.text.draw_in_row(
+            &mut self.canvas,
+            &count,
+            ui,
+            r.right() - 12.0 - count_w,
+            row.y,
+            row.h,
+            p.muted,
+            r,
+        );
+        if !sig.doc.is_empty() {
+            let clip = Rect::new(r.x + 12.0, row.bottom() + 4.0, doc_w, doc_h - 6.0);
+            self.text.draw(
+                &mut self.canvas,
+                &sig.doc,
+                ui,
+                clip.x,
+                clip.y,
+                p.muted,
+                clip,
+                Some(doc_w),
+            );
         }
     }
 

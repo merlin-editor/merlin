@@ -429,7 +429,11 @@ impl Doc {
 /// Cells `c` takes when drawn at display column `at`.
 /// The columns the inlay hints before character `i` take.
 pub fn inlay_cols(inlays: &[(usize, usize)], i: usize) -> usize {
-    inlays.iter().filter(|(at, _)| *at == i).map(|(_, n)| n).sum()
+    inlays
+        .iter()
+        .filter(|(at, _)| *at == i)
+        .map(|(_, n)| n)
+        .sum()
 }
 
 pub fn advance(c: char, at: usize) -> usize {

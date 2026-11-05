@@ -203,6 +203,18 @@ interface types {
     insert: string,
   }
 
+  /// The signature of the call being typed. `active` is the parameter the
+  /// cursor is in, as a range of the label's characters.
+  record signature {
+    label: string,
+    active: option<tuple<u32, u32>>,
+    /// A line or two of its documentation, as plain text.
+    doc: string,
+    /// Which overload this is, from 0, and how many there are.
+    index: u32,
+    count: u32,
+  }
+
   /// What an inlay hint names.
   enum inlay-kind {
     %type,
@@ -232,7 +244,7 @@ interface types {
 /// What the editor offers a plugin. Calls that need a permission check the
 /// plugin's manifest and return an error naming the permission if denied.
 interface host {
-  use types.{framing, pick-item, position, selection, text-change, diagnostic, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint};
+  use types.{framing, pick-item, position, selection, text-change, diagnostic, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint, signature};
 
   /// Text of the active buffer. Needs `editor-read`.
   active-text: func() -> result<string, string>;
@@ -288,6 +300,10 @@ interface host {
   /// Replaces a file's inlay hints. They move with edits until the plugin
   /// sends new ones, and show unless the user turned them off.
   set-inlay-hints: func(path: string, hints: list<inlay-hint>);
+
+  /// Shows a call's signature over the line being typed, until the cursor
+  /// leaves the line, Escape, or this is called with none.
+  show-signature: func(signature: option<signature>);
 
   /// Shows text next to the cursor until the next key.
   show-hover: func(text: string);

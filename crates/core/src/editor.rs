@@ -38,7 +38,7 @@ pub use window::{
     PaletteView, RailItem, SideView, StatusView, TabView, ToastView, UiEvent, WindowView,
 };
 
-pub use context::{ContextItem, ContextView, PopupKind, PopupView};
+pub use context::{ContextItem, ContextView, PopupKind, PopupView, SignatureView};
 pub use dialog::DialogView;
 pub use files::{FileOp, FilePick};
 pub use find::{FindAction, FindView};
@@ -275,6 +275,8 @@ pub enum Event {
     },
     /// Completions for the word at the cursor.
     ShowCompletions(Vec<Completion>),
+    /// The signature of the call the cursor is in, or none to hide it.
+    ShowSignature(Option<crate::lang::Signature>),
     /// Opens a file at a line and UTF-16 column, as go-to-definition does.
     OpenAt {
         path: PathBuf,
@@ -670,6 +672,9 @@ pub struct Editor {
     probe: Option<(usize, usize)>,
     /// Where a hover the mouse brought up is about, instead of the cursor.
     hover_anchor: Option<usize>,
+    /// Signature help: the document, where the call was when it showed,
+    /// and the signature.
+    signature: Option<(u64, usize, crate::lang::Signature)>,
     /// Diagnostics by plugin and file, as plugins sent them.
     diagnostics: HashMap<(String, PathBuf), Vec<Diagnostic>>,
     /// Bumped when diagnostics change, so the Explorer rebuilds.
@@ -814,6 +819,7 @@ impl Editor {
             context: None,
             probe: None,
             hover_anchor: None,
+            signature: None,
             diagnostics: HashMap::new(),
             diagnostics_version: 0,
             pending_goto: None,
@@ -1281,6 +1287,19 @@ impl Editor {
                     self.popup = Some(Popup::Hover(lines));
                 }
             }
+            Event::ShowSignature(signature) => {
+                let doc = self.doc().id;
+                self.signature = match signature {
+                    Some(s) if self.focus == Focus::Editor => {
+                        let at = match &self.signature {
+                            Some((d, at, _)) if *d == doc => *at,
+                            _ => self.cursor(),
+                        };
+                        Some((doc, at, s))
+                    }
+                    _ => None,
+                };
+            }
             Event::ShowCompletions(items) => {
                 if items.is_empty() {
                     self.notify("No completions".into());
@@ -1387,6 +1406,7 @@ impl Editor {
         self.sync_groups();
         self.build_views();
         self.check_completion();
+        self.check_signature();
         // Follow the cursor only when something moved it, so a view scrolled
         // with the wheel stays put while plugins update their panels.
         if self.view_key() != before {
@@ -1956,9 +1976,29 @@ impl Editor {
         }
     }
 
+    /// Signature help goes when the cursor leaves the call's line or goes
+    /// back before it, or keys go elsewhere.
+    fn check_signature(&mut self) {
+        let Some((doc, at, _)) = &self.signature else {
+            return;
+        };
+        let cursor = self.cursor();
+        let d = self.doc();
+        let gone = self.focus != Focus::Editor
+            || d.id != *doc
+            || cursor < *at
+            || d.line_col(cursor).0 != d.line_col((*at).min(d.buffer.len())).0;
+        if gone {
+            self.signature = None;
+        }
+    }
+
     /// Handles a key while a popup shows. Returns whether it used the key.
     fn popup_key(&mut self, key: Key) -> bool {
         let plain = !key.ctrl && !key.alt;
+        if key.code == KeyCode::Esc && self.popup.is_none() && self.signature.take().is_some() {
+            return true;
+        }
         match &mut self.popup {
             None => false,
             Some(Popup::Hover(_)) => {

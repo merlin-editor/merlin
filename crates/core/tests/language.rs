@@ -185,7 +185,15 @@ fn a_lines_worst_problem_is_written_after_it() {
                 start: (0, 8),
                 end: (0, 9),
                 severity: Severity::Error,
-                message: "cannot find value `y`\nhelp: a local variable with a similar name exists".into(),
+                message: "cannot find value `y`\nhelp: a local variable with a similar name exists"
+                    .into(),
+            },
+            // The same error again, as a second checker reports it.
+            Diagnostic {
+                start: (0, 8),
+                end: (0, 9),
+                severity: Severity::Error,
+                message: "cannot find value `y`".into(),
             },
             Diagnostic {
                 start: (1, 4),
@@ -197,11 +205,15 @@ fn a_lines_worst_problem_is_written_after_it() {
     });
     assert_eq!(
         note(&s, 0),
-        Some((Severity::Error, "cannot find value `y`".into())),
-        "the error wins, without its help"
+        Some((Severity::Error, "cannot find value `y`  (+1 more)".into())),
+        "the error wins, without its help, and the warning is counted once"
     );
     assert_eq!(note(&s, 1), None, "hints aren't written out");
-    s.send(diagnostic((1, 4), (1, 5), "mismatched types\nexpected `u32`, found `usize`"));
+    s.send(diagnostic(
+        (1, 4),
+        (1, 5),
+        "mismatched types\nexpected `u32`, found `usize`",
+    ));
     assert_eq!(
         note(&s, 1),
         Some((
@@ -215,4 +227,55 @@ fn a_lines_worst_problem_is_written_after_it() {
         ..Default::default()
     }));
     assert_eq!(note(&s, 0), None, "the setting turns it off");
+}
+
+fn signature(active: (usize, usize)) -> Event {
+    Event::ShowSignature(Some(merlin_core::Signature {
+        label: "fn mix(a: u8, b: u8) -> u8".into(),
+        active: Some(active),
+        doc: "Mixes two values.".into(),
+        index: 0,
+        count: 1,
+    }))
+}
+
+#[test]
+fn signature_help_stays_while_the_call_is_typed() {
+    let mut s = rust("fn main() {\n    mix(\n}\n");
+    s.run("key down; key end");
+    s.send(signature((7, 12)));
+    let shown = s.editor.window_view().signature.expect("it shows");
+    assert_eq!(shown.signature.active, Some((7, 12)));
+    // Typing the arguments keeps it, and a new answer keeps its place.
+    s.run("type 1,");
+    s.send(signature((14, 19)));
+    let again = s.editor.window_view().signature.unwrap();
+    assert_eq!(again.anchor, shown.anchor, "it stays where the call is");
+    assert_eq!(again.signature.active, Some((14, 19)));
+    // Escape hides it, and leaves the text and cursor be.
+    s.run("key esc");
+    assert!(s.editor.window_view().signature.is_none());
+    assert_eq!(s.text(), "fn main() {\n    mix(1,\n}\n");
+}
+
+#[test]
+fn signature_help_goes_when_the_cursor_leaves_the_call() {
+    let mut s = rust("fn main() {\n    mix(\n}\n");
+    s.run("key down; key end");
+    s.send(signature((7, 12)));
+    s.run("key backspace");
+    assert!(
+        s.editor.window_view().signature.is_none(),
+        "back before where it opened"
+    );
+    s.run("type (");
+    s.send(signature((7, 12)));
+    s.run("key down");
+    assert!(s.editor.window_view().signature.is_none(), "another line");
+    s.run("key up; key end");
+    s.send(Event::ShowSignature(None));
+    assert!(
+        s.editor.window_view().signature.is_none(),
+        "the server says so"
+    );
 }

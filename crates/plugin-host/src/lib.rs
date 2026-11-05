@@ -428,6 +428,18 @@ impl host::Host for State {
         });
     }
 
+    fn show_signature(&mut self, signature: Option<types::Signature>) {
+        self.events.push(Event::ShowSignature(signature.map(|s| {
+            merlin_core::Signature {
+                label: s.label,
+                active: s.active.map(|(a, b)| (a as usize, b as usize)),
+                doc: s.doc,
+                index: s.index,
+                count: s.count,
+            }
+        })));
+    }
+
     fn show_hover(&mut self, text: String) {
         self.events.push(Event::ShowHover(text));
     }
