@@ -1541,3 +1541,42 @@ fn a_narrow_merge_editor_shows_both_sides_in_place_and_alt_i_switches() {
     let merge = s.editor.text_views().pop().unwrap().merge.unwrap();
     assert_eq!(merge.panes.len(), 2);
 }
+
+#[test]
+fn compare_files_asks_for_two_files_and_shows_them_side_by_side() {
+    let mut s = Session::new("fn a() {}\nfn b() {}\n", Some("src/main.rs"), 160, 20);
+    s.files.insert("src/main.rs".into(), s.text());
+    s.files
+        .insert("src/old.rs".into(), "fn a() {}\nfn old() {}\n".into());
+    s.run("cmd file.compare");
+    s.run("type old.rs");
+    s.run("key enter");
+    assert!(
+        s.screen().contains("Compare old.rs with…"),
+        "{}",
+        s.screen()
+    );
+    // main.rs is open; old.rs is read from disk.
+    s.run("type main.rs");
+    s.run("key enter");
+    assert!(
+        s.effects
+            .contains(&Effect::ReadFiles(vec!["src/old.rs".into()]))
+    );
+    let view = s.editor.window_view();
+    assert!(view.tabs.iter().any(|t| t.name == "main.rs ↔ old.rs"));
+    let bar = view.diff_bar.unwrap();
+    assert!(bar.compare);
+    assert_eq!(bar.changes, 1);
+    let titles = view.groups[0].compare.clone().unwrap();
+    assert_eq!(titles[0], ("old.rs".to_string(), "src/".to_string()));
+    assert_eq!(titles[1].0, "main.rs");
+    // ⇄ puts old.rs on the right, to edit.
+    s.run("cmd compare.swap");
+    let view = s.editor.window_view();
+    assert!(view.tabs.iter().any(|t| t.name == "old.rs ↔ main.rs"));
+    assert!(
+        !view.tabs.iter().any(|t| t.name == "main.rs ↔ old.rs"),
+        "the swap takes the tab's place"
+    );
+}

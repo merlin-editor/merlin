@@ -554,7 +554,28 @@ committed:
   `a_narrow_merge_editor_shows_both_sides_in_place_and_alt_i_switches`.
   Checked in the window: Open in Merge Editor, the Result alone, Side by
   side and Alt+I back, Accept in place, Complete.
-- Still to build for Git, next: Compare Files (in `MergeFlow.dc.html`).
+- **Compare Files** (`editor/compare_files.rs`): a review of kind
+  `COMPARE` (`COMPARE_REVIEW`), its id what's on the left (a path,
+  `clipboard:` or `saved:`), its path the right file. It shares the
+  changes tab's view and bar (`in_compare` next to `in_changes_tab` for
+  typing through the file, the bar, Alt+F5/F3/I and Inline), with no
+  staging (`DiffBarView.compare`) and ⇄ Swap for two files
+  (`DiffBarView.swap`, `compare.swap`, which replaces the tab via
+  `compare_replace`). `Comparing` tracks the two-step picker (the palette's
+  file pick goes to `compare_picked` first; Esc stops it), the clipboard,
+  and texts read with `Effect::ReadFiles` (`compare_files_read`); open
+  files' texts are used as they are. Titles over each half come from
+  `GroupView.compare`, drawn by `Frame::compare_titles` above the code
+  (`GroupArea::under_titles`). The Explorer's menu has
+  `explorer.select_compare` and `explorer.compare_with` (labelled with the
+  chosen file's name). Tab icons go by the tab name's first word.
+  - Not built from the mock-up: editing the left side in place ("you can
+    edit both"); Swap is the way to edit it.
+  - Test: `compare_files_asks_for_two_files_and_shows_them_side_by_side`.
+  - Checked in the window: Compare Files…, side by side, typing on the
+    right, Swap, the Explorer's menu, Compare with Saved and with
+    Clipboard.
+- Git's mock-ups are all built, but for what's listed as not built above.
 
 Saved for later, by the user's choice:
 

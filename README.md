@@ -422,7 +422,16 @@ Commit Merge. In a narrow group the merge editor is the Result alone,
 each conflict not chosen yet showing both sides above its base with its
 Accept links; Side by side or Alt+I switches, and Alt+F5 and Alt+F3 go
 between conflicts. A file with markers opened another way offers Open in
-Merge Editor in its bar. A deleted
+Merge Editor in its bar.
+
+File: Compare Files… asks for two files with the file picker and shows
+them side by side in the changes tab's view, with its bar: Change 1 of 2,
+↑ ↓, Inline. The right side is the real file and can be typed in; ⇄ Swap
+puts the other file there. The Explorer's menu has Select for Compare,
+then Compare with it on another file. Compare with Clipboard and Compare
+with Saved (a file's unsaved edits against the disk) work the same way.
+
+A deleted
 file is struck through, opens as what it had, and its menu restores it. A
 new file opens as one column, and its menu adds it to `.gitignore`. A
 deleted file and a new one at least half alike show as one move, `app.rs
@@ -619,7 +628,8 @@ Other languages work too: anything that builds a WASI 0.2 component for
 - Git: images don't show side by side, very large files compare anyway,
   a submodule's commits aren't listed, and there's no Show Ignored. The
   changes tab has its boxes only side by side, not inline, and stages
-  only what's saved. There's no Compare Files yet.
+  only what's saved. Compare Files edits only its right side (⇄ swaps
+the other there).
 - Settings have no editor of their own (they're a TOML file), and the
   theme is VS Code's Dark Modern, with no others yet.
 - Completions don't add imports, and renames don't create, move or delete

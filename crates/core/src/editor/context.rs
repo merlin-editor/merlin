@@ -205,6 +205,17 @@ impl Editor {
                     label: String::new(),
                     key: None,
                 },
+                // Compare with the file Select for Compare chose, by name.
+                "explorer.compare_with" => ContextItem {
+                    label: format!(
+                        "Compare with {}",
+                        self.compare_selected
+                            .as_ref()
+                            .and_then(|p| p.file_name())
+                            .map_or(String::new(), |n| n.to_string_lossy().into_owned())
+                    ),
+                    key: None,
+                },
                 _ => ContextItem {
                     label: ITEMS
                         .iter()

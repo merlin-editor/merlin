@@ -5,6 +5,7 @@ mod chrome;
 mod colours;
 mod commands;
 mod compare;
+mod compare_files;
 mod context;
 mod crumbs;
 mod dialog;
@@ -37,6 +38,7 @@ pub use inline_change::ChangeView;
 pub use merge_editor::{MergeBarView, MergeNote, MergePaneView, MergeRow, MergeSide, MergeView};
 pub use peek::{PeekItem, PeekView, PreviewLine};
 mod rename;
+pub(crate) use compare_files::COMPARE as COMPARE_REVIEW;
 pub(crate) use rename::RENAME as RENAME_REVIEW;
 pub use rename::RenameView;
 mod save;
@@ -958,6 +960,12 @@ pub struct Editor {
     merge_staging: Vec<(u64, String)>,
     /// Alt+I in the merge editor: the Result alone, or side by side.
     merge_inline: Option<bool>,
+    /// Compare Files, while it asks for files or reads them, and the file
+    /// the Explorer's Select for Compare chose.
+    comparing: Option<compare_files::Comparing>,
+    compare_selected: Option<PathBuf>,
+    /// The comparison a swap replaces once it's shown.
+    compare_replace: Option<u64>,
     /// Who last changed each line, by file, as of a version of its text,
     /// and what was last asked for. `now` is the time blame last came.
     blames: HashMap<PathBuf, (u64, crate::git::Blame)>,
@@ -1142,6 +1150,9 @@ impl Editor {
             pending_merge: None,
             merge_staging: Vec::new(),
             merge_inline: None,
+            comparing: None,
+            compare_selected: None,
+            compare_replace: None,
             blames: HashMap::new(),
             blame_asked: None,
             now: 0,
@@ -1497,11 +1508,14 @@ impl Editor {
             }
             Event::Clipboard(text) => {
                 let text = text.unwrap_or_else(|| self.clipboard.clone());
-                if text.is_empty()
+                if self.compare_clipboard(&text, &mut fx)
+                    || text.is_empty()
                     || self.rename_paste(&text)
                     || self.terminal_paste(&text, &mut fx)
                 {
-                } else if self.focus == Focus::Editor && self.in_changes_tab() {
+                } else if self.focus == Focus::Editor
+                    && (self.in_changes_tab() || self.in_compare())
+                {
                     self.through_file(&mut fx, |e, _| e.paste(&text));
                 } else {
                     self.paste(&text);
@@ -1649,6 +1663,7 @@ impl Editor {
             Event::ShowRenameReview(edits) => self.show_rename_review(edits, &mut fx),
             Event::ShowReferences(places) => self.show_references(places, &mut fx),
             Event::FilesRead(files) => {
+                self.compare_files_read(&files, &mut fx);
                 self.peek_files_read(&files);
                 self.files_read(files);
             }
@@ -2135,7 +2150,7 @@ impl Editor {
         };
         let doc_id = self.new_id();
         // Changes since the last commit show the whole file, to edit.
-        let context = if plugin.is_empty() {
+        let context = if plugin.is_empty() || plugin == compare_files::COMPARE {
             compare::WHOLE_FILE
         } else {
             3

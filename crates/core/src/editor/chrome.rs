@@ -69,9 +69,11 @@ impl Editor {
             .docs
             .iter()
             .filter(|d| {
-                d.review
-                    .as_ref()
-                    .is_some_and(|r| !r.plugin.is_empty() && r.plugin != super::blame::COMMIT)
+                d.review.as_ref().is_some_and(|r| {
+                    !r.plugin.is_empty()
+                        && r.plugin != super::blame::COMMIT
+                        && r.plugin != super::compare_files::COMPARE
+                })
             })
             .filter(|d| !super::rename::is_rename_review(d))
             .count();

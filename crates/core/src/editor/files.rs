@@ -20,6 +20,9 @@ pub(crate) const EXPLORER_ITEMS: &[(&str, &str)] = &[
     ("-", ""),
     ("explorer.open_side", "Open to the Side"),
     ("-", ""),
+    ("explorer.select_compare", "Select for Compare"),
+    ("explorer.compare_with", "Compare with Selected"),
+    ("-", ""),
     ("explorer.copy_path", "Copy Path"),
     ("explorer.copy_relative", "Copy Relative Path"),
     ("-", ""),
@@ -101,7 +104,8 @@ impl Editor {
             .iter()
             .map(|(id, _)| *id)
             .filter(|&id| match id {
-                "explorer.open_side" => is_file,
+                "explorer.open_side" | "explorer.select_compare" => is_file,
+                "explorer.compare_with" => is_file && self.compare_selected.is_some(),
                 "explorer.copy_path"
                 | "explorer.copy_relative"
                 | "explorer.rename"
@@ -187,6 +191,16 @@ impl Editor {
             "explorer.delete" => {
                 if let Some(path) = path {
                     self.ask(Ask::Trash(PathBuf::from(path)));
+                }
+            }
+            "explorer.select_compare" => {
+                if let Some(path) = path {
+                    self.select_for_compare(PathBuf::from(path));
+                }
+            }
+            "explorer.compare_with" => {
+                if let Some(path) = path {
+                    self.compare_with_selected(PathBuf::from(path), fx);
                 }
             }
             "explorer.copy_path" | "explorer.copy_relative" => {

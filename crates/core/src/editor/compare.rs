@@ -27,6 +27,9 @@ pub struct DiffBarView {
     /// file, not in the last commit", "Deleted", "Moved from x.rs · 94% the
     /// same", a binary file's sizes.
     pub note: Option<String>,
+    /// Two files compared: no staging, and Swap when both are files.
+    pub compare: bool,
+    pub swap: bool,
 }
 
 /// The box and buttons for one row of a changes tab side by side, in the
@@ -156,7 +159,7 @@ impl Editor {
 
     /// The changes tab's bar, when one is shown.
     pub(crate) fn diff_bar(&self) -> Option<DiffBarView> {
-        if !self.in_changes_tab() {
+        if !self.in_changes_tab() && !self.in_compare() {
             return None;
         }
         let review = self.doc().review.as_ref()?;
@@ -165,7 +168,16 @@ impl Editor {
             change: self.change_at_cursor().map_or(0, |i| i + 1),
             changes,
             inline: self.split_rows().is_none(),
-            note: self.changes_note(),
+            note: if self.in_compare() {
+                None
+            } else {
+                self.changes_note()
+            },
+            compare: self.in_compare(),
+            swap: matches!(
+                self.compare_left(),
+                Some(super::compare_files::Left::File(_))
+            ),
         })
     }
 
@@ -490,7 +502,9 @@ impl Editor {
     /// The changes tab's commands: next and previous change, side by side
     /// or inline, and staging or reverting the change at the cursor.
     pub(crate) fn diff_command(&mut self, id: &str, fx: &mut Vec<Effect>) {
-        if !self.in_changes_tab() {
+        // Two files compared go between changes, but stage nothing.
+        let compare = self.in_compare() && matches!(id, "diff.next" | "diff.prev" | "diff.inline");
+        if !self.in_changes_tab() && !compare {
             return;
         }
         match id {
@@ -659,8 +673,13 @@ impl Editor {
                 _ => None,
             }
         };
+        let compare = review.plugin == super::COMPARE_REVIEW;
         let Some(cursor) = to_file(self.docs[tab].cursor) else {
-            return self.notify("The last commit's side can't be edited".into());
+            return self.notify(if compare {
+                "Only the right side is edited here; ⇄ Swap puts the other there".into()
+            } else {
+                "The last commit's side can't be edited".into()
+            });
         };
         let anchor = self.docs[tab].anchor.and_then(to_file);
         let doc = &mut self.docs[file];
@@ -675,10 +694,10 @@ impl Editor {
         let at = |pos: usize| doc.line_col(pos);
         let (cursor, anchor) = (at(doc.cursor), doc.anchor.map(at));
         let new = doc.buffer.text();
-        let old = doc
-            .git_base
-            .clone()
-            .unwrap_or_else(|| old_text(&self.docs[tab]));
+        let old = match doc.git_base.clone() {
+            Some(base) if !compare => base,
+            _ => old_text(&self.docs[tab]),
+        };
         self.current = tab;
         self.rebuild_changes(tab, &old, &new);
         let doc = &self.docs[tab];

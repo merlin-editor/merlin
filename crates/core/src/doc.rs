@@ -290,6 +290,15 @@ impl Doc {
             // Changes since the last commit are looked at, not answered.
             return if review.plugin.is_empty() {
                 format!("{name} (changes)")
+            } else if review.plugin == crate::editor::COMPARE_REVIEW {
+                let left = match review.id.as_str() {
+                    "clipboard:" => "Clipboard".to_string(),
+                    "saved:" => "Saved".to_string(),
+                    other => std::path::Path::new(other)
+                        .file_name()
+                        .map_or(other.to_string(), |n| n.to_string_lossy().into_owned()),
+                };
+                format!("{name} ↔ {left}")
             } else if review.plugin == "merlin.commit" {
                 format!("{name} @ {}", review.id)
             } else if review.plugin == crate::editor::RENAME_REVIEW {

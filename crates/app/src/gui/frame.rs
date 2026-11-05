@@ -304,6 +304,8 @@ pub fn group_areas(
             if merging {
                 let inline = groups.get(g).is_some_and(|v| v.merge_inline);
                 area.split_for_merge(sizes, inline);
+            } else if groups.get(g).is_some_and(|v| v.compare.is_some()) {
+                area.under_titles();
             }
             areas.push(area);
             if g + 1 < end {
@@ -386,6 +388,21 @@ impl GroupArea {
         );
         self.minimap = None;
         self.merge = Some([incoming, current, result]);
+    }
+}
+
+impl GroupArea {
+    /// Room over the code for each compared file's title.
+    fn under_titles(&mut self) {
+        let h = MERGE_HEAD_H.min(self.text.h);
+        for r in [&mut self.text, &mut self.bar] {
+            r.y += h;
+            r.h -= h;
+        }
+        if let Some(m) = &mut self.minimap {
+            m.y += h;
+            m.h -= h;
+        }
     }
 }
 
@@ -4119,8 +4136,11 @@ impl Frame<'_> {
             } else {
                 x + TAB_PAD
             };
+            // A tab named "theme.rs ↔ Saved" or "theme.rs (changes)" is
+            // its file's: the icon goes by the first word.
+            let file = tab.name.split(' ').next().unwrap_or(&tab.name);
             self.file_icon(
-                &tab.name,
+                file,
                 Some(tab.icon),
                 icon_x,
                 r.y + (r.h - 14.0) / 2.0,
@@ -4522,6 +4542,42 @@ impl Frame<'_> {
         }
     }
 
+    /// Two compared files' titles, over the halves of the code at `halves`.
+    pub fn compare_titles(&mut self, titles: &[(String, String); 2], halves: &[Rect]) {
+        let p = self.p;
+        // Inline, one view: the right file's title over it all.
+        let pairs: Vec<(&(String, String), Rect)> = match halves {
+            [one] => vec![(&titles[1], *one)],
+            _ => titles.iter().zip(halves.iter().copied()).collect(),
+        };
+        for ((name, note), r) in pairs {
+            let head = Rect::new(r.x, r.y - MERGE_HEAD_H, r.w, MERGE_HEAD_H - 4.0);
+            self.canvas.round(head, 6.0, p.widget);
+            let face = Face::ui(12.0);
+            let x = head.x + 10.0;
+            let w = self.text.draw_in_row(
+                &mut self.canvas,
+                name,
+                face.medium(),
+                x,
+                head.y,
+                head.h,
+                p.bright,
+                head,
+            );
+            self.text.draw_in_row(
+                &mut self.canvas,
+                note,
+                face,
+                x + w + 8.0,
+                head.y,
+                head.h,
+                p.muted,
+                head,
+            );
+        }
+    }
+
     /// Incoming or Current: its title, then its lines from the one level
     /// with the Result's top.
     fn merge_pane(&mut self, pane: &merlin_core::MergePaneView, r: Rect, row_h: f32) {
@@ -4695,7 +4751,11 @@ impl Frame<'_> {
         };
         // A narrow strip keeps its room for the tabs; the file's buttons
         // are in Source Control too.
-        if row.w >= 900.0 {
+        if bar.compare {
+            if bar.swap {
+                button(self, "⇄ Swap", "compare.swap", &mut x);
+            }
+        } else if row.w >= 900.0 {
             button(self, "Revert File", "diff.revert_file", &mut x);
             button(self, "Stage File", "diff.stage_file", &mut x);
         }

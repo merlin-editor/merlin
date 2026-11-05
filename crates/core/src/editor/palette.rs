@@ -86,6 +86,8 @@ impl Editor {
         match key.code {
             KeyCode::Esc => {
                 self.close_palette();
+                // Compare Files stops asking.
+                self.comparing = None;
             }
             KeyCode::Up => palette.selected = palette.selected.saturating_sub(1),
             KeyCode::Down => palette.selected = (palette.selected + 1).min(count.saturating_sub(1)),
@@ -105,7 +107,11 @@ impl Editor {
                 };
                 match (item, palette.source) {
                     (Some((id, _)), Source::Commands) => self.run(&id, fx),
-                    (Some((path, _)), Source::Files) => self.open(PathBuf::from(path), fx),
+                    (Some((path, _)), Source::Files) => {
+                        if !self.compare_picked(PathBuf::from(&path), fx) {
+                            self.open(PathBuf::from(path), fx);
+                        }
+                    }
                     (Some((line, _)), Source::Symbols) => {
                         if let Ok(line) = line.parse() {
                             self.go_to_block(line);

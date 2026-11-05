@@ -159,7 +159,9 @@ impl Editor {
         let review = self.doc().review.as_ref()?;
         let width = self.layout().text.w;
         let split = match self.diff_inline {
-            Some(inline) if review.plugin.is_empty() => !inline && width >= SPLIT_WIDTH / 2,
+            Some(inline) if review.plugin.is_empty() || review.plugin == super::COMPARE_REVIEW => {
+                !inline && width >= SPLIT_WIDTH / 2
+            }
             _ => width >= SPLIT_WIDTH,
         };
         if !split {

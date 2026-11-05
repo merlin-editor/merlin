@@ -47,6 +47,8 @@ pub struct GroupView {
     pub merging: bool,
     /// In the merge editor, the Result alone.
     pub merge_inline: bool,
+    /// Two files compared: each side's name and its note, over its half.
+    pub compare: Option<[(String, String); 2]>,
 }
 
 impl Editor {
@@ -86,6 +88,7 @@ impl Editor {
                     height: self.groups[g].height,
                     merging: self.merging().is_some(),
                     merge_inline: self.merging().is_some() && self.merge_inline(),
+                    compare: self.compare_titles().map(|(l, r)| [l, r]),
                 })
             })
             .collect()

@@ -220,7 +220,9 @@ impl Editor {
             "auxiliaryBarFocus" => flag(self.focus == Focus::Panel),
             "menuFocus" => flag(self.focus == Focus::Menu),
             "multipleEditorGroups" => flag(self.groups.len() > 1),
-            "isInDiffEditor" => flag(self.focus == Focus::Editor && self.in_changes_tab()),
+            "isInDiffEditor" => {
+                flag(self.focus == Focus::Editor && (self.in_changes_tab() || self.in_compare()))
+            }
             "isInMergeEditor" => flag(self.focus == Focus::Editor && self.merging().is_some()),
             _ => None,
         }

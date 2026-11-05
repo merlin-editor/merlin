@@ -1282,6 +1282,26 @@ impl Gui<'_> {
             let y = area.text.y + rows * row_h + glide / s;
             f.peek(peek, area.text, y, row_h);
         }
+        // Two compared files' titles over their halves.
+        let cell_w = grid.cell_w as f32 / s;
+        for (g, group) in view.groups.iter().enumerate() {
+            let (Some(titles), Some(area)) = (&group.compare, areas.groups.get(g)) else {
+                continue;
+            };
+            let halves: Vec<Rect> = texts
+                .iter()
+                .filter(|t| t.group == g)
+                .map(|t| {
+                    Rect::new(
+                        area.text.x + t.area.x as f32 * cell_w,
+                        area.text.y,
+                        t.area.w as f32 * cell_w,
+                        area.text.h,
+                    )
+                })
+                .collect();
+            f.compare_titles(titles, &halves);
+        }
         // The merge editor's panes and the Result's notes.
         for text in &texts {
             let (Some(merge), Some(area)) = (&text.merge, areas.groups.get(text.group)) else {
