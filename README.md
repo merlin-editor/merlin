@@ -369,8 +369,9 @@ the file. `+` beside a file stages it and `−` unstages it, Stage All stages
 everything, and a message with Enter or Commit commits what's staged.
 
 Files changed on disk, by another program or a `git checkout`, reload by themselves,
-as one step you can undo. One with unsaved changes isn't touched; you're told
-instead. In a git repository, the gutter marks lines changed since the last
+as one step you can undo. One with unsaved changes asks first: Reload from
+Disk (which you can undo too), Overwrite, or Keep Editing, which Enter
+picks, since the question comes up while you may be typing. In a git repository, the gutter marks lines changed since the last
 commit: `▎` green for added, yellow for changed, `‾` red where lines were
 deleted.
 

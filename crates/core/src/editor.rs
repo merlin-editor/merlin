@@ -1766,10 +1766,25 @@ impl Editor {
             return;
         }
         if doc.buffer.is_dirty() {
-            let name = doc.name();
-            return self.error(format!(
-                "{name} changed on disk, and has unsaved changes here. Saving will overwrite it."
-            ));
+            let id = doc.id;
+            // Changed again while asked: the newest text is the choice.
+            if let Some(dialog::Dialog {
+                ask: dialog::Ask::Conflict(asked, disk),
+                ..
+            }) = &mut self.dialog
+                && *asked == id
+            {
+                *disk = text.to_string();
+                return;
+            }
+            // Another question is open: it isn't pushed aside.
+            if self.dialog.is_some() {
+                let name = doc.name();
+                return self.error(format!(
+                    "{name} changed on disk, and has unsaved changes here. Saving will overwrite it."
+                ));
+            }
+            return self.ask(dialog::Ask::Conflict(id, text.to_string()));
         }
         replace_text(doc, &old, text);
         doc.buffer.mark_saved(doc.buffer.revision());

@@ -151,16 +151,59 @@ fn a_reload_changing_lines_around_the_cursor_leaves_it_on_its_line() {
     assert_eq!(s.editor.cursor(), 10, "end of `keep`");
 }
 
-#[test]
-fn unsaved_changes_are_not_overwritten_by_the_disk() {
+/// Unsaved changes, then the file changes on disk: a question.
+fn conflict() -> Session {
     let mut s = session();
     s.run("type x");
     s.send(Event::FileChanged {
         path: "src/main.rs".into(),
         text: "other\n".into(),
     });
+    s
+}
+
+#[test]
+fn unsaved_changes_are_not_overwritten_by_the_disk_without_asking() {
+    let mut s = conflict();
     assert!(s.text().starts_with('x'));
-    assert!(s.screen().contains("changed on disk"), "{}", s.screen());
+    let dialog = s.editor.window_view().dialog.expect("a question");
+    assert!(
+        dialog.title.contains("main.rs changed on disk"),
+        "{}",
+        dialog.title
+    );
+    assert_eq!(
+        dialog.buttons,
+        ["Reload from Disk", "Overwrite", "Keep Editing"]
+    );
+    // Up by itself, mid-typing: Enter changes nothing.
+    assert_eq!((dialog.selected, dialog.primary), (2, 2));
+    s.run("key enter");
+    assert!(s.editor.window_view().dialog.is_none());
+    assert!(s.text().starts_with('x') && s.editor.buffer().is_dirty());
+}
+
+#[test]
+fn reloading_from_disk_can_be_undone() {
+    let mut s = conflict();
+    // Changed again while asked: the newest is what reloads.
+    s.send(Event::FileChanged {
+        path: "src/main.rs".into(),
+        text: "newer\n".into(),
+    });
+    s.send(Event::Ui(merlin_core::UiEvent::DialogButton(0)));
+    assert_eq!(s.text(), "newer\n");
+    assert!(!s.editor.buffer().is_dirty());
+    s.run("key ctrl+z");
+    assert!(s.text().starts_with('x'), "{}", s.text());
+}
+
+#[test]
+fn overwriting_saves_the_changes_here() {
+    let mut s = conflict();
+    s.send(Event::Ui(merlin_core::UiEvent::DialogButton(1)));
+    assert!(s.files["src/main.rs"].starts_with('x'));
+    assert!(!s.editor.buffer().is_dirty());
 }
 
 #[test]

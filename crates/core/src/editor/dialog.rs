@@ -1,6 +1,7 @@
 //! Questions that need an answer before anything else happens, asked in a
 //! dialog as VS Code asks them: about unsaved changes when a file closes
-//! or the editor quits, and before a file goes to the trash. Enter takes
+//! or the editor quits, or when it changes on disk too, and before a file
+//! goes to the trash. Enter takes
 //! the button picked, Esc cancels, and the arrows and Tab move between
 //! buttons.
 
@@ -18,6 +19,9 @@ pub(crate) enum Ask {
     Quit,
     /// Moving a file or folder to the trash.
     Trash(PathBuf),
+    /// The document with this id, which has unsaved changes, changed on
+    /// disk to this text.
+    Conflict(u64, String),
 }
 
 pub(crate) struct Dialog {
@@ -34,6 +38,19 @@ pub struct DialogView {
     pub detail: String,
     pub buttons: Vec<String>,
     pub selected: usize,
+    /// The button shown as the one to press, which Enter starts on.
+    pub primary: usize,
+}
+
+impl Ask {
+    /// The button a dialog starts on. One that comes up by itself,
+    /// mid-typing, starts on the button that changes nothing.
+    fn primary(&self) -> usize {
+        match self {
+            Ask::Conflict(..) => 2,
+            _ => 0,
+        }
+    }
 }
 
 impl Editor {
@@ -41,7 +58,8 @@ impl Editor {
         self.popup = None;
         self.close_context();
         self.menu = None;
-        self.dialog = Some(Dialog { ask, selected: 0 });
+        let selected = ask.primary();
+        self.dialog = Some(Dialog { ask, selected });
     }
 
     pub(crate) fn dialog_view(&self) -> Option<DialogView> {
@@ -69,6 +87,16 @@ impl Editor {
                     &["Save All", "Don't Save", "Cancel"],
                 )
             }
+            Ask::Conflict(id, _) => {
+                let name = self
+                    .index_of(*id)
+                    .map_or(String::new(), |i| self.docs[i].name());
+                (
+                    format!("{name} changed on disk."),
+                    "It has unsaved changes here. Reload it from disk and lose them, or overwrite the file with them?".into(),
+                    &["Reload from Disk", "Overwrite", "Keep Editing"],
+                )
+            }
             Ask::Trash(path) => {
                 let name = path
                     .file_name()
@@ -85,6 +113,7 @@ impl Editor {
             detail,
             buttons: buttons.iter().map(|b| b.to_string()).collect(),
             selected: dialog.selected,
+            primary: dialog.ask.primary(),
         })
     }
 
@@ -136,6 +165,23 @@ impl Editor {
             }
             (Ask::Quit, 1) => self.quit(fx),
             (Ask::Trash(path), 0) => fx.push(Effect::File(FileOp::Trash(path))),
+            // As an edit, so Ctrl+Z brings the changes back.
+            (Ask::Conflict(id, disk), 0) => {
+                if let Some(i) = self.index_of(id) {
+                    let doc = &mut self.docs[i];
+                    let old = doc.buffer.text();
+                    super::replace_text(doc, &old, &disk);
+                    doc.buffer.mark_saved(doc.buffer.revision());
+                }
+            }
+            (Ask::Conflict(id, _), 1) => {
+                if let Some(i) = self.index_of(id) {
+                    let back = self.current;
+                    self.current = i;
+                    self.run("file.save", fx);
+                    self.current = back.min(self.docs.len() - 1);
+                }
+            }
             _ => {}
         }
     }

@@ -434,7 +434,7 @@ impl Frame<'_> {
         let mut bx = r.right() - 24.0 - total;
         let by = r.bottom() - 22.0 - 30.0;
         for (i, label) in dv.buttons.iter().enumerate() {
-            let bw = self.button(label, bx, by, i == dv.selected, i == 0);
+            let bw = self.button(label, bx, by, i == dv.selected, i == dv.primary);
             self.hit(
                 Rect::new(bx, by, bw, 30.0),
                 Hit::Ui(UiEvent::DialogButton(i)),
