@@ -11,7 +11,10 @@ mod editing;
 mod files;
 mod find;
 pub(crate) mod fold;
+mod format;
 mod groups;
+pub use actions::{FORMAT_FILE, FORMAT_SELECTION};
+pub use format::{FORMAT_WAIT_MS, FormatOnSave};
 pub use groups::Edge;
 pub(crate) mod guides;
 mod keymap;
@@ -285,6 +288,9 @@ pub enum Event {
     ShowCodeActions(Vec<crate::lang::CodeAction>),
     /// Changes to files from a plugin, such as a code action's.
     ApplyEdits(Vec<crate::lang::FileEdit>),
+    /// A save has waited [`format::FORMAT_WAIT_MS`] for its formatting: it saves
+    /// as it is.
+    FormatTimedOut,
     /// Opens a file at a line and UTF-16 column, as go-to-definition does.
     OpenAt {
         path: PathBuf,
@@ -698,6 +704,9 @@ pub struct Editor {
     hover_anchor: Option<usize>,
     /// Code actions asked for, and edits waiting for their files to open.
     actions: actions::Actions,
+    /// What saving formats first, and a save waiting for it.
+    format_on_save: format::FormatOnSave,
+    waiting_format: Option<format::Waiting>,
     /// Signature help: the document, where the call was when it showed,
     /// and the signature.
     signature: Option<(u64, usize, crate::lang::Signature)>,
@@ -846,6 +855,8 @@ impl Editor {
             probe: None,
             hover_anchor: None,
             actions: Default::default(),
+            format_on_save: Default::default(),
+            waiting_format: None,
             signature: None,
             diagnostics: HashMap::new(),
             diagnostics_version: 0,
@@ -1330,6 +1341,7 @@ impl Editor {
                 }
             }
             Event::ShowCodeActions(actions) => self.show_code_actions(actions),
+            Event::FormatTimedOut => self.format_timed_out(&mut fx),
             Event::ApplyEdits(edits) => self.apply_file_edits(edits, &mut fx),
             Event::ShowSignature(signature) => {
                 let doc = self.doc().id;

@@ -794,3 +794,147 @@ fn a_lightbulb_shows_on_the_cursors_line_with_a_problem_and_lists_actions() {
     }));
     assert!(asked_for_actions(&s));
 }
+
+/// A Rust file a language server formats, saving with `format_on_save`.
+fn formatting(format_on_save: merlin_core::FormatOnSave) -> Session {
+    let mut s = hovering("fn main(){}\n");
+    s.send(Event::RegisterPlugin {
+        plugin: "lsp".into(),
+        commands: ["format", "format-on-save", "format-changed", "code-actions"]
+            .map(|id| merlin_core::Command {
+                id: id.into(),
+                title: id.into(),
+                key: None,
+            })
+            .into(),
+    });
+    s.send(Event::RegisterLanguages {
+        plugin: "rust".into(),
+        languages: vec![merlin_core::lang::Language {
+            id: "rust".into(),
+            name: "Rust".into(),
+            extensions: vec!["rs".into()],
+            ..Default::default()
+        }],
+    });
+    s.send(Event::Settings(merlin_core::Settings {
+        format_on_save,
+        ..Default::default()
+    }));
+    s.effects.clear();
+    s
+}
+
+fn asked(s: &Session, command: &str) -> bool {
+    s.effects
+        .iter()
+        .any(|e| matches!(e, Effect::PluginCommand { command: c, .. } if c == command))
+}
+
+fn saved(s: &Session) -> Option<String> {
+    s.effects.iter().find_map(|e| match e {
+        Effect::Save { text, .. } => Some(text.clone()),
+        _ => None,
+    })
+}
+
+fn formatted_main() -> Event {
+    Event::ApplyEdits(vec![merlin_core::lang::FileEdit {
+        path: "main.rs".into(),
+        edits: vec![((0, 9), (0, 9), " ".into())],
+    }])
+}
+
+#[test]
+fn a_save_waits_for_its_formatting_then_saves_it() {
+    let mut s = formatting(merlin_core::FormatOnSave::File);
+    s.run("key ctrl+s");
+    assert!(asked(&s, "format-on-save"));
+    assert_eq!(saved(&s), None, "not yet");
+    assert!(s.editor.formatting().is_some(), "a save waits");
+    assert!(
+        s.editor
+            .window_view()
+            .status
+            .iter()
+            .any(|i| i.text.contains("Formatting…"))
+    );
+    s.send(formatted_main());
+    assert_eq!(saved(&s).as_deref(), Some("fn main() {}\n"));
+    assert_eq!(s.editor.formatting(), None);
+}
+
+#[test]
+fn a_slow_formatter_doesnt_stop_the_save() {
+    let mut s = formatting(merlin_core::FormatOnSave::File);
+    s.run("key ctrl+s");
+    s.send(Event::FormatTimedOut);
+    assert_eq!(saved(&s).as_deref(), Some("fn main(){}\n"));
+    let toast = s.editor.window_view().toast.expect("it says so");
+    assert!(toast.text.starts_with("Saved without formatting"));
+    assert_eq!(toast.buttons, ["Settings"]);
+    // Its edits coming late change nothing.
+    s.effects.clear();
+    s.send(formatted_main());
+    assert_eq!(saved(&s), None);
+}
+
+#[test]
+fn typing_while_it_formats_drops_the_edits_but_still_saves() {
+    let mut s = formatting(merlin_core::FormatOnSave::File);
+    s.run("key ctrl+s\ntype x");
+    s.send(formatted_main());
+    assert_eq!(saved(&s).as_deref(), Some("xfn main(){}\n"));
+}
+
+#[test]
+fn saving_without_formatting_and_with_it_off_save_at_once() {
+    let mut s = formatting(merlin_core::FormatOnSave::File);
+    s.run("key ctrl+k\nkey s");
+    assert_eq!(saved(&s).as_deref(), Some("fn main(){}\n"));
+    assert!(!asked(&s, "format-on-save"));
+    let mut s = formatting(merlin_core::FormatOnSave::Off);
+    s.run("key ctrl+s");
+    assert_eq!(saved(&s).as_deref(), Some("fn main(){}\n"));
+}
+
+#[test]
+fn changed_lines_asks_for_those_and_knows_them_from_git() {
+    let mut s = formatting(merlin_core::FormatOnSave::ChangedLines);
+    s.send(Event::GitBase {
+        path: "main.rs".into(),
+        text: Some("fn main(){}\n".into()),
+    });
+    assert_eq!(s.editor.changed_lines(), Some(vec![]));
+    s.run("key end\ntype x\nkey enter\ntype y");
+    assert_eq!(s.editor.changed_lines(), Some(vec![(0, 1)]));
+    s.run("key ctrl+s");
+    assert!(asked(&s, "format-changed"));
+}
+
+#[test]
+fn the_code_actions_card_ends_with_formatting() {
+    let mut s = formatting(merlin_core::FormatOnSave::Off);
+    s.run("key ctrl+.");
+    s.send(Event::ShowCodeActions(Vec::new()));
+    assert_eq!(s.editor.popup_text().as_deref(), Some("Format the file"));
+    s.effects.clear();
+    s.run("key enter");
+    assert!(asked(&s, "format"));
+}
+
+#[test]
+fn why_a_save_didnt_format_isnt_hidden_by_saved() {
+    let mut s = formatting(merlin_core::FormatOnSave::ChangedLines);
+    s.run("key ctrl+s");
+    s.send(Event::Notify(
+        "main.rs isn't in git, so it saved unformatted".into(),
+    ));
+    s.send(Event::ApplyEdits(vec![merlin_core::lang::FileEdit {
+        path: "main.rs".into(),
+        edits: Vec::new(),
+    }]));
+    assert!(saved(&s).is_some());
+    let toast = s.editor.window_view().toast.unwrap();
+    assert_eq!(toast.text, "main.rs isn't in git, so it saved unformatted");
+}

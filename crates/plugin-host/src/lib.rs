@@ -195,6 +195,9 @@ pub struct Snapshot {
     /// Line and UTF-16 column.
     pub cursor: (u32, u32),
     pub selection: Option<Selection>,
+    /// The lines changed since git's copy, as first and last line, or
+    /// none when the file isn't in git.
+    pub changed: Option<Vec<(u32, u32)>>,
 }
 
 /// Selected text, and where it starts and ends as lines and UTF-16 columns.
@@ -325,6 +328,16 @@ impl host::Host for State {
             start: at(s.start),
             end: at(s.end),
             text: s.text,
+        }))
+    }
+
+    fn changed_lines(&mut self) -> Result<Option<Vec<types::LineRange>>, String> {
+        self.need(self.permissions.editor_read, "editor-read")?;
+        Ok(self.snapshot.changed.as_ref().map(|lines| {
+            lines
+                .iter()
+                .map(|&(start, end)| types::LineRange { start, end })
+                .collect()
         }))
     }
 

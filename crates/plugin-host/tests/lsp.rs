@@ -40,6 +40,7 @@ fn snapshot() -> Snapshot {
         root: std::env::temp_dir(),
         cursor: (2, 6),
         selection: None,
+        changed: None,
     }
 }
 
@@ -232,4 +233,66 @@ fn code_actions_come_with_their_edits_and_one_chosen_is_made() {
             edits: vec![((1, 8), (1, 9), "_v".into())],
         }])
     );
+}
+
+/// The edits a format sent for the active file.
+fn format_edits(
+    host: &mut PluginHost,
+    command: &str,
+    snapshot: Snapshot,
+) -> Vec<merlin_core::lang::TextEdit> {
+    let mut events = host.run_command("lsp", command, snapshot);
+    let found = |events: &[Event]| {
+        events.iter().find_map(|e| match e {
+            Event::ApplyEdits(files) => Some(files[0].edits.clone()),
+            _ => None,
+        })
+    };
+    if let Some(edits) = found(&events) {
+        return edits;
+    }
+    let event = wait_for(host, "formatting", |e| matches!(e, Event::ApplyEdits(_)));
+    events = vec![event];
+    found(&events).unwrap()
+}
+
+#[test]
+fn formatting_sends_the_servers_edits_and_changed_lines_ask_for_their_ranges() {
+    let mut host = started();
+    assert_eq!(
+        format_edits(&mut host, "format", snapshot()),
+        [((1, 7), (1, 8), "  ".to_string())]
+    );
+    let changed = Snapshot {
+        changed: Some(vec![(2, 2), (0, 0)]),
+        ..snapshot()
+    };
+    let mut edits = format_edits(&mut host, "format-changed", changed);
+    edits.sort();
+    assert_eq!(
+        edits,
+        [
+            ((0, 0), (0, 0), "// formatted\n".to_string()),
+            ((2, 0), (2, 0), "// formatted\n".to_string()),
+        ],
+        "a range for each, sent together"
+    );
+}
+
+#[test]
+fn a_file_not_in_git_saves_unformatted_and_says_so_once() {
+    let mut host = started();
+    let mut said = 0;
+    for _ in 0..2 {
+        let events = host.run_command("lsp", "format-changed", snapshot());
+        said += events
+            .iter()
+            .filter(|e| matches!(e, Event::Notify(t) if t.contains("isn't in git")))
+            .count();
+        let empty = events
+            .iter()
+            .any(|e| matches!(e, Event::ApplyEdits(f) if f[0].edits.is_empty()));
+        assert!(empty, "the save hears there's nothing to do");
+    }
+    assert_eq!(said, 1);
 }

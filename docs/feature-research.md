@@ -170,9 +170,9 @@ are mostly in the VS Code half.
   the frame and the code is still to do.
 - **Hot exit:** unsaved changes aren't kept across restarts. Killing merlin
   counts as a crash.
-- **Language servers:** no rename, format or find references.
-  Completions don't add imports. (Inlay hints, signature help, errors
-  inline, problems in the hover and code actions are now built.)
+- **Language servers:** no rename or find references. Completions don't
+  add imports. (Inlay hints, signature help, errors inline, problems in
+  the hover, code actions and format are now built.)
 - **Git:** no staging or discarding of parts of a file, no blame, no push,
   no diff of two files, and no merge editor.
 - **Running code:** no tasks, no test runner and no debugger. (The
@@ -241,10 +241,10 @@ These are ordered by votes against effort.
 2. **Language servers, finished** (**partly built**; see
    [`handoff.md`](handoff.md) for details and a design for the rest):
    errors inline (`d5c2091`), inlay hints (`09b607e`), signature help
-   (`d4283cc`), problems in the hover card (`Hover.dc.html`) and code
-   actions (a lightbulb and a menu) are **Built**. Still to do: format
-   and format on save, rename (inline box), then find references (a
-   peek view, `References.dc.html`).
+   (`d4283cc`), problems in the hover card (`Hover.dc.html`), code
+   actions (a lightbulb and a menu) and format and format on save
+   (`Format.dc.html`) are **Built**. Still to do: rename (inline box),
+   then find references (a peek view, `References.dc.html`).
 3. **Git**:
    - stage, unstage and discard hunks from the gutter and Changes
    - blame, inline and in a gutter

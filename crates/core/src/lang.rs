@@ -41,6 +41,8 @@ pub enum ActionKind {
     Refactor,
     Source,
     Other,
+    /// The editor's own rows, formatting the file or the selection.
+    Format,
 }
 
 /// Something to do to the code at the cursor, from a plugin: chosen by

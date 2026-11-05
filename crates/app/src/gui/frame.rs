@@ -1308,8 +1308,11 @@ impl Frame<'_> {
                     layout.push((y, None, None));
                     y += rule_h;
                 }
-                layout.push((y, None, Some(action.kind)));
-                y += title_h;
+                // Formatting is the editor's own, under the rule alone.
+                if action.kind != ActionKind::Format {
+                    layout.push((y, None, Some(action.kind)));
+                    y += title_h;
+                }
                 group = Some(action.kind);
             }
             layout.push((y, Some(i), None));
@@ -1328,6 +1331,7 @@ impl Frame<'_> {
                         ActionKind::Refactor => "Refactor",
                         ActionKind::Source => "Source",
                         ActionKind::Other => "More Actions",
+                        ActionKind::Format => "Format",
                     };
                     let f = Face::ui(11.0);
                     self.text.draw_in_row(
@@ -1357,7 +1361,20 @@ impl Frame<'_> {
                     if action.preferred {
                         self.bulb_icon(b.x + 8.0, ry + (row_h - 12.0) / 2.0, 12.0, p.warning);
                     }
-                    let colour = if i == selected { p.bright } else { p.text };
+                    let format = action.kind == ActionKind::Format;
+                    let colour = match (i == selected, format) {
+                        (true, _) => p.bright,
+                        (false, true) => p.muted,
+                        (false, false) => p.text,
+                    };
+                    if format {
+                        let key = if action.id == merlin_core::editor::FORMAT_SELECTION {
+                            "Ctrl K Ctrl F"
+                        } else {
+                            "Ctrl Shift I"
+                        };
+                        self.chip(key, b.right() - 8.0, ry + (row_h - 16.0) / 2.0, true);
+                    }
                     let line = self
                         .wrap_rich(&action.title, face, f32::MAX)
                         .into_iter()

@@ -7,7 +7,7 @@
 //! passes LSP positions straight through, since the plugin API counts
 //! columns in UTF-16 as LSP does.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use merlin_plugin::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -91,6 +91,14 @@ enum Request {
     Hover,
     Definition,
     CodeActions,
+    /// The whole file or the selection formatted: its edits, for `path`.
+    Format {
+        path: String,
+    },
+    /// One of the changed ranges a save formats, in batch `batch`.
+    FormatPart {
+        batch: u64,
+    },
     /// Whether the user asked, so an empty answer is worth saying.
     Completion {
         manual: bool,
@@ -158,6 +166,11 @@ struct Server {
     folds: bool,
     #[serde(default)]
     inlay_hints: bool,
+    /// Whether it formats files, and parts of them.
+    #[serde(default)]
+    formats: bool,
+    #[serde(default)]
+    formats_ranges: bool,
     /// The last line of each open document, for asking about all of it.
     #[serde(default)]
     last_lines: HashMap<String, u32>,
@@ -194,6 +207,15 @@ struct Lsp {
     actions: BTreeMap<String, Value>,
     #[serde(default)]
     next_action: u64,
+    /// Saves formatting their changed lines, by batch: the file, how many
+    /// ranges are still to come, and the edits so far.
+    #[serde(default)]
+    batches: BTreeMap<u64, (String, usize, Vec<Value>)>,
+    #[serde(default)]
+    next_batch: u64,
+    /// Why saving didn't format, said once a file.
+    #[serde(default)]
+    warned: BTreeSet<String>,
 }
 
 impl Server {
@@ -651,20 +673,44 @@ fn hover_text(contents: &Value) -> String {
     lines.join("\n").trim().to_string()
 }
 
+/// What to format.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Formatting {
+    File,
+    Selection,
+    /// Only the lines git says changed, for a save.
+    Changed,
+}
+
+/// Answers a format with the server's edits for `path`, none if it gave
+/// none: a save waits for this.
+fn formatted(path: &str, edits: &Value) {
+    let file = FileEdit {
+        path: path.to_string(),
+        edits: text_changes(edits),
+    };
+    if let Err(err) = host::apply_edits(&[file]) {
+        host::notify(&err);
+    }
+}
+
+/// LSP text edits as the editor's changes.
+fn text_changes(list: &Value) -> Vec<TextChange> {
+    list.as_array()
+        .into_iter()
+        .flatten()
+        .map(|e| TextChange {
+            start: position(&e["range"]["start"]),
+            end: position(&e["range"]["end"]),
+            text: e["newText"].as_str().unwrap_or_default().to_string(),
+        })
+        .collect()
+}
+
 /// A workspace edit's changes to files' text, as `changes` or as
 /// `documentChanges`; creating, renaming and deleting files aren't done.
 fn file_edits(edit: &Value) -> Vec<FileEdit> {
-    let text_edits = |list: &Value| -> Vec<TextChange> {
-        list.as_array()
-            .into_iter()
-            .flatten()
-            .map(|e| TextChange {
-                start: position(&e["range"]["start"]),
-                end: position(&e["range"]["end"]),
-                text: e["newText"].as_str().unwrap_or_default().to_string(),
-            })
-            .collect()
-    };
+    let text_edits = text_changes;
     let mut files = Vec::new();
     if let Some(changes) = edit["changes"].as_object() {
         for (uri, list) in changes {
@@ -739,6 +785,8 @@ impl Lsp {
                     symbols: false,
                     folds: false,
                     inlay_hints: false,
+                    formats: false,
+                    formats_ranges: false,
                     last_lines: HashMap::new(),
                     incremental: false,
                     synced: HashMap::new(),
@@ -768,6 +816,8 @@ impl Lsp {
                             "hover": {"contentFormat": ["markdown", "plaintext"]},
                             "completion": {"completionItem": {"snippetSupport": false}},
                             "definition": {},
+                            "formatting": {},
+                            "rangeFormatting": {},
                             "codeAction": {
                                 "codeActionLiteralSupport": {
                                     "codeActionKind": {
@@ -862,6 +912,129 @@ impl Lsp {
             server.latest_completion = server.next_id + 1;
         }
         server.request(method, params, request);
+    }
+
+    /// Formats the active file, its selection, or its changed lines. A
+    /// save waits for the answer, so there's always one, with no edits
+    /// when it can't. Why a save didn't format is said once a file.
+    fn format(&mut self, what: Formatting, saving: bool) {
+        let active = host::active_path().ok().flatten().unwrap_or_default();
+        let say = |lsp: &mut Self, why: String| {
+            if !saving || lsp.warned.insert(format!("{active}\n{why}")) {
+                host::notify(&why);
+            }
+        };
+        let Some((path, spec, language)) = self.active() else {
+            let kind = active.rsplit('.').next().unwrap_or("these").to_uppercase();
+            say(self, format!("Nothing formats {kind} files here"));
+            return formatted(&active, &Value::Null);
+        };
+        let text = host::active_text().unwrap_or_default();
+        let program = spec.program;
+        let server = self.ensure(spec);
+        if !server.opened.contains_key(&path) {
+            server.sync(&path, language, &text);
+        }
+        // Started now: what it offers isn't known until it answers.
+        let ready = server.status == Status::Ready;
+        let (formats, ranges) = (server.formats || !ready, server.formats_ranges || !ready);
+        let doc = json!({"uri": uri(&path)});
+        let options = json!({"tabSize": 4, "insertSpaces": true});
+        let name = active.rsplit('/').next().unwrap_or(&active).to_string();
+        match what {
+            Formatting::File if formats => server.request(
+                "textDocument/formatting",
+                json!({"textDocument": doc, "options": options}),
+                Request::Format { path },
+            ),
+            Formatting::File => {
+                say(self, format!("{program} doesn't format files"));
+                formatted(&path, &Value::Null);
+            }
+            Formatting::Selection => {
+                let selection = host::active_selection().ok().flatten();
+                match selection {
+                    Some(s) if ranges => {
+                        let at = |p: Position| json!({"line": p.line, "character": p.column});
+                        server.request(
+                            "textDocument/rangeFormatting",
+                            json!({
+                                "textDocument": doc,
+                                "range": {"start": at(s.start), "end": at(s.end)},
+                                "options": options,
+                            }),
+                            Request::Format { path },
+                        );
+                    }
+                    Some(_) => {
+                        say(self, format!("{program} can't format a selection"));
+                        formatted(&path, &Value::Null);
+                    }
+                    None => formatted(&path, &Value::Null),
+                }
+            }
+            Formatting::Changed => {
+                let changed = host::changed_lines().ok().flatten();
+                match changed {
+                    None => {
+                        say(
+                            self,
+                            format!("{name} isn't in git, so it saved unformatted"),
+                        );
+                        formatted(&path, &Value::Null);
+                    }
+                    Some(lines) if !ranges => {
+                        let _ = lines;
+                        say(
+                            self,
+                            format!(
+                                "{program} can't format only changed lines, so {name} saved unformatted"
+                            ),
+                        );
+                        formatted(&path, &Value::Null);
+                    }
+                    Some(lines) if lines.is_empty() => formatted(&path, &Value::Null),
+                    Some(lines) => {
+                        self.next_batch += 1;
+                        let batch = self.next_batch;
+                        self.batches
+                            .insert(batch, (path.clone(), lines.len(), Vec::new()));
+                        let Some(server) = self.server(program) else {
+                            return;
+                        };
+                        for range in lines {
+                            server.request(
+                                "textDocument/rangeFormatting",
+                                json!({
+                                    "textDocument": doc,
+                                    "range": {
+                                        "start": {"line": range.start, "character": 0},
+                                        "end": {"line": range.end + 1, "character": 0},
+                                    },
+                                    "options": options,
+                                }),
+                                Request::FormatPart { batch },
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// One changed range's formatting came: once they all have, the save
+    /// gets their edits together.
+    fn part_formatted(&mut self, batch: u64, edits: &Value) {
+        let Some((_, left, all)) = self.batches.get_mut(&batch) else {
+            return;
+        };
+        all.extend(edits.as_array().into_iter().flatten().cloned());
+        *left -= 1;
+        if *left == 0
+            && let Some((path, _, all)) = self.batches.remove(&batch)
+        {
+            formatted(&path, &Value::Array(all));
+        }
     }
 
     fn on_message(&mut self, program: &str, message: Value) {
@@ -1032,6 +1205,12 @@ impl Lsp {
             return;
         }
         if let Some(error) = message.get("error") {
+            // A save waits for its formatting, so it hears either way.
+            match &request {
+                Request::Format { path } => formatted(path, &Value::Null),
+                Request::FormatPart { batch } => self.part_formatted(*batch, &Value::Null),
+                _ => {}
+            }
             // Servers cancel requests that newer edits made pointless.
             let cancelled = matches!(error["code"].as_i64(), Some(-32802..=-32800));
             let quiet = matches!(
@@ -1068,6 +1247,8 @@ impl Lsp {
                 server.symbols = offered(&caps["documentSymbolProvider"]);
                 server.folds = offered(&caps["foldingRangeProvider"]);
                 server.inlay_hints = offered(&caps["inlayHintProvider"]);
+                server.formats = offered(&caps["documentFormattingProvider"]);
+                server.formats_ranges = offered(&caps["documentRangeFormattingProvider"]);
                 // 2 is incremental, as a number or as `change` in an object.
                 let sync = &caps["textDocumentSync"];
                 server.incremental = sync.as_u64().or_else(|| sync["change"].as_u64()) == Some(2);
@@ -1087,6 +1268,11 @@ impl Lsp {
                 Some(text) if !text.is_empty() => host::show_hover(&text),
                 _ => host::notify("Nothing to show here"),
             },
+            Request::Format { path } => formatted(&path, result),
+            Request::FormatPart { batch } => {
+                let result = result.clone();
+                self.part_formatted(batch, &result)
+            }
             Request::CodeActions => {
                 let list = result.as_array().cloned().unwrap_or_default();
                 let mut actions = Vec::new();
@@ -1264,6 +1450,11 @@ impl Plugin for Lsp {
             Command::new("restart", "Language: Restart Servers"),
             // Ctrl+. in the editor, which offers them its own way.
             Command::new("code-actions", "Language: Code Actions"),
+            // The editor's Ctrl+Shift+I, Ctrl+K Ctrl+F and saves.
+            Command::new("format", "Language: Format the File"),
+            Command::new("format-on-save", "Language: Format for Saving"),
+            Command::new("format-selection", "Language: Format the Selection"),
+            Command::new("format-changed", "Language: Format the Changed Lines"),
         ]
     }
 
@@ -1272,6 +1463,10 @@ impl Plugin for Lsp {
             "hover" => self.ask("textDocument/hover", Request::Hover),
             "definition" => self.ask("textDocument/definition", Request::Definition),
             "code-actions" => self.ask("textDocument/codeAction", Request::CodeActions),
+            "format" => self.format(Formatting::File, false),
+            "format-on-save" => self.format(Formatting::File, true),
+            "format-selection" => self.format(Formatting::Selection, false),
+            "format-changed" => self.format(Formatting::Changed, true),
             "complete" => self.ask(
                 "textDocument/completion",
                 Request::Completion { manual: true },

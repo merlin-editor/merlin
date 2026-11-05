@@ -101,6 +101,9 @@ impl Editor {
         if doc.review.is_some() {
             left.push((format!("  {}", self.review_hint()), Style::Status, None));
         }
+        if self.waiting_format.is_some() {
+            left.push((" Formatting… ".into(), Style::Status, None));
+        }
 
         let (line, col) = doc.line_col(doc.cursor);
         let mut position = format!("Ln {}, Col {}", line + 1, col + 1);

@@ -112,6 +112,12 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
     ("view.problems", "View: Problems"),
     ("view.hover", "View: Show Hover and Problems"),
     ("edit.quick_fix", "Edit: Quick Fix and Code Actions…"),
+    ("edit.format", "Edit: Format the File"),
+    ("edit.format_selection", "Edit: Format the Selection"),
+    (
+        "file.save_without_formatting",
+        "File: Save without Formatting",
+    ),
     ("view.output", "View: Output"),
     ("go.line", "Go: Go to Line…"),
     ("go.definition", "Go: Go to Definition"),
@@ -138,7 +144,7 @@ impl Editor {
         }
         match id {
             "file.save" => match self.doc().buffer.path {
-                Some(_) => self.save_current(fx),
+                Some(_) => self.save_formatted(fx),
                 None => self.run("file.save_as", fx),
             },
             "file.open" => fx.push(Effect::ListFiles),
@@ -218,6 +224,12 @@ impl Editor {
             "view.problems" => self.show_bottom(views::PROBLEMS),
             "view.hover" => self.hover_at_cursor(fx),
             "edit.quick_fix" => self.code_actions(fx),
+            "edit.format" => self.format_file(fx),
+            "edit.format_selection" => self.format_selection(fx),
+            "file.save_without_formatting" => match self.doc().buffer.path {
+                Some(_) => self.save_current(fx),
+                None => self.run("file.save_as", fx),
+            },
             "go.definition" => self.go_to_definition(fx),
             "view.output" => self.show_bottom(views::OUTPUT),
             "view.secondary" => {

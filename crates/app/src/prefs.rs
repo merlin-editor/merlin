@@ -295,6 +295,7 @@ impl App {
                     choice("Auto save delay", "Milliseconds after the last change, with after_delay.", "files.auto_save_delay", vec!["500", "1000", "2000", "5000"], "1000"),
                     toggle("Trim trailing whitespace", "Saving takes spaces and tabs off the ends of lines. Not in Markdown, where they break lines.", "files.trim_trailing_whitespace", false),
                     toggle("Insert final newline", "Saving ends the file with a newline.", "files.insert_final_newline", false),
+                    choice("Format on save", "Saving formats the file first, with its language server. Changed lines formats only what git says you changed, so the rest of the file stays as it was.", "editor.format_on_save", vec!["off", "file", "changed_lines"], "off"),
                     Row {
                         label: "Glyph icons",
                         about: "Icons drawn from the code's font: a Nerd Font's, or plain symbols without one.",

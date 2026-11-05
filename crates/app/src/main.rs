@@ -207,6 +207,9 @@ struct App {
     /// time is from.
     auto_save: Option<Instant>,
     auto_save_for: Vec<(u64, u64)>,
+    /// When a save waiting for its formatting gives up and saves, and
+    /// which document's it is.
+    format_due: Option<(Instant, u64)>,
     quit: bool,
 }
 
@@ -223,7 +226,20 @@ impl App {
         self.serve_colours();
         self.backups.touch(&self.editor.unsaved());
         self.touch_auto_save();
+        self.touch_format();
         self.refresh_watch();
+    }
+
+    /// Times a save that waits for its formatting.
+    fn touch_format(&mut self) {
+        self.format_due = match (self.editor.formatting(), self.format_due) {
+            (None, _) => None,
+            (Some(doc), Some((at, timed))) if timed == doc => Some((at, doc)),
+            (Some(doc), _) => Some((
+                Instant::now() + std::time::Duration::from_millis(merlin_core::FORMAT_WAIT_MS),
+                doc,
+            )),
+        };
     }
 
     /// Sets when changed files save by themselves: the settings' delay
@@ -856,10 +872,15 @@ impl App {
 
     /// When the app next has something to do, if ever.
     pub(crate) fn due(&self) -> Option<Instant> {
-        [self.settle, self.backups.due, self.auto_save]
-            .into_iter()
-            .flatten()
-            .min()
+        [
+            self.settle,
+            self.backups.due,
+            self.auto_save,
+            self.format_due.map(|(at, _)| at),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
 
     /// Does what's due by now. Returns whether the editor heard anything.
@@ -870,6 +891,11 @@ impl App {
             self.settle = None;
             let changes = std::mem::take(&mut self.changes);
             self.settled(changes);
+            changed = true;
+        }
+        if self.format_due.is_some_and(|(at, _)| at <= now) {
+            self.format_due = None;
+            self.dispatch(Event::FormatTimedOut);
             changed = true;
         }
         if self.auto_save.is_some_and(|at| at <= now) {
@@ -1351,6 +1377,7 @@ fn snapshot(editor: &Editor, root: &Path) -> Snapshot {
             .selection_utf16()
             .zip(editor.selection())
             .map(|((start, end), text)| Selection { start, end, text }),
+        changed: editor.changed_lines(),
     }
 }
 
@@ -1466,6 +1493,7 @@ fn main() -> Result<()> {
         backups: Backups::new(backups_dir),
         auto_save: None,
         auto_save_for: Vec::new(),
+        format_due: None,
         quit: false,
     };
     // Nerd Font icons, except in scripted runs, whose output should read

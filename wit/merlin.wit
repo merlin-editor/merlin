@@ -304,6 +304,11 @@ interface host {
   /// `editor-read`.
   active-selection: func() -> result<option<selection>, string>;
 
+  /// The active buffer's lines changed since git's copy of it, each as
+  /// its first and last line, or none when it isn't in git. Needs
+  /// `editor-read`.
+  changed-lines: func() -> result<option<list<line-range>>, string>;
+
   /// Inserts text at the cursor as one undo step. Needs `editor-write`.
   insert-text: func(text: string) -> result<_, string>;
 

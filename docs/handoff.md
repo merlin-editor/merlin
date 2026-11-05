@@ -178,16 +178,67 @@ Built, each checked in the window with rust-analyzer:
   For this project's `u32`/`usize` mismatch, rust-analyzer offers no
   quick fix at all, only refactors.
 
+- **Format and format on save** (`Format.dc.html`, approved
+  2026-11-05).
+  - **Keys and commands:**
+    - Ctrl+Shift+I (`edit.format`) formats the file.
+    - Ctrl+K Ctrl+F (`edit.format_selection`) formats the selection.
+    - Ctrl K S (`file.save_without_formatting`) saves as it is.
+  - **In the code actions card:** "Format the selection" (when
+    something's selected) and "Format the file" come last, under a rule,
+    with their keys (`ActionKind::Format`, ids `merlin:format` and
+    `merlin:format-selection`). With them the card opens even when the
+    server has no actions.
+  - **Format on save** is `editor.format_on_save`: `off`, `file` or
+    `changed_lines`. It's in Settings › Files.
+    - Only Ctrl+S formats. Auto save, Save All and saving on close
+      don't.
+    - The save waits for the plugin's `apply-edits` for that file, then
+      tidies and saves. "Formatting…" shows in the status bar meanwhile.
+    - The app times it (`format_due` in `main.rs`, `FORMAT_WAIT_MS` =
+      1.5 s) and sends `Event::FormatTimedOut`. The file then saves as
+      it is, with a notice and a Settings button.
+    - Edits for text typed over since are dropped, and it still saves.
+    - A notice that came while it waited, such as the plugin's reason,
+      isn't replaced by "Saved".
+  - **Changed lines:** a new host call, `changed-lines`, gives the
+    plugin the active file's lines changed since git. The core works
+    them out from the gutter's git signs (`Editor::changed_lines`), and
+    they reach the plugin in `Snapshot.changed`. The plugin asks
+    `rangeFormatting` for each run of changed lines and sends the edits
+    together.
+  - **The LSP plugin always answers a format with `apply-edits`,** with
+    no edits when it can't, so a save never waits for nothing. Its
+    commands are `format`, `format-on-save`, `format-selection` and
+    `format-changed`.
+  - **It says why a save didn't format once a file:**
+    - "Nothing formats TOML files here"
+    - "main.rs isn't in git, so it saved unformatted"
+    - "rust-analyzer can't format only changed lines, so main.rs saved
+      unformatted" (it needs nightly rustfmt for ranges)
+  - **Differences from the mock-up:**
+    - "Formatting…" has no spinner.
+    - The timeout notice says "the language server", not its name.
+    - Notices have one colour, not the mock-up's warning dot.
+  - **Known:** the plugin sends `tabSize` 4 and spaces, since it can't
+    read the editor's indentation. rustfmt ignores them.
+  - Where it lives: `crates/core/src/editor/format.rs`; `format` in
+    `plugins/lsp/src/lib.rs`.
+  - Tests: the format tests at the end of `crates/core/tests/language.rs`;
+    `formatting_sends_the_servers_edits_and_changed_lines_ask_for_their_ranges`
+    and `a_file_not_in_git_saves_unformatted_and_says_so_once` in
+    `crates/plugin-host/tests/lsp.rs`.
+  - Checked in the window with rust-analyzer: format on save, Ctrl+.,
+    Ctrl+Shift+I, and both Changed lines notices.
+
 Not built yet, in the order to do them:
 
-1. **Format and format on save.** Ctrl+Shift+I, and a setting
-   `editor.format_on_save`.
-2. **Rename.** F2 opens an inline box over the name, with "Enter to
+1. **Rename.** F2 opens an inline box over the name, with "Enter to
    rename N places in M files · Shift+Enter to review first".
-3. **The rest of the problem hover:** scrolling a long hover with the
+2. **The rest of the problem hover:** scrolling a long hover with the
    keyboard (↑ ↓ once it's focused), from
    [`mockups/Hover.dc.html`](mockups/Hover.dc.html).
-4. **Find references** has its own mock-up (`References.dc.html`), the
+3. **Find references** has its own mock-up (`References.dc.html`), the
    next item after these.
 
 #### A suggested design for what's left
@@ -273,7 +324,7 @@ These are suggestions; nothing of them is written yet.
   straight into core `Event`s. The Rust SDK's re-exports are in
   `sdk/rust/src/lib.rs`; add new types to both lists there.
 - Checks before each commit:
-  - `cargo test --workspace`: 328 tests passed with code actions
+  - `cargo test --workspace`: 337 tests passed with format
   - `cargo clippy --workspace --all-targets`
   - in `plugins/lsp`: `cargo clippy --release --target wasm32-wasip2`
   - `cargo fmt --all`

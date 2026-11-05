@@ -35,6 +35,8 @@ pub struct Settings {
     /// Language servers' hints, such as types and parameter names, are
     /// written between the characters.
     pub inlay_hints: bool,
+    /// What saving formats first, with the language server.
+    pub format_on_save: super::FormatOnSave,
     /// Saving takes the spaces and tabs off the ends of lines.
     pub trim_trailing_whitespace: bool,
     /// Saving ends the file with a newline.
@@ -65,6 +67,7 @@ impl Default for Settings {
             color_decorators: true,
             inline_diagnostics: true,
             inlay_hints: true,
+            format_on_save: Default::default(),
             trim_trailing_whitespace: false,
             insert_final_newline: false,
             auto_save: AutoSave::Off,
@@ -94,6 +97,7 @@ impl Editor {
         self.bracket_colours = settings.bracket_pair_colorization;
         self.colour_swatches = settings.color_decorators;
         self.inline_notes = settings.inline_diagnostics;
+        self.format_on_save = settings.format_on_save;
         if self.inlay_hints && !settings.inlay_hints {
             for doc in &mut self.docs {
                 doc.inlays.clear();

@@ -13,6 +13,10 @@ use crate::history::Kind;
 use crate::key::{Key, KeyCode};
 use crate::lang::{ActionKind, CodeAction, FileEdit, Severity};
 
+/// The code actions card's own rows, which format.
+pub const FORMAT_FILE: &str = "merlin:format";
+pub const FORMAT_SELECTION: &str = "merlin:format-selection";
+
 /// What a `code-actions` request was for, so its answer goes there.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ActionsFor {
@@ -69,11 +73,29 @@ impl Editor {
 
     /// Lists `actions` by the cursor, the likeliest fix chosen.
     fn open_actions(&mut self, actions: Vec<CodeAction>) {
-        if actions.is_empty() {
+        if actions.is_empty() && !self.has_lsp("format") {
             return self.notify("No code actions here".into());
         }
         if self.focus != Focus::Editor {
             return;
+        }
+        let mut actions = actions;
+        // Formatting, last, as the code actions card offers it.
+        if self.has_lsp("format") {
+            if self.doc().selection().is_some() {
+                actions.push(CodeAction {
+                    id: FORMAT_SELECTION.into(),
+                    title: "Format the selection".into(),
+                    kind: ActionKind::Format,
+                    preferred: false,
+                });
+            }
+            actions.push(CodeAction {
+                id: FORMAT_FILE.into(),
+                title: "Format the file".into(),
+                kind: ActionKind::Format,
+                preferred: false,
+            });
         }
         let selected = actions.iter().position(|a| a.preferred).unwrap_or(0);
         self.hover_anchor = None;
@@ -85,6 +107,11 @@ impl Editor {
     pub(crate) fn choose_action(&mut self, id: String, fx: &mut Vec<Effect>) {
         self.popup = None;
         self.hover_anchor = None;
+        match id.as_str() {
+            FORMAT_FILE => return self.format_file(fx),
+            FORMAT_SELECTION => return self.format_selection(fx),
+            _ => {}
+        }
         fx.push(Effect::PluginPick {
             plugin: "lsp".into(),
             picker: "code-actions".into(),
@@ -170,6 +197,8 @@ impl Editor {
     /// Makes a plugin's edits: in open files at once, each file one undo
     /// step; other files are opened first, and left unsaved.
     pub(crate) fn apply_file_edits(&mut self, edits: Vec<FileEdit>, fx: &mut Vec<Effect>) {
+        // A save waiting for its formatting takes its file's.
+        let edits = self.format_arrived(edits, fx);
         for file in edits {
             if self.doc_at(&file.path).is_some() {
                 self.edit_file(&file);
@@ -192,7 +221,7 @@ impl Editor {
         }
     }
 
-    fn edit_file(&mut self, file: &FileEdit) {
+    pub(crate) fn edit_file(&mut self, file: &FileEdit) {
         let Some(doc) = self.doc_at(&file.path) else {
             return;
         };

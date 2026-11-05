@@ -53,6 +53,7 @@ fn snapshot(text: &str) -> Snapshot {
         root: std::env::temp_dir(),
         cursor: (0, 0),
         selection: None,
+        changed: None,
     }
 }
 

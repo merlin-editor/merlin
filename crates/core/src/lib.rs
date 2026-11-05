@@ -23,11 +23,11 @@ pub mod symbols;
 
 pub use editor::{
     AutoSave, AutoSaveWhy, Command, ContextItem, ContextView, DialogView, Editor, Effect, Event,
-    FileConfig, FileOp, FilePick, FindAction, FindView, Focus, GitAction, HoverButton, KeyBinding,
-    MenuView, MouseKind, PaletteView, PluginSummary, Pointer, PopupKind, PopupView, ProblemView,
-    RailItem, SearchHit, Settings, Side, SideView, SignatureView, StatusView, TabView, TermOp,
-    TermSession, TerminalView, TextView, ThemeKind, ToastView, UiEvent, UserKey, When, WindowView,
-    Workspace,
+    FORMAT_WAIT_MS, FileConfig, FileOp, FilePick, FindAction, FindView, Focus, FormatOnSave,
+    GitAction, HoverButton, KeyBinding, MenuView, MouseKind, PaletteView, PluginSummary, Pointer,
+    PopupKind, PopupView, ProblemView, RailItem, SearchHit, Settings, Side, SideView,
+    SignatureView, StatusView, TabView, TermOp, TermSession, TerminalView, TextView, ThemeKind,
+    ToastView, UiEvent, UserKey, When, WindowView, Workspace,
 };
 pub use key::{Key, KeyCode};
 pub use lang::{Completion, Diagnostic, InlayHint, InlayKind, Severity, Signature};
