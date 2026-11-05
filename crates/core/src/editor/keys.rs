@@ -32,6 +32,8 @@ pub(super) const GLOBAL_KEYS: &[(&str, &str)] = &[
     ("ctrl+shift+o", "go.symbol"),
     ("ctrl+shift+g", "view.changes"),
     ("ctrl+j", "view.panel"),
+    ("ctrl+`", "terminal.toggle"),
+    ("ctrl+shift+`", "terminal.new"),
     ("ctrl+shift+m", "view.problems"),
     ("ctrl+shift+u", "view.output"),
     ("ctrl+g", "go.line"),
@@ -100,6 +102,10 @@ pub(super) const CHORDS: &[(&str, &str, &str)] = &[
 
 impl Editor {
     pub(crate) fn key(&mut self, key: Key, fx: &mut Vec<Effect>) {
+        // A terminal with the keys takes nearly all of them.
+        if self.terminal_key(key, fx) {
+            return;
+        }
         // An open completion list takes the keys it uses first.
         if self.focus == Focus::Editor && self.popup_key(key) {
             return;

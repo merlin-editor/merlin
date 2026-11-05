@@ -212,6 +212,7 @@ impl Editor {
             "suggestWidgetVisible" => flag(matches!(self.popup, Some(Popup::Completion { .. }))),
             "sideBarFocus" => flag(self.focus == Focus::SideBar),
             "panelFocus" => flag(self.focus == Focus::Bottom),
+            "terminalFocus" => flag(self.terminal_focused()),
             "auxiliaryBarFocus" => flag(self.focus == Focus::Panel),
             "menuFocus" => flag(self.focus == Focus::Menu),
             "multipleEditorGroups" => flag(self.groups.len() > 1),

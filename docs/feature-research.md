@@ -227,7 +227,10 @@ mark each **Built** here with its commit.
 
 These are ordered by votes against effort.
 
-1. **Integrated terminal**: a bottom panel tab, with tabs for each shell
+1. **Integrated terminal** (**Built**, see `crates/app/src/terminal.rs` and
+   `crates/core/src/editor/terminal.rs`; not yet: mouse reporting to
+   programs, shell profiles, restoring terminals with the workspace): a
+   bottom panel tab, with tabs for each shell
    and splits. Use the `alacritty_terminal` crate for the VT state and a
    pty, drawn by merlin's own renderer.
 2. **Language servers, finished**: rename (inline box), format and format

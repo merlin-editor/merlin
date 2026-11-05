@@ -76,6 +76,15 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
     ("panel.toggle", "View: Focus Secondary Side Bar"),
     ("view.secondary", "View: Toggle Secondary Side Bar"),
     ("view.panel", "View: Toggle Panel"),
+    ("terminal.toggle", "View: Toggle Terminal"),
+    ("terminal.new", "Terminal: Create New Terminal"),
+    ("terminal.split", "Terminal: Split Terminal"),
+    (
+        "terminal.kill",
+        "Terminal: Kill the Active Terminal Instance",
+    ),
+    ("terminal.focus_next", "Terminal: Focus Next Terminal"),
+    ("terminal.focus_prev", "Terminal: Focus Previous Terminal"),
     ("view.minimap", "View: Toggle Minimap"),
     ("view.wrap", "View: Toggle Word Wrap"),
     ("view.split", "View: Split Editor Right"),
@@ -120,6 +129,9 @@ impl Editor {
     pub(crate) fn run(&mut self, id: &str, fx: &mut Vec<Effect>) {
         if id.starts_with("explorer.") && self.explorer_command(id, fx) {
             return;
+        }
+        if id.starts_with("terminal.") {
+            return self.terminal_command(id, fx);
         }
         match id {
             "file.save" => match self.doc().buffer.path {

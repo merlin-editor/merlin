@@ -7,6 +7,7 @@ mod looks;
 mod packs;
 mod settings;
 mod template;
+mod terminal;
 mod theme;
 
 use std::collections::{HashMap, VecDeque};
@@ -162,6 +163,8 @@ struct App {
     /// The desktop's clipboards, once the window is open. Scripts have
     /// none, so they never touch the user's.
     pub(crate) clipboard: Option<clipboard::Clipboard>,
+    /// The integrated terminal's shells.
+    pub(crate) terminals: terminal::Terminals,
     /// When each open file last changed on disk, as far as the editor knows.
     disk: HashMap<PathBuf, Option<SystemTime>>,
     /// The repository's git folder, if the project is in one.
@@ -391,6 +394,7 @@ impl App {
                             clipboard.copy(&text);
                         }
                     }
+                    Effect::Terminal(op) => self.terminal(op),
                     Effect::ReadClipboard => {
                         let text = self.clipboard.as_mut().and_then(|c| c.paste());
                         queue.push_back(Event::Clipboard(text));
@@ -789,12 +793,64 @@ impl App {
     /// Something woke the window: plugin output, a job done, or a change on
     /// disk. Returns whether the editor heard anything.
     pub(crate) fn wake(&mut self) -> bool {
-        let mut changed = self.poll_processes();
+        let mut changed = self.poll_terminals();
+        changed |= self.poll_processes();
         changed |= self.finish_jobs();
         if self.watch.take(&mut self.changes) && self.settle.is_none() {
             self.settle = Some(Instant::now() + disk::SETTLE);
         }
         changed
+    }
+
+    /// The colours terminals are drawn in, from the look.
+    pub(crate) fn terminal_colours(&self) -> terminal::Colours {
+        let p = &self.look.palette;
+        terminal::Colours::for_palette(p.text, p.island, theme::is_light(p))
+    }
+
+    /// Does what the editor asks of a terminal.
+    fn terminal(&mut self, op: merlin_core::TermOp) {
+        use merlin_core::TermOp;
+        let t = &mut self.terminals;
+        match op {
+            TermOp::Spawn { id } => t.spawn(id, &self.root),
+            TermOp::Key { id, key } => t.key(id, key),
+            TermOp::Paste { id, text } => t.paste(id, &text),
+            TermOp::Scroll { id, lines } => t.scroll(id, lines),
+            TermOp::Page { id, up } => t.page(id, up),
+            TermOp::Copy { id } => {
+                if let (Some(text), Some(clipboard)) = (t.selected(id), &mut self.clipboard) {
+                    clipboard.copy(&text);
+                }
+            }
+            TermOp::Kill { id } => t.kill(id),
+        }
+    }
+
+    /// Hands what the shells said to the editor. Returns whether a screen
+    /// or the editor changed.
+    fn poll_terminals(&mut self) -> bool {
+        let colours = self.terminal_colours();
+        let clipboard = &mut self.clipboard;
+        let (events, changed) = self
+            .terminals
+            .take_events(&colours, &mut |text| match text {
+                Some(text) => {
+                    if let Some(c) = clipboard.as_mut() {
+                        c.copy(&text);
+                    }
+                    String::new()
+                }
+                None => clipboard
+                    .as_mut()
+                    .and_then(|c| c.paste())
+                    .unwrap_or_default(),
+            });
+        let any = !events.is_empty();
+        for event in events {
+            self.dispatch(event);
+        }
+        changed || any
     }
 
     /// When the app next has something to do, if ever.
@@ -1365,6 +1421,7 @@ fn main() -> Result<()> {
         buffer_seen: None,
         saved: Vec::new(),
         clipboard: None,
+        terminals: terminal::Terminals::new(gui::waker()),
         disk: HashMap::new(),
         git_prefix,
         git_dir,

@@ -18,6 +18,7 @@ mod gpu;
 mod grid;
 mod overview;
 mod scene;
+mod termview;
 
 use std::env;
 use std::num::NonZeroU32;
@@ -45,6 +46,7 @@ use winit::window::{Window, WindowId};
 use crate::App;
 use crate::packs::{self, Look};
 use crate::settings::Blinking;
+use crate::terminal;
 use canvas::{Canvas, Pictures, Rect, Text};
 use frame::{Areas, Frame, Hit, State};
 use gpu::Gpu;
@@ -145,6 +147,9 @@ pub fn run(app: &mut App) -> Result<()> {
         areas: Areas::default(),
         drawn: None,
         drawn_text: Vec::new(),
+        term_drawn: 0,
+        term_panes: Vec::new(),
+        term_drag: None,
         pictures: Pictures::default(),
         bitmaps: Bitmaps::default(),
         scene: Scene::default(),
@@ -262,6 +267,11 @@ struct Gui<'a> {
     drawn: Option<(WindowView, Option<usize>, [f32; 3], (u32, u32), Look)>,
     /// The text last drawn, beside `drawn`.
     drawn_text: Vec<TextView>,
+    /// The terminals' version last drawn, and where each pane was.
+    term_drawn: u64,
+    term_panes: Vec<(u64, canvas::Rect)>,
+    /// The terminal the left button went down in, to select in.
+    term_drag: Option<u64>,
     pictures: Pictures,
     /// The glyphs and pictures drawn so far, as scenes name them.
     bitmaps: Bitmaps,
@@ -659,6 +669,26 @@ impl Gui<'_> {
                 self.press_bar(group, what, at);
             }
             Hit::Minimap(group) => self.press_bar(group, Bar::Map, at),
+            Hit::Terminal(id) => {
+                self.dispatch(Event::Ui(UiEvent::Terminal(id)));
+                if !self.app.terminals.wants_mouse(id)
+                    && let Some(cell) = self.term_cell(id, at)
+                {
+                    self.app
+                        .terminals
+                        .select(id, cell, terminal::SelectKind::Start(clicks.min(3)));
+                    self.term_drag = Some(id);
+                    self.redraw();
+                }
+            }
+            Hit::MaximizePanel => {
+                if let Some(shown) = &self.window {
+                    let h = shown.window.inner_size().height as f32 / self.scale();
+                    self.sizes.maximize_panel(h);
+                }
+                self.fit_text();
+                self.redraw();
+            }
             // A double click puts the groups back to the same sizes.
             Hit::GroupSash(_) if clicks >= 2 => {
                 let even = vec![(1.0, 1.0); self.areas.groups.len()];
@@ -712,6 +742,18 @@ impl Gui<'_> {
             }
             Hit::Side(_) | Hit::Block | Hit::TabStrip(_) => {}
         }
+    }
+
+    /// The cell of terminal `id` under `at`, kept inside its screen.
+    fn term_cell(&self, id: u64, at: (f32, f32)) -> Option<(usize, usize)> {
+        let (_, r) = self.term_panes.iter().find(|(i, _)| *i == id)?;
+        let grid = self.grid.as_ref()?;
+        let s = self.scale();
+        let col = ((at.0 - r.x) * s / grid.cell_w as f32).max(0.0) as usize;
+        let line = ((at.1 - r.y) * s / grid.cell_h as f32).max(0.0) as usize;
+        let cols = (r.w * s / grid.cell_w as f32).floor().max(1.0) as usize;
+        let lines = (r.h * s / grid.cell_h as f32).floor().max(1.0) as usize;
+        Some((col.min(cols - 1), line.min(lines - 1)))
     }
 
     /// Remembers the tab pressed on, so moving the mouse can drag it.
@@ -869,6 +911,15 @@ impl Gui<'_> {
             return;
         };
         let over = self.hit_at(at).map(|(_, h)| h.clone());
+        // Over a terminal, it scrolls back through the history.
+        if let Some(Hit::Terminal(id)) = over {
+            let lines = (lines * 3.0).round() as i32;
+            if lines != 0 {
+                self.app.terminals.scroll(id, lines);
+                self.redraw();
+            }
+            return;
+        }
         // Over a tab strip, it scrolls the tabs along.
         let strip = match over {
             Some(Hit::TabStrip(group)) => Some(group.unwrap_or(0)),
@@ -1128,6 +1179,7 @@ impl Gui<'_> {
             && !tip_changed
             && self.drawn_text == texts
             && caret_on == self.caret_drawn
+            && self.term_drawn == self.app.terminals.version
             && !gliding
             && !dragging
         {
@@ -1172,6 +1224,8 @@ impl Gui<'_> {
                 _ => None,
             },
             strips: std::mem::take(&mut self.strips),
+            term_panes: Vec::new(),
+            panel_max: self.sizes.bottom_before.is_some(),
         };
         f.base(&view, &areas, &mut self.state, w, h);
         for text in &texts {
@@ -1192,6 +1246,28 @@ impl Gui<'_> {
                 glide,
             );
         }
+        // The terminals' screens, each fitted to its pane first.
+        let colours = self.app.terminal_colours();
+        let term = view.terminal.as_ref();
+        let focused = term.filter(|t| t.focused).and_then(|t| t.active);
+        for &(id, r) in &f.term_panes {
+            let cols = (r.w * s / grid.cell_w as f32).floor() as usize;
+            let lines = (r.h * s / grid.cell_h as f32).floor() as usize;
+            let cell = (grid.cell_w as u16, grid.cell_h as u16);
+            self.app.terminals.resize(id, cols, lines, cell);
+            let ended = term
+                .and_then(|t| t.sessions.iter().find(|s| s.id == id))
+                .is_some_and(|s| s.exited.is_some());
+            if let Some(mut screen) = self.app.terminals.screen(id, &colours) {
+                if ended {
+                    screen.cursor = None;
+                }
+                let at = ((r.x * s).round(), (r.y * s).round());
+                grid.draw_terminal(&screen, &mut f.canvas, at, &colours, focused == Some(id));
+            }
+        }
+        self.term_panes = f.term_panes.clone();
+        self.term_drawn = self.app.terminals.version;
         // Beside each group's code, its minimap and scrollbars, and a
         // shadow under the tabs once it's scrolled; the review side by
         // side has them on its new side.
@@ -1386,6 +1462,7 @@ impl Gui<'_> {
 
 impl ApplicationHandler for Gui<'_> {
     fn exiting(&mut self, _: &ActiveEventLoop) {
+        self.app.terminals.kill_all();
         // The clipboards go before the window they share.
         self.app.clipboard = None;
     }
@@ -1507,6 +1584,14 @@ impl ApplicationHandler for Gui<'_> {
                 };
                 if state == ElementState::Pressed {
                     self.press(at);
+                } else if let Some(id) = self.term_drag.take() {
+                    // What's selected goes to the selection clipboard, as
+                    // in any terminal.
+                    if let (Some(text), Some(clipboard)) =
+                        (self.app.terminals.selected(id), &mut self.app.clipboard)
+                    {
+                        clipboard.select(&text);
+                    }
                 } else if self.sash.take().is_some()
                     || self.group_drag.take().is_some()
                     || self.bar_drag.take().is_some()
@@ -1712,6 +1797,15 @@ impl Gui<'_> {
             }
             return;
         }
+        if let Some(id) = self.term_drag {
+            if let Some(cell) = self.term_cell(id, at) {
+                self.app
+                    .terminals
+                    .select(id, cell, terminal::SelectKind::Extend);
+                self.redraw();
+            }
+            return;
+        }
         if let Some(g) = self.pressed_group {
             let cell = self.gap_cell(g, at);
             if self.dragged_to != Some(cell) {
@@ -1737,7 +1831,7 @@ impl Gui<'_> {
             (None, None) => {}
         }
         let icon = match over {
-            Some((_, Hit::Text)) => CursorIcon::Text,
+            Some((_, Hit::Text | Hit::Terminal(_))) => CursorIcon::Text,
             Some((_, Hit::Sash(Side::Bottom))) => CursorIcon::RowResize,
             Some((_, Hit::Sash(_))) => CursorIcon::ColResize,
             Some((_, Hit::GroupSash(frame::GroupSash::Column(_)))) => CursorIcon::ColResize,

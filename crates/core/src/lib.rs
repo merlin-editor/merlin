@@ -25,8 +25,8 @@ pub use editor::{
     AutoSave, AutoSaveWhy, Command, ContextItem, ContextView, DialogView, Editor, Effect, Event,
     FileConfig, FileOp, FilePick, FindAction, FindView, Focus, GitAction, KeyBinding, MenuView,
     MouseKind, PaletteView, PluginSummary, Pointer, PopupKind, PopupView, RailItem, SearchHit,
-    Settings, Side, SideView, StatusView, TabView, TextView, ThemeKind, ToastView, UiEvent,
-    UserKey, When, WindowView, Workspace,
+    Settings, Side, SideView, StatusView, TabView, TermOp, TermSession, TerminalView, TextView,
+    ThemeKind, ToastView, UiEvent, UserKey, When, WindowView, Workspace,
 };
 pub use key::{Key, KeyCode};
 pub use lang::{Completion, Diagnostic, Severity};

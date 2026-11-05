@@ -6,8 +6,8 @@
 use merlin_core::panel::{Entry, Node, Tone};
 use merlin_core::{
     ContextItem, ContextView, DialogView, FindAction, FindView, Key, KeyCode, MenuView,
-    PaletteView, PopupKind, PopupView, Side, SideView, TabView, ToastView, UiEvent, WindowView,
-    editor::GroupView,
+    PaletteView, PopupKind, PopupView, Side, SideView, TabView, TerminalView, ToastView, UiEvent,
+    WindowView, editor::GroupView,
 };
 
 use super::canvas::{Canvas, Face, Pictures, Rect, Text};
@@ -60,6 +60,10 @@ pub enum Hit {
     },
     /// A group's minimap.
     Minimap(usize),
+    /// A terminal's screen, where the mouse selects.
+    Terminal(u64),
+    /// Makes the panel as tall as it goes, or back.
+    MaximizePanel,
 }
 
 /// An edge between editor groups: after column `n`, or under group `n` in
@@ -135,6 +139,10 @@ pub struct Frame<'a> {
     /// Each group's tab strip: how far it's scrolled, and the active tab
     /// it last scrolled to. Drawing keeps them in range.
     pub strips: Vec<(f32, usize)>,
+    /// Each terminal pane drawn, by session, and the rect its cells go in.
+    pub term_panes: Vec<(u64, Rect)>,
+    /// Whether the panel is maximised, for its button.
+    pub panel_max: bool,
     /// The side edges' hits, added after the code's so they win.
     pub sash_hits: Vec<(Rect, Hit)>,
     /// What each icon is, for a tooltip when the mouse rests on it.
@@ -153,6 +161,8 @@ pub struct Sizes {
     /// The scrollbar's width, and the minimap's scale, from the settings.
     pub scrollbar: f32,
     pub minimap_scale: f32,
+    /// The panel's height before it was maximised.
+    pub bottom_before: Option<f32>,
 }
 
 impl Default for Sizes {
@@ -163,6 +173,7 @@ impl Default for Sizes {
             bottom: BOTTOM_H,
             scrollbar: super::overview::SCROLLBAR_W,
             minimap_scale: 1.0,
+            bottom_before: None,
         }
     }
 }
@@ -177,6 +188,18 @@ impl Sizes {
             Side::Bottom => {
                 let body = h - STATUS_H - TITLE_H;
                 self.bottom = (h - STATUS_H - y).clamp(100.0, body * 0.75);
+                self.bottom_before = None;
+            }
+        }
+    }
+
+    /// Makes the panel as tall as it goes, or back to its height before.
+    pub fn maximize_panel(&mut self, h: f32) {
+        match self.bottom_before.take() {
+            Some(before) => self.bottom = before,
+            None => {
+                self.bottom_before = Some(self.bottom);
+                self.bottom = (h - STATUS_H - TITLE_H) * 0.75;
             }
         }
     }
@@ -345,7 +368,8 @@ impl Frame<'_> {
             };
             if let (Some(area), Some(sv)) = (area, sv) {
                 self.canvas.round(area, self.radius, p.island);
-                self.side(sv, side, area, state);
+                let term = view.terminal.as_ref().filter(|_| side == Side::Bottom);
+                self.side(sv, side, area, state, term);
             }
         }
         self.canvas.round(a.editor, self.radius, p.island);
@@ -1307,7 +1331,14 @@ impl Frame<'_> {
         }
     }
 
-    fn side(&mut self, sv: &SideView, side: Side, area: Rect, state: &mut State) {
+    fn side(
+        &mut self,
+        sv: &SideView,
+        side: Side,
+        area: Rect,
+        state: &mut State,
+        term: Option<&TerminalView>,
+    ) {
         let p = self.p;
         let header = Rect::new(area.x, area.y, area.w, HEADER_H);
         // The rail picks what the side bars show; the panel under the editor
@@ -1363,6 +1394,9 @@ impl Frame<'_> {
             area.w,
             (area.h - HEADER_H - 6.0).max(0.0),
         );
+        if let Some(term) = term {
+            return self.terminal_panel(term, header, body);
+        }
         self.hit(body, Hit::Side(side));
 
         // Lay the nodes out first, to keep the selection in view.
@@ -1401,6 +1435,178 @@ impl Frame<'_> {
             let target = sv.targets[i];
             let selected = target.is_some() && target == Some(sv.selected);
             self.node(node, sv, side, r, target, selected, body);
+        }
+    }
+
+    /// The terminal panel: its buttons in the header, the shells showing
+    /// side by side, and the list of shells when there are several. The
+    /// shells' cells are drawn after, in each of [`Frame::term_panes`].
+    fn terminal_panel(&mut self, tv: &TerminalView, header: Rect, body: Rect) {
+        let p = self.p;
+        // The header's buttons, right to left.
+        let mut x = header.right() - 8.0;
+        let close = (u8::MAX, "Close Panel (Ctrl+J)", Hit::Command("view.panel"));
+        let buttons = [
+            close,
+            if self.panel_max {
+                (5, "Restore Panel Size", Hit::MaximizePanel)
+            } else {
+                (4, "Maximise Panel Size", Hit::MaximizePanel)
+            },
+            (3, "Kill the Terminal", Hit::Command("terminal.kill")),
+            (
+                2,
+                "Split Terminal (Ctrl+Shift+5)",
+                Hit::Command("terminal.split"),
+            ),
+            (
+                1,
+                "New Terminal (Ctrl+Shift+`)",
+                Hit::Command("terminal.new"),
+            ),
+        ];
+        for (icon, tip, hit) in buttons {
+            let r = Rect::new(x - 26.0, header.y + 6.0, 26.0, 26.0);
+            x = r.x - 2.0;
+            let hovered = self.hovered(r);
+            if hovered {
+                self.canvas.round(r, 6.0, p.hover);
+            }
+            let c = if hovered { p.bright } else { p.muted };
+            self.toolbar_icon(icon, r, c);
+            self.hit(r, hit);
+            self.tips.push((r, tip.to_string()));
+        }
+        // The list of shells, when there's more than one.
+        let list_w = if tv.sessions.len() > 1 { 168.0 } else { 0.0 };
+        if list_w > 0.0 {
+            let lx = body.right() - list_w;
+            self.canvas.fill(Rect::new(lx, body.y, 1.0, body.h), p.line);
+            for (k, session) in tv.sessions.iter().enumerate() {
+                let r = Rect::new(
+                    lx + 6.0,
+                    body.y + 2.0 + k as f32 * 28.0,
+                    list_w - 12.0,
+                    26.0,
+                );
+                if r.bottom() > body.bottom() {
+                    break;
+                }
+                let on = tv.active == Some(session.id);
+                if on {
+                    self.canvas.round(r, 6.0, p.chip);
+                } else if self.hovered(r) {
+                    self.canvas.round(r, 6.0, p.hover);
+                }
+                let dot = if session.exited.is_some() {
+                    p.faint
+                } else {
+                    p.success
+                };
+                let cy = r.y + r.h / 2.0;
+                self.canvas
+                    .round(Rect::new(r.x + 9.0, cy - 3.5, 7.0, 7.0), 3.5, dot);
+                let face = Face::ui(12.5);
+                let title = self.text.fit(&session.title, face, r.w - 46.0);
+                let colour = if on { p.bright } else { p.text };
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    &title,
+                    face,
+                    r.x + 24.0,
+                    r.y,
+                    r.h,
+                    colour,
+                    r,
+                );
+                let n = (k + 1).to_string();
+                let nw = self.text.width(&n, Face::ui(11.0));
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    &n,
+                    Face::ui(11.0),
+                    r.right() - 8.0 - nw,
+                    r.y,
+                    r.h,
+                    p.muted,
+                    r,
+                );
+                self.hit(r, Hit::Ui(UiEvent::Terminal(session.id)));
+            }
+        }
+        // The panes, side by side with a hairline between.
+        let panes = Rect::new(body.x, body.y, body.w - list_w, body.h);
+        let n = tv.panes.len().max(1) as f32;
+        let w = panes.w / n;
+        for (k, &id) in tv.panes.iter().enumerate() {
+            let r = Rect::new(panes.x + k as f32 * w, panes.y, w, panes.h);
+            if k > 0 {
+                self.canvas.fill(Rect::new(r.x, r.y, 1.0, r.h), p.line);
+            }
+            // A focused split pane gets a quiet edge along its top.
+            if tv.panes.len() > 1 && tv.focused && tv.active == Some(id) {
+                self.canvas
+                    .fill(Rect::new(r.x + 8.0, r.y, r.w - 16.0, 1.5), p.accent);
+            }
+            let inner = Rect::new(r.x + 12.0, r.y + 6.0, r.w - 20.0, r.h - 8.0);
+            self.hit(r, Hit::Terminal(id));
+            if let Some(code) = tv
+                .sessions
+                .iter()
+                .find(|s| s.id == id)
+                .and_then(|s| s.exited)
+            {
+                let note = format!("The shell ended with code {code}. The bin closes it.");
+                let face = Face::ui(12.0);
+                let y = r.bottom() - 26.0;
+                self.text
+                    .draw_in_row(&mut self.canvas, &note, face, inner.x, y, 22.0, p.muted, r);
+                self.term_panes.push((
+                    id,
+                    Rect::new(inner.x, inner.y, inner.w, (inner.h - 28.0).max(0.0)),
+                ));
+            } else {
+                self.term_panes.push((id, inner));
+            }
+        }
+    }
+
+    /// The terminal panel's button icons, drawn in strokes: 1 new, 2
+    /// split, 3 kill, 4 maximise, 5 restore, else close.
+    fn toolbar_icon(&mut self, icon: u8, r: Rect, c: u32) {
+        let (cx, cy) = (r.x + r.w / 2.0, r.y + r.h / 2.0);
+        let line = |canvas: &mut Canvas, a: (f32, f32), b: (f32, f32)| {
+            canvas.line((cx + a.0, cy + a.1), (cx + b.0, cy + b.1), 1.4, c)
+        };
+        match icon {
+            1 => {
+                line(&mut self.canvas, (-5.0, 0.0), (5.0, 0.0));
+                line(&mut self.canvas, (0.0, -5.0), (0.0, 5.0));
+            }
+            2 => {
+                self.canvas
+                    .frame(Rect::new(cx - 6.0, cy - 5.0, 12.0, 10.0), 2.0, 1.3, c, 0);
+                line(&mut self.canvas, (0.0, -5.0), (0.0, 5.0));
+            }
+            3 => {
+                line(&mut self.canvas, (-5.5, -3.5), (5.5, -3.5));
+                line(&mut self.canvas, (-2.0, -5.5), (2.0, -5.5));
+                line(&mut self.canvas, (-4.0, -3.5), (-3.2, 5.5));
+                line(&mut self.canvas, (4.0, -3.5), (3.2, 5.5));
+                line(&mut self.canvas, (-3.2, 5.5), (3.2, 5.5));
+            }
+            4 => {
+                line(&mut self.canvas, (-4.5, 2.5), (0.0, -2.0));
+                line(&mut self.canvas, (0.0, -2.0), (4.5, 2.5));
+            }
+            5 => {
+                line(&mut self.canvas, (-4.5, -2.0), (0.0, 2.5));
+                line(&mut self.canvas, (0.0, 2.5), (4.5, -2.0));
+            }
+            _ => {
+                line(&mut self.canvas, (-4.0, -4.0), (4.0, 4.0));
+                line(&mut self.canvas, (4.0, -4.0), (-4.0, 4.0));
+            }
         }
     }
 

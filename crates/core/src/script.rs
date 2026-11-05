@@ -277,6 +277,7 @@ impl Session {
                 Effect::ReadClipboard => self.send(Event::Clipboard(None)),
                 Effect::Quit => self.quit = true,
                 Effect::Copy(_)
+                | Effect::Terminal(_)
                 | Effect::PluginCommand { .. }
                 | Effect::PluginClick { .. }
                 | Effect::PluginSubmit { .. }

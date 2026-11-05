@@ -359,6 +359,7 @@ Keys, as in VS Code:
 | `Ctrl+K Ctrl+0` / `Ctrl+K Ctrl+J` | Fold / unfold everything |
 | `Ctrl+K Ctrl+T` | Pick a colour theme |
 | `Ctrl+F` / `Ctrl+H` | Find / find and replace. Lowercase queries ignore case. Enter or Down for the next match, Up for the previous; in the replace field Enter replaces one, `Alt+Enter` all |
+| ``Ctrl+` `` / ``Ctrl+Shift+` `` / `Ctrl+Shift+5` | Show or hide the terminal / a new terminal / split it. In a terminal, `Ctrl+Shift+C` and `Ctrl+Shift+V` copy and paste, `Shift+PageUp` and `PageDown` scroll back, and the mouse selects |
 | `Alt+C` / `Alt+W` / `Alt+R` / `Alt+L` | In find: Match Case / Whole Word / regular expressions (`$1` in the replacement) / Find in Selection, which a selection over several lines turns on |
 | `Alt+Left` | Go back after go-to-definition |
 | `Ctrl+Q` | Quit |

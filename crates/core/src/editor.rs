@@ -27,6 +27,7 @@ mod select;
 mod settings;
 mod swatches;
 mod tabs;
+mod terminal;
 mod text_view;
 mod views;
 mod window;
@@ -48,6 +49,7 @@ pub use overview::{MINIMAP_COLUMNS, MinimapLine, MinimapView, ScrollbarView};
 pub use save::{AutoSave, AutoSaveWhy, FileConfig};
 pub use settings::Settings;
 pub use tabs::GroupView;
+pub use terminal::{TermOp, TermSession, TerminalView};
 pub use text_view::{CaretView, LineView, OVERSCAN, TextView};
 pub use workspace::{GroupState, Tab, Workspace};
 pub use wrap::Row as WrapRow;
@@ -186,6 +188,16 @@ pub enum Event {
     },
     /// Save changed files now, if the settings say to for this.
     AutoSave(AutoSaveWhy),
+    /// A terminal's shell set its title.
+    TermTitle {
+        id: u64,
+        title: String,
+    },
+    /// A terminal's shell ended, with its exit code if it had one.
+    TermExited {
+        id: u64,
+        code: Option<i32>,
+    },
     /// Lays out the editor groups as last time, once their files are open.
     Restore(Workspace),
     /// The user's settings, with the workspace's over them.
@@ -402,6 +414,8 @@ pub enum Effect {
     /// Make the code's font bigger or smaller by `n` steps, or with 0 go
     /// back to its size.
     Zoom(i8),
+    /// Something for the host to do with a terminal.
+    Terminal(TermOp),
     Save {
         doc: u64,
         path: PathBuf,
@@ -727,6 +741,8 @@ pub struct Editor {
     scroll_beyond_last_line: bool,
     /// Tidying on save, and saving by itself.
     saving: save::Saving,
+    /// The integrated terminal's shells.
+    terminals: terminal::Terminals,
     /// Brackets are coloured by how deep they are.
     bracket_colours: bool,
     /// Colours written in the code get a swatch.
@@ -825,6 +841,7 @@ impl Editor {
             auto_close: true,
             scroll_beyond_last_line: true,
             saving: save::Saving::default(),
+            terminals: terminal::Terminals::default(),
             bracket_colours: true,
             colour_swatches: true,
             project: "merlin".into(),
@@ -1050,7 +1067,11 @@ impl Editor {
                 self.hover_anchor = None;
                 self.key(key, &mut fx)
             }
-            Event::Paste(text) => self.paste(&text),
+            Event::Paste(text) => {
+                if !self.terminal_paste(&text, &mut fx) {
+                    self.paste(&text);
+                }
+            }
             Event::Ui(ui) => self.ui(ui, &mut fx),
             // Every group as big, until the window says otherwise.
             Event::Resize(w, h) => {
@@ -1091,6 +1112,8 @@ impl Editor {
             }
             Event::FileConfig { path, config } => self.file_config(&path, config),
             Event::AutoSave(why) => self.auto_save(why, &mut fx),
+            Event::TermTitle { id, title } => self.terminal_title(id, title),
+            Event::TermExited { id, code } => self.terminal_exited(id, code),
             Event::Restore(ws) => self.restore(ws),
             Event::Settings(settings) => self.apply_settings(settings),
             Event::TextColours {
@@ -1109,7 +1132,7 @@ impl Editor {
             }
             Event::Clipboard(text) => {
                 let text = text.unwrap_or_else(|| self.clipboard.clone());
-                if !text.is_empty() {
+                if !text.is_empty() && !self.terminal_paste(&text, &mut fx) {
                     self.paste(&text);
                 }
             }

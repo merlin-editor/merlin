@@ -18,6 +18,10 @@ use crate::style::Hue;
 pub enum UiEvent {
     /// An activity rail item, by its index in [`WindowView::rail`].
     Rail(usize),
+    /// A terminal session, by id, clicked in the list or in its pane.
+    Terminal(u64),
+    /// A session's kill button.
+    TerminalKill(u64),
     /// A tab of the focused group, by its index in [`WindowView::tabs`].
     Tab {
         index: usize,
@@ -140,6 +144,8 @@ pub struct WindowView {
     pub minimap: bool,
     /// A question to answer before anything else.
     pub dialog: Option<super::DialogView>,
+    /// The terminal panel, when it shows.
+    pub terminal: Option<super::TerminalView>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -406,6 +412,7 @@ impl Editor {
             page: self.doc().page.as_ref().map(|(name, _)| name.clone()),
             minimap: self.minimap,
             dialog: self.dialog_view(),
+            terminal: self.terminal_view(),
         }
     }
 
@@ -417,6 +424,8 @@ impl Editor {
             UiEvent::MenuItem(i) => self.menu_item(i, fx),
             UiEvent::CloseMenu => self.close_menu(),
             UiEvent::Find(what) => self.find_ui(what),
+            UiEvent::Terminal(id) => self.focus_terminal(id),
+            UiEvent::TerminalKill(id) => self.kill_terminal(id, fx),
             UiEvent::GroupTab {
                 group,
                 index,
@@ -513,7 +522,9 @@ impl Editor {
                 self.click_target(side, index, fx)
             }
             UiEvent::PanelTitle { side, name } => {
-                if side == Side::Bottom {
+                if side == Side::Bottom && name == super::terminal::TERMINAL {
+                    self.run("terminal.toggle", fx);
+                } else if side == Side::Bottom {
                     self.show_bottom(&name);
                 } else {
                     self.bar_mut(side).active = Some(name);

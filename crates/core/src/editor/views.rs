@@ -229,6 +229,7 @@ impl Editor {
             (PLUGINS, "Plugins", Side::Left),
             (PROBLEMS, "Problems", Side::Bottom),
             (OUTPUT, "Output", Side::Bottom),
+            (super::terminal::TERMINAL, "Terminal", Side::Bottom),
         ] {
             self.plugins.push(Plugin {
                 name: name.into(),
