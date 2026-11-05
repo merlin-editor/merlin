@@ -342,6 +342,92 @@ pub fn patch(file: &FileDiff, index: usize, chosen: Option<&[usize]>, reverse: b
     out
 }
 
+/// Who last changed each line of a file, from `git blame --porcelain`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Blame {
+    pub commits: Vec<BlameCommit>,
+    /// Each line's commit, as an index into `commits`.
+    pub lines: Vec<usize>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct BlameCommit {
+    pub hash: String,
+    pub author: String,
+    /// When it was written, in seconds since 1970.
+    pub time: i64,
+    pub summary: String,
+    /// False for lines changed since the last commit.
+    pub committed: bool,
+}
+
+impl Blame {
+    /// The commit that last changed `line` (from 0).
+    pub fn at(&self, line: usize) -> Option<&BlameCommit> {
+        self.commits.get(*self.lines.get(line)?)
+    }
+}
+
+/// Parses `git blame --porcelain`: each line starts with its commit's
+/// hash and line numbers, a commit's details come the first time it does,
+/// and the line's text follows a tab.
+pub fn parse_blame(text: &str) -> Blame {
+    let mut blame = Blame::default();
+    let mut current: Option<usize> = None;
+    for line in text.lines() {
+        if line.starts_with('\t') {
+            if let Some(c) = current {
+                blame.lines.push(c);
+            }
+            continue;
+        }
+        let mut words = line.splitn(2, ' ');
+        let first = words.next().unwrap_or_default();
+        let rest = words.next().unwrap_or_default();
+        if first.len() == 40 && first.bytes().all(|b| b.is_ascii_hexdigit()) {
+            let index = match blame.commits.iter().position(|c| c.hash == first) {
+                Some(i) => i,
+                None => {
+                    blame.commits.push(BlameCommit {
+                        hash: first.to_string(),
+                        committed: first.bytes().any(|b| b != b'0'),
+                        ..Default::default()
+                    });
+                    blame.commits.len() - 1
+                }
+            };
+            current = Some(index);
+            continue;
+        }
+        let Some(c) = current.and_then(|i| blame.commits.get_mut(i)) else {
+            continue;
+        };
+        match first {
+            "author" => c.author = rest.to_string(),
+            "author-time" => c.time = rest.parse().unwrap_or(0),
+            "summary" => c.summary = rest.to_string(),
+            _ => {}
+        }
+    }
+    blame
+}
+
+/// How long ago `then` was, at `now`, in seconds, as people say it:
+/// "3 days ago", "just now".
+pub fn ago(then: i64, now: i64) -> String {
+    let secs = (now - then).max(0);
+    let (n, unit) = match secs {
+        0..60 => return "just now".into(),
+        60..3_600 => (secs / 60, "minute"),
+        3_600..86_400 => (secs / 3_600, "hour"),
+        86_400..604_800 => (secs / 86_400, "day"),
+        604_800..2_629_800 => (secs / 604_800, "week"),
+        2_629_800..31_557_600 => (secs / 2_629_800, "month"),
+        _ => (secs / 31_557_600, "year"),
+    };
+    format!("{n} {unit}{} ago", if n == 1 { "" } else { "s" })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -467,6 +553,34 @@ index 3333333..4444444 100644
         let p = patch_lines(f, &[(1, vec![1, 2]), (0, vec![0])], false);
         assert_eq!(p.matches("diff --git").count(), 1);
         assert!(p.find("@@ -1,3").unwrap() < p.find("@@ -5,4").unwrap());
+    }
+
+    #[test]
+    fn blame_gives_each_line_its_commit() {
+        let text = "\
+1203020000000000000000000000000000000000 1 1 2
+author marc
+author-time 1000
+summary Start merlin
+filename README.md
+\t# merlin
+1203020000000000000000000000000000000000 2 2
+\t
+0000000000000000000000000000000000000000 3 3 1
+author Not Committed Yet
+author-time 2000
+summary Version of README.md from README.md
+filename README.md
+\tnew line
+";
+        let blame = parse_blame(text);
+        assert_eq!(blame.lines, [0, 0, 1]);
+        assert_eq!(blame.at(0).unwrap().author, "marc");
+        assert_eq!(blame.at(1).unwrap().summary, "Start merlin");
+        assert!(!blame.at(2).unwrap().committed);
+        assert_eq!(ago(0, 3 * 86_400 + 5), "3 days ago");
+        assert_eq!(ago(0, 30), "just now");
+        assert_eq!(ago(0, 3_600), "1 hour ago");
     }
 
     #[test]

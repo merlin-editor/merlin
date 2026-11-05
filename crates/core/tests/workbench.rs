@@ -1079,3 +1079,51 @@ fn the_sync_button_says_what_it_will_do() {
     s.send(Event::Ui(merlin_core::UiEvent::ToastButton(0)));
     assert!(s.effects.contains(&Effect::Git(GitAction::AbortPull)));
 }
+
+#[test]
+fn the_cursors_line_says_who_last_changed_it() {
+    let mut s = Session::new(NOW_PALETTE, Some("src/palette.rs"), 100, 20);
+    s.send(Event::GitBase {
+        path: "src/palette.rs".into(),
+        text: Some(HEAD_PALETTE.into()),
+    });
+    let asked = s.effects.iter().find_map(|e| match e {
+        Effect::Blame { version, text, .. } => Some((*version, text.clone())),
+        _ => None,
+    });
+    let (version, text) = asked.expect("blame asked for");
+    assert_eq!(text, NOW_PALETTE);
+    let porcelain = "\
+0000000000000000000000000000000000000000 1 1 1
+author Not Committed Yet
+author-time 5000
+summary Version of palette.rs from palette.rs
+filename src/palette.rs
+\t/// A colour a few steps from the accent.
+1111111111111111111111111111111111111111 1 2 1
+author marc
+author-time 1000
+summary Rounded tabs and dropping a tab to split
+filename src/palette.rs
+\tpub fn shade(accent: u32, step: u32) -> u32 {
+";
+    s.send(Event::Blame {
+        path: "src/palette.rs".into(),
+        version,
+        blame: merlin_core::git::parse_blame(porcelain),
+        now: 1000 + 3 * 86_400,
+    });
+    let blame_of = |s: &Session| {
+        let view = s.editor.text_views().pop().unwrap();
+        view.lines.iter().find_map(|l| l.blame.clone())
+    };
+    assert_eq!(blame_of(&s), None, "the first line isn't committed");
+    s.run("key down");
+    assert_eq!(
+        blame_of(&s).as_deref(),
+        Some("marc, 3 days ago · Rounded tabs and dropping a tab to split")
+    );
+    // Typing makes it stale until blame comes again.
+    s.run("type x");
+    assert_eq!(blame_of(&s), None);
+}

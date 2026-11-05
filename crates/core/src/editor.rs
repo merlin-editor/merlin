@@ -1,4 +1,5 @@
 mod actions;
+mod blame;
 mod carets;
 mod chrome;
 mod colours;
@@ -395,6 +396,15 @@ pub enum Event {
         outcome: SyncOutcome,
         output: String,
     },
+    /// Who last changed each line of a file, as of the text at `version`,
+    /// asked for with [`Effect::Blame`]; `now` is the time, for "3 days
+    /// ago".
+    Blame {
+        path: PathBuf,
+        version: u64,
+        blame: crate::git::Blame,
+        now: i64,
+    },
     /// Every changed file's hunks, staged and not, sent after
     /// [`Event::GitStatus`].
     GitDiffs {
@@ -539,6 +549,15 @@ pub enum Effect {
     /// Stage, unstage or commit; the frontend answers with
     /// [`Event::GitStatus`].
     Git(GitAction),
+    /// Who last changed each line of `text`, the file at `path` as it is
+    /// now, leaving out the commits in `ignore`; answered, after a pause
+    /// in asking, with [`Event::Blame`].
+    Blame {
+        path: PathBuf,
+        version: u64,
+        text: String,
+        ignore: Vec<String>,
+    },
 }
 
 /// Where a branch stands with its upstream.
@@ -840,6 +859,11 @@ pub struct Editor {
     opening_beside: Option<PathBuf>,
     /// A change since the last commit opened in place from its gutter bar.
     change_peek: Option<inline_change::ChangePeek>,
+    /// Who last changed each line, by file, as of a version of its text,
+    /// and what was last asked for. `now` is the time blame last came.
+    blames: HashMap<PathBuf, (u64, crate::git::Blame)>,
+    blame_asked: Option<(PathBuf, u64)>,
+    now: i64,
     /// Signature help: the document, where the call was when it showed,
     /// and the signature.
     signature: Option<(u64, usize, crate::lang::Signature)>,
@@ -1007,6 +1031,9 @@ impl Editor {
             diff_refresh: HashSet::new(),
             opening_beside: None,
             change_peek: None,
+            blames: HashMap::new(),
+            blame_asked: None,
+            now: 0,
             signature: None,
             diagnostics: HashMap::new(),
             diagnostics_version: 0,
@@ -1607,6 +1634,15 @@ impl Editor {
                 self.mark_staged();
             }
             Event::Discarded { path, before, all } => self.discarded(path, before, all),
+            Event::Blame {
+                path,
+                version,
+                blame,
+                now,
+            } => {
+                self.now = now;
+                self.blames.insert(path, (version, blame));
+            }
             Event::GitSync(state) => {
                 self.git.sync = state;
                 self.git.version += 1;
@@ -1656,6 +1692,7 @@ impl Editor {
             }
         }
         self.follow_change_peek();
+        self.ask_blame(&mut fx);
         self.scroll_out_of_folds();
         // An edited preview stays open.
         if let Some(id) = self.preview

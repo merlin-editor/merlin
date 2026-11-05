@@ -179,6 +179,8 @@ struct App {
     git_net: GitNet,
     /// When to ask the remote what's new next, while the window has focus.
     fetch_due: Option<Instant>,
+    /// A blame asked for, run once the asking pauses.
+    blame_due: Option<(Instant, Blame)>,
     pub(crate) window_focused: bool,
     /// The user's and the workspace's settings files.
     settings: settings::Files,
@@ -387,6 +389,24 @@ impl App {
                         });
                     }
                     Effect::GitStatus => self.git_status_later(),
+                    // Asked for as the text changes, it runs after a pause.
+                    Effect::Blame {
+                        path,
+                        version,
+                        text,
+                        ignore,
+                    } => {
+                        let due = Instant::now() + BLAME_PAUSE;
+                        self.blame_due = Some((
+                            due,
+                            Blame {
+                                path,
+                                version,
+                                text,
+                                ignore,
+                            },
+                        ));
+                    }
                     // Stopping a push or pull can't wait behind it.
                     Effect::Git(GitAction::CancelSync) => self.git_net.cancel(),
                     Effect::Git(action) => {
@@ -911,6 +931,7 @@ impl App {
     pub(crate) fn due(&self) -> Option<Instant> {
         [
             self.fetch_due.filter(|_| self.window_focused),
+            self.blame_due.as_ref().map(|(at, _)| *at),
             self.settle,
             self.backups.due,
             self.auto_save,
@@ -927,6 +948,13 @@ impl App {
         let mut changed = false;
         // Every few minutes while the window has focus, and as it comes
         // back after them.
+        if self.blame_due.as_ref().is_some_and(|(at, _)| *at <= now)
+            && let Some((_, ask)) = self.blame_due.take()
+        {
+            let git = self.git_info();
+            self.jobs
+                .run(Lane::Git, move || jobs::events(vec![git.blame(ask)]));
+        }
         if self.window_focused && self.fetch_due.is_some_and(|at| at <= now) {
             self.fetch_due = Some(now + FETCH_EVERY);
             self.fetch_later();
@@ -1117,6 +1145,17 @@ fn file_op(root: &Path, op: FileOp) -> Vec<Event> {
 
 /// How often to ask the remote what's new.
 const FETCH_EVERY: Duration = Duration::from_secs(5 * 60);
+
+/// How long blame waits for the asking to stop, as typing does.
+const BLAME_PAUSE: Duration = Duration::from_millis(400);
+
+/// A file's blame to work out: its text as the editor has it.
+struct Blame {
+    path: PathBuf,
+    version: u64,
+    text: String,
+    ignore: Vec<String>,
+}
 
 /// The push, pull or fetch running, shared with the window's thread so it
 /// can be stopped.
@@ -1458,6 +1497,51 @@ impl Git {
             self.net(&["pull"])
         } else {
             self.net(&["pull", "--no-rebase"])
+        }
+    }
+
+    /// Who last changed each line of the editor's text of a file. A file
+    /// git doesn't know has none.
+    fn blame(&self, ask: Blame) -> Event {
+        use std::io::Write;
+        let mut args = vec![
+            "blame".to_string(),
+            "--porcelain".into(),
+            "--contents".into(),
+        ];
+        args.push("-".into());
+        for rev in &ask.ignore {
+            args.push("--ignore-rev".into());
+            args.push(rev.clone());
+        }
+        args.push("--".into());
+        args.push(ask.path.display().to_string());
+        let child = Command::new("git")
+            .args(&args)
+            .current_dir(&self.root)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+        let text = child.ok().and_then(|mut child| {
+            if let Some(mut stdin) = child.stdin.take() {
+                let _ = stdin.write_all(ask.text.as_bytes());
+            }
+            let o = child.wait_with_output().ok()?;
+            o.status
+                .success()
+                .then(|| String::from_utf8_lossy(&o.stdout).into_owned())
+        });
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs() as i64);
+        Event::Blame {
+            path: ask.path,
+            version: ask.version,
+            blame: text
+                .map(|t| merlin_core::git::parse_blame(&t))
+                .unwrap_or_default(),
+            now,
         }
     }
 
@@ -1846,6 +1930,7 @@ fn main() -> Result<()> {
         terminals: terminal::Terminals::new(gui::waker()),
         disk: HashMap::new(),
         fetch_due: git_dir.is_some().then(|| Instant::now() + FETCH_EVERY),
+        blame_due: None,
         git_prefix,
         git_dir,
         git_index: None,

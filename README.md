@@ -418,7 +418,9 @@ commit: `▎` green for added, yellow for changed, `‾` red where lines were
 deleted. A click on a mark opens the change in place under its lines, with
 what they were and are, Stage (or Unstage), Revert (an edit Ctrl+Z
 undoes), and arrows to the next and previous change; Esc closes it. Alt+F5
-and Alt+F3 go to the next and previous change.
+and Alt+F3 go to the next and previous change. The cursor's line says who last changed it, when
+and why, faint after its end, from git blame of the text as it is (lines
+not yet committed say nothing).
 
 The clipboard goes through the window's own connection to the desktop,
 Wayland's or X11's. Selecting text makes it the selection that a middle
@@ -583,7 +585,7 @@ Other languages work too: anything that builds a WASI 0.2 component for
 - A wrapped line taller than the view can't scroll part way. Without a
   language server, folds go by indentation and symbols are found by
   keyword. Only one plugin's symbols or folds count for a file at a time.
-- Git can't blame yet. The changes tab has its boxes only
+- Git blame is only for the cursor's line yet. The changes tab has its boxes only
   side by side, not inline, and stages only what's saved.
 - Settings have no editor of their own (they're a TOML file), and the
   theme is VS Code's Dark Modern, with no others yet.

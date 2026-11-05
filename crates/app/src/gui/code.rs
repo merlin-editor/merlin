@@ -423,6 +423,29 @@ impl Fonts {
                 }
             }
 
+            // Who last changed the cursor's line, faint, a little after it.
+            if let Some(blame) = &l.blame {
+                let x = x_of(end_col.max(0)) + cw * 4.0;
+                let y = row_y(l.rows.len() - 1);
+                if (l.rows.len() as u16) <= l.shown && x < right - cw * 4.0 {
+                    let ts = text.scale();
+                    let size = (ch / ts * 0.55).round();
+                    let clip = Rect::new(x / ts, y / ts, (right - x) / ts, ch / ts);
+                    let face = Face::ui(size);
+                    let fitted = text.fit(blame, face, (right - x) / ts - 8.0);
+                    text.draw_in_row(
+                        canvas,
+                        &fitted,
+                        face,
+                        x / ts,
+                        y / ts,
+                        ch / ts,
+                        p.faint,
+                        clip,
+                    );
+                }
+            }
+
             // The gutter: the number, a sign, and the fold arrow.
             let number_look = look(l.number_style, Default::default(), None, None);
             let digits_x = gutter_x + view.signs as usize as f32 * cw;

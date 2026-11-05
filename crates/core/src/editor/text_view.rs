@@ -113,6 +113,9 @@ pub struct LineView {
     pub note: Option<(Severity, String)>,
     /// The line break is selected.
     pub eol_selected: bool,
+    /// On the cursor's line: who last changed it, when and why, faint
+    /// after its end.
+    pub blame: Option<String>,
 }
 
 /// An inlay hint on a line: the character it's before, the columns it
@@ -583,6 +586,11 @@ impl Editor {
                     more => (m.severity, format!("{text}  (+{more} more)")),
                 }
             });
+            let blame = if line == cur_line && note.is_none() && selection.is_none() {
+                self.line_blame(line)
+            } else {
+                None
+            };
             let swatches = if self.colour_swatches && doc.review.is_none() {
                 super::swatches::find(&chars)
             } else {
@@ -609,6 +617,7 @@ impl Editor {
                 inlays,
                 note,
                 eol_selected,
+                blame,
             });
             row += shown as i32;
             // The peek views open under their line: the references, then a
@@ -689,6 +698,7 @@ impl Editor {
             inlays: Vec::new(),
             note: None,
             eol_selected: false,
+            blame: None,
         }
     }
 }

@@ -426,10 +426,21 @@ committed:
   - Checked in the window with a local bare remote: Push, a rejected
     push and Pull and Push, Sync with a merge, Publish Branch, and a
     conflict with Abort Pull.
+- **Blame for the cursor's line, built** (Git.dc.html):
+  - After each update the core asks for the current file's blame when its
+    text changed since (`blame::ask_blame`, `Effect::Blame` with the
+    text); the app waits 400 ms for the asking to stop (`blame_due`), then
+    runs `git blame --porcelain --contents -` with that text, so unsaved
+    edits show as not committed. `git::parse_blame` and `git::ago`.
+  - `Event::Blame` comes with the version it's for and the time; a line
+    shows its blame only while the text is still that version
+    (`line_blame`), on the cursor's line, without a problem or selection.
+    `LineView.blame`; the window draws it faint after the line.
+  - Test: `the_cursors_line_says_who_last_changed_it`.
 - Not in the mock-ups' order but still to do: the changes tab's boxes
   inline.
-- Still to build, in order: blame (GitSync's second board, and the
-  cursor's line in Git.dc.html), and new, deleted and moved files
+- Still to build, in order: the blame column with its card (GitSync's
+  second board), and new, deleted and moved files
   (GitFiles).
 
 Saved for later, by the user's choice:
@@ -522,7 +533,7 @@ These are suggestions; nothing of them is written yet.
   straight into core `Event`s. The Rust SDK's re-exports are in
   `sdk/rust/src/lib.rs`; add new types to both lists there.
 - Checks before each commit:
-  - `cargo test --workspace`: 364 tests passed with push, pull and sync
+  - `cargo test --workspace`: 366 tests passed with the cursor line's blame
   - `cargo clippy --workspace --all-targets`
   - in `plugins/lsp`: `cargo clippy --release --target wasm32-wasip2`
   - `cargo fmt --all`
