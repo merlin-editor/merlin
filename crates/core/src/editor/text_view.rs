@@ -96,6 +96,9 @@ pub struct LineView {
     /// colour as `0xRRGGBBAA`.
     pub swatches: Vec<(usize, usize, u32)>,
     pub guides: Vec<Option<bool>>,
+    /// The worst problem starting on the line, shown after its end, as
+    /// Error Lens does: its severity and first line.
+    pub note: Option<(Severity, String)>,
     /// The line break is selected.
     pub eol_selected: bool,
 }
@@ -107,6 +110,20 @@ pub struct CaretView {
     pub line: usize,
     pub col: usize,
     pub cell: Option<(u16, u16)>,
+}
+
+/// A problem's message on one line: its first, and the one after when it
+/// says more, as rustc's "mismatched types" then "expected `u32`, found
+/// `usize`" do, but not a `help:` or `note:`.
+fn note_text(message: &str) -> String {
+    let mut lines = message.lines().map(str::trim).filter(|l| !l.is_empty());
+    let first = lines.next().unwrap_or_default().to_string();
+    match lines.next() {
+        Some(more) if !more.starts_with("help:") && !more.starts_with("note:") => {
+            format!("{first}: {more}")
+        }
+        _ => first,
+    }
 }
 
 /// Rows a window gets above and below the view, so scrolling can glide
@@ -336,12 +353,19 @@ impl Editor {
             // An empty mark underlines one character, so it can be seen.
             let mut marks: Vec<Option<Severity>> = vec![None; chars.len()];
             let mut worst: Option<Severity> = None;
+            let mut note: Option<&crate::lang::Mark> = None;
             for mark in doc
                 .marks
                 .iter()
                 .filter(|m| m.start <= end && m.end >= start)
             {
                 worst = Some(worst.map_or(mark.severity, |w| w.min(mark.severity)));
+                if (start..=end).contains(&mark.start)
+                    && mark.severity < Severity::Hint
+                    && note.is_none_or(|n| mark.severity < n.severity)
+                {
+                    note = Some(mark);
+                }
                 let b = mark.end.max(mark.start + 1).min(end);
                 let a = mark.start.max(start).min(b.saturating_sub(1));
                 for i in a.max(start)..b {
@@ -450,6 +474,9 @@ impl Editor {
                 })
                 .collect();
             let eol_selected = selections.iter().any(|&(a, b)| (a..b).contains(&end));
+            let note = note
+                .filter(|_| self.inline_notes)
+                .map(|m| (m.severity, note_text(&m.message)));
             let swatches = if self.colour_swatches && doc.review.is_none() {
                 super::swatches::find(&chars)
             } else {
@@ -473,6 +500,7 @@ impl Editor {
                 brackets,
                 swatches,
                 guides: line_guides,
+                note,
                 eol_selected,
             });
             row += shown as i32;
@@ -539,6 +567,7 @@ impl Editor {
             brackets: vec![None; n],
             swatches: Vec::new(),
             guides: vec![None; n],
+            note: None,
             eol_selected: false,
         }
     }

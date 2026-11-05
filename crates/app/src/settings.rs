@@ -36,6 +36,7 @@ const USER_TEMPLATE: &str = r#"# merlin settings. Saving this file applies them.
 # minimap_scale = 1.0
 # bracket_pair_colorization = true
 # color_decorators = true      # a swatch under colours such as #e6c07b
+# inline_diagnostics = true    # a line's worst problem written after it
 # icons = "nerd"      # or "plain"
 # theme = "dark"
 # ui_font_size = 13   # the window's own text, apart from the code
@@ -252,6 +253,7 @@ pub fn editor(table: &toml::Table) -> Settings {
             defaults.bracket_pair_colorization,
         ),
         color_decorators: flag("color_decorators", defaults.color_decorators),
+        inline_diagnostics: flag("inline_diagnostics", defaults.inline_diagnostics),
         trim_trailing_whitespace: files_flag(
             "trim_trailing_whitespace",
             defaults.trim_trailing_whitespace,

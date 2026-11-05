@@ -287,6 +287,11 @@ impl Text {
         self.glyphs[&key]
     }
 
+    /// Physical pixels to a logical one, as `draw` places text.
+    pub fn scale(&self) -> f32 {
+        self.scale
+    }
+
     /// Draws `text` with its top left at (`x`, `y`), clipped to `clip`,
     /// wrapped at `wrap` if given. Returns its width.
     #[allow(clippy::too_many_arguments)]

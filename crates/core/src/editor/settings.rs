@@ -30,6 +30,8 @@ pub struct Settings {
     pub bracket_pair_colorization: bool,
     /// A swatch before colours written in the code, such as `#e6c07b`.
     pub color_decorators: bool,
+    /// A line's worst problem is written after its end.
+    pub inline_diagnostics: bool,
     /// Saving takes the spaces and tabs off the ends of lines.
     pub trim_trailing_whitespace: bool,
     /// Saving ends the file with a newline.
@@ -58,6 +60,7 @@ impl Default for Settings {
             scroll_beyond_last_line: true,
             bracket_pair_colorization: true,
             color_decorators: true,
+            inline_diagnostics: true,
             trim_trailing_whitespace: false,
             insert_final_newline: false,
             auto_save: AutoSave::Off,
@@ -86,6 +89,7 @@ impl Editor {
         self.scroll_beyond_last_line = settings.scroll_beyond_last_line;
         self.bracket_colours = settings.bracket_pair_colorization;
         self.colour_swatches = settings.color_decorators;
+        self.inline_notes = settings.inline_diagnostics;
         self.saving.trim_trailing_whitespace = settings.trim_trailing_whitespace;
         self.saving.insert_final_newline = settings.insert_final_newline;
         self.saving.auto = settings.auto_save;

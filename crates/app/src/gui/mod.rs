@@ -1240,6 +1240,7 @@ impl Gui<'_> {
             grid.draw_code(
                 text,
                 &mut f.canvas,
+                f.text,
                 [t.x * s, t.y * s, t.w * s, t.h * s],
                 &self.app.look.palette,
                 caret,

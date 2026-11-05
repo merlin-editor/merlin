@@ -11,9 +11,10 @@ use std::hash::{Hash, Hasher};
 
 use cosmic_text::{CacheKey, Shaping, Wrap};
 use merlin_core::TextView;
+use merlin_core::lang::Severity;
 use merlin_core::style::{Cell, Style, Surface};
 
-use super::canvas::{Canvas, glyph_bitmap};
+use super::canvas::{Canvas, Face, Rect, Text, glyph_bitmap};
 use super::grid::{Fonts, attrs};
 use super::scene::{BitmapId, Prim};
 use crate::settings::CursorStyle;
@@ -71,11 +72,14 @@ impl Fonts {
     /// blink.
     /// `glide` moves the lines down by that many pixels, while scrolling
     /// eases to where the view is; the part of the top row scrolled off
-    /// moves them up.
+    /// moves them up. `text` draws what's written in the interface's font,
+    /// such as problems after their lines.
+    #[allow(clippy::too_many_arguments)]
     pub fn draw_code(
         &mut self,
         view: &TextView,
         canvas: &mut Canvas,
+        text: &mut Text,
         [ox, oy, w, h]: [f32; 4],
         p: &Palette,
         caret: Caret,
@@ -147,6 +151,19 @@ impl Fonts {
                         .unwrap_or(p.island)
                 };
                 quad(canvas, [text_x, y0, right, y0 + rows * ch], 0.0, bg);
+            }
+            // A line with an error or warning written after it is tinted.
+            if let Some((severity, _)) = &l.note
+                && *severity <= Severity::Warning
+            {
+                canvas.scene.prims.push(Prim::Quad {
+                    rect: [text_x, y0, right, y0 + rows * ch],
+                    radius: 0.0,
+                    fill: note_colour(p, *severity),
+                    alpha: 18,
+                    border: 0,
+                    border_w: 0.0,
+                });
             }
 
             // Selections and matches: a rounded box for each run of one
@@ -338,6 +355,28 @@ impl Fonts {
                 }
             }
 
+            // The line's worst problem, written a little after its end.
+            if let Some((severity, message)) = &l.note {
+                let fold = if l.folded { 3.0 } else { 0.0 };
+                let x = x_of(end_col.max(0)) + cw * (3.0 + fold);
+                let y = row_y(l.rows.len() - 1);
+                if (l.rows.len() as u16) <= l.shown && x < right - cw * 4.0 {
+                    let ts = text.scale();
+                    let size = (ch / ts * 0.6).round();
+                    let clip = Rect::new(x / ts, y / ts, (right - x) / ts, ch / ts);
+                    text.draw_in_row(
+                        canvas,
+                        message,
+                        Face::ui(size),
+                        x / ts,
+                        y / ts,
+                        ch / ts,
+                        note_colour(p, *severity),
+                        clip,
+                    );
+                }
+            }
+
             // The gutter: the number, a sign, and the fold arrow.
             let number_look = look(l.number_style, Default::default(), None, None);
             let digits_x = gutter_x + view.signs as usize as f32 * cw;
@@ -501,6 +540,7 @@ impl Fonts {
             self.draw_code(
                 &pinned,
                 canvas,
+                text,
                 [ox, oy, w, rows as f32 * ch],
                 p,
                 Caret { on: 0.0, ..caret },
@@ -697,6 +737,15 @@ fn clip_rows(prims: &mut [Prim], top: f32, bottom: f32) {
 fn near(a: u32, b: u32) -> bool {
     let d = |sh: u32| ((a >> sh) & 0xff).abs_diff((b >> sh) & 0xff);
     d(16) + d(8) + d(0) < 72
+}
+
+/// The colour problems of a severity are written in.
+fn note_colour(p: &Palette, severity: Severity) -> u32 {
+    match severity {
+        Severity::Error => p.error,
+        Severity::Warning => p.warning,
+        _ => p.info,
+    }
 }
 
 fn quad(canvas: &mut Canvas, rect: [f32; 4], radius: f32, fill: u32) {

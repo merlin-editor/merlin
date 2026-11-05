@@ -160,3 +160,59 @@ fn hover_keeps_code_indentation() {
     s.send(Event::ShowHover("struct A {\n    field: u32,\n}".into()));
     assert!(s.screen().contains("    field: u32,"), "{}", s.screen());
 }
+
+/// The note a line of the active group shows after its end.
+fn note(s: &Session, line: usize) -> Option<(Severity, String)> {
+    let views = s.editor.text_views();
+    let view = views.last().unwrap();
+    view.lines.iter().find(|l| l.line == line)?.note.clone()
+}
+
+#[test]
+fn a_lines_worst_problem_is_written_after_it() {
+    let mut s = rust("let x = y;\nlet z = 1;\n");
+    s.send(Event::SetDiagnostics {
+        plugin: "lsp".into(),
+        path: "main.rs".into(),
+        diagnostics: vec![
+            Diagnostic {
+                start: (0, 4),
+                end: (0, 5),
+                severity: Severity::Warning,
+                message: "unused variable `x`".into(),
+            },
+            Diagnostic {
+                start: (0, 8),
+                end: (0, 9),
+                severity: Severity::Error,
+                message: "cannot find value `y`\nhelp: a local variable with a similar name exists".into(),
+            },
+            Diagnostic {
+                start: (1, 4),
+                end: (1, 5),
+                severity: Severity::Hint,
+                message: "a hint stays out of the way".into(),
+            },
+        ],
+    });
+    assert_eq!(
+        note(&s, 0),
+        Some((Severity::Error, "cannot find value `y`".into())),
+        "the error wins, without its help"
+    );
+    assert_eq!(note(&s, 1), None, "hints aren't written out");
+    s.send(diagnostic((1, 4), (1, 5), "mismatched types\nexpected `u32`, found `usize`"));
+    assert_eq!(
+        note(&s, 1),
+        Some((
+            Severity::Error,
+            "mismatched types: expected `u32`, found `usize`".into()
+        )),
+        "a second line that says more is kept"
+    );
+    s.send(Event::Settings(merlin_core::Settings {
+        inline_diagnostics: false,
+        ..Default::default()
+    }));
+    assert_eq!(note(&s, 0), None, "the setting turns it off");
+}

@@ -747,6 +747,8 @@ pub struct Editor {
     bracket_colours: bool,
     /// Colours written in the code get a swatch.
     colour_swatches: bool,
+    /// Problems are written out after their lines.
+    inline_notes: bool,
     /// Colours plugins gave for diffs and code blocks.
     colours: colours::TextColours,
     /// Languages plugins added, with the plugin that added each.
@@ -844,6 +846,7 @@ impl Editor {
             terminals: terminal::Terminals::default(),
             bracket_colours: true,
             colour_swatches: true,
+            inline_notes: true,
             project: "merlin".into(),
             log: Vec::new(),
             problems: Vec::new(),
