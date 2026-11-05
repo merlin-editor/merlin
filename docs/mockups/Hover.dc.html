@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Problem hover</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.w{width:1280px;height:800px;background:#0f1012;font-family:Inter,sans-serif;color:#d4d5da;display:flex;flex-direction:column;font-size:13px;overflow:hidden}
+.bar{height:40px;display:flex;align-items:center;gap:10px;padding:0 12px;flex-shrink:0}
+.logo{width:20px;height:20px;border-radius:5px;background:#7c9cff;color:#0f1012;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
+.search{margin:0 auto;width:400px;height:26px;border-radius:7px;background:#1c1d21;border:1px solid #2c2d33;color:#8e9099;display:flex;align-items:center;gap:8px;padding:0 10px;font-size:12.5px;box-sizing:border-box}
+.kbd{font-size:11px;background:#26272c;border-radius:4px;padding:1px 6px;color:#b4b6bd;font-family:Inter,sans-serif}
+.mid{flex:1;display:flex;gap:6px;padding-right:6px;min-height:0}
+.rail{width:44px;flex-shrink:0}
+.island{background:#17181b;border-radius:10px;display:flex;flex-direction:column;min-width:0;overflow:hidden;position:relative}
+.tabs{height:32px;display:flex;align-items:center;gap:3px;padding:0 6px;flex-shrink:0}
+.tab{height:24px;padding:0 10px;border-radius:6px;display:flex;align-items:center;gap:6px;color:#8e9099;font-size:12.5px}
+.tab.on{background:#26272c;color:#eef0f3;box-shadow:inset 0 0 0 1px #2c2d33}
+.ic{width:14px;height:14px;border-radius:3px;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;background:#3a2a1e;color:#f5a97f}
+.code{font-family:'JetBrains Mono',monospace;font-size:13px;line-height:22px;white-space:pre;padding:4px 0}
+.row{position:relative}
+.ln{display:inline-block;width:40px;text-align:right;padding-right:20px;color:#7a7d86}
+.k{color:#c4a7e7}.s{color:#a6d189}.f{color:#f0c674}.t{color:#9ccfd8}.c{color:#7f8794}.n{color:#f5a97f}
+.hint{font-family:Inter,sans-serif;font-size:11px;background:#1f2024;color:#8e9099;border-radius:4px;padding:1px 5px;margin:0 2px}
+.err{text-decoration:underline wavy #f0807a;text-underline-offset:4px}
+.warn{text-decoration:underline wavy #e3b341;text-underline-offset:4px}
+.lens{font-family:Inter,sans-serif;font-size:12px;margin-left:24px}
+.errline{background:rgba(240,128,122,0.07)}
+.warnline{background:rgba(227,179,65,0.06)}
+.card{position:absolute;background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.45);font-family:Inter,sans-serif;overflow:hidden}
+.prob{display:flex;gap:9px;padding:10px 12px 8px}
+.sev{width:16px;height:16px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;margin-top:1px}
+.msg{font-size:13px;color:#eef0f3;line-height:19px}
+.sub{font-size:12px;color:#8e9099;line-height:18px;margin-top:3px}
+.mono{font-family:'JetBrains Mono',monospace;font-size:12px}
+.src{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11.5px;color:#8e9099}
+.chip{background:#26272c;border-radius:4px;padding:1px 6px;color:#b4b6bd}
+.link{color:#7c9cff}
+.acts{display:flex;align-items:center;gap:6px;padding:0 12px 10px 37px}
+.btn{height:24px;white-space:nowrap;flex-shrink:0;display:flex;align-items:center;gap:6px;padding:0 9px;border-radius:5px;font-size:12px;color:#d4d5da;background:#26272c}
+.btn.pri{background:#262b3d;color:#eef0f3;box-shadow:inset 0 0 0 1px #3a4466}
+.quiet{color:#8e9099;font-size:12px;padding:0 6px;white-space:nowrap}
+.sep{height:1px;background:#2c2d33}
+.info{padding:8px 12px 10px}
+.status{height:24px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px;color:#8e9099;flex-shrink:0}
+.label{position:absolute;font-family:Inter,sans-serif;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#7c9cff}
+.note{position:absolute;font-family:Inter,sans-serif;font-size:11.5px;color:#8e9099;line-height:16px}
+.ptr{position:absolute;width:0;height:0}
+</style>
+</helmet>
+<div class="w">
+  <div class="bar">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#8e9099" stroke-width="1.5" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
+    <div class="logo">m</div><strong style="font-size:13px;color:#eef0f3;font-weight:600">merlin</strong>
+    <div class="search">Search files, commands and symbols<span class="kbd" style="margin-left:auto">Ctrl P</span></div>
+  </div>
+  <div class="mid">
+    <div class="rail"></div>
+    <div class="island" style="flex:1">
+      <div class="tabs"><div class="tab on"><span class="ic">RS</span>palette.rs</div></div>
+      <div style="height:22px;display:flex;align-items:center;gap:6px;padding:0 14px;font-size:12px;color:#8e9099;flex-shrink:0">src › palette.rs › <span style="color:#d4d5da">fn theme_colours</span></div>
+      <div class="code"><div class="row"><span class="ln">26</span><span class="k">pub fn</span> <span class="f">theme_colours</span>(accent: <span class="t">Rgb</span>) -&gt; <span class="t">Vec</span>&lt;<span class="t">Rgb</span>&gt; {</div><div class="row"><span class="ln">27</span>    <span class="k">let</span> steps<span class="hint">: [f32; 3]</span> = [<span class="n">-0.4</span>, <span class="n">0.0</span>, <span class="n">0.4</span>];</div><div class="row errline"><span class="ln" style="color:#f0807a">28</span>    <span class="k">let</span> count: <span class="t">u32</span> = <span class="err">steps.<span class="f">len</span>()</span>;<span class="lens" style="color:#f0807a">mismatched types: expected `u32`, found `usize`</span></div><div class="row"><span class="ln">29</span>    steps.<span class="f">iter</span>().<span class="f">map</span>(|s| <span class="f">shade</span>(accent, *s)).<span class="f">collect</span>()</div><div class="row"><span class="ln">30</span>}</div><div class="row"><span class="ln">31</span></div><div class="row"><span class="ln">32</span></div><div class="row"><span class="ln">33</span></div><div class="row"><span class="ln">34</span></div><div class="row"><span class="ln">35</span></div><div class="row"><span class="ln">36</span></div><div class="row"><span class="ln">37</span></div><div class="row"><span class="ln">38</span></div><div class="row"><span class="ln">39</span><span class="k">fn</span> <span class="f">swatch</span>(c: <span class="t">Rgb</span>) -&gt; <span class="t">String</span> {</div><div class="row warnline"><span class="ln" style="color:#e3b341">40</span>    <span class="k">let</span> <span class="warn">hex</span> = c.<span class="f">to_hex</span>();<span class="lens" style="color:#e3b341">unused variable: `hex`</span></div><div class="row"><span class="ln">41</span>    <span class="f">format!</span>(<span class="s">"#{:02x}{:02x}{:02x}"</span>, c.r, c.g, c.b)</div><div class="row"><span class="ln">42</span>}</div></div>
+
+      <!-- 1. A problem on a word: the problem first, then the type and docs -->
+      <svg class="ptr" style="left:236px;top:110px" width="14" height="20" viewBox="0 0 14 20" aria-hidden="true"><path d="M1 1v15l4-4 3 7 2-1-3-7h6z" fill="#eef0f3" stroke="#0f1012" stroke-width="1"/></svg>
+      <div class="card" style="left:150px;top:126px;width:520px">
+        <div class="prob">
+          <div class="sev" style="background:#3d2422;color:#f0807a">✕</div>
+          <div style="min-width:0">
+            <div class="msg">mismatched types</div>
+            <div class="sub">expected <span class="mono" style="color:#9ccfd8">u32</span>, found <span class="mono" style="color:#9ccfd8">usize</span></div>
+            <div class="sub"><span style="color:#b4b6bd">help:</span> you can convert a <span class="mono">usize</span> to a <span class="mono">u32</span> and panic if it doesn't fit</div>
+            <div class="src"><span class="chip">rustc</span><span class="link">E0308</span><span>·</span><span>also from cargo check</span></div>
+          </div>
+        </div>
+        <div class="acts">
+          <div class="btn pri"><svg width="11" height="11" viewBox="0 0 12 12" fill="#e3b341" aria-hidden="true"><path d="M6 1a3.5 3.5 0 0 0-2 6.4V9h4V7.4A3.5 3.5 0 0 0 6 1zM4.5 10h3v1h-3z"/></svg>Convert with <span class="mono">u32::try_from</span></div>
+          <div class="btn">More fixes<span class="kbd" style="background:#1f2024">Ctrl .</span></div>
+          <span class="quiet" style="margin-left:auto">Copy</span><span class="quiet">Problems</span>
+        </div>
+        <div class="sep"></div>
+        <div class="info">
+          <div class="mono" style="color:#d4d5da"><span class="k">pub const fn</span> <span class="f">len</span>(&amp;<span class="k">self</span>) -&gt; <span class="t">usize</span></div>
+          <div style="font-size:12px;color:#8e9099;margin-top:5px;line-height:18px">Returns the number of elements in the slice.</div>
+          <div style="font-size:11.5px;color:#7c9cff;margin-top:6px">Go to definition <span class="kbd">F12</span></div>
+        </div>
+      </div>
+      <span class="label" style="left:690px;top:134px">A problem on a word: the problem first</span>
+      <div class="note" style="left:690px;top:154px;width:330px">The message in bright text, the severity as an icon, rustc's second line and <span style="color:#b4b6bd">help:</span> under it. The source and code, the code linked to its explanation. The same problem from two sources shows once.<br><br>The server's preferred fix is one click, as JetBrains has it. Ctrl+. gives the full list.<br><br>Then a divider and the hover the card has today: the signature in code, the docs' first paragraph.</div>
+
+      <!-- 2. A problem with no hover: a card of the problem alone -->
+      <svg class="ptr" style="left:128px;top:414px" width="14" height="20" viewBox="0 0 14 20" aria-hidden="true"><path d="M1 1v15l4-4 3 7 2-1-3-7h6z" fill="#eef0f3" stroke="#0f1012" stroke-width="1"/></svg>
+      <div class="card" style="left:80px;top:432px;width:400px">
+        <div class="prob">
+          <div class="sev" style="background:#3a3420;color:#e3b341">!</div>
+          <div style="min-width:0">
+            <div class="msg">unused variable: <span class="mono">`hex`</span></div>
+            <div class="src"><span class="chip">rustc</span><span class="link">unused_variables</span></div>
+          </div>
+        </div>
+        <div class="acts">
+          <div class="btn pri"><svg width="11" height="11" viewBox="0 0 12 12" fill="#e3b341" aria-hidden="true"><path d="M6 1a3.5 3.5 0 0 0-2 6.4V9h4V7.4A3.5 3.5 0 0 0 6 1zM4.5 10h3v1h-3z"/></svg>Rename to <span class="mono">_hex</span></div>
+          <div class="btn">More fixes<span class="kbd" style="background:#1f2024">Ctrl .</span></div>
+        </div>
+      </div>
+      <span class="label" style="left:496px;top:440px">The problem alone</span>
+      <div class="note" style="left:496px;top:460px;width:300px">When the server has no hover for the spot, or the squiggle isn't on a word, the card still shows the problem.</div>
+
+      <!-- How it behaves -->
+      <span class="label" style="left:880px;top:420px">How it behaves</span>
+      <div class="note" style="left:880px;top:440px;width:330px">
+        • It stays open while the pointer moves into it, so its buttons and text can be used. It closes when the pointer leaves both the word and the card.<br>
+        • <span class="kbd">Ctrl K</span> <span class="kbd">Ctrl I</span> shows it for the cursor, with no mouse.<br>
+        • A long hover scrolls (wheel, or ↑ ↓ once it's focused), and the problem never sinks to the bottom.<br>
+        • Several problems at one spot are listed one after another, worst first.<br>
+        • Select its text to copy it.<br>
+        • Without a language server, the card still shows any problem a plugin reports.
+      </div>
+    </div>
+  </div>
+  <div class="status"><span>⑂ main</span><span style="color:#f0807a">⊗ 1</span><span style="color:#e3b341">⚠ 1</span><span style="margin-left:auto">Ln 28, Col 22</span><span>rust-analyzer ✓</span><span>Rust</span></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

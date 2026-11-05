@@ -9,6 +9,11 @@ mock-ups. Nothing is pushed. The last commit when this was written was
 
 ## The user's rules
 
+- merlin is meant to look and feel modern. It takes the best of the
+  popular editors (VS Code, Zed, JetBrains, Sublime, Neovim) and what
+  users ask for most, by votes on their issue trackers. Before designing
+  a feature, check how those editors do it and what their users complain
+  about, then fit it to merlin's current look and the mock-ups.
 - Build to the mock-ups the user approved, in the order in
   `feature-research.md`. Anything new that changes or adds UI and isn't in
   a mock-up gets a mock-up first, for the user to review.
@@ -103,9 +108,18 @@ Not built yet, in the order to do them:
      - give `Popup::Hover` / `PopupKind::Hover` a problems part
      - let `Diagnostic` carry the server's `source` and `code`
      - draw them in `Frame::popup`
-   - It isn't in the mock-ups. The card is the existing hover's, but it
-     adds UI, so show the user a quick mock-up first. Quick Fix depends on
-     code actions (item 1).
+   - Its mock-up is [`mockups/Hover.dc.html`](mockups/Hover.dc.html)
+     (2026-11-05), **approved** the same day. It also answers the
+     most-voted hover complaints on VS Code's tracker:
+     - errors sank to the bottom of long hovers (131 votes)
+     - no way to scroll a hover with the keyboard (215)
+     - the hover vanished when the pointer moved into it (114). merlin
+       has the same problem: `pointer_moved` closes the card once the
+       pointer leaves the word.
+     - no way to go to the definition from the hover (61)
+
+     The one-click preferred fix and More fixes both depend on code
+     actions (item 1).
 5. **Find references** has its own mock-up (`References.dc.html`), the
    next item after these.
 
