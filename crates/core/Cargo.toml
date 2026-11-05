@@ -10,3 +10,4 @@ ropey.workspace = true
 unicode-width.workspace = true
 merlin-syntax.workspace = true
 similar.workspace = true
+regex.workspace = true

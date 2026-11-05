@@ -65,8 +65,8 @@ impl Editor {
             };
             marks.push((line, style));
         }
-        if let Some((query, fold)) = self.query() {
-            for m in self.all_matches(&query, fold) {
+        if let Some(matcher) = self.query() {
+            for (m, _) in self.all_matches(&matcher) {
                 marks.push((doc.line_col(m).0, Style::ScrollMatch));
             }
         }

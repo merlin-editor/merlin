@@ -17,3 +17,4 @@ anyhow = "1"
 ropey = "1.6"
 unicode-width = "0.2"
 similar = "2"
+regex = { version = "1", default-features = false, features = ["std", "unicode-perl", "unicode-case"] }

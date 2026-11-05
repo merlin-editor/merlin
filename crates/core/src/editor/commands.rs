@@ -122,18 +122,10 @@ impl Editor {
             return;
         }
         match id {
-            "file.save" => {
-                let doc = self.doc();
-                match &doc.buffer.path {
-                    Some(path) => fx.push(Effect::Save {
-                        doc: doc.id,
-                        path: path.clone(),
-                        text: doc.buffer.text(),
-                        revision: doc.buffer.revision(),
-                    }),
-                    None => self.run("file.save_as", fx),
-                }
-            }
+            "file.save" => match self.doc().buffer.path {
+                Some(_) => self.save_current(fx),
+                None => self.run("file.save_as", fx),
+            },
             "file.open" => fx.push(Effect::ListFiles),
             "file.close" => self.close(false),
             "file.next" => self.next_tab(true),

@@ -88,7 +88,7 @@ impl Editor {
         Guides {
             levels,
             active: if review { None } else { self.active_guide() },
-            depth: if review {
+            depth: if review || !self.bracket_colours {
                 None
             } else {
                 self.bracket_depth(visible.start)

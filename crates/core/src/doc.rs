@@ -99,6 +99,8 @@ pub struct Doc {
     pub page: Option<(String, String)>,
     /// The indentation the file already uses, if it has any.
     pub indent: Option<Indent>,
+    /// What `.editorconfig` files say about it.
+    pub config: crate::editor::FileConfig,
 }
 
 impl Doc {
@@ -124,6 +126,7 @@ impl Doc {
             layers: Layers::default(),
             page: None,
             indent,
+            config: Default::default(),
         }
     }
 

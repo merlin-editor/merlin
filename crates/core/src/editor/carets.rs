@@ -239,7 +239,10 @@ impl Editor {
         if needle.is_empty() || needle.contains(&'\n') {
             return Vec::new();
         }
-        self.all_matches(needle, false)
+        self.all_matches(&super::find::Matcher::exact(needle))
+            .into_iter()
+            .map(|(at, _)| at)
+            .collect()
     }
 
     /// The text at every cursor: the selections, or each cursor's line.

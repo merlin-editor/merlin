@@ -21,9 +21,11 @@ mod mouse;
 mod overview;
 mod palette;
 mod panels;
+mod save;
 mod scroll;
 mod select;
 mod settings;
+mod swatches;
 mod tabs;
 mod text_view;
 mod views;
@@ -43,6 +45,7 @@ pub use keymap::{UserKey, When};
 pub use layout::Rect as CellRect;
 pub use menu::MenuView;
 pub use overview::{MINIMAP_COLUMNS, MinimapLine, MinimapView, ScrollbarView};
+pub use save::{AutoSave, AutoSaveWhy, FileConfig};
 pub use settings::Settings;
 pub use tabs::GroupView;
 pub use text_view::{CaretView, LineView, OVERSCAN, TextView};
@@ -54,7 +57,6 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use commands::BUILTIN;
-use find::line_matches;
 
 use crate::buffer::Buffer;
 use crate::diff::LineKind;
@@ -177,6 +179,13 @@ pub enum Event {
         path: PathBuf,
         text: String,
     },
+    /// What `.editorconfig` files say about an open file.
+    FileConfig {
+        path: PathBuf,
+        config: FileConfig,
+    },
+    /// Save changed files now, if the settings say to for this.
+    AutoSave(AutoSaveWhy),
     /// Lays out the editor groups as last time, once their files are open.
     Restore(Workspace),
     /// The user's settings, with the workspace's over them.
@@ -504,6 +513,14 @@ struct Find {
     in_replace: bool,
     /// Where the cursor was when find opened; typing searches from here.
     origin: usize,
+    /// Case must match, even when the query is all lowercase.
+    match_case: bool,
+    /// Matches must be whole words.
+    whole_word: bool,
+    /// The query is a regular expression.
+    regex: bool,
+    /// Only text in this range is searched, as Find in Selection has it.
+    scope: Option<(usize, usize)>,
 }
 
 impl Find {
@@ -708,6 +725,12 @@ pub struct Editor {
     auto_close: bool,
     /// The last line can scroll to the top of the view.
     scroll_beyond_last_line: bool,
+    /// Tidying on save, and saving by itself.
+    saving: save::Saving,
+    /// Brackets are coloured by how deep they are.
+    bracket_colours: bool,
+    /// Colours written in the code get a swatch.
+    colour_swatches: bool,
     /// Colours plugins gave for diffs and code blocks.
     colours: colours::TextColours,
     /// Languages plugins added, with the plugin that added each.
@@ -801,6 +824,9 @@ impl Editor {
             detect_indentation: true,
             auto_close: true,
             scroll_beyond_last_line: true,
+            saving: save::Saving::default(),
+            bracket_colours: true,
+            colour_swatches: true,
             project: "merlin".into(),
             log: Vec::new(),
             problems: Vec::new(),
@@ -1017,6 +1043,7 @@ impl Editor {
             }
         }
         let before = self.view_key();
+        let was = (self.focus, self.doc().id);
         match event {
             Event::Key(key) => {
                 self.probe = None;
@@ -1045,7 +1072,9 @@ impl Editor {
                     d.buffer.mark_saved(revision);
                     d.buffer.path = Some(path.clone());
                 }
-                self.notify(format!("Saved {}", path.display()));
+                if !self.saving.quiet.remove(&doc) {
+                    self.notify(format!("Saved {}", path.display()));
+                }
                 if self.git.branch.is_some() {
                     fx.push(Effect::GitStatus);
                 }
@@ -1060,6 +1089,8 @@ impl Editor {
                 self.opened(path.clone(), &text);
                 self.split_opened(&path);
             }
+            Event::FileConfig { path, config } => self.file_config(&path, config),
+            Event::AutoSave(why) => self.auto_save(why, &mut fx),
             Event::Restore(ws) => self.restore(ws),
             Event::Settings(settings) => self.apply_settings(settings),
             Event::TextColours {
@@ -1271,8 +1302,18 @@ impl Editor {
                 self.show_review(String::new(), id, path, &old, &new);
             }
         }
+        let shown = self.docs[self.current].id;
         for doc in &mut self.docs {
             let changes = doc.sync();
+            // Find in Selection's range moves with edits.
+            if doc.id == shown
+                && let Some((a, b)) = self.find.as_mut().and_then(|f| f.scope.as_mut())
+            {
+                for change in &changes {
+                    *a = change.map(*a);
+                    *b = change.map(*b);
+                }
+            }
             // Other groups showing the document keep their place in it.
             for group in &mut self.groups {
                 if let Some(view) = group.saved.get_mut(&doc.id) {
@@ -1306,6 +1347,7 @@ impl Editor {
             self.scroll_to_cursor();
         }
         self.share_selection(&mut fx);
+        self.save_on_focus_change(was, &mut fx);
         for side in [Side::Left, Side::Right, Side::Bottom] {
             self.select(side, self.selected_index(side));
         }

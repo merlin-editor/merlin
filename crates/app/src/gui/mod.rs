@@ -117,7 +117,7 @@ pub fn run(app: &mut App) -> Result<()> {
         tip_drawn: None,
         tips: Vec::new(),
         tip: None,
-        zoomed: 0.0,
+        zoomed: (0.0, 1.0),
         sizes: frame::Sizes::default(),
         sash: None,
         group_drag: None,
@@ -206,7 +206,7 @@ struct Gui<'a> {
     /// The tooltip last drawn.
     tip_drawn: Option<(Rect, String)>,
     /// The zoom the fonts were made for.
-    zoomed: f32,
+    zoomed: (f32, f32),
     /// How big the sides are, as last dragged.
     sizes: frame::Sizes,
     /// The side whose edge is being dragged.
@@ -301,10 +301,19 @@ impl Backend {
 }
 
 impl Gui<'_> {
+    /// Physical pixels to a point: the display's scale, times the
+    /// window's own text size over its usual 13.
     fn scale(&self) -> f32 {
-        self.window
+        let display = self
+            .window
             .as_ref()
-            .map_or(1.0, |s| s.window.scale_factor() as f32)
+            .map_or(1.0, |s| s.window.scale_factor() as f32);
+        display * self.ui_zoom()
+    }
+
+    /// How much bigger the frame is drawn than usual, for `ui_font_size`.
+    fn ui_zoom(&self) -> f32 {
+        self.app.window.ui_font_size.map_or(1.0, |n| n / 13.0)
     }
 
     fn dispatch(&mut self, event: Event) {
@@ -340,7 +349,7 @@ impl Gui<'_> {
             ..self.app.look.fonts.clone()
         };
         let shape = (w.line_height, w.font_ligatures);
-        let zoom = self.app.zoom;
+        let zoom = (self.app.zoom, self.ui_zoom());
         if !now && self.fonts.as_ref() == Some(&(wanted.clone(), shape)) && self.zoomed == zoom {
             return;
         }
@@ -351,9 +360,10 @@ impl Gui<'_> {
             wanted.ui.as_deref(),
             wanted.code.as_deref(),
         ));
-        let size = (wanted.code_size.unwrap_or(grid::FONT_SIZE) + zoom).max(6.0);
+        let size = (wanted.code_size.unwrap_or(grid::FONT_SIZE) + zoom.0).max(6.0);
+        // The frame's zoom leaves the code as big as it says.
         self.grid = Some(Fonts::new(
-            scale,
+            scale / zoom.1,
             wanted.code.as_deref(),
             Some(size),
             shape.0,
@@ -1474,6 +1484,9 @@ impl ApplicationHandler for Gui<'_> {
             }
             WindowEvent::Focused(on) => {
                 self.focused = on;
+                if !on {
+                    self.dispatch(Event::AutoSave(merlin_core::AutoSaveWhy::Window));
+                }
                 self.blink_from = Instant::now();
                 self.redraw();
             }

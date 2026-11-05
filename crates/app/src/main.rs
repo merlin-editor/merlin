@@ -1,5 +1,6 @@
 mod clipboard;
 mod disk;
+mod editorconfig;
 mod gui;
 mod jobs;
 mod looks;
@@ -18,7 +19,9 @@ use anyhow::{Context, Result, bail};
 use disk::{Backups, Changes, Watch};
 use jobs::{Jobs, Lane};
 use merlin_core::script::{self, Step};
-use merlin_core::{Editor, Effect, Event, FileOp, FilePick, GitAction, SearchHit, Workspace};
+use merlin_core::{
+    AutoSaveWhy, Editor, Effect, Event, FileOp, FilePick, GitAction, SearchHit, Workspace,
+};
 use merlin_plugins::{BufferEvent, Config, PluginHost, Selection, Snapshot};
 
 const USAGE: &str = "\
@@ -197,6 +200,10 @@ struct App {
     /// What the watched folders were last worked out from.
     watch_for: Option<(Vec<Option<PathBuf>>, usize)>,
     backups: Backups,
+    /// When changed files save by themselves next, and the changes that
+    /// time is from.
+    auto_save: Option<Instant>,
+    auto_save_for: Vec<(u64, u64)>,
     quit: bool,
 }
 
@@ -212,7 +219,29 @@ impl App {
         self.refresh_panels();
         self.serve_colours();
         self.backups.touch(&self.editor.unsaved());
+        self.touch_auto_save();
         self.refresh_watch();
+    }
+
+    /// Sets when changed files save by themselves: the settings' delay
+    /// after the last change to any of them.
+    fn touch_auto_save(&mut self) {
+        let Some(delay) = self.editor.auto_save_delay() else {
+            self.auto_save = None;
+            return;
+        };
+        let unsaved: Vec<(u64, u64)> = self
+            .editor
+            .unsaved()
+            .into_iter()
+            .filter(|(_, path, _)| path.is_some())
+            .map(|(id, _, version)| (id, version))
+            .collect();
+        if unsaved != self.auto_save_for {
+            self.auto_save = (!unsaved.is_empty())
+                .then(|| Instant::now() + std::time::Duration::from_millis(delay));
+            self.auto_save_for = unsaved;
+        }
     }
 
     /// Asks language plugins to colour what the editor wants coloured that
@@ -582,13 +611,25 @@ impl App {
 
     /// Reads a file to open, at once, for files named at the start. A path
     /// that doesn't exist yet opens empty, and is created on save.
-    fn open(&mut self, path: &Path) -> Event {
+    fn open(&mut self, path: &Path) -> Vec<Event> {
         let path = relative_to(&self.root, path);
         let full = self.root.join(&path);
         self.disk.insert(path.clone(), modified(&full));
         match read_file(&full) {
-            Ok(text) => Event::Opened { path, text },
-            Err(err) => Event::Error(format!("Can't open {}: {err}", path.display())),
+            Ok(text) => vec![
+                Event::Opened {
+                    path: path.clone(),
+                    text,
+                },
+                Event::FileConfig {
+                    path,
+                    config: editorconfig::for_file(&full),
+                },
+            ],
+            Err(err) => vec![Event::Error(format!(
+                "Can't open {}: {err}",
+                path.display()
+            ))],
         }
     }
 
@@ -599,11 +640,18 @@ impl App {
         self.jobs.run(Lane::Disk, move || {
             let when = modified(&full);
             let read = read_file(&full);
+            let config = editorconfig::for_file(&full);
             Box::new(move |app: &mut App| match read {
                 Ok(text) => {
                     app.disk.insert(path.clone(), when);
                     app.git_base_later(path.clone());
-                    vec![Event::Opened { path, text }]
+                    vec![
+                        Event::Opened {
+                            path: path.clone(),
+                            text,
+                        },
+                        Event::FileConfig { path, config },
+                    ]
                 }
                 Err(err) => vec![Event::Error(format!(
                     "Can't open {}: {err}",
@@ -751,7 +799,10 @@ impl App {
 
     /// When the app next has something to do, if ever.
     pub(crate) fn due(&self) -> Option<Instant> {
-        [self.settle, self.backups.due].into_iter().flatten().min()
+        [self.settle, self.backups.due, self.auto_save]
+            .into_iter()
+            .flatten()
+            .min()
     }
 
     /// Does what's due by now. Returns whether the editor heard anything.
@@ -762,6 +813,11 @@ impl App {
             self.settle = None;
             let changes = std::mem::take(&mut self.changes);
             self.settled(changes);
+            changed = true;
+        }
+        if self.auto_save.is_some_and(|at| at <= now) {
+            self.auto_save = None;
+            self.dispatch(Event::AutoSave(AutoSaveWhy::Delay));
             changed = true;
         }
         if self.backups.due.is_some_and(|at| at <= now) {
@@ -900,10 +956,14 @@ fn file_op(root: &Path, op: FileOp) -> Vec<Event> {
             if let Err(err) = fs::write(at(&path), "") {
                 return fail("create", &path, err);
             }
-            vec![Event::Opened {
-                path,
-                text: String::new(),
-            }]
+            let config = editorconfig::for_file(&at(&path));
+            vec![
+                Event::Opened {
+                    path: path.clone(),
+                    text: String::new(),
+                },
+                Event::FileConfig { path, config },
+            ]
         }
         FileOp::CreateFolder(path) => match fs::create_dir_all(at(&path)) {
             Ok(()) => Vec::new(),
@@ -1332,6 +1392,8 @@ fn main() -> Result<()> {
         tree_hash: None,
         watch_for: None,
         backups: Backups::new(backups_dir),
+        auto_save: None,
+        auto_save_for: Vec::new(),
         quit: false,
     };
     // Nerd Font icons, except in scripted runs, whose output should read
@@ -1352,11 +1414,12 @@ fn main() -> Result<()> {
     let root = app.root.clone();
     app.editor.set_root(root);
     for file in &args.files {
-        let event = app.open(file);
-        if let Event::Error(err) = event {
-            bail!(err);
+        for event in app.open(file) {
+            if let Event::Error(err) = event {
+                bail!(err);
+            }
+            app.dispatch(event);
         }
-        app.dispatch(event);
     }
     if !args.files.is_empty() {
         app.dispatch(Event::Command("file.next".into()));
@@ -1368,8 +1431,9 @@ fn main() -> Result<()> {
         let ws = Workspace::parse(&fs::read_to_string(&workspace_path).unwrap_or_default());
         for file in ws.files() {
             if app.root.join(&file).is_file() {
-                let event = app.open(&file);
-                app.dispatch(event);
+                for event in app.open(&file) {
+                    app.dispatch(event);
+                }
             }
         }
         app.dispatch(Event::Restore(ws));
@@ -1382,8 +1446,9 @@ fn main() -> Result<()> {
             if let Some(path) = &kept.path
                 && !app.editor.open_files().contains(&Some(path.clone()))
             {
-                let event = app.open(path);
-                app.dispatch(event);
+                for event in app.open(path) {
+                    app.dispatch(event);
+                }
             }
             app.dispatch(Event::Recovered {
                 path: kept.path,
@@ -1396,8 +1461,9 @@ fn main() -> Result<()> {
         )));
         // The file asked for stays in front of the ones restored.
         if let Some(first) = args.files.first() {
-            let event = app.open(first);
-            app.dispatch(event);
+            for event in app.open(first) {
+                app.dispatch(event);
+            }
         }
     }
     // Loads git signs for the files opened so far; later ones get theirs

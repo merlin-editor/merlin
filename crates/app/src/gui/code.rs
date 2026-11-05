@@ -282,6 +282,39 @@ impl Fonts {
                 i = j;
             }
 
+            // Colours written in the code: a bar in that colour under each,
+            // split where it wraps.
+            for &(start, len, rgba) in &l.swatches {
+                let mut i = start;
+                while i < start + len && i < l.chars.len() {
+                    let row = spots[i].row;
+                    let mut j = i;
+                    while j < start + len && j < l.chars.len() && spots[j].row == row {
+                        j += 1;
+                    }
+                    if row < l.shown as usize {
+                        let x0 = x_of(spots[i].col).max(text_x);
+                        let x1 = x_of(spots[j - 1].col + spots[j - 1].width as isize).min(right);
+                        let y = row_y(row) + self.baseline as f32 + 2.0 * s;
+                        if x1 > x0 {
+                            // A colour close to the code's own background
+                            // gets an edge, so it doesn't vanish.
+                            let faint = near(rgba >> 8, p.island);
+                            canvas.scene.prims.push(Prim::Quad {
+                                rect: [x0, y, x1, y + 3.0 * s],
+                                radius: 1.5 * s,
+                                fill: rgba >> 8,
+                                // See-through colours still show.
+                                alpha: (rgba & 0xff).max(96) as u8,
+                                border: p.muted,
+                                border_w: if faint { s } else { 0.0 },
+                            });
+                        }
+                    }
+                    i = j;
+                }
+            }
+
             // A folded block: a small pill after its first line.
             if l.folded && end_col >= 0 {
                 let x = x_of(end_col) + cw * 0.5;
@@ -657,6 +690,13 @@ fn clip_rows(prims: &mut [Prim], top: f32, bottom: f32) {
             }
         }
     }
+}
+
+/// Whether two colours are close enough that one is hard to see on the
+/// other.
+fn near(a: u32, b: u32) -> bool {
+    let d = |sh: u32| ((a >> sh) & 0xff).abs_diff((b >> sh) & 0xff);
+    d(16) + d(8) + d(0) < 72
 }
 
 fn quad(canvas: &mut Canvas, rect: [f32; 4], radius: f32, fill: u32) {

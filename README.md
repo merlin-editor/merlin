@@ -288,6 +288,15 @@ fast_scroll_sensitivity = 5.0    # with Alt held
 scroll_beyond_last_line = true
 scrollbar_size = 14
 minimap_scale = 1                # up to 3
+ui_font_size = 13                # the window's own text; the frame grows with it, the code doesn't
+bracket_pair_colorization = true
+color_decorators = true          # a bar in the colour under #e6c07b, rgb(…) and hsl(…)
+
+[files]
+trim_trailing_whitespace = false
+insert_final_newline = false
+auto_save = "off"                # after_delay, on_focus_change, on_window_change
+auto_save_delay = 1000           # milliseconds, with after_delay
 
 [keys]
 "ctrl+k ctrl+m" = "view.minimap"   # any command id from the palette; two keys make a chord
@@ -297,6 +306,13 @@ minimap_scale = 1                # up to 3
 
 [plugins.lsp]               # a plugin's settings, by its name
 ```
+
+A project's `.editorconfig` files win over these for the files they
+cover: `indent_style`, `indent_size`, `tab_width`,
+`trim_trailing_whitespace` and `insert_final_newline`. Markdown keeps its
+trailing spaces, which break lines, unless an `.editorconfig` says
+otherwise. Saving by itself leaves trailing spaces on the cursor's line,
+so a space you just typed stays.
 
 `MERLIN_ICONS` and `MERLIN_MINIMAP` override the
 settings. Scripts (`--exec`) use the defaults, so their output is the same
@@ -343,6 +359,7 @@ Keys, as in VS Code:
 | `Ctrl+K Ctrl+0` / `Ctrl+K Ctrl+J` | Fold / unfold everything |
 | `Ctrl+K Ctrl+T` | Pick a colour theme |
 | `Ctrl+F` / `Ctrl+H` | Find / find and replace. Lowercase queries ignore case. Enter or Down for the next match, Up for the previous; in the replace field Enter replaces one, `Alt+Enter` all |
+| `Alt+C` / `Alt+W` / `Alt+R` / `Alt+L` | In find: Match Case / Whole Word / regular expressions (`$1` in the replacement) / Find in Selection, which a selection over several lines turns on |
 | `Alt+Left` | Go back after go-to-definition |
 | `Ctrl+Q` | Quit |
 

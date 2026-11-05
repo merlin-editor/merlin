@@ -13,7 +13,7 @@ use merlin_syntax::Syntax;
 use super::layout::Rect;
 use super::overview::{MinimapView, ScrollbarView};
 use super::wrap::{self, Row};
-use super::{Editor, Focus, fold, guides, line_matches};
+use super::{Editor, Focus, fold, guides};
 use crate::diff::{LineKind, Sign};
 use crate::lang::Severity;
 use crate::style::{Hue, Style};
@@ -92,6 +92,9 @@ pub struct LineView {
     pub marks: Vec<Option<Severity>>,
     pub styles: Vec<Style>,
     pub brackets: Vec<Option<Hue>>,
+    /// Colours written on the line: first character, length, and the
+    /// colour as `0xRRGGBBAA`.
+    pub swatches: Vec<(usize, usize, u32)>,
     pub guides: Vec<Option<bool>>,
     /// The line break is selected.
     pub eol_selected: bool,
@@ -389,12 +392,12 @@ impl Editor {
                     }
                 }
             }
-            if let Some((query, fold)) = &query {
-                for m in line_matches(&chars, query, *fold) {
+            if let Some(matcher) = &query {
+                for (m, len) in matcher.line(&chars, start) {
                     if start + m == v.cursor {
-                        styles[m..m + query.len()].fill(Style::MatchCurrent);
+                        styles[m..m + len].fill(Style::MatchCurrent);
                     } else if selection.is_none() {
-                        styles[m..m + query.len()].fill(Style::Match);
+                        styles[m..m + len].fill(Style::Match);
                     }
                 }
             }
@@ -447,6 +450,11 @@ impl Editor {
                 })
                 .collect();
             let eol_selected = selections.iter().any(|&(a, b)| (a..b).contains(&end));
+            let swatches = if self.colour_swatches && doc.review.is_none() {
+                super::swatches::find(&chars)
+            } else {
+                Vec::new()
+            };
             view.lines.push(LineView {
                 line,
                 row,
@@ -463,6 +471,7 @@ impl Editor {
                 marks,
                 styles,
                 brackets,
+                swatches,
                 guides: line_guides,
                 eol_selected,
             });
@@ -528,6 +537,7 @@ impl Editor {
             marks: vec![None; n],
             styles: vec![Style::Normal; n],
             brackets: vec![None; n],
+            swatches: Vec::new(),
             guides: vec![None; n],
             eol_selected: false,
         }

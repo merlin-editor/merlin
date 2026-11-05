@@ -593,7 +593,7 @@ impl Frame<'_> {
         );
         self.hit(toggle, Hit::Ui(UiEvent::Find(FindAction::ToggleReplace)));
         let field_x = toggle.right() + 4.0;
-        let buttons_w = 96.0;
+        let buttons_w = 124.0;
         let field_w = r.w - (field_x - r.x) - buttons_w - 8.0;
         let count = match (find.current, find.total) {
             (_, 0) if find.query.is_empty() => String::new(),
@@ -608,20 +608,27 @@ impl Frame<'_> {
             let y = r.y + 4.0 + k as f32 * 34.0;
             let field = Rect::new(field_x, y + 4.0, field_w, 26.0);
             let active = find.focused && find.in_replace == is_replace;
-            self.canvas.outline(
-                field,
-                5.0,
-                1.0,
-                if active { p.accent } else { p.border },
-                p.raised,
-            );
+            let edge = if find.invalid && !is_replace {
+                p.error
+            } else if active {
+                p.accent
+            } else {
+                p.border
+            };
+            self.canvas.outline(field, 5.0, 1.0, edge, p.raised);
             self.hit(field, Hit::Ui(UiEvent::Find(FindAction::Field(is_replace))));
+            // Match Case, Whole Word and Regex, at the query's right end.
+            let toggles_w = if is_replace {
+                0.0
+            } else {
+                self.find_toggles(find, field)
+            };
             let info_w = if is_replace || count.is_empty() {
                 0.0
             } else {
                 self.text.width(&count, Face::ui(12.0)) + 12.0
             };
-            let room = field.w - 16.0 - info_w;
+            let room = field.w - 16.0 - info_w - toggles_w;
             let shown = self.text.fit(value, ui, room);
             let (text, colour) = if value.is_empty() {
                 (hint.to_string(), p.muted)
@@ -649,7 +656,7 @@ impl Frame<'_> {
                     &mut self.canvas,
                     &count,
                     Face::ui(12.0),
-                    field.right() - info_w,
+                    field.right() - info_w - toggles_w,
                     field.y,
                     field.h,
                     colour,
@@ -667,22 +674,98 @@ impl Frame<'_> {
                 &[
                     ("↑", FindAction::Previous),
                     ("↓", FindAction::Next),
+                    ("", FindAction::InSelection),
                     ("✕", FindAction::Close),
                 ]
             };
             for &(label, action) in buttons {
                 let lw = self.text.width(label, ui) + 14.0;
                 let b = Rect::new(bx, field.y, lw.max(26.0), field.h);
+                bx = b.right() + 2.0;
+                self.hit(b, Hit::Ui(UiEvent::Find(action)));
+                if action == FindAction::InSelection {
+                    self.in_selection_button(b, find.in_selection);
+                    continue;
+                }
                 if self.hovered(b) {
                     self.canvas.round(b, 5.0, p.hover);
                 }
                 let lx = b.x + (b.w - self.text.width(label, ui)) / 2.0;
                 self.text
                     .draw_in_row(&mut self.canvas, label, ui, lx, b.y, b.h, p.text, b);
-                self.hit(b, Hit::Ui(UiEvent::Find(action)));
-                bx = b.right() + 2.0;
             }
         }
+    }
+
+    /// The query's toggles, drawn at the right of `field`; returns the
+    /// width they take.
+    fn find_toggles(&mut self, find: &FindView, field: Rect) -> f32 {
+        let p = self.p;
+        let toggles = [
+            (
+                "Aa",
+                find.match_case,
+                FindAction::MatchCase,
+                "Match Case (Alt+C)",
+            ),
+            (
+                "ab",
+                find.whole_word,
+                FindAction::WholeWord,
+                "Match Whole Word (Alt+W)",
+            ),
+            (
+                ".*",
+                find.regex,
+                FindAction::Regex,
+                "Use Regular Expression (Alt+R)",
+            ),
+        ];
+        let size = field.h - 6.0;
+        let mut x = field.right() - 3.0 - toggles.len() as f32 * (size + 2.0);
+        let start = x;
+        for (label, on, action, tip) in toggles {
+            let b = Rect::new(x, field.y + 3.0, size, size);
+            x += size + 2.0;
+            if on {
+                self.canvas.outline(b, 4.0, 1.0, p.accent, p.chip);
+            } else if self.hovered(b) {
+                self.canvas.round(b, 4.0, p.hover);
+            }
+            let face = Face::ui(12.0);
+            let lw = self.text.width(label, face);
+            let colour = if on { p.bright } else { p.muted };
+            let lx = b.x + (b.w - lw) / 2.0;
+            self.text
+                .draw_in_row(&mut self.canvas, label, face, lx, b.y, b.h, colour, b);
+            // Whole Word's letters sit on a line, as VS Code draws it.
+            if action == FindAction::WholeWord {
+                let y = (b.y + b.h * 0.78).round();
+                self.canvas
+                    .fill(Rect::new(lx - 1.0, y, lw + 2.0, 1.0), colour);
+            }
+            self.hit(b, Hit::Ui(UiEvent::Find(action)));
+            self.tips.push((b, tip.to_string()));
+        }
+        field.right() - start
+    }
+
+    /// Find in Selection's button: lines in a box, lit when on.
+    fn in_selection_button(&mut self, b: Rect, on: bool) {
+        let p = self.p;
+        if on {
+            self.canvas.outline(b, 5.0, 1.0, p.accent, p.chip);
+        } else if self.hovered(b) {
+            self.canvas.round(b, 5.0, p.hover);
+        }
+        let colour = if on { p.bright } else { p.text };
+        let (cx, cy) = (b.x + b.w / 2.0, b.y + b.h / 2.0);
+        for (k, w) in [(-1.0, 10.0), (0.0, 7.0), (1.0, 10.0)] {
+            let y = (cy + k * 3.5).round();
+            self.canvas
+                .fill(Rect::new((cx - 5.0).round(), y, w, 1.5), colour);
+        }
+        self.tips.push((b, "Find in Selection (Alt+L)".to_string()));
     }
 
     fn context(&mut self, menu: &ContextView, at: (f32, f32), w: f32, h: f32) {

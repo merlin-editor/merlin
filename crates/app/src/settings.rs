@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 use std::{env, fs};
 
-use merlin_core::Settings;
+use merlin_core::{AutoSave, Settings};
 
 /// What a new settings file starts with.
 const USER_TEMPLATE: &str = r#"# merlin settings. Saving this file applies them.
@@ -34,8 +34,18 @@ const USER_TEMPLATE: &str = r#"# merlin settings. Saving this file applies them.
 # fast_scroll_sensitivity = 5.0   # with Alt held
 # scrollbar_size = 14
 # minimap_scale = 1.0
+# bracket_pair_colorization = true
+# color_decorators = true      # a swatch under colours such as #e6c07b
 # icons = "nerd"      # or "plain"
 # theme = "dark"
+# ui_font_size = 13   # the window's own text, apart from the code
+
+[files]
+# trim_trailing_whitespace = false
+# insert_final_newline = false
+# auto_save = "off"   # after_delay, on_focus_change, on_window_change
+# auto_save_delay = 1000   # milliseconds, with after_delay
+# A project's .editorconfig wins over these and the indentation settings.
 
 [keys]
 # "ctrl+k" = "view.minimap"
@@ -190,6 +200,13 @@ pub fn editor(table: &toml::Table) -> Settings {
             .and_then(|v| v.as_bool())
             .unwrap_or(default)
     };
+    let files = table.get("files").and_then(|f| f.as_table());
+    let files_flag = |key: &str, default: bool| {
+        files
+            .and_then(|f| f.get(key))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(default)
+    };
     // `"ctrl+k ctrl+m" = "view.minimap"`, or with a condition,
     // `"ctrl+d" = { command = "edit.add_next", when = "editorTextFocus" }`.
     let keys = table
@@ -230,6 +247,29 @@ pub fn editor(table: &toml::Table) -> Settings {
         detect_indentation: flag("detect_indentation", defaults.detect_indentation),
         auto_closing_brackets: flag("auto_closing_brackets", defaults.auto_closing_brackets),
         scroll_beyond_last_line: flag("scroll_beyond_last_line", defaults.scroll_beyond_last_line),
+        bracket_pair_colorization: flag(
+            "bracket_pair_colorization",
+            defaults.bracket_pair_colorization,
+        ),
+        color_decorators: flag("color_decorators", defaults.color_decorators),
+        trim_trailing_whitespace: files_flag(
+            "trim_trailing_whitespace",
+            defaults.trim_trailing_whitespace,
+        ),
+        insert_final_newline: files_flag("insert_final_newline", defaults.insert_final_newline),
+        auto_save: match files
+            .and_then(|f| f.get("auto_save"))
+            .and_then(|v| v.as_str())
+        {
+            Some("after_delay") => AutoSave::AfterDelay,
+            Some("on_focus_change") => AutoSave::OnFocusChange,
+            Some("on_window_change") => AutoSave::OnWindowChange,
+            _ => defaults.auto_save,
+        },
+        auto_save_delay: files
+            .and_then(|f| f.get("auto_save_delay"))
+            .and_then(|v| v.as_integer().or_else(|| v.as_str()?.parse().ok()))
+            .map_or(defaults.auto_save_delay, |n| n.clamp(10, 600_000) as u64),
         keys,
     }
 }
@@ -283,6 +323,9 @@ pub struct Window {
     pub scrollbar_size: f32,
     /// The minimap's size, times its own.
     pub minimap_scale: f32,
+    /// The size of the window's own text, in points, which scales the
+    /// whole frame around the code.
+    pub ui_font_size: Option<f32>,
 }
 
 impl Default for Window {
@@ -299,6 +342,7 @@ impl Default for Window {
             fast_sensitivity: 5.0,
             scrollbar_size: 14.0,
             minimap_scale: 1.0,
+            ui_font_size: None,
         }
     }
 }
@@ -352,6 +396,7 @@ pub fn window(table: &toml::Table) -> Window {
             .map_or(d.fast_sensitivity, |n| n.clamp(1.0, 50.0)),
         scrollbar_size: number("scrollbar_size").map_or(d.scrollbar_size, |n| n.clamp(4.0, 40.0)),
         minimap_scale: number("minimap_scale").map_or(d.minimap_scale, |n| n.clamp(1.0, 3.0)),
+        ui_font_size: number("ui_font_size").map(|n| n.clamp(9.0, 26.0)),
     }
 }
 

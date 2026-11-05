@@ -193,10 +193,13 @@ impl App {
                 .and_then(|t| t.as_table())
                 .is_some_and(|t| t.contains_key(key))
         };
-        let flag = |key: &str, default: bool| {
+        // `editor.minimap` is `minimap` in `[editor]`.
+        let part = |key: &'static str| key.split_once('.').unwrap_or(("editor", key));
+        let flag = |key: &'static str, default: bool| {
+            let (table, name) = part(key);
             merged
-                .get("editor")
-                .and_then(|e| e.get(key))
+                .get(table)
+                .and_then(|e| e.get(name))
                 .and_then(|v| v.as_bool())
                 .unwrap_or(default)
         };
@@ -204,14 +207,15 @@ impl App {
             label,
             about,
             key,
-            control: Control::Toggle(flag(&key["editor.".len()..], default)),
-            changed: set_here("editor", &key["editor.".len()..]),
+            control: Control::Toggle(flag(key, default)),
+            changed: set_here(part(key).0, part(key).1),
         };
         // A value as a choice shows it, numbers as written.
-        let value = |key: &str, default: &str| {
+        let value = |key: &'static str, default: &str| {
+            let (table, name) = part(key);
             merged
-                .get("editor")
-                .and_then(|e| e.get(key))
+                .get(table)
+                .and_then(|e| e.get(name))
                 .map_or(default.to_string(), |v| match v {
                     toml::Value::String(text) => text.clone(),
                     other => other.to_string(),
@@ -221,8 +225,8 @@ impl App {
             label,
             about,
             key,
-            control: Control::Choice(options, value(&key["editor.".len()..], default)),
-            changed: set_here("editor", &key["editor.".len()..]),
+            control: Control::Choice(options, value(key, default)),
+            changed: set_here(part(key).0, part(key).1),
         };
         let icons = settings::editor_text(&merged, "icons").unwrap_or("nerd").to_string();
         let tab_size = settings::editor(&merged).tab_size.to_string();
@@ -240,6 +244,9 @@ impl App {
                     toggle("Sticky scroll", "The first lines of the blocks in view stay pinned at the top.", "editor.sticky_scroll", true),
                     choice("Minimap scale", "How big the minimap draws the file.", "editor.minimap_scale", vec!["1", "2", "3"], "1"),
                     choice("Scrollbar size", "The scrollbar's width, in points.", "editor.scrollbar_size", vec!["10", "14", "18"], "14"),
+                    choice("Interface text size", "The size of the window's own text, in points. Everything around the code grows with it; the code keeps its own size.", "editor.ui_font_size", vec!["11", "12", "13", "14", "15", "16"], "13"),
+                    toggle("Bracket pair colours", "Brackets are coloured by how deep they are.", "editor.bracket_pair_colorization", true),
+                    toggle("Colour swatches", "A bar in the colour under colours written in the code, such as #e6c07b or rgb(0 120 255).", "editor.color_decorators", true),
                 ],
             ),
             (
@@ -282,6 +289,10 @@ impl App {
                 "Files",
                 vec![
                     toggle("Preview tabs", "A single click in the Explorer opens a tab the next click replaces, in italics.", "editor.preview_tabs", true),
+                    choice("Auto save", "Files save by themselves: a while after each change, when the code loses the keyboard, or when the window does.", "files.auto_save", vec!["off", "after_delay", "on_focus_change", "on_window_change"], "off"),
+                    choice("Auto save delay", "Milliseconds after the last change, with after_delay.", "files.auto_save_delay", vec!["500", "1000", "2000", "5000"], "1000"),
+                    toggle("Trim trailing whitespace", "Saving takes spaces and tabs off the ends of lines. Not in Markdown, where they break lines.", "files.trim_trailing_whitespace", false),
+                    toggle("Insert final newline", "Saving ends the file with a newline.", "files.insert_final_newline", false),
                     Row {
                         label: "Glyph icons",
                         about: "Icons drawn from the code's font: a Nerd Font's, or plain symbols without one.",
@@ -550,7 +561,7 @@ impl App {
                 let workspace = ui.workspace;
                 self.settings_ui = None;
                 match self.settings.ensure(workspace) {
-                    Ok(path) => vec![self.open(&path)],
+                    Ok(path) => self.open(&path),
                     Err(err) => vec![Event::Error(format!("Can't open settings: {err}"))],
                 }
             }

@@ -479,23 +479,6 @@ impl Editor {
 
     // Typing as editors do it --------------------------------------------------
 
-    /// The indentation Tab and Enter use here: the file's own when it has
-    /// one and detection is on, else the settings'.
-    pub(crate) fn indent(&self) -> Indent {
-        match self.doc().indent {
-            Some(found) if self.detect_indentation => Indent {
-                // A tab is drawn as wide as the settings say.
-                width: if found.tabs {
-                    self.indent.width
-                } else {
-                    found.width
-                },
-                ..found
-            },
-            _ => self.indent,
-        }
-    }
-
     fn char_at(&self, pos: usize) -> Option<char> {
         self.doc().buffer.rope().get_char(pos)
     }

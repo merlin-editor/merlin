@@ -1,6 +1,6 @@
 //! The editor's settings, as the host reads them from settings.toml.
 
-use super::Editor;
+use super::{AutoSave, Editor};
 use crate::indent::Indent;
 
 /// What the `[editor]` and `[keys]` tables of the settings say, with
@@ -26,6 +26,17 @@ pub struct Settings {
     /// The last line can scroll up to the top, rather than stopping at
     /// the bottom of the view.
     pub scroll_beyond_last_line: bool,
+    /// Brackets are coloured by how deep they are.
+    pub bracket_pair_colorization: bool,
+    /// A swatch before colours written in the code, such as `#e6c07b`.
+    pub color_decorators: bool,
+    /// Saving takes the spaces and tabs off the ends of lines.
+    pub trim_trailing_whitespace: bool,
+    /// Saving ends the file with a newline.
+    pub insert_final_newline: bool,
+    pub auto_save: AutoSave,
+    /// Milliseconds after the last change, with [`AutoSave::AfterDelay`].
+    pub auto_save_delay: u64,
     /// Keys and the commands they run, such as `ctrl+k ctrl+m` and
     /// `view.minimap`, maybe only when a condition holds. An empty command
     /// unbinds the keys.
@@ -45,6 +56,12 @@ impl Default for Settings {
             detect_indentation: true,
             auto_closing_brackets: true,
             scroll_beyond_last_line: true,
+            bracket_pair_colorization: true,
+            color_decorators: true,
+            trim_trailing_whitespace: false,
+            insert_final_newline: false,
+            auto_save: AutoSave::Off,
+            auto_save_delay: 1000,
             keys: Vec::new(),
         }
     }
@@ -67,6 +84,12 @@ impl Editor {
         self.detect_indentation = settings.detect_indentation;
         self.auto_close = settings.auto_closing_brackets;
         self.scroll_beyond_last_line = settings.scroll_beyond_last_line;
+        self.bracket_colours = settings.bracket_pair_colorization;
+        self.colour_swatches = settings.color_decorators;
+        self.saving.trim_trailing_whitespace = settings.trim_trailing_whitespace;
+        self.saving.insert_final_newline = settings.insert_final_newline;
+        self.saving.auto = settings.auto_save;
+        self.saving.delay_ms = settings.auto_save_delay.max(10);
         if !self.preview_tabs {
             self.preview = None;
         }
