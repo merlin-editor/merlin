@@ -4961,7 +4961,13 @@ impl Frame<'_> {
         self.canvas.outline(r, 10.0, 1.0, p.border, p.widget);
         // Later hits win, so the box goes under its buttons.
         self.hit(r, Hit::Block);
-        let colour = if toast.error { p.error } else { p.accent };
+        let colour = if toast.error {
+            p.error
+        } else if toast.done {
+            p.success
+        } else {
+            p.accent
+        };
         let dot = Rect::new(r.x + 16.0, r.y + 17.0, 10.0, 10.0);
         self.canvas.round(dot, 5.0, colour);
         self.text.draw(

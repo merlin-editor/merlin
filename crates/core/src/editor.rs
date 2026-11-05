@@ -859,6 +859,8 @@ impl Palette {
 struct Message {
     text: String,
     error: bool,
+    /// Good news, as no conflicts left: a green dot.
+    done: bool,
     /// Buttons: label and the command each runs.
     actions: Vec<(String, String)>,
 }
@@ -952,6 +954,8 @@ pub struct Editor {
     /// open: its path, the base version, and what Incoming and Current are.
     merges: Vec<merge_editor::Merging>,
     pending_merge: Option<(String, String, (String, String))>,
+    /// Files completed in the merge editor, to stage once they're saved.
+    merge_staging: Vec<(u64, String)>,
     /// Who last changed each line, by file, as of a version of its text,
     /// and what was last asked for. `now` is the time blame last came.
     blames: HashMap<PathBuf, (u64, crate::git::Blame)>,
@@ -1134,6 +1138,7 @@ impl Editor {
             change_peek: None,
             merges: Vec::new(),
             pending_merge: None,
+            merge_staging: Vec::new(),
             blames: HashMap::new(),
             blame_asked: None,
             now: 0,
@@ -2548,8 +2553,17 @@ impl Editor {
         self.message = Some(Message {
             text,
             error: false,
+            done: false,
             actions: Vec::new(),
         });
+    }
+
+    /// A notice of something finished, with a green dot.
+    fn notify_done(&mut self, text: String) {
+        self.notify(text);
+        if let Some(m) = &mut self.message {
+            m.done = true;
+        }
     }
 
     fn error(&mut self, text: String) {
@@ -2557,6 +2571,7 @@ impl Editor {
         self.message = Some(Message {
             text,
             error: true,
+            done: false,
             actions: Vec::new(),
         });
     }

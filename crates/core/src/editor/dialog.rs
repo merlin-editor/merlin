@@ -22,6 +22,9 @@ pub(crate) enum Ask {
     /// The document with this id, which has unsaved changes, changed on
     /// disk to this text.
     Conflict(u64, String),
+    /// Completing the merge of the document with this id, which has
+    /// conflicts left.
+    MergeLeft(u64),
 }
 
 pub(crate) struct Dialog {
@@ -48,6 +51,7 @@ impl Ask {
     fn primary(&self) -> usize {
         match self {
             Ask::Conflict(..) => 2,
+            Ask::MergeLeft(_) => 1,
             _ => 0,
         }
     }
@@ -96,6 +100,27 @@ impl Editor {
                     "It has unsaved changes here. Reload it from disk and lose them, or overwrite the file with them?".into(),
                     &["Reload from Disk", "Overwrite", "Keep Editing"],
                 )
+            }
+            Ask::MergeLeft(id) => {
+                let i = self.index_of(*id);
+                let name = i.map_or(String::new(), |i| self.docs[i].name());
+                let left = self
+                    .merges
+                    .iter()
+                    .find(|m| m.doc == *id)
+                    .map_or(0, |m| m.left());
+                let (title, detail) = if left == 1 {
+                    (
+                        format!("{name} has 1 conflict left"),
+                        "Complete it anyway, and that conflict keeps its base text, without markers.",
+                    )
+                } else {
+                    (
+                        format!("{name} has {left} conflicts left"),
+                        "Complete it anyway, and those conflicts keep their base text, without markers.",
+                    )
+                };
+                (title, detail.into(), &["Complete Anyway", "Keep Resolving"])
             }
             Ask::Trash(path) => {
                 let name = path
@@ -165,6 +190,12 @@ impl Editor {
             }
             (Ask::Quit, 1) => self.quit(fx),
             (Ask::Trash(path), 0) => fx.push(Effect::File(FileOp::Trash(path))),
+            (Ask::MergeLeft(id), 0) => {
+                if let Some(i) = self.index_of(id) {
+                    self.current = i;
+                    self.finish_merge_file(fx);
+                }
+            }
             // As an edit, so Ctrl+Z brings the changes back.
             (Ask::Conflict(id, disk), 0) => {
                 if let Some(i) = self.index_of(id) {
@@ -205,6 +236,11 @@ impl Editor {
 
     /// A file was saved: one waiting to close does, and quitting goes on.
     pub(crate) fn after_save(&mut self, doc: u64, fx: &mut Vec<Effect>) {
+        // A file completed in the merge editor is staged once it's on disk.
+        if let Some(at) = self.merge_staging.iter().position(|(id, _)| *id == doc) {
+            let (_, path) = self.merge_staging.remove(at);
+            fx.push(Effect::Git(super::GitAction::Stage(path)));
+        }
         if let Some(at) = self.closing.iter().position(|&id| id == doc) {
             self.closing.remove(at);
             if let Some(i) = self.index_of(doc)

@@ -666,6 +666,13 @@ impl Editor {
 
     /// The bar's and the palette's merge commands.
     pub(crate) fn merge_command(&mut self, id: &str, fx: &mut Vec<Effect>) {
+        // A notice's Open lib.rs and Commit Merge.
+        if let Some(path) = id.strip_prefix("merge.open:") {
+            return self.open_merge(path, fx);
+        }
+        if id == "merge.commit" {
+            return self.finish_merge(fx);
+        }
         if self.merging().is_none() {
             return self.notify("No file is being merged here".into());
         }
@@ -746,18 +753,59 @@ impl Editor {
         }
     }
 
-    /// Complete Merge: saves the Result and stages it, which tells git it's
-    /// resolved, and the tab is the file again.
+    /// Complete Merge: asks first while conflicts are left.
     pub(crate) fn complete_merge(&mut self, fx: &mut Vec<Effect>) {
+        match self.merging() {
+            Some(m) if m.left() > 0 => self.ask(super::dialog::Ask::MergeLeft(m.doc)),
+            Some(_) => self.finish_merge_file(fx),
+            None => {}
+        }
+    }
+
+    /// Saves the Result and stages it, which tells git it's resolved, and
+    /// the tab is the file again. The notice offers the next file with
+    /// conflicts, or else to commit the merge.
+    pub(crate) fn finish_merge_file(&mut self, fx: &mut Vec<Effect>) {
         let id = self.doc().id;
         let Some(k) = self.merges.iter().position(|m| m.doc == id) else {
             return;
         };
         let m = self.merges.remove(k);
-        self.save_current(fx);
-        fx.push(Effect::Git(GitAction::Stage(m.path.clone())));
+        // Git sees the file on disk, so it's staged once it's saved.
+        if self.doc().buffer.is_dirty() {
+            self.saving.quiet.insert(id);
+            self.merge_staging.push((id, m.path.clone()));
+            self.save_current(fx);
+        } else {
+            fx.push(Effect::Git(GitAction::Stage(m.path.clone())));
+        }
         let name = self.doc().name();
-        self.notify(format!("{name} is resolved and staged"));
+        let next = self
+            .git
+            .files
+            .iter()
+            .find(|(p, s)| *s == '!' && *p != m.path)
+            .map(|(p, _)| p.clone());
+        match next {
+            Some(path) => {
+                let next_name = path.rsplit('/').next().unwrap_or(&path).to_string();
+                self.notify(format!(
+                    "{name} is resolved and staged. {next_name} is next."
+                ));
+                self.add_action(&format!("Open {next_name}"), &format!("merge.open:{path}"));
+            }
+            None => {
+                self.notify_done("No conflicts left.".into());
+                let label = match self.git.merge.as_ref().map(|g| g.kind) {
+                    Some(super::MergeKind::Rebase) => "Continue Rebase",
+                    Some(super::MergeKind::CherryPick) => "Continue Cherry-Pick",
+                    _ => "Commit Merge",
+                };
+                if self.git.merge.is_some() {
+                    self.add_action(label, "merge.commit");
+                }
+            }
+        }
     }
 }
 

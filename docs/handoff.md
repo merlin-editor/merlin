@@ -533,9 +533,16 @@ committed:
     and the parser's in the module.
   - Checked in the window: a real conflict from Source Control, boxes on
     both sides, and Complete Merge saving and staging it.
-- Still to build for Git, next: the merge editor's finishing (asking
-  with conflicts left, the next file), the narrow layout and Open in
-  Merge Editor, then Compare Files (all in `MergeFlow.dc.html`).
+- **Finishing a merge:** Complete Merge with conflicts left asks
+  (`Ask::MergeLeft`: Complete Anyway, or Keep Resolving, the default).
+  `finish_merge_file` saves quietly and stages once saved
+  (`merge_staging`, in `after_save`, so git never stages the old file),
+  then its notice offers the next conflicted file (`merge.open:<path>`)
+  or, with none left, Commit Merge (`merge.commit`) with a green dot
+  (`Message.done`, `ToastView.done`). Checked in the window across two
+  files, to the merge commit.
+- Still to build for Git, next: the merge editor's narrow layout and
+  Open in Merge Editor, then Compare Files (all in `MergeFlow.dc.html`).
 
 Saved for later, by the user's choice:
 

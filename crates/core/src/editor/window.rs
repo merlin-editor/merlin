@@ -263,6 +263,8 @@ pub struct PaletteView {
 pub struct ToastView {
     pub text: String,
     pub error: bool,
+    /// Good news: a green dot.
+    pub done: bool,
     pub buttons: Vec<String>,
 }
 
@@ -428,6 +430,7 @@ impl Editor {
         let toast = self.message.as_ref().map(|m| ToastView {
             text: m.text.clone(),
             error: m.error,
+            done: m.done,
             buttons: m.actions.iter().map(|(label, _)| label.clone()).collect(),
         });
         WindowView {

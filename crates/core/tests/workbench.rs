@@ -1459,6 +1459,20 @@ fn the_merge_editor_shows_both_sides_over_the_result_and_takes_lines_from_each()
         "merge:reset:0".into(),
     )));
     assert_eq!(s.text(), "fn a() {}\nlet x = 0;\nfn b() {}\n");
+    // Completing with a conflict left asks first; Keep Resolving stays.
+    s.run("cmd merge.complete");
+    let dialog = s.editor.window_view().dialog.unwrap();
+    assert_eq!(dialog.title, "main.rs has 1 conflict left");
+    assert_eq!(dialog.buttons, ["Complete Anyway", "Keep Resolving"]);
+    s.run("key enter");
+    assert!(s.editor.window_view().merge_bar.is_some());
+    // Another file has conflicts: the notice offers it next.
+    s.send(Event::GitStatus {
+        branch: Some("main".into()),
+        files: vec![("src/main.rs".into(), '!'), ("lib.rs".into(), '!')],
+        staged: vec![],
+        changed: vec![],
+    });
     s.run("cmd merge.accept_all_incoming");
     assert_eq!(s.text(), "fn a() {}\nlet x = 9;\nfn b() {}\n");
     // Complete saves and stages it, and the tab is the file again.
@@ -1468,4 +1482,10 @@ fn the_merge_editor_shows_both_sides_over_the_result_and_takes_lines_from_each()
             .contains(&Effect::Git(GitAction::Stage("src/main.rs".into())))
     );
     assert!(s.editor.window_view().merge_bar.is_none());
+    let screen = s.screen();
+    assert!(
+        screen.contains("main.rs is resolved and staged. lib.rs is next."),
+        "{screen}"
+    );
+    assert!(screen.contains("Open lib.rs"), "{screen}");
 }

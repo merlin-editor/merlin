@@ -416,7 +416,9 @@ take some of a side (Incoming's ticked lines come first); Accept takes a
 whole side, Accept Both takes both, and Reset goes back to the base, which
 shows in the Result until a side is chosen. Ctrl+Z undoes any choice. The
 bar counts the conflicts left, ↑ ↓ go between them, and Complete Merge
-saves the file and stages it. A deleted
+saves the file and stages it, asking first while conflicts are left. Its
+notice offers the next file with conflicts, and after the last one,
+Commit Merge. A deleted
 file is struck through, opens as what it had, and its menu restores it. A
 new file opens as one column, and its menu adds it to `.gitignore`. A
 deleted file and a new one at least half alike show as one move, `app.rs
@@ -612,8 +614,7 @@ Other languages work too: anything that builds a WASI 0.2 component for
   keyword. Only one plugin's symbols or folds count for a file at a time.
 - Git: images don't show side by side, very large files compare anyway,
   a submodule's commits aren't listed, and there's no Show Ignored. The
-  merge editor doesn't ask before completing with conflicts left, nor
-  offer the next file, and has no one-pane layout for narrow windows. The
+  merge editor has no one-pane layout for narrow windows. The
   changes tab has its boxes only
   side by side, not inline, and stages only what's saved.
 - Settings have no editor of their own (they're a TOML file), and the
