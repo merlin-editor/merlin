@@ -150,8 +150,9 @@ are mostly in the VS Code half.
 - Outline, Problems, Search, Changes (staging and committing whole files)
   and Output
 - reviews of proposed edits
-- language servers through the `lsp` plugin: diagnostics, hover,
-  go-to-definition and completion
+- language servers through the `lsp` plugin: diagnostics (also written
+  inline), hover, go-to-definition, completion, inlay hints and signature
+  help
 - smart-case find and replace
 - restoring the workspace
 - system file dialogs, the clipboard, the selection clipboard and IME
@@ -169,9 +170,9 @@ are mostly in the VS Code half.
   the frame and the code is still to do.
 - **Hot exit:** unsaved changes aren't kept across restarts. Killing merlin
   counts as a crash.
-- **Language servers:** no rename, format, code actions, inlay hints,
-  signature help, find references, or errors shown inline. Completions
-  don't add imports.
+- **Language servers:** no rename, format, code actions or find
+  references. Completions don't add imports. (Inlay hints, signature help
+  and errors inline are now built.)
 - **Git:** no staging or discarding of parts of a file, no blame, no push,
   no diff of two files, and no merge editor.
 - **Running code:** no tasks, no test runner and no debugger. (The
@@ -237,10 +238,12 @@ These are ordered by votes against effort.
    bottom panel tab, with tabs for each shell
    and splits. Use the `alacritty_terminal` crate for the VT state and a
    pty, drawn by merlin's own renderer.
-2. **Language servers, finished**: rename (inline box), format and format
-   on save, code actions (a lightbulb and a menu), inlay hints, signature
-   help, find references (a peek view or the side panel), and errors
-   inline.
+2. **Language servers, finished** (**partly built**; see
+   [`handoff.md`](handoff.md) for details and a design for the rest):
+   errors inline (`d5c2091`), inlay hints (`09b607e`) and signature help
+   (`d4283cc`) are **Built**. Still to do: code actions (a lightbulb and a
+   menu), format and format on save, rename (inline box), then find
+   references (a peek view, `References.dc.html`).
 3. **Git**:
    - stage, unstage and discard hunks from the gutter and Changes
    - blame, inline and in a gutter
