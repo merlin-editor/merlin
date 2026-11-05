@@ -401,9 +401,8 @@ committed:
   - Checked in the window: the click, Stage and Unstage, and the arrows.
 - Not in the mock-ups' order but still to do: the changes tab's boxes
   inline.
-- Still to build, in order: from the gutter with Alt+F5 and Alt+F3, push,
-  pull and sync with their notices (GitSync), blame, and new, deleted and
-  moved files (GitFiles).
+- Still to build, in order: push, pull and sync with their notices
+  (GitSync), blame, and new, deleted and moved files (GitFiles).
 
 Saved for later, by the user's choice:
 
