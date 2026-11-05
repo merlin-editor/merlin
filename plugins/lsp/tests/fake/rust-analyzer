@@ -42,6 +42,7 @@ while True:
             "foldingRangeProvider": True,
             "documentFormattingProvider": True,
             "documentRangeFormattingProvider": True,
+            "renameProvider": {"prepareProvider": True},
         }}})
     elif method == "initialized":
         initialized = True
@@ -112,6 +113,31 @@ while True:
             {"title": "Rename to `_v`", "kind": "quickfix", "isPreferred": True,
              "edit": {"changes": {uri: [{"range": span, "newText": "_v"}]}}},
         ]})
+    elif method == "textDocument/prepareRename":
+        line, char = params["position"]["line"], params["position"]["character"]
+        if line == 1:
+            send({"id": message["id"], "result": {
+                "range": {"start": {"line": 1, "character": 8}, "end": {"line": 1, "character": 9}},
+                "placeholder": "v"}})
+        else:
+            send({"id": message["id"], "error": {"code": -32602, "message": "No references found at position"}})
+    elif method == "textDocument/references":
+        uri = params["textDocument"]["uri"]
+        other = uri.replace("main.rs", "lib.rs")
+        at = lambda l, a, b: {"start": {"line": l, "character": a}, "end": {"line": l, "character": b}}
+        send({"id": message["id"], "result": [
+            {"uri": uri, "range": at(1, 8, 9)},
+            {"uri": uri, "range": at(2, 4, 5)},
+            {"uri": other, "range": at(0, 0, 1)},
+        ]})
+    elif method == "textDocument/rename":
+        uri = params["textDocument"]["uri"]
+        new = params["newName"]
+        at = lambda l, a, b: {"start": {"line": l, "character": a}, "end": {"line": l, "character": b}}
+        send({"id": message["id"], "result": {"changes": {uri: [
+            {"range": at(1, 8, 9), "newText": new},
+            {"range": at(2, 4, 5), "newText": new},
+        ]}}})
     elif method == "textDocument/definition":
         uri = params["textDocument"]["uri"]
         send({"id": message["id"], "result": [{

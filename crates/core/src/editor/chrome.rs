@@ -69,6 +69,7 @@ impl Editor {
             .docs
             .iter()
             .filter(|d| d.review.as_ref().is_some_and(|r| !r.plugin.is_empty()))
+            .filter(|d| !super::rename::is_rename_review(d))
             .count();
         if reviews > 0 {
             let what = if reviews == 1 { "change" } else { "changes" };
@@ -98,7 +99,9 @@ impl Editor {
             Style::Status,
             Some(Action::Run("view.problems")),
         ));
-        if doc.review.is_some() {
+        if self.reviewing_rename() {
+            left.push((format!(" {} ", self.review_hint()), Style::StatusAccent, None));
+        } else if doc.review.is_some() {
             left.push((format!("  {}", self.review_hint()), Style::Status, None));
         }
         if self.waiting_format.is_some() {

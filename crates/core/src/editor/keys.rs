@@ -90,6 +90,7 @@ pub(super) const EDITOR_KEYS: &[(&str, &str)] = &[
     ("ctrl+u", "edit.cursor_undo"),
     ("ctrl+.", "edit.quick_fix"),
     ("ctrl+shift+i", "edit.format"),
+    ("f2", "edit.rename"),
 ];
 
 /// Two keys in a row, as VS Code's Ctrl+K chords.
@@ -114,7 +115,9 @@ impl Editor {
         }
         // An open completion or code action list takes the keys it uses
         // first.
-        if self.focus == Focus::Editor && (self.actions_key(key, fx) || self.popup_key(key)) {
+        if self.focus == Focus::Editor
+            && (self.rename_box_key(key, fx) || self.actions_key(key, fx) || self.popup_key(key))
+        {
             return;
         }
         if let Some(first) = self.chord.take() {

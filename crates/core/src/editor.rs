@@ -25,6 +25,9 @@ mod mouse;
 mod overview;
 mod palette;
 mod panels;
+mod rename;
+pub(crate) use rename::RENAME as RENAME_REVIEW;
+pub use rename::RenameView;
 mod save;
 mod scroll;
 mod select;
@@ -288,6 +291,14 @@ pub enum Event {
     ShowCodeActions(Vec<crate::lang::CodeAction>),
     /// Changes to files from a plugin, such as a code action's.
     ApplyEdits(Vec<crate::lang::FileEdit>),
+    /// What the name the rename box is over reaches, or why it can't be
+    /// renamed.
+    ShowRename(Result<crate::lang::RenameInfo, String>),
+    /// A rename's edits, to review before they're made.
+    ShowRenameReview(Vec<crate::lang::FileEdit>),
+    /// Files read for a rename's review, each with its text, or none if
+    /// it couldn't be read.
+    FilesRead(Vec<(PathBuf, Option<String>)>),
     /// A save has waited [`format::FORMAT_WAIT_MS`] for its formatting: it saves
     /// as it is.
     FormatTimedOut,
@@ -437,6 +448,8 @@ pub enum Effect {
     Zoom(i8),
     /// Something for the host to do with a terminal.
     Terminal(TermOp),
+    /// Read files, project paths, and send [`Event::FilesRead`].
+    ReadFiles(Vec<PathBuf>),
     Save {
         doc: u64,
         path: PathBuf,
@@ -707,6 +720,11 @@ pub struct Editor {
     /// What saving formats first, and a save waiting for it.
     format_on_save: format::FormatOnSave,
     waiting_format: Option<format::Waiting>,
+    /// The box over a name being renamed (F2); the new name sent, with
+    /// whether it's to review; and a rename being reviewed.
+    rename_box: Option<rename::RenameBox>,
+    renaming: Option<(String, String, bool)>,
+    rename_review: Option<rename::Review>,
     /// Signature help: the document, where the call was when it showed,
     /// and the signature.
     signature: Option<(u64, usize, crate::lang::Signature)>,
@@ -857,6 +875,9 @@ impl Editor {
             actions: Default::default(),
             format_on_save: Default::default(),
             waiting_format: None,
+            rename_box: None,
+            renaming: None,
+            rename_review: None,
             signature: None,
             diagnostics: HashMap::new(),
             diagnostics_version: 0,
@@ -1139,7 +1160,7 @@ impl Editor {
                 self.key(key, &mut fx)
             }
             Event::Paste(text) => {
-                if !self.terminal_paste(&text, &mut fx) {
+                if !self.rename_paste(&text) && !self.terminal_paste(&text, &mut fx) {
                     self.paste(&text);
                 }
             }
@@ -1204,7 +1225,10 @@ impl Editor {
             }
             Event::Clipboard(text) => {
                 let text = text.unwrap_or_else(|| self.clipboard.clone());
-                if !text.is_empty() && !self.terminal_paste(&text, &mut fx) {
+                if !text.is_empty()
+                    && !self.rename_paste(&text)
+                    && !self.terminal_paste(&text, &mut fx)
+                {
                     self.paste(&text);
                 }
             }
@@ -1342,7 +1366,13 @@ impl Editor {
             }
             Event::ShowCodeActions(actions) => self.show_code_actions(actions),
             Event::FormatTimedOut => self.format_timed_out(&mut fx),
-            Event::ApplyEdits(edits) => self.apply_file_edits(edits, &mut fx),
+            Event::ApplyEdits(edits) => {
+                self.rename_arrived(&edits);
+                self.apply_file_edits(edits, &mut fx);
+            }
+            Event::ShowRename(info) => self.show_rename(info),
+            Event::ShowRenameReview(edits) => self.show_rename_review(edits, &mut fx),
+            Event::FilesRead(files) => self.files_read(files),
             Event::ShowSignature(signature) => {
                 let doc = self.doc().id;
                 self.signature = match signature {
@@ -1807,6 +1837,9 @@ impl Editor {
         let Some(review) = &self.doc().review else {
             return false;
         };
+        if review.plugin == rename::RENAME {
+            return self.rename_review_key(key, fx);
+        }
         let (plugin, id, back_to) = (review.plugin.clone(), review.id.clone(), review.back_to);
         let answer = |accepted: bool| Effect::PluginReview {
             plugin: plugin.clone(),
@@ -1869,6 +1902,9 @@ impl Editor {
     pub(crate) fn review_hint(&self) -> &'static str {
         match &self.doc().review {
             Some(r) if r.plugin.is_empty() => "Enter open the file · ] next change · Esc back",
+            Some(r) if r.plugin == rename::RENAME => {
+                "Reviewing a rename: Enter applies, Esc discards"
+            }
             _ => "y accept · n reject · ] next change · Esc later",
         }
     }

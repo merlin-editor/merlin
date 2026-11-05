@@ -437,6 +437,20 @@ impl Editor {
             .then_some(folded);
 
             let mut styles = vec![base; chars.len()];
+            // A review's changed words show stronger than their lines.
+            for &(a, b) in doc.review.iter().flat_map(|r| &r.words) {
+                for style in styles
+                    .iter_mut()
+                    .take(b.saturating_sub(start))
+                    .skip(a.saturating_sub(start))
+                {
+                    *style = match *style {
+                        Style::DiffAdded => Style::DiffAddedWord,
+                        Style::DiffRemoved => Style::DiffRemovedWord,
+                        other => other,
+                    };
+                }
+            }
             for &(a, b) in &selections {
                 for (i, style) in styles.iter_mut().enumerate() {
                     if (a..b).contains(&(start + i)) {

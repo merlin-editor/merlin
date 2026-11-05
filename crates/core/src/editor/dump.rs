@@ -78,6 +78,9 @@ impl Editor {
                 }
                 if let Some(popup) = &view.popup {
                     match &popup.kind {
+                        PopupKind::Rename(r) => {
+                            let _ = writeln!(o, "rename: [{}] {}", r.text, r.note);
+                        }
                         PopupKind::Hover {
                             problems, lines, ..
                         } => {
@@ -314,7 +317,32 @@ fn dump_side(o: &mut String, which: &str, side: &SideView) {
                 } else {
                     format!("  {}", e.badge)
                 };
-                format!("{}{twisty}{}{detail}{badge}", "  ".repeat(e.depth), e.label)
+                let check = match e.check {
+                    Some(crate::panel::Check::On) => "[x] ",
+                    Some(crate::panel::Check::Off) => "[ ] ",
+                    Some(crate::panel::Check::Some) => "[-] ",
+                    None => "",
+                };
+                let label = match &e.swap {
+                    Some(s) => format!("{} {}~{}~{}{}", s.line, s.before, s.old, s.new, s.after),
+                    None => e.label.clone(),
+                };
+                format!(
+                    "{}{twisty}{check}{label}{detail}{badge}",
+                    "  ".repeat(e.depth)
+                )
+            }
+            Node::Header {
+                title,
+                detail,
+                buttons,
+            } => {
+                let title: String = title.iter().map(|t| t.0.as_str()).collect();
+                let buttons: Vec<String> = buttons
+                    .iter()
+                    .map(|(b, key)| format!("[{} {key}]", b.label))
+                    .collect();
+                format!("{title} · {detail}  {}", buttons.join(" "))
             }
             Node::Input {
                 id,

@@ -52,6 +52,35 @@ pub enum Node {
     Divider,
     /// Nodes after this stay at the bottom; the ones before it scroll.
     Footer,
+    /// A title row with buttons at its right end, each with its key; the
+    /// last is the main one. The title's toned parts are code, as names.
+    /// The editor's own views have these; plugins don't.
+    Header {
+        title: Vec<(String, Tone)>,
+        detail: String,
+        buttons: Vec<(Button, String)>,
+    },
+}
+
+/// A checkbox: ticked, not, or some of what it's for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Check {
+    On,
+    Off,
+    Some,
+}
+
+/// A line of code with one name in it changed, as a rename shows it: the
+/// old name struck through, the new one after it.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct Swap {
+    /// From 1.
+    pub line: usize,
+    pub before: String,
+    pub old: String,
+    /// Empty when the place is left out.
+    pub new: String,
+    pub after: String,
 }
 
 /// A clickable row with an icon, as VS Code's trees draw them.
@@ -73,6 +102,10 @@ pub struct Entry {
     /// A button before the badge, such as + to stage a file: its glyph and
     /// id. It takes focus after the entry.
     pub action: Option<(char, String)>,
+    /// A checkbox after the arrow, clicked on its own.
+    pub check: Option<Check>,
+    /// Shown in place of the label.
+    pub swap: Option<Swap>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

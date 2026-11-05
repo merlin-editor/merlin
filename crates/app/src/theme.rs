@@ -314,6 +314,8 @@ pub fn kind(p: &Palette, kind: Kind) -> Look {
         Kind::Link => text(p.accent).underline(p.accent),
         Kind::DiffAdded => look(p.text, p.diff_added),
         Kind::DiffRemoved => look(p.text, p.diff_removed),
+        Kind::DiffAddedWord => look(p.text, mix(p.success, p.diff_added, 0.28)),
+        Kind::DiffRemovedWord => look(p.text, mix(p.error, p.diff_removed, 0.3)),
         Kind::GitAdded => text(p.git_added),
         Kind::GitChanged => text(p.git_changed),
         Kind::GitRemoved => text(p.git_removed),
@@ -423,6 +425,8 @@ pub fn shows_code(kind: Kind) -> bool {
             | Kind::WordMatch
             | Kind::DiffAdded
             | Kind::DiffRemoved
+            | Kind::DiffAddedWord
+            | Kind::DiffRemovedWord
     )
 }
 

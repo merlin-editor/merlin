@@ -254,6 +254,16 @@ impl Session {
                     };
                     self.send(event);
                 }
+                Effect::ReadFiles(paths) => {
+                    let files = paths
+                        .into_iter()
+                        .map(|p| {
+                            let text = self.files.get(&p.display().to_string()).cloned();
+                            (p, text)
+                        })
+                        .collect();
+                    self.send(Event::FilesRead(files));
+                }
                 Effect::ListFiles => self.send(Event::Files(self.files.keys().cloned().collect())),
                 Effect::ListTree => self.send(Event::Tree(self.files.keys().cloned().collect())),
                 Effect::Search(query) => {

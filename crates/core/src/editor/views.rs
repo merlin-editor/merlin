@@ -243,6 +243,15 @@ impl Editor {
                 side,
             });
         }
+        // Rename shows only while one's reviewed.
+        self.plugins.push(Plugin {
+            name: super::rename::RENAME.into(),
+            commands: Vec::new(),
+            keys: Vec::new(),
+            panel: None,
+            error: None,
+            side: Side::Bottom,
+        });
     }
 
     fn set_view(&mut self, name: &str, nodes: Vec<Node>) {
@@ -344,6 +353,8 @@ impl Editor {
         self.set_view(OUTPUT, output);
         let plugins = self.plugins_nodes();
         self.set_view(PLUGINS, plugins);
+        let rename = self.rename_nodes();
+        self.set_view(super::rename::RENAME, rename);
     }
 
     /// The Plugins view: each plugin, how it runs, and what it adds.
@@ -681,6 +692,9 @@ impl Editor {
     }
 
     pub(crate) fn view_click(&mut self, id: &str, fx: &mut Vec<Effect>) {
+        if id.starts_with("rn:") || id.starts_with("rename:") {
+            return self.rename_click(id, fx);
+        }
         if let Some(name) = id.strip_prefix("plugin:") {
             let title = self
                 .plugin_list

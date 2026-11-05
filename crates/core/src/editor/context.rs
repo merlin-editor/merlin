@@ -98,6 +98,8 @@ pub struct ProblemView {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PopupKind {
+    /// The rename box (F2), over the name.
+    Rename(super::RenameView),
     /// The problems at the spot, worst first, then the language server's
     /// hover as Markdown, a line each. Either may be empty.
     Hover {
@@ -572,11 +574,21 @@ impl Editor {
     }
 
     pub(crate) fn popup_view(&self) -> Option<PopupView> {
+        let text = self.layout().text;
+        let anchor_at = |at: usize| {
+            let (x, y) = self.cell_of(at)?;
+            Some((x.saturating_sub(text.x), y.saturating_sub(text.y)))
+        };
+        // The rename box takes the place of any other.
+        if let (Some(view), Some(at)) = (self.rename_view(), self.rename_anchor()) {
+            return Some(PopupView {
+                anchor: anchor_at(at)?,
+                kind: PopupKind::Rename(view),
+            });
+        }
         let popup = self.popup.as_ref()?;
         let at = self.hover_anchor.unwrap_or(self.doc().cursor);
-        let text = self.layout().text;
-        let (x, y) = self.cell_of(at)?;
-        let anchor = (x.saturating_sub(text.x), y.saturating_sub(text.y));
+        let anchor = anchor_at(at)?;
         let kind = match popup {
             Popup::Hover {
                 problems,

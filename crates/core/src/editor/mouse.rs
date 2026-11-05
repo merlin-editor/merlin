@@ -16,6 +16,7 @@ impl Editor {
             p.group.min(self.groups.len().saturating_sub(1))
         };
         if matches!(p.kind, MouseKind::Down | MouseKind::Context) {
+            self.rename_box = None;
             self.focus_group(g);
         }
         let here = g == self.group;
@@ -139,6 +140,7 @@ impl Editor {
         if m.kind == MouseKind::Down {
             // A press anywhere puts away what floats over the text.
             self.popup = None;
+            self.rename_box = None;
             self.probe = None;
             self.hover_anchor = None;
             self.close_context();

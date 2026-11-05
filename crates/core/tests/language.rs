@@ -938,3 +938,222 @@ fn why_a_save_didnt_format_isnt_hidden_by_saved() {
     let toast = s.editor.window_view().toast.unwrap();
     assert_eq!(toast.text, "main.rs isn't in git, so it saved unformatted");
 }
+
+/// A Rust file a language server renames in, with the cursor on `accent`.
+fn renaming() -> Session {
+    let mut s = hovering("fn shade(accent: u8) -> u8 {\n    accent + 1\n}\n");
+    s.send(Event::RegisterPlugin {
+        plugin: "lsp".into(),
+        commands: ["rename"]
+            .map(|id| merlin_core::Command {
+                id: id.into(),
+                title: id.into(),
+                key: None,
+            })
+            .into(),
+    });
+    s.files.insert(
+        "theme.rs".into(),
+        "use palette::shade;\nlet a = shade(accent);\nlet b = accent;\n".into(),
+    );
+    s.run("key right right right right right right right right right right");
+    s.effects.clear();
+    s
+}
+
+fn rename_box(s: &Session) -> Option<merlin_core::editor::RenameView> {
+    match s.editor.window_view().popup?.kind {
+        merlin_core::PopupKind::Rename(view) => Some(view),
+        _ => None,
+    }
+}
+
+fn reach() -> Event {
+    Event::ShowRename(Ok(merlin_core::lang::RenameInfo {
+        start: (0, 9),
+        end: (0, 15),
+        places: 4,
+        files: 2,
+    }))
+}
+
+/// The rename's edits, as a server gives them: two places in each file.
+fn rename_edits(new: &str) -> Vec<merlin_core::lang::FileEdit> {
+    use merlin_core::lang::FileEdit;
+    vec![
+        FileEdit {
+            path: "main.rs".into(),
+            edits: vec![((1, 4), (1, 10), new.into()), ((0, 9), (0, 15), new.into())],
+        },
+        FileEdit {
+            path: "theme.rs".into(),
+            edits: vec![
+                ((1, 14), (1, 20), new.into()),
+                ((2, 8), (2, 14), new.into()),
+            ],
+        },
+    ]
+}
+
+/// The active tab's name.
+fn tab(s: &Session) -> String {
+    let view = s.editor.window_view();
+    let tabs = view.groups.into_iter().flat_map(|g| g.tabs);
+    tabs.into_iter()
+        .find(|t| t.active)
+        .map(|t| t.name)
+        .unwrap_or_default()
+}
+
+fn submitted(s: &Session) -> Option<(String, String)> {
+    s.effects.iter().find_map(|e| match e {
+        Effect::PluginSubmit { input, text, .. } => Some((input.clone(), text.clone())),
+        _ => None,
+    })
+}
+
+#[test]
+fn f2_opens_a_box_over_the_name_that_says_how_far_it_reaches() {
+    let mut s = renaming();
+    s.run("key f2");
+    assert!(asked(&s, "rename"), "it asks the server");
+    let view = rename_box(&s).expect("a box");
+    assert_eq!((view.text.as_str(), view.selected), ("accent", true));
+    assert_eq!(view.note, "Finding where it's used…");
+    s.send(reach());
+    let view = rename_box(&s).unwrap();
+    assert_eq!(
+        view.note,
+        "Enter to rename 4 places in 2 files · Shift+Enter to review first"
+    );
+    // Typing replaces the name, and edits only the box.
+    s.run("type base_colour");
+    assert_eq!(rename_box(&s).unwrap().text, "base_colour");
+    s.run("key backspace left left");
+    s.run("type X");
+    assert_eq!(rename_box(&s).unwrap().text, "base_colXou");
+    assert_eq!(
+        s.text(),
+        "fn shade(accent: u8) -> u8 {\n    accent + 1\n}\n"
+    );
+    s.run("key esc");
+    assert!(rename_box(&s).is_none());
+    assert_eq!(
+        s.text(),
+        "fn shade(accent: u8) -> u8 {\n    accent + 1\n}\n"
+    );
+}
+
+#[test]
+fn enter_renames_and_says_how_much() {
+    let mut s = renaming();
+    s.run("key f2");
+    s.send(reach());
+    s.run("type base_colour");
+    s.run("key enter");
+    assert_eq!(submitted(&s), Some(("rename".into(), "base_colour".into())));
+    assert!(rename_box(&s).is_none());
+    s.send(Event::ApplyEdits(rename_edits("base_colour")));
+    assert_eq!(
+        s.editor.window_view().toast.map(|t| t.text),
+        Some("Renamed accent to base_colour: 4 places in 2 files".into())
+    );
+}
+
+#[test]
+fn a_name_that_cant_be_renamed_closes_the_box_and_says_why() {
+    let mut s = renaming();
+    s.run("key f2");
+    s.send(Event::ShowRename(Err("You can't rename this".into())));
+    assert!(rename_box(&s).is_none());
+    assert_eq!(
+        s.editor.window_view().toast.map(|t| t.text),
+        Some("You can't rename this".into())
+    );
+}
+
+#[test]
+fn shift_enter_reviews_the_rename_and_places_can_be_left_out() {
+    let mut s = renaming();
+    s.run("key f2");
+    s.send(reach());
+    s.run("type base_colour");
+    s.run("key shift+enter");
+    assert_eq!(
+        submitted(&s),
+        Some(("rename-review".into(), "base_colour".into()))
+    );
+    s.effects.clear();
+    s.send(Event::ShowRenameReview(rename_edits("base_colour")));
+    // theme.rs isn't open, so it's read for the review.
+    assert!(s.effects.iter().any(
+        |e| matches!(e, Effect::ReadFiles(p) if p == &[std::path::PathBuf::from("theme.rs")])
+    ));
+    let dump = s.editor.dump();
+    assert!(
+        dump.contains(
+            "Rename accent to base_colour · 4 of 4 places in 2 files  [Discard Esc] [Apply 4 Enter]"
+        ),
+        "{dump}"
+    );
+    assert!(dump.contains("[x] main.rs"), "{dump}");
+    assert!(
+        dump.contains("[x] 1 fn shade(~accent~base_colour: u8) -> u8 {"),
+        "{dump}"
+    );
+    assert!(
+        dump.contains("[x] 2 let a = shade(~accent~base_colour);"),
+        "{dump}"
+    );
+    assert_eq!(tab(&s), "main.rs · Rename", "the chosen file's diff");
+    // Down to theme.rs's second place, and leave it out.
+    s.run("key down down down down");
+    assert_eq!(tab(&s), "theme.rs · Rename");
+    s.run("key space");
+    let dump = s.editor.dump();
+    assert!(dump.contains("[-] theme.rs"), "{dump}");
+    assert!(dump.contains("1 of 2"), "{dump}");
+    assert!(dump.contains("[ ] 3 let b = ~accent~;  left out"), "{dump}");
+    assert!(dump.contains("[Apply 3 Enter]"), "{dump}");
+    s.run("key enter");
+    assert!(!s.editor.dump().contains("Apply 3"), "the review closes");
+    assert_eq!(
+        s.editor.window_view().toast.map(|t| t.text),
+        Some("Renamed accent to base_colour: 3 places in 2 files".into())
+    );
+    assert_eq!(
+        s.text(),
+        "use palette::shade;\nlet a = shade(base_colour);\nlet b = accent;\n",
+        "the left-out place stays"
+    );
+    s.send(Event::Ui(merlin_core::UiEvent::Tab {
+        index: 0,
+        clicks: 1,
+    }));
+    assert_eq!(
+        s.text(),
+        "fn shade(base_colour: u8) -> u8 {\n    base_colour + 1\n}\n"
+    );
+    s.run("key ctrl+z");
+    assert_eq!(
+        s.text(),
+        "fn shade(accent: u8) -> u8 {\n    accent + 1\n}\n",
+        "each file one undo step"
+    );
+}
+
+#[test]
+fn escape_discards_a_review() {
+    let mut s = renaming();
+    s.run("key f2");
+    s.run("type base_colour");
+    s.run("key shift+enter");
+    s.send(Event::ShowRenameReview(rename_edits("base_colour")));
+    s.run("key esc");
+    assert!(!s.editor.dump().contains("Apply"));
+    assert_eq!(tab(&s), "main.rs");
+    assert_eq!(
+        s.text(),
+        "fn shade(accent: u8) -> u8 {\n    accent + 1\n}\n"
+    );
+}

@@ -25,6 +25,9 @@ pub struct Review {
     pub old_numbers: Vec<usize>,
     /// The document to go back to once it's answered.
     pub back_to: u64,
+    /// Changed words in the buffer, as character ranges, to tint more than
+    /// their lines.
+    pub words: Vec<(usize, usize)>,
 }
 
 /// A cursor besides the document's own, with its selection.
@@ -166,6 +169,7 @@ impl Doc {
             lines: lines.iter().map(|l| (l.kind, l.number)).collect(),
             old_numbers: lines.iter().map(|l| l.old_number).collect(),
             back_to,
+            words: Vec::new(),
         });
         doc
     }
@@ -269,6 +273,8 @@ impl Doc {
             // Changes since the last commit are looked at, not answered.
             return if review.plugin.is_empty() {
                 format!("{name} (changes)")
+            } else if review.plugin == crate::editor::RENAME_REVIEW {
+                format!("{name} · Rename")
             } else {
                 format!("Review {name}")
             };

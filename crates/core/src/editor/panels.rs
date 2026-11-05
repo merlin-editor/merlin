@@ -237,6 +237,12 @@ impl Editor {
         if side == Side::Left && self.explorer_key(key, fx) {
             return;
         }
+        if side == Side::Bottom
+            && self.active_panel_name(side).as_deref() == Some(super::rename::RENAME)
+            && self.rename_review_key(key, fx)
+        {
+            return;
+        }
         let count = self.panel_targets(side).len();
         let page = self.text_height().saturating_sub(2).max(1);
         let input = self.focused_input(side);

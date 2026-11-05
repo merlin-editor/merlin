@@ -3,8 +3,9 @@
 //! rounded islands on a darker ground, and a thin status bar. Drawing also
 //! records what each clickable part does.
 
+use merlin_core::editor::RenameView;
 use merlin_core::lang::{ActionKind, CodeAction};
-use merlin_core::panel::{Entry, Node, Tone};
+use merlin_core::panel::{Check, Entry, Node, Swap, Tone};
 use merlin_core::{
     ContextItem, ContextView, DialogView, FindAction, FindView, HoverButton, Key, KeyCode,
     MenuView, PaletteView, PopupKind, PopupView, ProblemView, Severity, Side, SideView,
@@ -892,6 +893,7 @@ impl Frame<'_> {
             a.text.y + popup.anchor.1 as f32 * ch,
         );
         match &popup.kind {
+            PopupKind::Rename(view) => self.rename_box(view, anchor, a, (cw, ch)),
             PopupKind::Hover {
                 problems,
                 lines,
@@ -917,6 +919,62 @@ impl Frame<'_> {
                 self.completions(items, *selected, anchor, a, ch)
             }
         }
+    }
+
+    /// The rename box (F2) under the name, which is outlined: the new name
+    /// in a field, and what Enter and Shift+Enter do.
+    fn rename_box(
+        &mut self,
+        view: &RenameView,
+        anchor: (f32, f32),
+        a: &Areas,
+        (cw, ch): (f32, f32),
+    ) {
+        let p = self.p;
+        let name = Rect::new(anchor.0 - 1.0, anchor.1, view.name as f32 * cw + 2.0, ch);
+        self.canvas.frame(name, 2.0, 1.0, p.accent, 0);
+        let mono = Face::mono(13.0);
+        let note = Face::ui(11.5);
+        let text_w = self.text.width(&view.text, mono);
+        let note_w = self.text.width(&view.note, note);
+        let w = (text_w + 40.0).max(note_w + 16.0).clamp(280.0, 560.0);
+        let h = 6.0 + 26.0 + 6.0 + 16.0 + 6.0;
+        let r = self.card_place((anchor.0 - 7.0, anchor.1), w, h, a, ch);
+        self.canvas.shadow(r, 8.0, theme::is_light(&p));
+        self.canvas.outline(r, 8.0, 1.0, p.border, p.widget);
+        self.hit(r, Hit::Block);
+        let field = Rect::new(r.x + 6.0, r.y + 6.0, r.w - 12.0, 26.0);
+        self.canvas.outline(field, 5.0, 1.0, p.accent, p.raised);
+        let x = field.x + 8.0;
+        if view.selected && !view.text.is_empty() {
+            let sel = Rect::new(x - 1.0, field.y + 5.0, text_w + 2.0, 16.0);
+            self.canvas.round(sel, 2.0, p.selection);
+        }
+        self.text.draw_in_row(
+            &mut self.canvas,
+            &view.text,
+            mono,
+            x,
+            field.y,
+            field.h,
+            p.bright,
+            field.inset(1.0),
+        );
+        let before: String = view.text.chars().take(view.caret).collect();
+        let cx = x + self.text.width(&before, mono);
+        self.canvas
+            .fill(Rect::new(cx, field.y + 5.5, 1.5, 15.0), p.accent);
+        let shown = self.text.fit(&view.note, note, r.w - 16.0);
+        self.text.draw_in_row(
+            &mut self.canvas,
+            &shown,
+            note,
+            r.x + 8.0,
+            field.bottom() + 4.0,
+            16.0,
+            p.muted,
+            r,
+        );
     }
 
     /// Where a card of `w` by `h` goes for text at `anchor`: under its
@@ -2334,6 +2392,7 @@ impl Frame<'_> {
             Node::Input { .. } => 40.0,
             Node::Divider => 13.0,
             Node::Footer => 0.0,
+            Node::Header { .. } => 38.0,
         }
     }
 
@@ -2440,7 +2499,7 @@ impl Frame<'_> {
             Node::Entry(e) => {
                 let row = Rect::new(r.x + 6.0, r.y, r.w - 12.0, r.h);
                 row_bg(self, row);
-                self.entry(e, row, clip);
+                let check = self.entry(e, row, clip);
                 if let Some(index) = target {
                     self.hit(
                         row,
@@ -2450,6 +2509,9 @@ impl Frame<'_> {
                             clicks: 1,
                         }),
                     );
+                    if let Some(b) = check {
+                        self.hit(b, Hit::Ui(UiEvent::Check { side, index }));
+                    }
                     if e.action.is_some() {
                         let a = Rect::new(row.right() - 50.0, row.y + 3.0, 20.0, 20.0);
                         self.hit(
@@ -2562,11 +2624,180 @@ impl Frame<'_> {
                     .fill(Rect::new(r.x + 14.0, r.y + 6.0, r.w - 28.0, 1.0), p.line);
             }
             Node::Footer => {}
+            Node::Header {
+                title,
+                detail,
+                buttons,
+            } => self.header(title, detail, buttons, r, clip),
         }
     }
 
-    /// A tree row: indent, arrow, icon, name, detail, and a badge at the end.
-    fn entry(&mut self, e: &Entry, row: Rect, clip: Rect) {
+    /// A title, toned parts as code, with buttons and their keys at the
+    /// right end, the last the main one.
+    fn header(
+        &mut self,
+        title: &[(String, Tone)],
+        detail: &str,
+        buttons: &[(merlin_core::panel::Button, String)],
+        r: Rect,
+        clip: Rect,
+    ) {
+        let p = self.p;
+        let (y, h) = (r.y + 4.0, 26.0);
+        let mut right = r.right() - 14.0;
+        for (k, (button, key)) in buttons.iter().enumerate().rev() {
+            let w = self.key_button(&button.label, key, right, y, k + 1 == buttons.len());
+            self.hit(
+                Rect::new(right - w, y, w, h),
+                Hit::Ui(UiEvent::Press(button.id.clone())),
+            );
+            right -= w + 8.0;
+        }
+        let mut x = r.x + 14.0;
+        for (text, tone) in title {
+            let (face, colour) = match tone {
+                Tone::Normal => (Face::ui(13.0), p.text),
+                tone => (Face::mono(12.5), tone_colour(&p, *tone)),
+            };
+            x += self
+                .text
+                .draw_in_row(&mut self.canvas, text, face, x, y, h, colour, clip);
+        }
+        if !detail.is_empty() {
+            let face = Face::ui(13.0);
+            let room = (right - x - 24.0).max(0.0);
+            let shown = self.text.fit(&format!("  ·  {detail}"), face, room);
+            self.text
+                .draw_in_row(&mut self.canvas, &shown, face, x, y, h, p.muted, clip);
+        }
+    }
+
+    /// A button of `label` and its key, ending at `right`: its width.
+    fn key_button(&mut self, label: &str, key: &str, right: f32, y: f32, primary: bool) -> f32 {
+        let p = self.p;
+        let (face, chip) = (Face::ui(12.5), Face::ui(11.0));
+        let (lw, kw) = (self.text.width(label, face), self.text.width(key, chip));
+        let w = lw + kw + 12.0 + 8.0 + 20.0;
+        let r = Rect::new(right - w, y, w, 26.0);
+        let hovered = self.hovered(r);
+        let (bg, fg, chip_bg, chip_fg) = if primary {
+            let bg = if hovered {
+                mix(p.accent, 0xffffff, 0.88)
+            } else {
+                p.accent
+            };
+            (bg, p.ground, mix(p.ground, bg, 0.18), p.ground)
+        } else {
+            let bg = if hovered { p.border } else { p.chip };
+            (bg, p.bright, mix(p.chip_text, bg, 0.12), p.chip_text)
+        };
+        self.canvas.round(r, 6.0, bg);
+        self.text
+            .draw_in_row(&mut self.canvas, label, face, r.x + 10.0, y, 26.0, fg, r);
+        let k = Rect::new(r.x + 10.0 + lw + 8.0, y + 5.0, kw + 12.0, 16.0);
+        self.canvas.round(k, 4.0, chip_bg);
+        self.text.draw_in_row(
+            &mut self.canvas,
+            key,
+            chip,
+            k.x + 6.0,
+            k.y,
+            16.0,
+            chip_fg,
+            r,
+        );
+        w
+    }
+
+    /// A checkbox at `x`, centred on `mid`.
+    fn checkbox(&mut self, check: Check, x: f32, mid: f32) {
+        let p = self.p;
+        let b = Rect::new(x, mid - 7.0, 14.0, 14.0);
+        match check {
+            Check::On => {
+                self.canvas.round(b, 4.0, p.accent);
+                self.canvas
+                    .line((x + 3.5, mid + 0.2), (x + 6.0, mid + 2.8), 1.8, p.ground);
+                self.canvas
+                    .line((x + 6.0, mid + 2.8), (x + 10.8, mid - 2.6), 1.8, p.ground);
+            }
+            Check::Some => {
+                self.canvas.frame(b, 4.0, 1.5, p.accent, 0);
+                self.canvas
+                    .round(Rect::new(x + 3.5, mid - 1.0, 7.0, 2.0), 1.0, p.accent);
+            }
+            Check::Off => {
+                self.canvas
+                    .frame(b, 4.0, 1.5, mix(p.muted, p.island, 0.5), 0);
+            }
+        }
+    }
+
+    /// A line with a name changed: its number, the old name struck through
+    /// and tinted, then the new.
+    fn swap(&mut self, s: &Swap, muted: bool, x: f32, row: Rect, room: f32, clip: Rect) -> f32 {
+        let p = self.p;
+        let mono = Face::mono(12.5);
+        let number = s.line.to_string();
+        let nw = self.text.width(&number, mono);
+        let num_x = x + 26.0 - nw;
+        self.text.draw_in_row(
+            &mut self.canvas,
+            &number,
+            mono,
+            num_x,
+            row.y,
+            row.h,
+            p.muted,
+            clip,
+        );
+        let start = x + 34.0;
+        let end = start + (room - 34.0).max(0.0);
+        let clip = Rect::new(clip.x, clip.y, (end - clip.x).max(0.0), clip.h);
+        let text = if muted { p.muted } else { p.text };
+        let mid = row.y + row.h / 2.0;
+        let mut at = start;
+        at += self.text.draw_in_row(
+            &mut self.canvas,
+            &s.before,
+            mono,
+            at,
+            row.y,
+            row.h,
+            text,
+            clip,
+        );
+        let ow = self.text.width(&s.old, mono);
+        if !muted {
+            let tint = Rect::new(at, mid - 8.0, ow, 16.0);
+            self.canvas.tint(tint, 2.0, p.error, 77);
+        }
+        self.text
+            .draw_in_row(&mut self.canvas, &s.old, mono, at, row.y, row.h, text, clip);
+        if at < end {
+            let strike = Rect::new(at, mid, ow.min(end - at), 1.0);
+            self.canvas.fill(strike, text);
+        }
+        at += ow;
+        if !s.new.is_empty() {
+            let w = self.text.width(&s.new, mono);
+            self.canvas
+                .tint(Rect::new(at, mid - 8.0, w, 16.0), 2.0, p.success, 71);
+            at +=
+                self.text
+                    .draw_in_row(&mut self.canvas, &s.new, mono, at, row.y, row.h, text, clip);
+        }
+        // What's past the room is cut with an ellipsis.
+        let after = self.text.fit(&s.after, mono, (end - at).max(0.0));
+        at += self
+            .text
+            .draw_in_row(&mut self.canvas, &after, mono, at, row.y, row.h, text, clip);
+        at - x
+    }
+
+    /// A tree row: indent, arrow, checkbox, icon, name, detail, and a badge
+    /// at the end. Returns where its checkbox is, to click.
+    fn entry(&mut self, e: &Entry, row: Rect, clip: Rect) -> Option<Rect> {
         let p = self.p;
         let mut x = row.x + 8.0 + e.depth as f32 * 14.0;
         let mid = row.y + row.h / 2.0;
@@ -2584,6 +2815,11 @@ impl Frame<'_> {
             }
             None => None,
         };
+        let check = e.check.map(|check| {
+            self.checkbox(check, x, mid);
+            x += 22.0;
+            Rect::new(x - 26.0, row.y, 26.0, row.h)
+        });
         match folder {
             // Folders get an icon only from an icon theme that has them.
             Some(open) => {
@@ -2606,21 +2842,29 @@ impl Frame<'_> {
         };
         let room = (row.right() - x - badge_w - if e.action.is_some() { 26.0 } else { 0.0 } - 6.0)
             .max(0.0);
-        let label = self.text.fit(&e.label, face, room);
         let colour = match e.tone {
             Tone::Normal => p.text,
             tone => tone_colour(&p, tone),
         };
-        let lw = self.text.draw_in_row(
-            &mut self.canvas,
-            &label,
-            face,
-            x,
-            row.y,
-            row.h,
-            colour,
-            clip,
-        );
+        let lw = match &e.swap {
+            Some(s) => {
+                let room = room - if e.detail.is_empty() { 0.0 } else { 70.0 };
+                self.swap(s, e.tone == Tone::Muted, x, row, room, clip)
+            }
+            None => {
+                let label = self.text.fit(&e.label, face, room);
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    &label,
+                    face,
+                    x,
+                    row.y,
+                    row.h,
+                    colour,
+                    clip,
+                )
+            }
+        };
         if !e.detail.is_empty() && lw + 12.0 < room {
             let detail = self.text.fit(&e.detail, Face::ui(12.0), room - lw - 8.0);
             self.text.draw_in_row(
@@ -2684,6 +2928,7 @@ impl Frame<'_> {
                 clip,
             );
         }
+        check
     }
 
     /// A file type's letters in a small rounded square of its colour.

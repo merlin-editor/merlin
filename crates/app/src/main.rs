@@ -405,6 +405,19 @@ impl App {
                             jobs::events(vec![Event::ShowDiff { path, old, new }])
                         });
                     }
+                    Effect::ReadFiles(paths) => {
+                        let root = self.root.clone();
+                        self.jobs.run(Lane::Disk, move || {
+                            let files = paths
+                                .into_iter()
+                                .map(|p| {
+                                    let text = fs::read_to_string(root.join(&p)).ok();
+                                    (p, text)
+                                })
+                                .collect();
+                            jobs::events(vec![Event::FilesRead(files)])
+                        });
+                    }
                     Effect::OpenUrl(url) => open_url(&url),
                     Effect::Copy(text) => {
                         if let Some(clipboard) = &mut self.clipboard {

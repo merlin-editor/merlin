@@ -113,6 +113,7 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
     ("view.hover", "View: Show Hover and Problems"),
     ("edit.quick_fix", "Edit: Quick Fix and Code Actions…"),
     ("edit.format", "Edit: Format the File"),
+    ("edit.rename", "Edit: Rename Symbol"),
     ("edit.format_selection", "Edit: Format the Selection"),
     (
         "file.save_without_formatting",
@@ -225,6 +226,7 @@ impl Editor {
             "view.hover" => self.hover_at_cursor(fx),
             "edit.quick_fix" => self.code_actions(fx),
             "edit.format" => self.format_file(fx),
+            "edit.rename" => self.rename(fx),
             "edit.format_selection" => self.format_selection(fx),
             "file.save_without_formatting" => match self.doc().buffer.path {
                 Some(_) => self.save_current(fx),

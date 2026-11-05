@@ -48,6 +48,9 @@ pub enum Style {
     /// Lines in a review of proposed changes.
     DiffAdded,
     DiffRemoved,
+    /// The words that changed in those lines.
+    DiffAddedWord,
+    DiffRemovedWord,
     /// Gutter signs for lines changed since the last commit.
     GitAdded,
     GitChanged,

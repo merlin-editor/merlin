@@ -65,6 +65,16 @@ pub struct FileEdit {
     pub edits: Vec<TextEdit>,
 }
 
+/// What renaming the name at the cursor would change: the name's place in
+/// the active file, as UTF-16 line and column, and how far it reaches.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RenameInfo {
+    pub start: (u32, u32),
+    pub end: (u32, u32),
+    pub places: u32,
+    pub files: u32,
+}
+
 /// A function's signature as a call is typed: its label, the parameter
 /// the cursor is in as a range of the label's characters, a line of its
 /// documentation, and which of how many overloads it is.

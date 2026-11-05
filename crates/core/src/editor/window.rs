@@ -40,6 +40,13 @@ pub enum UiEvent {
         /// 2 for a double click; a file opens to stay then.
         clicks: u8,
     },
+    /// A panel's checkbox, by its row's index among the panel's targets.
+    Check {
+        side: Side,
+        index: usize,
+    },
+    /// A button that isn't one of a panel's targets, such as a header's.
+    Press(String),
     /// One of a side's panel titles, to show that panel.
     PanelTitle {
         side: Side,
@@ -529,6 +536,13 @@ impl Editor {
                 self.clicks = clicks.max(1);
                 self.click_target(side, index, fx)
             }
+            UiEvent::Check { side, index } => {
+                self.click_target(side, index, fx);
+                if side == Side::Bottom && self.reviewing_rename() {
+                    self.toggle_row();
+                }
+            }
+            UiEvent::Press(id) => self.view_click(&id, fx),
             UiEvent::PanelTitle { side, name } => {
                 if side == Side::Bottom && name == super::terminal::TERMINAL {
                     self.run("terminal.toggle", fx);

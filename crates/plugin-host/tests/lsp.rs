@@ -296,3 +296,88 @@ fn a_file_not_in_git_saves_unformatted_and_says_so_once() {
     }
     assert_eq!(said, 1);
 }
+
+/// The snapshot with the cursor on `v`, in `let v`.
+fn on_v() -> Snapshot {
+    Snapshot {
+        cursor: (1, 8),
+        ..snapshot()
+    }
+}
+
+/// Polls with the cursor on `v` until an event matches.
+fn wait_on_v(host: &mut PluginHost, what: &str, matches: impl Fn(&Event) -> bool) -> Event {
+    let until = Instant::now() + Duration::from_secs(10);
+    loop {
+        let (events, _) = host.poll_processes(on_v);
+        if let Some(event) = events.into_iter().find(&matches) {
+            return event;
+        }
+        assert!(Instant::now() < until, "never got {what}");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[test]
+fn rename_says_how_far_a_name_reaches_then_renames_or_sends_it_to_review() {
+    use merlin_core::lang::{FileEdit, RenameInfo};
+    let mut host = started();
+    host.run_command("lsp", "rename", on_v());
+    let event = wait_on_v(&mut host, "the rename's reach", |e| {
+        matches!(e, Event::ShowRename(_))
+    });
+    let Event::ShowRename(info) = event else {
+        unreachable!()
+    };
+    assert_eq!(
+        info,
+        Ok(RenameInfo {
+            start: (1, 8),
+            end: (1, 9),
+            places: 3,
+            files: 2,
+        })
+    );
+    let edits = vec![FileEdit {
+        path: "src/main.rs".into(),
+        edits: vec![((1, 8), (1, 9), "w".into()), ((2, 4), (2, 5), "w".into())],
+    }];
+    host.submit("lsp", "rename-review", "w", on_v());
+    let event = wait_on_v(&mut host, "the review", |e| {
+        matches!(e, Event::ShowRenameReview(_))
+    });
+    let Event::ShowRenameReview(review) = event else {
+        unreachable!()
+    };
+    assert_eq!(review, edits);
+    // Each rename is prepared first.
+    host.run_command("lsp", "rename", on_v());
+    wait_on_v(&mut host, "the reach", |e| {
+        matches!(e, Event::ShowRename(_))
+    });
+    host.submit("lsp", "rename", "w", on_v());
+    let event = wait_on_v(&mut host, "the edits", |e| {
+        matches!(e, Event::ApplyEdits(_))
+    });
+    let Event::ApplyEdits(made) = event else {
+        unreachable!()
+    };
+    assert_eq!(made, edits);
+}
+
+#[test]
+fn a_name_the_server_cant_rename_says_why() {
+    let mut host = started();
+    // Once it's ready, renames are prepared.
+    host.run_command("lsp", "hover", snapshot());
+    wait_for(&mut host, "a hover", |e| matches!(e, Event::ShowHover(_)));
+    host.run_command("lsp", "rename", snapshot());
+    let event = wait_for(&mut host, "why", |e| matches!(e, Event::ShowRename(_)));
+    let Event::ShowRename(info) = event else {
+        unreachable!()
+    };
+    assert_eq!(
+        info,
+        Err("Can't rename this: No references found at position".into())
+    );
+}

@@ -126,6 +126,17 @@ enum Request {
         version: i32,
     },
     Signature,
+    /// Whether the name at the cursor can be renamed, and where it is.
+    PrepareRename,
+    /// The places that use the name at the cursor, for the rename box to
+    /// count; with the name's place, if preparing found it.
+    References {
+        name: Option<((u32, u32), (u32, u32))>,
+    },
+    /// A rename's edits: made, or sent to review.
+    Rename {
+        review: bool,
+    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -171,6 +182,11 @@ struct Server {
     formats: bool,
     #[serde(default)]
     formats_ranges: bool,
+    /// Whether it renames, and says first whether a name can be.
+    #[serde(default)]
+    renames: bool,
+    #[serde(default)]
+    prepares_renames: bool,
     /// The last line of each open document, for asking about all of it.
     #[serde(default)]
     last_lines: HashMap<String, u32>,
@@ -216,6 +232,9 @@ struct Lsp {
     /// Why saving didn't format, said once a file.
     #[serde(default)]
     warned: BTreeSet<String>,
+    /// The file and place of the name the rename box is over.
+    #[serde(default)]
+    rename_at: Option<(String, (u32, u32))>,
 }
 
 impl Server {
@@ -787,6 +806,8 @@ impl Lsp {
                     inlay_hints: false,
                     formats: false,
                     formats_ranges: false,
+                    renames: false,
+                    prepares_renames: false,
                     last_lines: HashMap::new(),
                     incremental: false,
                     synced: HashMap::new(),
@@ -818,6 +839,8 @@ impl Lsp {
                             "definition": {},
                             "formatting": {},
                             "rangeFormatting": {},
+                            "rename": {"prepareSupport": true},
+                            "references": {},
                             "codeAction": {
                                 "codeActionLiteralSupport": {
                                     "codeActionKind": {
@@ -912,6 +935,64 @@ impl Lsp {
             server.latest_completion = server.next_id + 1;
         }
         server.request(method, params, request);
+    }
+
+    /// The editor's F2: whether the name at the cursor can be renamed, and
+    /// how far it reaches, for its rename box.
+    fn prepare_rename(&mut self) {
+        let Some((path, spec, language)) = self.active() else {
+            return host::show_rename(Err("No language server for this file"));
+        };
+        let Ok(cursor) = host::active_cursor() else {
+            return;
+        };
+        let text = host::active_text().unwrap_or_default();
+        let server = self.ensure(spec);
+        if let Status::Failed(err) = &server.status {
+            let why = format!("{} isn't running: {err}", spec.program);
+            return host::show_rename(Err(&why));
+        }
+        // Until it's started, it's asked anyway: the box hears if it can't.
+        if server.status == Status::Ready && !server.renames {
+            let why = format!("{} can't rename", spec.program);
+            return host::show_rename(Err(&why));
+        }
+        if !server.opened.contains_key(&path) {
+            server.sync(&path, language, &text);
+        }
+        self.rename_at = Some((path.clone(), (cursor.line, cursor.column)));
+        let server = self.ensure(spec);
+        if server.prepares_renames {
+            server.request(
+                "textDocument/prepareRename",
+                json!({
+                    "textDocument": {"uri": uri(&path)},
+                    "position": {"line": cursor.line, "character": cursor.column},
+                }),
+                Request::PrepareRename,
+            );
+        } else {
+            self.find_references(spec.program, None);
+        }
+    }
+
+    /// Asks where the name being renamed is used, to count the places.
+    fn find_references(&mut self, program: &str, name: Option<((u32, u32), (u32, u32))>) {
+        let Some((path, at)) = self.rename_at.clone() else {
+            return;
+        };
+        let Some(server) = self.server(program) else {
+            return;
+        };
+        server.request(
+            "textDocument/references",
+            json!({
+                "textDocument": {"uri": uri(&path)},
+                "position": {"line": at.0, "character": at.1},
+                "context": {"includeDeclaration": true},
+            }),
+            Request::References { name },
+        );
     }
 
     /// Formats the active file, its selection, or its changed lines. A
@@ -1209,6 +1290,11 @@ impl Lsp {
             match &request {
                 Request::Format { path } => formatted(path, &Value::Null),
                 Request::FormatPart { batch } => self.part_formatted(*batch, &Value::Null),
+                // The rename box waits to hear, and says why.
+                Request::PrepareRename | Request::References { .. } => {
+                    let why = error["message"].as_str().unwrap_or("it can't be renamed");
+                    return host::show_rename(Err(&format!("Can't rename this: {why}")));
+                }
                 _ => {}
             }
             // Servers cancel requests that newer edits made pointless.
@@ -1249,6 +1335,8 @@ impl Lsp {
                 server.inlay_hints = offered(&caps["inlayHintProvider"]);
                 server.formats = offered(&caps["documentFormattingProvider"]);
                 server.formats_ranges = offered(&caps["documentRangeFormattingProvider"]);
+                server.renames = offered(&caps["renameProvider"]);
+                server.prepares_renames = caps["renameProvider"]["prepareProvider"] == true;
                 // 2 is incremental, as a number or as `change` in an object.
                 let sync = &caps["textDocumentSync"];
                 server.incremental = sync.as_u64().or_else(|| sync["change"].as_u64()) == Some(2);
@@ -1300,6 +1388,59 @@ impl Lsp {
                     self.actions.insert(id, edit.clone());
                 }
                 host::show_code_actions(&actions);
+            }
+            Request::PrepareRename => {
+                // A range, a range with a placeholder, or "the word here".
+                let range = result.get("range").unwrap_or(result);
+                let at = |p: Position| (p.line, p.column);
+                let name = range
+                    .get("start")
+                    .map(|start| (at(position(start)), at(position(&range["end"]))));
+                if result.is_null() {
+                    return host::show_rename(Err("You can't rename this"));
+                }
+                self.find_references(program, name);
+            }
+            Request::References { name } => {
+                let list = result.as_array().cloned().unwrap_or_default();
+                let Some((path, cursor)) = self.rename_at.clone() else {
+                    return;
+                };
+                let mut files = BTreeSet::new();
+                let mut here = None;
+                for location in &list {
+                    let file = location["uri"].as_str().and_then(path_of);
+                    let at = |p: Position| (p.line, p.column);
+                    let (start, end) = (
+                        at(position(&location["range"]["start"])),
+                        at(position(&location["range"]["end"])),
+                    );
+                    if file.as_deref() == Some(path.as_str()) && (start..=end).contains(&cursor) {
+                        here = Some((start, end));
+                    }
+                    files.insert(file);
+                }
+                let Some((start, end)) = name.or(here) else {
+                    return host::show_rename(Err("There's no name here to rename"));
+                };
+                let position = |(line, column)| Position { line, column };
+                host::show_rename(Ok(&RenameInfo {
+                    start: position(start),
+                    end: position(end),
+                    places: list.len().max(1) as u32,
+                    files: files.len().max(1) as u32,
+                }));
+            }
+            Request::Rename { review } => {
+                let edits = file_edits(result);
+                if edits.is_empty() {
+                    return host::notify("That rename changes nothing");
+                }
+                if review {
+                    host::show_rename_review(&edits);
+                } else if let Err(err) = host::apply_edits(&edits) {
+                    host::notify(&err);
+                }
             }
             Request::Definition => {
                 let first = match result {
@@ -1455,6 +1596,8 @@ impl Plugin for Lsp {
             Command::new("format-on-save", "Language: Format for Saving"),
             Command::new("format-selection", "Language: Format the Selection"),
             Command::new("format-changed", "Language: Format the Changed Lines"),
+            // The editor's F2, which shows its box over the name.
+            Command::new("rename", "Language: Rename"),
         ]
     }
 
@@ -1467,6 +1610,7 @@ impl Plugin for Lsp {
             "format-on-save" => self.format(Formatting::File, true),
             "format-selection" => self.format(Formatting::Selection, false),
             "format-changed" => self.format(Formatting::Changed, true),
+            "rename" => self.prepare_rename(),
             "complete" => self.ask(
                 "textDocument/completion",
                 Request::Completion { manual: true },
@@ -1482,6 +1626,30 @@ impl Plugin for Lsp {
             }
             _ => {}
         }
+    }
+
+    fn submit(&mut self, input: &str, text: &str) {
+        let review = match input {
+            "rename" => false,
+            "rename-review" => true,
+            _ => return,
+        };
+        let Some((path, at)) = self.rename_at.take() else {
+            return;
+        };
+        let Some((_, spec, _)) = self.active() else {
+            return;
+        };
+        let server = self.ensure(spec);
+        server.request(
+            "textDocument/rename",
+            json!({
+                "textDocument": {"uri": uri(&path)},
+                "position": {"line": at.0, "character": at.1},
+                "newName": text,
+            }),
+            Request::Rename { review },
+        );
     }
 
     fn pick(&mut self, picker: &str, item: &str) {

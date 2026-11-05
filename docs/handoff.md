@@ -231,15 +231,51 @@ Built, each checked in the window with rust-analyzer:
   - Checked in the window with rust-analyzer: format on save, Ctrl+.,
     Ctrl+Shift+I, and both Changed lines notices.
 
+- **Rename, built** to the Language mock-up's box and
+  [`mockups/Rename.dc.html`](mockups/Rename.dc.html):
+  - **F2** (`edit.rename`) opens a box under the name, which is outlined,
+    with all of it selected. The core asks the plugin's `rename` command;
+    the plugin calls `prepareRename` (when the server has it) and
+    `references`, and answers with the new host call `show-rename`: the
+    name's range and how many places and files, or why not (the box
+    closes and the reason shows).
+  - The box takes every key while open and never edits the text:
+    typing, Backspace, Delete, arrows, Home, End, Ctrl+A, Ctrl+C,
+    Ctrl+V. Esc or a click elsewhere closes it.
+  - **Enter** calls `on-submit` with input `rename`; the plugin sends
+    `textDocument/rename`'s edits with `apply-edits`, and the core says
+    "Renamed a to b: N places in M files".
+  - **Shift+Enter** submits `rename-review`; the plugin answers with the
+    new host call `show-rename-review(edits)`. Files that aren't open are
+    read first (`Effect::ReadFiles`, `Event::FilesRead`).
+  - **The review:** a Rename tab in the bottom panel (only while
+    reviewing), with a header row (`Node::Header`, Discard Esc and Apply N
+    Enter) and a row per file and per place. `Entry` gained `check`
+    (a tri-state box) and `swap` (the old name struck through, the new
+    after). The chosen row's file shows as a read-only diff tab, "main.rs ·
+    Rename", whose changed words are tinted (`Review.words`, the styles
+    `DiffAddedWord` and `DiffRemovedWord`).
+  - Keys there, and in the diff tab: ↑ ↓ move, Space leaves a place (or
+    a file's) in or out, Left and Right fold a file, Enter applies (each
+    file one undo step), Esc discards. The status bar says "Reviewing a
+    rename: Enter applies, Esc discards".
+  - A file typed in since the review began is left as it is, and the
+    notice says so.
+  - **Differences from the mock-up:** the review tab's name has no muted
+    part, and the box is as wide as its note.
+  - Where it lives: `crates/core/src/editor/rename.rs`; `prepare_rename`,
+    `find_references` and `submit` in `plugins/lsp/src/lib.rs`.
+  - Tests: the rename tests at the end of `crates/core/tests/language.rs`,
+    and the two rename tests in `crates/plugin-host/tests/lsp.rs`.
+  - Checked in the window with rust-analyzer: the box and its count,
+    Enter, Shift+Enter with a place left out, Esc, and a refusal.
+
 Not built yet, in the order to do them:
 
-1. **Rename.** F2 opens an inline box over the name, with "Enter to
-   rename N places in M files · Shift+Enter to review first".
-2. **The rest of the problem hover:** scrolling a long hover with the
+1. **The rest of the problem hover:** scrolling a long hover with the
    keyboard (↑ ↓ once it's focused), from
    [`mockups/Hover.dc.html`](mockups/Hover.dc.html).
-3. **Find references** has its own mock-up (`References.dc.html`), the
-   next item after these.
+2. **Find references** has its own mock-up (`References.dc.html`).
 
 #### A suggested design for what's left
 
@@ -324,7 +360,7 @@ These are suggestions; nothing of them is written yet.
   straight into core `Event`s. The Rust SDK's re-exports are in
   `sdk/rust/src/lib.rs`; add new types to both lists there.
 - Checks before each commit:
-  - `cargo test --workspace`: 337 tests passed with format
+  - `cargo test --workspace`: 344 tests passed with rename
   - `cargo clippy --workspace --all-targets`
   - in `plugins/lsp`: `cargo clippy --release --target wasm32-wasip2`
   - `cargo fmt --all`
@@ -358,6 +394,9 @@ recreate them:
   scratch folder holding a copy of `~/.local/share/merlin/grants.toml`,
   and allow the card there. Plugins still load from
   `~/.config/merlin/plugins`.
+  Link `~/.local/share/fonts` into that folder as `fonts` too:
+  fontconfig looks there, and without it the Nerd Font icons draw as
+  boxes.
 - **Focus:** windows move. Read merlin's position from `hyprctl clients
   -j` before each move, and check `hyprctl activewindow` is merlin
   before typing. Keys once went to another app.

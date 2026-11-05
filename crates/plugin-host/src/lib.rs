@@ -268,6 +268,22 @@ impl State {
             Err(format!("permission denied: {permission}"))
         }
     }
+
+    /// A plugin's file edits as the editor's, with workspace paths.
+    fn file_edits(&self, edits: Vec<types::FileEdit>) -> Vec<merlin_core::lang::FileEdit> {
+        let at = |p: types::Position| (p.line, p.column);
+        edits
+            .into_iter()
+            .map(|f| merlin_core::lang::FileEdit {
+                path: self.snapshot.local(&f.path),
+                edits: f
+                    .edits
+                    .into_iter()
+                    .map(|e| (at(e.start), at(e.end), e.text))
+                    .collect(),
+            })
+            .collect()
+    }
 }
 
 impl WasiView for State {
@@ -506,21 +522,26 @@ impl host::Host for State {
 
     fn apply_edits(&mut self, edits: Vec<types::FileEdit>) -> Result<(), String> {
         self.need(self.permissions.editor_write, "editor-write")?;
-        let at = |p: types::Position| (p.line, p.column);
-        self.events.push(Event::ApplyEdits(
-            edits
-                .into_iter()
-                .map(|f| merlin_core::lang::FileEdit {
-                    path: self.snapshot.local(&f.path),
-                    edits: f
-                        .edits
-                        .into_iter()
-                        .map(|e| (at(e.start), at(e.end), e.text))
-                        .collect(),
-                })
-                .collect(),
-        ));
+        let edits = self.file_edits(edits);
+        self.events.push(Event::ApplyEdits(edits));
         Ok(())
+    }
+
+    fn show_rename(&mut self, info: Result<types::RenameInfo, String>) {
+        let at = |p: types::Position| (p.line, p.column);
+        self.events.push(Event::ShowRename(info.map(|i| {
+            merlin_core::lang::RenameInfo {
+                start: at(i.start),
+                end: at(i.end),
+                places: i.places,
+                files: i.files,
+            }
+        })));
+    }
+
+    fn show_rename_review(&mut self, edits: Vec<types::FileEdit>) {
+        let edits = self.file_edits(edits);
+        self.events.push(Event::ShowRenameReview(edits));
     }
 
     fn insert_text(&mut self, text: String) -> Result<(), String> {
