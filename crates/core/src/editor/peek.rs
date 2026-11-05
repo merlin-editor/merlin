@@ -107,9 +107,12 @@ pub enum PeekItem {
         count: usize,
         open: bool,
     },
+    /// A reference: its line number, the text around it, and where it is
+    /// in that text, by character.
     Place {
         line: usize,
         text: String,
+        mark: (usize, usize),
     },
 }
 
@@ -122,7 +125,13 @@ pub struct PreviewLine {
     pub colours: Vec<(usize, usize, Syntax)>,
     /// The references on the line, by character.
     pub marks: Vec<(usize, usize)>,
+    /// Whether it's the chosen reference's line, to scroll to.
+    pub current: bool,
 }
+
+/// Characters of a list row's text kept before its reference, when the
+/// reference is further along than that.
+const LEAD: usize = 12;
 
 /// UTF-16 `column` of `line` as a character offset in it.
 fn char_column(line: &str, column: u32) -> usize {
@@ -265,11 +274,33 @@ impl Editor {
             if places == 1 { "" } else { "s" },
             if files == 1 { "" } else { "s" }
         );
+        // The line's text from a little before the reference, so it shows.
         let line_of = |file: &PeekFile, j: usize| {
-            let (start, _) = file.places[j];
+            let (start, end) = file.places[j];
             let text = file.text.as_deref().unwrap_or_default();
             let line = text.lines().nth(start.0 as usize).unwrap_or_default();
-            (start.0 as usize + 1, line.trim().to_string())
+            let chars: Vec<char> = line.chars().collect();
+            let a = char_column(line, start.1);
+            let b = if end.0 == start.0 {
+                char_column(line, end.1).max(a)
+            } else {
+                chars.len()
+            };
+            let indent = chars.iter().take_while(|c| c.is_whitespace()).count();
+            let from = if a > indent + LEAD * 2 {
+                a - LEAD
+            } else {
+                indent
+            };
+            let lead = if from > indent { "…" } else { "" };
+            let shown: String = chars[from.min(a)..].iter().collect();
+            let n = lead.chars().count();
+            let mark = (a - from.min(a) + n, b - from.min(a) + n);
+            (
+                start.0 as usize + 1,
+                format!("{lead}{}", shown.trim_end()),
+                mark,
+            )
         };
         let items = peek
             .rows()
@@ -293,8 +324,8 @@ impl Editor {
                     }
                 }
                 Row::Place(i, j) => {
-                    let (line, text) = line_of(&peek.files[i], j);
-                    PeekItem::Place { line, text }
+                    let (line, text, mark) = line_of(&peek.files[i], j);
+                    PeekItem::Place { line, text, mark }
                 }
             })
             .collect();
@@ -383,6 +414,7 @@ impl Editor {
                     text: line.to_string(),
                     colours,
                     marks,
+                    current: number == at,
                 }
             })
             .collect()

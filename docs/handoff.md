@@ -289,6 +289,12 @@ Built, each checked in the window with rust-analyzer:
     opens the chosen reference, F4 and Shift+F4 step through them, Esc
     closes. Any other key closes it and does what it does. A click
     chooses a row; a double click opens it.
+  - A long line's reference still shows: the list row starts a little
+    before it, marked, and the preview leaves out the lines' shared
+    indent and slides left to the chosen reference.
+  - The right-click menu has Go to Definition (F12), Find References
+    (Shift+F12) and Rename Symbol (F2) while the language server offers
+    them.
   - **Differences from the mock-up:** the name in the line it's for
     isn't highlighted, the list doesn't scroll with the wheel (it follows
     the chosen row), and the mock-up's key note in the corner isn't shown.
@@ -394,7 +400,7 @@ These are suggestions; nothing of them is written yet.
   straight into core `Event`s. The Rust SDK's re-exports are in
   `sdk/rust/src/lib.rs`; add new types to both lists there.
 - Checks before each commit:
-  - `cargo test --workspace`: 349 tests passed with find references
+  - `cargo test --workspace`: 351 tests passed with find references
   - `cargo clippy --workspace --all-targets`
   - in `plugins/lsp`: `cargo clippy --release --target wasm32-wasip2`
   - `cargo fmt --all`

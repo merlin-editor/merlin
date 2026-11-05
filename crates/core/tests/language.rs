@@ -1275,3 +1275,68 @@ fn no_references_says_so() {
         Some("No references to shade".into())
     );
 }
+
+#[test]
+fn a_reference_far_along_a_long_line_still_shows() {
+    let mut s = peeking();
+    let long = format!("{}let a = shade(2);", " ".repeat(60));
+    s.files.insert("theme.rs".into(), format!("x\n{long}\n"));
+    s.run("key shift+f12");
+    s.send(Event::ShowReferences(vec![merlin_core::lang::Location {
+        path: "theme.rs".into(),
+        start: (1, 68),
+        end: (1, 73),
+    }]));
+    let view = peek(&s).unwrap();
+    let place = view.items.iter().find_map(|i| match i {
+        merlin_core::editor::PeekItem::Place { text, mark, .. } => Some((text.clone(), *mark)),
+        _ => None,
+    });
+    let (text, (a, b)) = place.unwrap();
+    assert_eq!(
+        &text.chars().collect::<Vec<_>>()[a..b]
+            .iter()
+            .collect::<String>(),
+        "shade"
+    );
+    assert!(a < 20, "the list row starts near it: {text}");
+    assert!(
+        view.preview
+            .iter()
+            .any(|l| l.current && l.marks == [(68, 73)])
+    );
+}
+
+#[test]
+fn the_right_click_menu_finds_references_and_renames() {
+    let mut s = peeking();
+    s.send(Event::RegisterPlugin {
+        plugin: "lsp".into(),
+        commands: ["references", "rename", "definition"]
+            .map(|id| merlin_core::Command {
+                id: id.into(),
+                title: id.into(),
+                key: None,
+            })
+            .into(),
+    });
+    let (x, y) = s.editor.text_origin();
+    s.run(&format!("right-click {} {}", x + 4, y));
+    let menu = s.editor.window_view().context.expect("a menu");
+    let items: Vec<(String, Option<String>)> = menu
+        .items
+        .into_iter()
+        .map(|i| (i.label, i.key))
+        .filter(|(l, _)| !l.is_empty())
+        .take(4)
+        .collect();
+    assert_eq!(
+        items,
+        [
+            ("Go to Definition".into(), Some("F12".into())),
+            ("Find References".into(), Some("Shift+F12".into())),
+            ("Show Hover".into(), Some("Ctrl+K Ctrl+I".into())),
+            ("Rename Symbol".into(), Some("F2".into())),
+        ]
+    );
+}

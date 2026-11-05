@@ -12,9 +12,11 @@ use merlin_syntax::Syntax;
 /// The right-click menu's commands, by id; `-` is a separator. Plugin
 /// commands that aren't loaded are left out.
 const ITEMS: &[(&str, &str)] = &[
-    ("lsp.definition", "Go to Definition"),
+    ("go.definition", "Go to Definition"),
+    ("go.references", "Find References"),
     ("view.hover", "Show Hover"),
     ("-", ""),
+    ("edit.rename", "Rename Symbol"),
     ("edit.select_all_matches", "Change All Occurrences"),
     ("edit.expand_selection", "Expand Selection"),
     ("-", ""),
@@ -146,6 +148,16 @@ impl Editor {
             self.set_cursor(pos);
         }
         let loaded = |id: &str| {
+            // The editor's own commands that ask the language server.
+            let asks = match id {
+                "go.definition" => Some("definition"),
+                "go.references" => Some("references"),
+                "edit.rename" => Some("rename"),
+                _ => None,
+            };
+            if let Some(command) = asks {
+                return self.has_lsp(command);
+            }
             let Some((plugin, command)) = id.split_once('.') else {
                 return true;
             };

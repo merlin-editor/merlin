@@ -1020,6 +1020,25 @@ impl Frame<'_> {
         );
         let mono = Face::mono(13.0);
         let cw = self.text.width("0", mono);
+        let x = code.x + 60.0;
+        let end = code_clip.right() - 12.0;
+        // The lines' shared indent is left out, and long lines slide left
+        // so the chosen reference shows.
+        let indent = peek
+            .preview
+            .iter()
+            .filter(|l| !l.text.trim().is_empty())
+            .map(|l| l.text.chars().take_while(|c| c.is_whitespace()).count())
+            .min()
+            .unwrap_or(0);
+        let room = ((end - x) / cw).max(1.0) as usize;
+        let skip = peek
+            .preview
+            .iter()
+            .find(|l| l.current)
+            .and_then(|l| l.marks.first())
+            .filter(|&&(_, b)| b.saturating_sub(indent) > room)
+            .map_or(indent, |&(a, _)| a.saturating_sub(room / 3).max(indent));
         let mut ly = code.y + 6.0;
         for line in &peek.preview {
             if ly + ch > code.bottom() {
@@ -1037,19 +1056,35 @@ impl Frame<'_> {
                 p.muted,
                 code_clip,
             );
-            let x = code.x + 60.0;
-            let chars: Vec<char> = line.text.chars().collect();
-            for &(a, b) in &line.marks {
+            let chars: Vec<char> = line.text.chars().skip(skip).collect();
+            let shift = |(a, b): (usize, usize)| (a.saturating_sub(skip), b.saturating_sub(skip));
+            for &mark in &line.marks {
+                let (a, b) = shift(mark);
+                if b == 0 {
+                    continue;
+                }
                 let before: String = chars[..a.min(chars.len())].iter().collect();
                 let word: String = chars[a.min(chars.len())..b.min(chars.len())]
                     .iter()
                     .collect();
                 let mx = x + self.text.width(&before, mono);
-                let mw = self.text.width(&word, mono).max(cw);
-                self.canvas
-                    .round(Rect::new(mx, ly + 2.0, mw, ch - 4.0), 2.0, p.find_match);
+                let mw = self.text.width(&word, mono).max(cw).min(end - mx);
+                if mw > 0.0 {
+                    self.canvas
+                        .round(Rect::new(mx, ly + 2.0, mw, ch - 4.0), 2.0, p.find_match);
+                }
             }
-            self.code_line_in(&line.text, &line.colours, x, ly, ch, code_clip, mono);
+            let text: String = chars.iter().collect();
+            let colours: Spans = line
+                .colours
+                .iter()
+                .map(|&(a, b, k)| {
+                    let (a, b) = shift((a, b));
+                    (a, b, k)
+                })
+                .filter(|&(a, b, _)| b > a)
+                .collect();
+            self.code_line_in(&text, &colours, x, ly, ch, code_clip, mono);
             ly += ch;
         }
         // Files and their references.
@@ -1132,20 +1167,42 @@ impl Frame<'_> {
                         list_clip,
                     );
                 }
-                PeekItem::Place { line, text } => {
+                PeekItem::Place { line, text, mark } => {
                     let face = Face::mono(12.0);
                     let colour = if peek.selected == Some(i) {
                         p.bright
                     } else {
                         p.text
                     };
-                    let label = format!("{line}  {text}");
-                    let shown = self.text.fit(&label, face, row.w - 36.0);
+                    let number = format!("{line}  ");
+                    let x = row.x + 26.0;
+                    let nw = self.text.draw_in_row(
+                        &mut self.canvas,
+                        &number,
+                        face,
+                        x,
+                        iy,
+                        h,
+                        p.muted,
+                        list_clip,
+                    );
+                    let end = row.right() - 10.0;
+                    let chars: Vec<char> = text.chars().collect();
+                    let (a, b) = (mark.0.min(chars.len()), mark.1.min(chars.len()));
+                    let before: String = chars[..a].iter().collect();
+                    let word: String = chars[a..b].iter().collect();
+                    let mx = x + nw + self.text.width(&before, face);
+                    let mw = self.text.width(&word, face).min(end - mx);
+                    if mw > 0.0 {
+                        self.canvas
+                            .round(Rect::new(mx, iy + 4.0, mw, h - 8.0), 2.0, p.find_match);
+                    }
+                    let shown = self.text.fit(text, face, (end - x - nw).max(0.0));
                     self.text.draw_in_row(
                         &mut self.canvas,
                         &shown,
                         face,
-                        row.x + 26.0,
+                        x + nw,
                         iy,
                         h,
                         colour,

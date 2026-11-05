@@ -217,7 +217,9 @@ fn dump_peek(o: &mut String, peek: &super::PeekView) {
                 let arrow = if *open { "▾" } else { "▸" };
                 writeln!(o, "│{mark}{arrow} {name} {folder} {count}")
             }
-            super::PeekItem::Place { line, text } => writeln!(o, "│{mark}   {line} {text}"),
+            super::PeekItem::Place { line, text, .. } => {
+                writeln!(o, "│{mark}   {line} {text}")
+            }
         };
     }
     let _ = writeln!(o, "└");
