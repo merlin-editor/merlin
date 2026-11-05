@@ -32,7 +32,7 @@ exact paddings, follow the window's existing helpers (`Frame`, `Canvas`,
 
 `Hover.dc.html` and `Format.dc.html` came later, and the user approved
 them on 2026-11-05 too.
-It isn't on the live canvas.
+They aren't on the live canvas, which no longer opens.
 
 Hot exit has no mock-up: it changes only whether quitting asks. Unsaved
 changes are kept and come back next time, through `disk::Backups`, which
