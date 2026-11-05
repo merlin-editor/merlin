@@ -24,6 +24,7 @@ mod keymap;
 mod keys;
 mod layout;
 mod menu;
+mod merge;
 mod mouse;
 mod overview;
 mod palette;
@@ -392,6 +393,9 @@ pub enum Event {
     GitSync(SyncState),
     /// Files moved, sent with [`Event::GitStatus`].
     GitMoves(Vec<GitMove>),
+    /// The merge, rebase or cherry-pick git is in the middle of, if any,
+    /// sent with [`Event::GitStatus`].
+    GitMerge(Option<MergeState>),
     /// A file's changes git can't show as text: a binary file's sizes, in
     /// bytes, before and now.
     ShowBinary {
@@ -601,6 +605,25 @@ pub struct GitMove {
     pub similarity: Option<u8>,
 }
 
+/// A merge, rebase or cherry-pick git is in the middle of.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MergeState {
+    pub kind: MergeKind,
+    /// What's coming in: a branch, or a commit's summary.
+    pub from: String,
+    /// The commit message git has ready, for a merge.
+    pub message: String,
+    /// Files with conflicts, and how many each has left.
+    pub conflicts: Vec<(String, usize)>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MergeKind {
+    Merge,
+    Rebase,
+    CherryPick,
+}
+
 /// Where a branch stands with its upstream.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SyncState {
@@ -651,8 +674,12 @@ pub enum GitAction {
     Sync(SyncKind),
     /// Stops the push or pull running.
     CancelSync,
-    /// Undoes a pull that stopped on conflicts.
+    /// Undoes a pull, merge, rebase or cherry-pick that stopped on
+    /// conflicts.
     AbortPull,
+    /// Goes on with a rebase or cherry-pick once its conflicts are
+    /// resolved.
+    Continue,
     Stage(String),
     Unstage(String),
     StageAll,
@@ -1705,6 +1732,7 @@ impl Editor {
             Event::CommitInfo { hash, info } => {
                 self.commit_info.insert(hash, info);
             }
+            Event::GitMerge(merge) => self.merge_state(merge),
             Event::GitMoves(moves) => {
                 self.git.moves = moves;
                 self.git.version += 1;

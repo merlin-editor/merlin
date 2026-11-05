@@ -1323,3 +1323,85 @@ fn new_deleted_moved_and_conflicted_files_show_as_what_they_are() {
         s.screen()
     );
 }
+
+#[test]
+fn a_merge_shows_what_is_coming_in_and_waits_for_its_conflicts() {
+    let mut s = session();
+    let status = |files: Vec<(String, char)>| Event::GitStatus {
+        branch: Some("main".into()),
+        files: files.clone(),
+        staged: vec![],
+        changed: vec![],
+    };
+    s.send(status(vec![
+        ("theme.rs".into(), '!'),
+        ("lib.rs".into(), '!'),
+    ]));
+    let merge = |conflicts: Vec<(String, usize)>| merlin_core::MergeState {
+        kind: merlin_core::MergeKind::Merge,
+        from: "feature/themes".into(),
+        message: "Merge branch 'feature/themes'".into(),
+        conflicts,
+    };
+    s.send(Event::GitMerge(Some(merge(vec![
+        ("theme.rs".into(), 2),
+        ("lib.rs".into(), 1),
+    ]))));
+    s.run("key ctrl+shift+g");
+    let screen = s.screen();
+    assert!(
+        screen.contains("Merging feature/themes into main"),
+        "{screen}"
+    );
+    assert!(screen.contains("3 conflicts in 2 files"), "{screen}");
+    assert!(screen.contains("[Abort Merge]"), "{screen}");
+    assert!(
+        screen.contains("[Merge branch 'feature/themes']"),
+        "git's message is ready: {screen}"
+    );
+    assert!(screen.contains("[✓ Commit Merge] (waiting)"), "{screen}");
+    assert!(screen.contains("theme.rs  2 left"), "{screen}");
+    assert!(
+        screen.contains("Merging: 3 conflicts in 2 files"),
+        "{screen}"
+    );
+    // It waits while conflicts are left.
+    click_target(&mut s, "g:continue");
+    assert!(
+        !s.effects
+            .iter()
+            .any(|e| matches!(e, Effect::Git(GitAction::Commit(_))))
+    );
+    assert!(s.screen().contains("Resolve the 3 conflicts first"));
+    click_target(&mut s, "g:abort");
+    assert!(s.effects.contains(&Effect::Git(GitAction::AbortPull)));
+    s.send(Event::GitMerge(None));
+    assert!(
+        !s.screen().contains("[Merge branch"),
+        "aborting takes git's message out: {}",
+        s.screen()
+    );
+    s.send(Event::GitMerge(Some(merge(vec![
+        ("theme.rs".into(), 2),
+        ("lib.rs".into(), 1),
+    ]))));
+    // Once they're staged, it commits with git's message.
+    s.send(status(vec![("theme.rs".into(), 'M')]));
+    s.send(Event::GitMerge(Some(merge(vec![]))));
+    assert!(s.screen().contains("No conflicts left"));
+    click_target(&mut s, "g:continue");
+    assert!(s.effects.contains(&Effect::Git(GitAction::Commit(
+        "Merge branch 'feature/themes'".into()
+    ))));
+    // A rebase goes on instead.
+    s.send(Event::GitMerge(Some(merlin_core::MergeState {
+        kind: merlin_core::MergeKind::Rebase,
+        from: "feature/themes".into(),
+        message: String::new(),
+        conflicts: vec![],
+    })));
+    click_target(&mut s, "g:continue");
+    assert!(s.effects.contains(&Effect::Git(GitAction::Continue)));
+    s.send(Event::GitMerge(None));
+    assert!(s.screen().contains("✓ Commit"));
+}

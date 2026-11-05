@@ -382,6 +382,10 @@ fn dump_side(o: &mut String, which: &str, side: &SideView) {
                     Some(chip) => format!("{label} [{chip}]"),
                     None => label,
                 };
+                let label = match &e.note {
+                    Some((note, _)) => format!("{label}  {note}"),
+                    None => label,
+                };
                 format!(
                     "{}{twisty}{check}{label}{detail}{counts}{badge}{links}",
                     "  ".repeat(e.depth)
@@ -398,6 +402,21 @@ fn dump_side(o: &mut String, which: &str, side: &SideView) {
                     .map(|(b, key)| format!("[{} {key}]", b.label))
                     .collect();
                 format!("{title} · {detail}  {}", buttons.join(" "))
+            }
+            Node::Banner {
+                title,
+                detail,
+                buttons,
+                ..
+            } => {
+                let title: String = title.iter().map(|t| t.0.as_str()).collect();
+                let buttons: Vec<String> =
+                    buttons.iter().map(|b| format!("[{}]", b.label)).collect();
+                format!("▌ {title}\n▌ {detail}\n▌ {}", buttons.join(" "))
+            }
+            Node::Wide { button, ready } => {
+                let dim = if *ready { "" } else { " (waiting)" };
+                format!("[{}]{dim}", button.label)
             }
             Node::Input {
                 id,

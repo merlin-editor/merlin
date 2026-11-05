@@ -58,6 +58,13 @@ impl Rect {
         self.y + self.h
     }
 
+    /// The part inside both.
+    pub fn intersect(&self, o: Rect) -> Rect {
+        let (x, y) = (self.x.max(o.x), self.y.max(o.y));
+        let (r, b) = (self.right().min(o.right()), self.bottom().min(o.bottom()));
+        Rect::new(x, y, (r - x).max(0.0), (b - y).max(0.0))
+    }
+
     /// Smaller by `d` on every side.
     pub fn inset(&self, d: f32) -> Rect {
         Rect::new(

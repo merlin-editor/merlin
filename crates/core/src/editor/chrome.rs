@@ -139,7 +139,18 @@ impl Editor {
             left.push((format!("  {}", self.review_hint()), Style::Status, None));
         }
         let conflicts = self.git.files.iter().filter(|(_, s)| *s == '!').count();
-        if conflicts > 0 {
+        if let Some(merge) = &self.git.merge {
+            let style = if merge.conflicts.is_empty() {
+                Style::StatusAccent
+            } else {
+                Style::StatusError
+            };
+            left.push((
+                format!(" {}: {} ", merge.doing(), merge.summary().to_lowercase()),
+                style,
+                Some(Action::View(CHANGES)),
+            ));
+        } else if conflicts > 0 {
             let s = if conflicts == 1 { "" } else { "s" };
             left.push((
                 format!(" {conflicts} conflict{s} "),

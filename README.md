@@ -404,7 +404,12 @@ every 5 minutes while the window has focus. Git never waits on a password:
 a remote that wants one says to set up an SSH key or a credential helper.
 A rejected push offers Pull and Push, and a pull that stops on conflicts
 offers Resolve and Abort Pull. A pull merges unless git is set to rebase. Files with conflicts come
-first, under Merge Conflicts, and the status bar counts them. A deleted
+first, under Merge Conflicts, each with how many it has left. While a
+merge, rebase or cherry-pick is stopped, a banner says what's coming in
+(Merging themes into main · 3 conflicts in 2 files) with Abort Merge, and
+the status bar says the same in red. Commit Merge, with git's message
+ready, waits until no conflicts are left; a rebase or a cherry-pick has
+Continue Rebase in its place. A deleted
 file is struck through, opens as what it had, and its menu restores it. A
 new file opens as one column, and its menu adds it to `.gitignore`. A
 deleted file and a new one at least half alike show as one move, `app.rs
@@ -600,7 +605,7 @@ Other languages work too: anything that builds a WASI 0.2 component for
   keyword. Only one plugin's symbols or folds count for a file at a time.
 - Git: images don't show side by side, very large files compare anyway,
   a submodule's commits aren't listed, and there's no Show Ignored. The
-  merge editor isn't built, so a conflicted file opens as text. The
+  merge editor isn't built yet, so a conflicted file opens as text. The
   changes tab has its boxes only
   side by side, not inline, and stages only what's saved.
 - Settings have no editor of their own (they're a TOML file), and the

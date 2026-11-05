@@ -3062,6 +3062,8 @@ impl Frame<'_> {
             Node::Divider => 13.0,
             Node::Footer => 0.0,
             Node::Header { .. } => 38.0,
+            Node::Banner { .. } => 96.0,
+            Node::Wide { .. } => 38.0,
         }
     }
 
@@ -3313,6 +3315,121 @@ impl Frame<'_> {
                 detail,
                 buttons,
             } => self.header(title, detail, buttons, r, clip),
+            Node::Banner {
+                title,
+                detail,
+                tone,
+                buttons,
+            } => {
+                // A box tinted by its tone: the title, what's left, then
+                // its buttons.
+                let colour = tone_colour(&p, *tone);
+                let b = Rect::new(r.x + 10.0, r.y + 2.0, r.w - 20.0, r.h - 10.0);
+                self.canvas.outline(
+                    b,
+                    8.0,
+                    1.0,
+                    mix(colour, p.island, 0.22),
+                    mix(colour, p.island, 0.07),
+                );
+                let inside = b.inset(1.0).intersect(clip);
+                let mut x = b.x + 10.0;
+                for (text, strong) in title {
+                    let face = if *strong {
+                        Face::ui(12.5).medium()
+                    } else {
+                        Face::ui(12.5)
+                    };
+                    let colour = if *strong { p.bright } else { p.text };
+                    x += self.text.draw_in_row(
+                        &mut self.canvas,
+                        text,
+                        face,
+                        x,
+                        b.y + 7.0,
+                        18.0,
+                        colour,
+                        inside,
+                    );
+                }
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    detail,
+                    Face::ui(12.0),
+                    b.x + 10.0,
+                    b.y + 25.0,
+                    18.0,
+                    p.muted,
+                    inside,
+                );
+                let mut x = b.x + 10.0;
+                for (k, button) in buttons.iter().enumerate() {
+                    let index = target.map(|t| t + k);
+                    let focused = sv.focused && index == Some(sv.selected);
+                    let bw = self.button(&button.label, x, b.y + 49.0, focused, false);
+                    if let Some(index) = index {
+                        self.hit(
+                            Rect::new(x, b.y + 49.0, bw, 30.0),
+                            Hit::Ui(UiEvent::Target {
+                                side,
+                                index,
+                                clicks: 1,
+                            }),
+                        );
+                    }
+                    x += bw + 8.0;
+                }
+            }
+            Node::Wide { button, ready } => {
+                // The main button across the panel, faded until it's ready.
+                let b = Rect::new(r.x + 14.0, r.y + 4.0, r.w - 28.0, 30.0);
+                let focused = selected && sv.focused;
+                if focused {
+                    self.canvas.outline(
+                        Rect::new(b.x - 2.0, b.y - 2.0, b.w + 4.0, 34.0),
+                        9.0,
+                        1.5,
+                        p.accent,
+                        p.island,
+                    );
+                }
+                let bg = if !*ready {
+                    mix(p.accent, p.island, 0.45)
+                } else if self.hovered(b) {
+                    mix(p.accent, 0xffffff, 0.88)
+                } else {
+                    p.accent
+                };
+                self.canvas.round(b, 7.0, bg);
+                let face = Face::ui(13.0).medium();
+                let label = self.text.fit(&button.label, face, b.w - 16.0);
+                let tw = self.text.width(&label, face);
+                let fg = if *ready {
+                    p.ground
+                } else {
+                    mix(p.ground, p.island, 0.6)
+                };
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    &label,
+                    face,
+                    b.x + (b.w - tw) / 2.0,
+                    b.y,
+                    30.0,
+                    fg,
+                    b,
+                );
+                if let Some(index) = target {
+                    self.hit(
+                        b,
+                        Hit::Ui(UiEvent::Target {
+                            side,
+                            index,
+                            clicks: 1,
+                        }),
+                    );
+                }
+            }
         }
     }
 
@@ -3491,6 +3608,10 @@ impl Frame<'_> {
         // its button on hover.
         if e.heading {
             let face = Face::ui(11.0).bold();
+            let colour = match e.tone {
+                Tone::Normal => p.muted,
+                tone => tone_colour(&p, tone),
+            };
             self.text.draw_in_row(
                 &mut self.canvas,
                 &e.label.to_uppercase(),
@@ -3498,7 +3619,7 @@ impl Frame<'_> {
                 x,
                 row.y,
                 row.h,
-                p.muted,
+                colour,
                 clip,
             );
             let bw = self.text.width(&e.badge, face);
@@ -3653,6 +3774,24 @@ impl Frame<'_> {
                     clip,
                 );
                 used += 8.0 + cw;
+            }
+        }
+        // A note after the name in its tone, as a conflict's "2 left".
+        if let Some((note, tone)) = &e.note {
+            let face = Face::ui(11.5);
+            let nw = self.text.width(note, face);
+            if used + 8.0 + nw < room {
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    note,
+                    face,
+                    x + used + 8.0,
+                    row.y,
+                    row.h,
+                    tone_colour(&p, *tone),
+                    clip,
+                );
+                used += 8.0 + nw;
             }
         }
         if !e.detail.is_empty() && used + 12.0 < room {
@@ -4356,7 +4495,13 @@ impl Frame<'_> {
             if item.clickable && self.hovered(r) {
                 self.canvas.round(r, 5.0, p.hover);
             }
-            let colour = if item.accent { p.accent } else { p.muted };
+            let colour = if item.error {
+                p.error
+            } else if item.accent {
+                p.accent
+            } else {
+                p.muted
+            };
             self.text.draw_in_row(
                 &mut self.canvas,
                 &item.text,

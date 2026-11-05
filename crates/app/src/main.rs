@@ -21,8 +21,8 @@ use disk::{Backups, Changes, Watch};
 use jobs::{Jobs, Lane};
 use merlin_core::script::{self, Step};
 use merlin_core::{
-    AutoSaveWhy, Editor, Effect, Event, FileOp, FilePick, GitAction, GitMove, SearchHit, SyncKind,
-    SyncOutcome, SyncState, Workspace,
+    AutoSaveWhy, Editor, Effect, Event, FileOp, FilePick, GitAction, GitMove, MergeKind,
+    MergeState, SearchHit, SyncKind, SyncOutcome, SyncState, Workspace,
 };
 use merlin_plugins::{BufferEvent, Config, PluginHost, Selection, Snapshot};
 
@@ -768,6 +768,7 @@ impl App {
             repo: self.git_dir.is_some(),
             prefix: self.git_prefix.clone(),
             net: self.git_net.clone(),
+            dir: self.git_dir.clone(),
         }
     }
 
@@ -1202,6 +1203,8 @@ struct Git {
     repo: bool,
     /// Where the project is in the repository, as git names paths.
     prefix: String,
+    /// The repository's git folder.
+    dir: Option<PathBuf>,
 }
 
 impl Git {
@@ -1234,6 +1237,7 @@ impl Git {
                 },
                 Event::GitSync(SyncState::default()),
                 Event::GitMoves(Vec::new()),
+                Event::GitMerge(None),
             ];
         };
         let text = String::from_utf8_lossy(&output.stdout);
@@ -1314,6 +1318,12 @@ impl Git {
                 });
         }
         moves.extend(self.pair_moves(&changed));
+        let conflicted: Vec<String> = files
+            .iter()
+            .filter(|(_, s)| *s == '!')
+            .map(|(p, _)| p.clone())
+            .collect();
+        let merge = self.merge_state(&conflicted);
         vec![
             Event::GitStatus {
                 branch,
@@ -1323,7 +1333,55 @@ impl Git {
             },
             Event::GitSync(sync),
             Event::GitMoves(moves),
+            Event::GitMerge(merge),
         ]
+    }
+
+    /// The merge, rebase or cherry-pick git is in the middle of, from the
+    /// files it keeps in its folder, and the conflicts left in each of
+    /// `conflicted`, by their markers.
+    fn merge_state(&self, conflicted: &[String]) -> Option<MergeState> {
+        let dir = self.dir.as_ref()?;
+        let read = |name: &str| fs::read_to_string(dir.join(name)).ok();
+        let message = read("MERGE_MSG").unwrap_or_default();
+        let first = message.lines().next().unwrap_or_default().to_string();
+        let (kind, from) = if dir.join("MERGE_HEAD").exists() {
+            // "Merge branch 'feature/themes'" names it between quotes.
+            let from = first.split('\'').nth(1).unwrap_or(&first).to_string();
+            (MergeKind::Merge, from)
+        } else if dir.join("rebase-merge").exists() || dir.join("rebase-apply").exists() {
+            let onto = read("rebase-merge/head-name")
+                .or_else(|| read("rebase-apply/head-name"))
+                .unwrap_or_default();
+            let from = onto.trim().trim_start_matches("refs/heads/").to_string();
+            (MergeKind::Rebase, from)
+        } else if dir.join("CHERRY_PICK_HEAD").exists() {
+            (MergeKind::CherryPick, first.clone())
+        } else {
+            return None;
+        };
+        let conflicts = conflicted
+            .iter()
+            .map(|p| {
+                let text = fs::read_to_string(self.root.join(p)).unwrap_or_default();
+                let n = text.lines().filter(|l| l.starts_with("<<<<<<< ")).count();
+                (p.clone(), n)
+            })
+            .collect();
+        // Comment lines git adds after the message aren't part of it.
+        let message: String = message
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .collect::<Vec<_>>()
+            .join("\n")
+            .trim()
+            .to_string();
+        Some(MergeState {
+            kind,
+            from,
+            message,
+            conflicts,
+        })
     }
 
     /// Deleted and new files not staged that are alike enough to be one
@@ -1735,7 +1793,37 @@ impl Git {
             // A merge stopped part way, else a rebase.
             GitAction::AbortPull => self
                 .git(&["merge", "--abort"], None)
-                .or_else(|_| self.git(&["rebase", "--abort"], None)),
+                .or_else(|_| self.git(&["rebase", "--abort"], None))
+                .or_else(|_| self.git(&["cherry-pick", "--abort"], None)),
+            // No editor opens: git keeps the message it has.
+            GitAction::Continue => {
+                let kind = if self
+                    .dir
+                    .as_ref()
+                    .is_some_and(|d| d.join("CHERRY_PICK_HEAD").exists())
+                {
+                    "cherry-pick"
+                } else {
+                    "rebase"
+                };
+                let out = Command::new("git")
+                    .args([kind, "--continue"])
+                    .env("GIT_EDITOR", "true")
+                    .current_dir(&self.root)
+                    .stdin(std::process::Stdio::null())
+                    .output();
+                match out {
+                    Ok(o) if o.status.success() => Ok(()),
+                    Ok(o) => Err(format!(
+                        "git {kind}: {}",
+                        String::from_utf8_lossy(&o.stderr)
+                            .lines()
+                            .find(|l| !l.trim().is_empty())
+                            .unwrap_or("failed")
+                    )),
+                    Err(e) => Err(format!("git: {e}")),
+                }
+            }
             GitAction::Stage(path) => self.git(&["add", "--", path], None),
             GitAction::Unstage(path) => self.git(&["restore", "--staged", "--", path], None),
             GitAction::StageAll => self.git(&["add", "--all", "--", "."], None),

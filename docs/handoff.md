@@ -486,9 +486,28 @@ committed:
     binary and a new file, and Restore.
 - Not in the mock-ups' order but still to do: the changes tab's boxes
   inline.
-- Still to build for Git, next: the merge editor and comparing two files
-  ([`mockups/Merge.dc.html`](mockups/Merge.dc.html)). Resolve and a
-  conflicted row open the file as text until then.
+- **Merge state in Source Control** (from
+  [`mockups/MergeFlow.dc.html`](mockups/MergeFlow.dc.html)):
+  - The app reads what git is doing from its folder (`Git::merge_state`:
+    `MERGE_HEAD` and `MERGE_MSG`, `rebase-merge/` or `rebase-apply/` and
+    their `head-name`, `CHERRY_PICK_HEAD`) and counts each conflicted
+    file's `<<<<<<< ` markers; `Event::GitMerge` comes with every status.
+  - The core keeps it in `git.merge` (`editor/merge.rs`): a merge starting
+    fills the commit box with git's message, and ending clears it unless
+    it was edited.
+  - Source Control's top is then a banner (`Node::Banner`) with Abort
+    (`GitAction::AbortPull`, which tries merge, rebase, then cherry-pick),
+    the message, and a wide Commit Merge (`Node::Wide`), faded and saying
+    what's left until the conflicts are gone. A rebase or cherry-pick has
+    Continue (`GitAction::Continue`, `GIT_EDITOR=true`) and no message.
+  - Conflicted rows say `2 left` (`Entry.note`); the status bar says
+    `Merging: 3 conflicts in 2 files` in red (`StatusView.error`).
+  - Test: `a_merge_shows_what_is_coming_in_and_waits_for_its_conflicts`.
+  - Checked in the window: a real merge's banner, staging both files,
+    Commit Merge with git's message, and Abort Merge.
+- Still to build for Git, next: the merge editor tab, its finishing, the
+  narrow layout, then Compare Files (all in `MergeFlow.dc.html`). Resolve
+  and a conflicted row open the file as text until then.
 
 Saved for later, by the user's choice:
 

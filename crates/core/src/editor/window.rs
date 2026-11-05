@@ -239,6 +239,8 @@ pub struct StatusView {
     pub clickable: bool,
     /// Drawn in the accent colour, as changes waiting for review are.
     pub accent: bool,
+    /// Drawn in the error colour, as conflicts left are.
+    pub error: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -387,6 +389,7 @@ impl Editor {
                 right: item.right,
                 clickable: item.action.is_some(),
                 accent: item.style == crate::style::Style::StatusAccent,
+                error: item.style == crate::style::Style::StatusError,
             })
             .collect();
         let problem = self.cursor_mark().map(|m| {
@@ -632,7 +635,8 @@ impl Editor {
 fn target_count(node: &Node) -> usize {
     match node {
         Node::Button(_) | Node::Item { .. } | Node::Input { .. } => 1,
-        Node::Buttons(bs) => bs.len(),
+        Node::Buttons(bs) | Node::Banner { buttons: bs, .. } => bs.len(),
+        Node::Wide { .. } => 1,
         Node::Entry(e) => 1 + e.action.is_some() as usize + e.links.len(),
         _ => 0,
     }

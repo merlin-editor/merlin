@@ -60,6 +60,20 @@ pub enum Node {
         detail: String,
         buttons: Vec<(Button, String)>,
     },
+    /// A tinted box for what's under way, as a merge: a title, its strong
+    /// parts in bold, a line under it, and buttons.
+    Banner {
+        title: Vec<(String, bool)>,
+        detail: String,
+        tone: Tone,
+        buttons: Vec<Button>,
+    },
+    /// The main button, as wide as the panel; dimmed while it can't be
+    /// used yet, when a click says why instead.
+    Wide {
+        button: Button,
+        ready: bool,
+    },
 }
 
 /// A checkbox: ticked, not, or some of what it's for.
@@ -125,6 +139,9 @@ pub struct Entry {
     /// A small note in the code font after the label, as a mode change's
     /// `644 → 755`.
     pub chip: Option<String>,
+    /// A short note after the label in its tone, as a conflicted file's
+    /// `2 left`.
+    pub note: Option<(String, Tone)>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -154,7 +171,10 @@ impl Panel {
             .iter()
             .flat_map(|node| match node {
                 Node::Button(b) => vec![button(b)],
-                Node::Buttons(bs) => bs.iter().map(button).collect(),
+                Node::Buttons(bs) | Node::Banner { buttons: bs, .. } => {
+                    bs.iter().map(button).collect()
+                }
+                Node::Wide { button: b, .. } => vec![button(b)],
                 Node::Item { id, .. } => vec![Target::Button(id.clone())],
                 Node::Entry(e) => std::iter::once(Target::Button(e.id.clone()))
                     .chain(e.action.as_ref().map(|(_, id)| Target::Button(id.clone())))

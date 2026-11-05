@@ -88,6 +88,8 @@ pub(crate) struct Git {
     pub syncing: Option<crate::editor::SyncKind>,
     /// Files a pull left with conflicts.
     pub conflicts: Vec<String>,
+    /// The merge, rebase or cherry-pick under way.
+    pub merge: Option<crate::editor::MergeState>,
     /// Files moved since the last commit.
     pub moves: Vec<crate::editor::GitMove>,
     /// Binary files' changes tabs say their sizes instead.
@@ -577,23 +579,26 @@ impl Editor {
             return vec![Node::Styled("Not in a git repository".into(), Tone::Muted)];
         };
         let branch_icon = icon(Icon::Branch, self.nerd);
-        let mut nodes = vec![
-            Node::Input {
-                id: "message".into(),
-                placeholder: format!("Message (Enter to commit on {branch})"),
-                secret: false,
-            },
-            Node::Buttons(
-                std::iter::once(Button {
-                    id: "g:commit".into(),
-                    label: "✓ Commit".into(),
-                })
-                .chain(self.sync_button())
-                .collect(),
-            ),
-            Node::Styled(format!("{branch_icon} {branch}"), Tone::Muted),
-        ];
-        if git.files.is_empty() {
+        let mut nodes = match &git.merge {
+            Some(merge) => self.merge_nodes(merge, branch),
+            None => vec![
+                Node::Input {
+                    id: "message".into(),
+                    placeholder: format!("Message (Enter to commit on {branch})"),
+                    secret: false,
+                },
+                Node::Buttons(
+                    std::iter::once(Button {
+                        id: "g:commit".into(),
+                        label: "✓ Commit".into(),
+                    })
+                    .chain(self.sync_button())
+                    .collect(),
+                ),
+                Node::Styled(format!("{branch_icon} {branch}"), Tone::Muted),
+            ],
+        };
+        if git.files.is_empty() && git.merge.is_none() {
             nodes.push(Node::Styled("No changes".into(), Tone::Muted));
         }
         // Files with conflicts come first, to resolve; + marks one
@@ -622,6 +627,10 @@ impl Editor {
                     detail: dir.to_string(),
                     badge: "!".into(),
                     badge_tone: Tone::Error,
+                    note: git.merge.as_ref().and_then(|m| {
+                        let (_, left) = m.conflicts.iter().find(|(p, _)| p == path)?;
+                        (*left > 0).then(|| (format!("{left} left"), Tone::Error))
+                    }),
                     action: Some(('+', format!("a:{path}"))),
                     twisty: Some(' '),
                     ..Default::default()
@@ -947,12 +956,19 @@ impl Editor {
             let key = (CHANGES.to_string(), "message".to_string());
             let message = self.inputs.get(&key).cloned().unwrap_or_default();
             self.commit(&message, fx);
+        } else if id == "g:abort" {
+            fx.push(Effect::Git(GitAction::AbortPull));
+        } else if id == "g:continue" {
+            self.finish_merge(fx);
         }
     }
 
     /// Commits what's staged with `message`, as Source Control's Commit
     /// does. With nothing staged, it says so instead of committing nothing.
     fn commit(&mut self, message: &str, fx: &mut Vec<Effect>) {
+        if self.git.merge.is_some() {
+            return self.finish_merge(fx);
+        }
         if message.trim().is_empty() {
             return self.error("Type a commit message first".into());
         }
