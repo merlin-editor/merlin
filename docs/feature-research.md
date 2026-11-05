@@ -252,8 +252,8 @@ These are ordered by votes against effort.
    - blame, inline and in a gutter (**built**)
    - push and pull (`GitSync.dc.html`, **built**)
    - new, deleted, moved and binary files (`GitFiles.dc.html`, **built**)
-   - a diff of any two files
-   - a 3-way merge editor
+   - a diff of any two files (`MergeFlow.dc.html`, **built**)
+   - a 3-way merge editor (`MergeFlow.dc.html`, **built**)
 4. **Tasks and tests**: run a task from `tasks.toml` or `Cargo.toml`, with
    output in the terminal, problems from it, and a test runner with
    gutter buttons.

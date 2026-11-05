@@ -33,8 +33,9 @@ mock-ups. Nothing is pushed. The last commit when this was written was
 |---|---|
 | Quick wins | Built (`bb07318`) |
 | 1. Integrated terminal | Done (`493d5f0`, `7ee4884`) |
-| 2. Language servers, finished | **Partly built.** See below |
-| 3 to 10 | Not started |
+| 2. Language servers, finished | Built. See below |
+| 3. Git | Built. See below |
+| 4 to 10 | Not started; next is 4, Tasks and tests (`Tasks.dc.html`) |
 
 ### Language features (`Language.dc.html`)
 
