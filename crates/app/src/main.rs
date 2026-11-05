@@ -407,6 +407,11 @@ impl App {
                             },
                         ));
                     }
+                    Effect::MergeSides(path) => {
+                        let git = self.git_info();
+                        self.jobs
+                            .run(Lane::Git, move || jobs::events(vec![git.merge_sides(path)]));
+                    }
                     Effect::CommitInfo(hash) => {
                         let git = self.git_info();
                         self.jobs
@@ -1643,6 +1648,39 @@ impl Git {
             self.net(&["pull"])
         } else {
             self.net(&["pull", "--no-rebase"])
+        }
+    }
+
+    /// A conflicted file's sides for the merge editor: the version both
+    /// came from, for each conflict's base, and what each side is, as
+    /// "themes · a41c9e2".
+    fn merge_sides(&self, path: String) -> Event {
+        let base = self
+            .read(&["show", &format!(":1:./{path}")])
+            .unwrap_or_default();
+        let short = |rev: &str| {
+            self.read(&["rev-parse", "--short", rev])
+                .map(|h| h.trim().to_string())
+                .unwrap_or_default()
+        };
+        let branch = self
+            .read(&["branch", "--show-current"])
+            .map(|b| b.trim().to_string())
+            .filter(|b| !b.is_empty())
+            .unwrap_or_else(|| "HEAD".into());
+        let current = format!("{branch} · {}", short("HEAD"));
+        let merge = self.merge_state(&[]);
+        let head = ["MERGE_HEAD", "CHERRY_PICK_HEAD", "REBASE_HEAD"]
+            .into_iter()
+            .find(|h| self.dir.as_ref().is_some_and(|d| d.join(h).exists()))
+            .unwrap_or("MERGE_HEAD");
+        let from = merge.map(|m| m.from).unwrap_or_else(|| "Incoming".into());
+        let incoming = format!("{from} · {}", short(head));
+        Event::MergeSides {
+            path,
+            base,
+            incoming,
+            current,
         }
     }
 

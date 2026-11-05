@@ -316,6 +316,9 @@ pub fn kind(p: &Palette, kind: Kind) -> Look {
         Kind::DiffRemoved => look(p.text, p.diff_removed),
         Kind::DiffAddedWord => look(p.text, mix(p.success, p.diff_added, 0.28)),
         Kind::DiffRemovedWord => look(p.text, mix(p.error, p.diff_removed, 0.3)),
+        Kind::MergeIncoming => look(p.text, mix(p.git_changed, p.island, 0.16)),
+        Kind::MergeCurrent => look(p.text, mix(p.success, p.island, 0.15)),
+        Kind::MergeBase => look(p.text, mix(p.error, p.island, 0.11)),
         Kind::GitAdded => text(p.git_added),
         Kind::GitChanged => text(p.git_changed),
         Kind::GitRemoved => text(p.git_removed),
@@ -427,6 +430,9 @@ pub fn shows_code(kind: Kind) -> bool {
             | Kind::DiffRemoved
             | Kind::DiffAddedWord
             | Kind::DiffRemovedWord
+            | Kind::MergeIncoming
+            | Kind::MergeCurrent
+            | Kind::MergeBase
     )
 }
 

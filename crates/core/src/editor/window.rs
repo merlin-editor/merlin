@@ -163,6 +163,8 @@ pub struct WindowView {
     pub tabs: Vec<TabView>,
     /// The changes tab's bar, at the right of the focused group's tabs.
     pub diff_bar: Option<super::compare::DiffBarView>,
+    /// The merge editor's bar, in the same place.
+    pub merge_bar: Option<super::merge_editor::MergeBarView>,
     pub crumbs: Vec<String>,
     pub status: Vec<StatusView>,
     /// The problem under the cursor, for the middle of the status bar.
@@ -229,6 +231,8 @@ pub struct TabView {
     pub preview: bool,
     /// Pinned at the start of the strip, drawn as only its icon.
     pub pinned: bool,
+    /// Open in the merge editor: "Merging" follows its name.
+    pub merging: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -444,6 +448,7 @@ impl Editor {
             ],
             tabs,
             diff_bar: self.diff_bar(),
+            merge_bar: self.merge_bar(),
             crumbs,
             status,
             problem,
@@ -591,6 +596,7 @@ impl Editor {
             UiEvent::ChangeStep(forward) => self.step_change_peek(forward),
             UiEvent::ChangeClose => self.change_peek = None,
             UiEvent::BlameButton(b) => self.blame_card_button(&b, fx),
+            UiEvent::Press(id) if id.starts_with("merge:") => self.merge_press(&id),
             UiEvent::Press(id) => self.view_click(&id, fx),
             UiEvent::PeekRow { index, clicks } => self.peek_clicked(index, clicks, fx),
             UiEvent::PeekClose => self.peek = None,

@@ -42,6 +42,9 @@ pub struct GroupView {
     /// speaks for the column; of its column's height, for every group.
     pub width: f32,
     pub height: f32,
+    /// Its tab shown is in the merge editor: the code is the Result, under
+    /// Incoming and Current.
+    pub merging: bool,
 }
 
 impl Editor {
@@ -58,6 +61,7 @@ impl Editor {
                     dirty: doc.buffer.is_dirty(),
                     preview: self.preview == Some(doc.id),
                     pinned: self.groups[self.pane()].pinned.contains(&doc.id),
+                    merging: self.merges.iter().any(|m| m.doc == doc.id),
                 }
             })
             .collect()
@@ -78,6 +82,7 @@ impl Editor {
                     below: self.groups[g].below,
                     width: self.groups[g].width,
                     height: self.groups[g].height,
+                    merging: self.merging().is_some(),
                 })
             })
             .collect()

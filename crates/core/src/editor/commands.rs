@@ -125,6 +125,11 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
     ("go.references", "Go: Peek References"),
     ("go.next_change", "Go: Next Change"),
     ("git.blame", "Git: Blame"),
+    ("merge.next", "Merge: Next Conflict"),
+    ("merge.prev", "Merge: Previous Conflict"),
+    ("merge.accept_all_incoming", "Merge: Accept All Incoming"),
+    ("merge.accept_all_current", "Merge: Accept All Current"),
+    ("merge.complete", "Merge: Complete Merge"),
     ("scm.push", "Git: Push"),
     ("scm.pull", "Git: Pull"),
     ("scm.sync_all", "Git: Sync"),
@@ -155,6 +160,9 @@ impl Editor {
         }
         if id.starts_with("diff.") {
             return self.diff_command(id, fx);
+        }
+        if id.starts_with("merge.") {
+            return self.merge_command(id, fx);
         }
         match id {
             "file.save" => match self.doc().buffer.path {

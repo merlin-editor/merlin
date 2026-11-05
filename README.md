@@ -409,7 +409,14 @@ merge, rebase or cherry-pick is stopped, a banner says what's coming in
 (Merging themes into main · 3 conflicts in 2 files) with Abort Merge, and
 the status bar says the same in red. Commit Merge, with git's message
 ready, waits until no conflicts are left; a rebase or a cherry-pick has
-Continue Rebase in its place. A deleted
+Continue Rebase in its place. A conflicted file opens in the merge
+editor: Incoming and Current side by side over the Result, which is the
+file itself and can be typed in. Each line of a conflict has a box, to
+take some of a side (Incoming's ticked lines come first); Accept takes a
+whole side, Accept Both takes both, and Reset goes back to the base, which
+shows in the Result until a side is chosen. Ctrl+Z undoes any choice. The
+bar counts the conflicts left, ↑ ↓ go between them, and Complete Merge
+saves the file and stages it. A deleted
 file is struck through, opens as what it had, and its menu restores it. A
 new file opens as one column, and its menu adds it to `.gitignore`. A
 deleted file and a new one at least half alike show as one move, `app.rs
@@ -605,7 +612,8 @@ Other languages work too: anything that builds a WASI 0.2 component for
   keyword. Only one plugin's symbols or folds count for a file at a time.
 - Git: images don't show side by side, very large files compare anyway,
   a submodule's commits aren't listed, and there's no Show Ignored. The
-  merge editor isn't built yet, so a conflicted file opens as text. The
+  merge editor doesn't ask before completing with conflicts left, nor
+  offer the next file, and has no one-pane layout for narrow windows. The
   changes tab has its boxes only
   side by side, not inline, and stages only what's saved.
 - Settings have no editor of their own (they're a TOML file), and the

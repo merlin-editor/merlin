@@ -1405,3 +1405,67 @@ fn a_merge_shows_what_is_coming_in_and_waits_for_its_conflicts() {
     s.send(Event::GitMerge(None));
     assert!(s.screen().contains("✓ Commit"));
 }
+
+#[test]
+fn the_merge_editor_shows_both_sides_over_the_result_and_takes_lines_from_each() {
+    let marked = "fn a() {}\n<<<<<<< HEAD\nlet x = 1;\nlet y = 2;\n=======\nlet x = 9;\n>>>>>>> themes\nfn b() {}\n";
+    let base = "fn a() {}\nlet x = 0;\nfn b() {}\n";
+    let mut s = Session::new(marked, Some("src/main.rs"), 80, 20);
+    s.send(Event::MergeSides {
+        path: "src/main.rs".into(),
+        base: base.into(),
+        incoming: "themes · a41c9e2".into(),
+        current: "main · 0e890a1".into(),
+    });
+    // The Result has the base until a side is chosen.
+    assert_eq!(s.text(), "fn a() {}\nlet x = 0;\nfn b() {}\n");
+    let bar = s.editor.window_view().merge_bar.unwrap();
+    assert_eq!((bar.left, bar.conflicts), (1, 1));
+    let view = s.editor.text_views().pop().unwrap();
+    let merge = view.merge.unwrap();
+    let lines = |pane: &merlin_core::MergePaneView| -> Vec<String> {
+        pane.rows
+            .iter()
+            .map(|r| match r {
+                merlin_core::MergeRow::Line { text, conflict, .. } => {
+                    format!("{}{text}", if conflict.is_some() { "!" } else { "" })
+                }
+                merlin_core::MergeRow::Accept(_) => "[Accept]".into(),
+            })
+            .collect()
+    };
+    assert_eq!(
+        lines(&merge.panes[0])[..4],
+        ["fn a() {}", "!let x = 9;", "[Accept]", "fn b() {}"]
+    );
+    assert_eq!(merge.panes[1].detail, "main · 0e890a1");
+    assert_eq!(merge.notes[0].text, "Not chosen yet");
+    // A box from each side: Incoming's line first, then Current's.
+    s.send(Event::Ui(merlin_core::UiEvent::Press(
+        "merge:box:i:0:0".into(),
+    )));
+    s.send(Event::Ui(merlin_core::UiEvent::Press(
+        "merge:box:c:0:1".into(),
+    )));
+    assert_eq!(s.text(), "fn a() {}\nlet x = 9;\nlet y = 2;\nfn b() {}\n");
+    let merge = s.editor.text_views().pop().unwrap().merge.unwrap();
+    assert_eq!(merge.notes[0].text, "Chose a line from each");
+    assert_eq!(s.editor.window_view().merge_bar.unwrap().left, 0);
+    // Ctrl+Z undoes the choice, back to one box.
+    s.run("key ctrl+z");
+    assert_eq!(s.text(), "fn a() {}\nlet x = 9;\nfn b() {}\n");
+    // Reset goes back to the base; Accept All Incoming takes the rest.
+    s.send(Event::Ui(merlin_core::UiEvent::Press(
+        "merge:reset:0".into(),
+    )));
+    assert_eq!(s.text(), "fn a() {}\nlet x = 0;\nfn b() {}\n");
+    s.run("cmd merge.accept_all_incoming");
+    assert_eq!(s.text(), "fn a() {}\nlet x = 9;\nfn b() {}\n");
+    // Complete saves and stages it, and the tab is the file again.
+    s.run("cmd merge.complete");
+    assert!(
+        s.effects
+            .contains(&Effect::Git(GitAction::Stage("src/main.rs".into())))
+    );
+    assert!(s.editor.window_view().merge_bar.is_none());
+}

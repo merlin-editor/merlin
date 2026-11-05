@@ -72,6 +72,8 @@ pub struct TextView {
     /// commit's card over it.
     pub blame_cols: usize,
     pub blame_card: Option<super::blame::BlameCardView>,
+    /// The merge editor's panes and the Result's notes, when it's merging.
+    pub merge: Option<super::merge_editor::MergeView>,
 }
 
 /// A line of the file on screen.
@@ -318,6 +320,7 @@ impl Editor {
                     change: None,
                     blame_cols: 0,
                     blame_card: None,
+                    merge: None,
                     diff: marks
                         .as_ref()
                         .map(|(o, n)| if old { o.clone() } else { n.clone() }),
@@ -399,7 +402,9 @@ impl Editor {
             change: None,
             blame_cols: self.blame_cols(),
             blame_card: None,
+            merge: None,
         };
+        let mut notes = Vec::new();
         let bottom = area.h as i32 + overscan as i32;
         let mut row = -above;
         let mut line = first;
@@ -481,6 +486,7 @@ impl Editor {
                 (None, Some(Sign::Removed)) => ('‾', Style::GitRemoved, plain),
                 _ => (' ', Style::Gutter, plain),
             };
+            let base = self.merge_style(line).unwrap_or(base);
             let number = match review {
                 Some((LineKind::Gap, _)) => String::new(),
                 Some((_, n)) => (n + 1).to_string(),
@@ -646,8 +652,20 @@ impl Editor {
                 view.change = self.change_view(row);
                 row += gap as i32;
             }
+            // A conflict's note under its last line in the merge editor.
+            if self.merge_gap(line) > 0
+                && let Some(m) = self.merging()
+            {
+                for (i, c) in m.conflicts.iter().enumerate() {
+                    if c.result.end.max(1) - 1 == line {
+                        notes.extend(self.merge_note(i, row));
+                        row += 1;
+                    }
+                }
+            }
             line += 1;
         }
+        view.merge = self.merge_view(area.h as usize, notes);
         view.sticky = self
             .sticky_lines(area)
             .into_iter()

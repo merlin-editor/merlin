@@ -505,9 +505,37 @@ committed:
   - Test: `a_merge_shows_what_is_coming_in_and_waits_for_its_conflicts`.
   - Checked in the window: a real merge's banner, staging both files,
     Commit Merge with git's message, and Abort Merge.
-- Still to build for Git, next: the merge editor tab, its finishing, the
-  narrow layout, then Compare Files (all in `MergeFlow.dc.html`). Resolve
-  and a conflicted row open the file as text until then.
+- **The merge editor** (`editor/merge_editor.rs`):
+  - A conflicted row or the notice's Resolve calls `open_merge`: the file
+    opens and `Effect::MergeSides` asks the app for git's base version
+    (`:1:`) and the sides' names; `Event::MergeSides` starts it once the
+    file is open (`pending_merge`, also tried after `Event::Opened`).
+  - `Merging::new` parses the markers into Incoming's and Current's whole
+    files and each `Conflict`; each base is Current's lines found in the
+    base version by a line diff (git's `--diff3` splits conflicts
+    differently, so it isn't used). The Result's text is the file with
+    each base in place.
+  - `follow` keeps each conflict's Result lines through edits; one typed
+    in is `edited`, and one undone back to its base or its boxes is that
+    again, so Ctrl+Z works. `apply_conflict` writes a choice as one edit.
+  - The view: `TextView.merge` (`MergeView`: two `MergePaneView`s of
+    `MergeRow`s, from the line level with the Result's top, and the
+    Result's `MergeNote`s, one gap row under each conflict via
+    `merge_gap`); the Result's lines are tinted by `merge_style`
+    (`Style::MergeIncoming`, `MergeCurrent`, `MergeBase`);
+    `WindowView.merge_bar`; `TabView.merging`, `GroupView.merging`.
+  - Boxes and links are `UiEvent::Press("merge:…")`; the bar's are the
+    `merge.*` commands, also in the palette.
+  - The window: `GroupArea::split_for_merge` makes the group's text the
+    Result's code, under the two panes; `Frame::merge_editor` draws the
+    panes, titles and notes, and `merge_bar` the bar.
+  - Tests: `the_merge_editor_shows_both_sides_over_the_result_and_takes_lines_from_each`,
+    and the parser's in the module.
+  - Checked in the window: a real conflict from Source Control, boxes on
+    both sides, and Complete Merge saving and staging it.
+- Still to build for Git, next: the merge editor's finishing (asking
+  with conflicts left, the next file), the narrow layout and Open in
+  Merge Editor, then Compare Files (all in `MergeFlow.dc.html`).
 
 Saved for later, by the user's choice:
 

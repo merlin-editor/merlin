@@ -318,11 +318,10 @@ impl Editor {
             "scm.push" => return self.start_sync(SyncKind::Push, fx),
             "scm.pull" => return self.start_sync(SyncKind::Pull, fx),
             "scm.abort_pull" => return fx.push(Effect::Git(GitAction::AbortPull)),
-            // The first file with conflicts, until the merge editor is
-            // built.
+            // The first file with conflicts, in the merge editor.
             "scm.resolve" => {
                 if let Some(path) = self.git.conflicts.first().cloned() {
-                    self.open(PathBuf::from(path), fx);
+                    self.open_merge(&path, fx);
                 }
                 return;
             }

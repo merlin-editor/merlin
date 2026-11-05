@@ -3,7 +3,10 @@
 //! rounded islands on a darker ground, and a thin status bar. Drawing also
 //! records what each clickable part does.
 
-use merlin_core::editor::{BlameCardView, ChangeView, DiffBarView, PeekItem, PeekView, RenameView};
+use merlin_core::editor::{
+    BlameCardView, ChangeView, DiffBarView, MergeBarView, MergeRow, MergeSide, MergeView, PeekItem,
+    PeekView, RenameView,
+};
 use merlin_core::lang::{ActionKind, CodeAction};
 use merlin_core::panel::{Check, Entry, Node, Swap, Tone};
 use merlin_core::{
@@ -87,6 +90,9 @@ pub struct GroupArea {
     /// Right of the code: the minimap, when it's on, then the scrollbar.
     pub minimap: Option<Rect>,
     pub bar: Rect,
+    /// In the merge editor: Incoming's and Current's panes, and the
+    /// Result's around the code.
+    pub merge: Option<[Rect; 3]>,
 }
 
 /// The line between groups, and the room a sash takes on either side.
@@ -293,7 +299,12 @@ pub fn group_areas(
                 room_h * share(g, false) / total_h
             };
             let crumbs = groups.get(g).is_some_and(|v| !v.crumbs.is_empty());
-            areas.push(GroupArea::of(Rect::new(x, y, w, h), crumbs, minimap, sizes));
+            let merging = groups.get(g).is_some_and(|v| v.merging);
+            let mut area = GroupArea::of(Rect::new(x, y, w, h), crumbs, minimap, sizes);
+            if merging {
+                area.split_for_merge(sizes);
+            }
+            areas.push(area);
             if g + 1 < end {
                 let r = Rect::new(x, y + h - SASH, w, DIVIDER + 2.0 * SASH);
                 sashes.push((r, GroupSash::Row(g)));
@@ -339,9 +350,41 @@ impl GroupArea {
             text: Rect::new(r.x, y, code_w, h),
             minimap,
             bar,
+            merge: None,
         }
     }
+
+    /// The merge editor's panes, as in VS Code: Incoming and Current side
+    /// by side, over the Result, whose code is the group's text.
+    fn split_for_merge(&mut self, sizes: &Sizes) {
+        let body = Rect::new(
+            self.text.x + 8.0,
+            self.text.y,
+            (self.bar.right() - self.text.x - 16.0).max(0.0),
+            (self.text.h - 8.0).max(0.0),
+        );
+        let top = ((body.h - 8.0) / 2.0).floor().max(0.0);
+        let half = ((body.w - 8.0) / 2.0).floor().max(0.0);
+        let incoming = Rect::new(body.x, body.y, half, top);
+        let current = Rect::new(body.x + half + 8.0, body.y, body.w - half - 8.0, top);
+        let result = Rect::new(body.x, body.y + top + 8.0, body.w, body.h - top - 8.0);
+        let code_y = result.y + MERGE_HEAD_H;
+        let code_h = (result.h - MERGE_HEAD_H - 1.0).max(0.0);
+        let bar_w = sizes.scrollbar;
+        self.bar = Rect::new(result.right() - 1.0 - bar_w, code_y, bar_w, code_h);
+        self.text = Rect::new(
+            result.x + 1.0,
+            code_y,
+            (self.bar.x - result.x - 1.0).max(0.0),
+            code_h,
+        );
+        self.minimap = None;
+        self.merge = Some([incoming, current, result]);
+    }
 }
+
+/// A merge editor pane's title row.
+const MERGE_HEAD_H: f32 = 30.0;
 
 impl Frame<'_> {
     fn hit(&mut self, r: Rect, hit: Hit) {
@@ -3973,13 +4016,20 @@ impl Frame<'_> {
         group: Option<usize>,
         focused: bool,
         bar: Option<&DiffBarView>,
+        merge: Option<&MergeBarView>,
     ) {
         let p = self.p;
         // Empty strip takes drops too, at the end, and a double click.
         self.hit(row, Hit::TabStrip(group));
         // A changes tab's bar takes the strip's right end, before its
         // buttons.
-        let bar_w = bar.map_or(0.0, |b| self.diff_bar(b, row, row.right() - 72.0));
+        let bar_w = match (bar, merge) {
+            (Some(b), _) => self.diff_bar(b, row, row.right() - 72.0),
+            (_, Some(m)) => self.merge_bar(m, row, row.right() - 72.0),
+            _ => 0.0,
+        };
+        // A tab in the merge editor says so after its name.
+        let merging_w = self.text.width("Merging", Face::ui(11.0)) + 6.0;
         let face_of = |tab: &TabView| {
             if tab.preview {
                 Face::ui(13.0).italic()
@@ -3993,7 +4043,8 @@ impl Frame<'_> {
                 if t.pinned {
                     PINNED_W
                 } else {
-                    let nw = self.text.width(&t.name, face_of(t));
+                    let nw = self.text.width(&t.name, face_of(t))
+                        + if t.merging { merging_w } else { 0.0 };
                     TAB_PAD + 14.0 + 7.0 + nw + 5.0 + 18.0 + 6.0
                 }
             })
@@ -4102,7 +4153,7 @@ impl Frame<'_> {
                 continue;
             }
             let face = face_of(tab);
-            let nw = self.text.width(&tab.name, face);
+            let mut nw = self.text.width(&tab.name, face);
             let fg = match (tab.active, focused) {
                 (true, true) => p.bright,
                 (true, false) => p.text,
@@ -4118,6 +4169,19 @@ impl Frame<'_> {
                 fg,
                 clip,
             );
+            if tab.merging {
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    "Merging",
+                    Face::ui(11.0),
+                    x + TAB_PAD + 21.0 + nw + 6.0,
+                    r.y,
+                    r.h,
+                    p.error,
+                    clip,
+                );
+                nw += merging_w;
+            }
             let close = Rect::new(
                 x + TAB_PAD + 21.0 + nw + 5.0,
                 r.y + (r.h - 18.0) / 2.0,
@@ -4180,6 +4244,328 @@ impl Frame<'_> {
     /// The changes tab's bar, ending at `right`: which change, arrows to
     /// the next and previous, side by side or inline, and Stage File and
     /// Revert File. Returns its width.
+    /// The merge editor's bar: what's left, the arrows, Accept All
+    /// Incoming and Complete Merge, ending at `right`. Its width.
+    fn merge_bar(&mut self, bar: &MergeBarView, row: Rect, right: f32) -> f32 {
+        let p = self.p;
+        let face = Face::ui(12.0);
+        let h = 24.0;
+        let y = row.y + (row.h - h) / 2.0;
+        let mut x = right - 6.0;
+        for (label, command, primary) in [
+            ("Complete Merge", "merge.complete", true),
+            ("Accept All Incoming", "merge.accept_all_incoming", false),
+        ] {
+            let face = if primary { face.medium() } else { face };
+            let w = self.text.width(label, face) + 20.0;
+            x -= w;
+            let r = Rect::new(x, y, w, h);
+            let hovered = self.hovered(r);
+            let (bg, fg) = match (primary, hovered) {
+                (true, false) => (p.accent, p.on_accent),
+                (true, true) => (mix(p.accent, 0xffffff, 0.88), p.on_accent),
+                (false, false) => (p.chip, p.bright),
+                (false, true) => (p.border, p.bright),
+            };
+            self.canvas.round(r, 6.0, bg);
+            self.text
+                .draw_in_row(&mut self.canvas, label, face, r.x + 10.0, y, h, fg, r);
+            self.hit(r, Hit::Command(command));
+            x -= 6.0;
+        }
+        x -= 4.0;
+        for (glyph, command) in [("↓", "merge.next"), ("↑", "merge.prev")] {
+            x -= 20.0;
+            let r = Rect::new(x, y, 20.0, h);
+            if self.hovered(r) {
+                self.canvas.round(r, 5.0, p.hover);
+            }
+            let gw = self.text.width(glyph, face);
+            self.text.draw_in_row(
+                &mut self.canvas,
+                glyph,
+                face,
+                r.x + (20.0 - gw) / 2.0,
+                y,
+                h,
+                p.muted,
+                r,
+            );
+            self.hit(r, Hit::Command(command));
+        }
+        let (label, colour) = match bar.left {
+            0 => ("No conflicts left".to_string(), p.success),
+            1 => ("1 conflict left".to_string(), p.error),
+            n => (format!("{n} conflicts left"), p.error),
+        };
+        let lw = self.text.width(&label, face);
+        x -= lw + 10.0;
+        self.text.draw_in_row(
+            &mut self.canvas,
+            &label,
+            face,
+            x,
+            y,
+            h,
+            colour,
+            Rect::new(x, y, lw + 1.0, h),
+        );
+        right - x
+    }
+
+    /// The merge editor around the Result's code: Incoming and Current,
+    /// each line of a conflict with its box and Accept under it, the
+    /// panes' titles, and the Result's notes under its conflicts, from
+    /// `y0`, the Result's first row.
+    pub fn merge_editor(&mut self, merge: &MergeView, area: &GroupArea, y0: f32, row_h: f32) {
+        let p = self.p;
+        let Some([incoming, current, result]) = area.merge else {
+            return;
+        };
+        for (pane, r) in merge.panes.iter().zip([incoming, current]) {
+            self.merge_pane(pane, r, row_h);
+        }
+        // The Result's frame and title, around the code drawn already.
+        self.canvas.frame(result, 8.0, 1.0, p.line, 0);
+        let head = Rect::new(
+            result.x + 1.0,
+            result.y + 1.0,
+            result.w - 2.0,
+            MERGE_HEAD_H - 1.0,
+        );
+        self.canvas.fill(head, p.widget);
+        self.canvas
+            .fill(Rect::new(head.x, head.bottom(), head.w, 1.0), p.line);
+        let face = Face::ui(12.0);
+        let mut x = head.x + 10.0;
+        x += self.text.draw_in_row(
+            &mut self.canvas,
+            "Result",
+            face.medium(),
+            x,
+            head.y,
+            head.h,
+            p.bright,
+            head,
+        ) + 8.0;
+        self.text.draw_in_row(
+            &mut self.canvas,
+            &format!("{} · you can edit here", merge.name),
+            face,
+            x,
+            head.y,
+            head.h,
+            p.muted,
+            head,
+        );
+        let hint = "Base shows through until you choose";
+        let hw = self.text.width(hint, face);
+        if head.w > 520.0 {
+            self.text.draw_in_row(
+                &mut self.canvas,
+                hint,
+                face,
+                head.right() - 10.0 - hw,
+                head.y,
+                head.h,
+                p.muted,
+                head,
+            );
+        }
+        // Each conflict's note and links, in the row under it.
+        let code = area.text;
+        let link = Face::ui(11.5);
+        for note in &merge.notes {
+            let y = y0 + note.row as f32 * row_h;
+            if y + row_h <= code.y || y >= code.bottom() {
+                continue;
+            }
+            let clip = Rect::new(code.x, code.y, code.w, code.h);
+            self.canvas.fill(
+                Rect::new(code.x, y, code.w, row_h).intersect(clip),
+                p.island,
+            );
+            let mut x = code.x + 46.0;
+            x += self.text.draw_in_row(
+                &mut self.canvas,
+                &note.text,
+                link,
+                x,
+                y,
+                row_h,
+                p.muted,
+                clip,
+            ) + 6.0;
+            for (label, id) in &note.links {
+                x += self
+                    .text
+                    .draw_in_row(&mut self.canvas, "·", link, x, y, row_h, p.muted, clip)
+                    + 6.0;
+                let w = self.text.width(label, link);
+                let r = Rect::new(x - 2.0, y + 2.0, w + 4.0, row_h - 4.0);
+                if self.hovered(r) {
+                    self.canvas.round(r, 4.0, p.hover);
+                }
+                self.text
+                    .draw_in_row(&mut self.canvas, label, link, x, y, row_h, p.accent, clip);
+                self.hit(r.intersect(clip), Hit::Ui(UiEvent::Press(id.clone())));
+                x += w + 6.0;
+            }
+        }
+    }
+
+    /// Incoming or Current: its title, then its lines from the one level
+    /// with the Result's top.
+    fn merge_pane(&mut self, pane: &merlin_core::MergePaneView, r: Rect, row_h: f32) {
+        let p = self.p;
+        self.hit(r, Hit::Block);
+        self.canvas.outline(r, 8.0, 1.0, p.line, p.island);
+        let head = Rect::new(r.x + 1.0, r.y + 1.0, r.w - 2.0, MERGE_HEAD_H - 1.0);
+        self.canvas.fill(head, p.widget);
+        self.canvas
+            .fill(Rect::new(head.x, head.bottom(), head.w, 1.0), p.line);
+        let face = Face::ui(12.0);
+        let (who, tint, edge, accept, key) = match pane.side {
+            MergeSide::Incoming => (
+                "Incoming",
+                mix(p.git_changed, p.island, 0.16),
+                p.git_changed,
+                "Accept Incoming",
+                "i",
+            ),
+            MergeSide::Current => (
+                "Current",
+                mix(p.success, p.island, 0.15),
+                p.success,
+                "Accept Current",
+                "c",
+            ),
+        };
+        let x = head.x + 10.0;
+        let w = self.text.draw_in_row(
+            &mut self.canvas,
+            who,
+            face.medium(),
+            x,
+            head.y,
+            head.h,
+            p.bright,
+            head,
+        );
+        self.text.draw_in_row(
+            &mut self.canvas,
+            &pane.detail,
+            face,
+            x + w + 8.0,
+            head.y,
+            head.h,
+            p.muted,
+            head,
+        );
+        let code = Rect::new(
+            r.x + 1.0,
+            head.bottom() + 1.0,
+            r.w - 2.0,
+            r.bottom() - head.bottom() - 2.0,
+        );
+        let mono = CODE;
+        let digits = pane
+            .rows
+            .iter()
+            .filter_map(|row| match row {
+                MergeRow::Line { number, .. } => Some(number.to_string().len()),
+                _ => None,
+            })
+            .max()
+            .unwrap_or(1)
+            .max(2);
+        let cw = self.text.width("0", mono);
+        let num_w = digits as f32 * cw + 14.0;
+        let box_x = code.x + num_w;
+        let text_x = box_x + 22.0;
+        let mut y = code.y + 4.0;
+        for row in &pane.rows {
+            if y >= code.bottom() {
+                break;
+            }
+            let line = Rect::new(code.x, y, code.w, row_h);
+            match row {
+                MergeRow::Line {
+                    number,
+                    text,
+                    colours,
+                    conflict,
+                } => {
+                    if conflict.is_some() {
+                        self.canvas.fill(line.intersect(code), tint);
+                        self.canvas
+                            .fill(Rect::new(code.x, y, 3.0, row_h).intersect(code), edge);
+                    }
+                    let n = number.to_string();
+                    let nw = self.text.width(&n, mono);
+                    self.text.draw_in_row(
+                        &mut self.canvas,
+                        &n,
+                        mono,
+                        box_x - 10.0 - nw,
+                        y,
+                        row_h,
+                        p.faint,
+                        code,
+                    );
+                    if let Some((i, k, ticked)) = conflict {
+                        let b = Rect::new(box_x, y + (row_h - 14.0) / 2.0, 14.0, 14.0);
+                        let hovered = self.hovered(b);
+                        if *ticked {
+                            self.canvas.round(b, 3.0, p.accent);
+                            let tw = self.text.width("✓", Face::ui(11.0));
+                            self.text.draw_in_row(
+                                &mut self.canvas,
+                                "✓",
+                                Face::ui(11.0),
+                                b.x + (14.0 - tw) / 2.0,
+                                b.y,
+                                14.0,
+                                p.on_accent,
+                                code,
+                            );
+                        } else {
+                            let border = if hovered { p.accent } else { p.faint };
+                            self.canvas.outline(b, 3.0, 1.0, border, p.island);
+                        }
+                        let id = format!("merge:box:{key}:{i}:{k}");
+                        self.hit(line.intersect(code), Hit::Ui(UiEvent::Press(id)));
+                    }
+                    self.code_line(text, colours, text_x, y, row_h, code);
+                }
+                MergeRow::Accept(i) => {
+                    let link = Face::ui(11.5);
+                    let w = self.text.width(accept, link);
+                    let r = Rect::new(text_x - 2.0, y + 2.0, w + 4.0, row_h - 4.0);
+                    if self.hovered(r) {
+                        self.canvas.round(r, 4.0, p.hover);
+                    }
+                    self.text.draw_in_row(
+                        &mut self.canvas,
+                        accept,
+                        link,
+                        text_x,
+                        y,
+                        row_h,
+                        p.accent,
+                        code,
+                    );
+                    let what = if key == "i" { "incoming" } else { "current" };
+                    self.hit(
+                        r.intersect(code),
+                        Hit::Ui(UiEvent::Press(format!("merge:{what}:{i}"))),
+                    );
+                }
+            }
+            y += row_h;
+        }
+    }
+
     fn diff_bar(&mut self, bar: &DiffBarView, row: Rect, right: f32) -> f32 {
         let p = self.p;
         let face = Face::ui(12.0);
@@ -4443,7 +4829,8 @@ impl Frame<'_> {
         }
         for (g, (group, area)) in view.groups.iter().zip(&a.groups).enumerate() {
             let bar = view.diff_bar.as_ref().filter(|_| group.focused);
-            self.tab_strip(&group.tabs, area.tabs, Some(g), group.focused, bar);
+            let merge = view.merge_bar.as_ref().filter(|_| group.focused);
+            self.tab_strip(&group.tabs, area.tabs, Some(g), group.focused, bar, merge);
             if let Some(row) = area.crumbs {
                 self.crumb_row(&group.crumbs, row, Some(g));
             }

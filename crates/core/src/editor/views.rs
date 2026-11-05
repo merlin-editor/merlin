@@ -915,8 +915,7 @@ impl Editor {
         } else if let Some(line) = id.strip_prefix("o:").and_then(|l| l.parse().ok()) {
             self.go_to_block(line);
         } else if let Some(path) = id.strip_prefix("cx:") {
-            // The merge editor isn't built: the file opens, markers and all.
-            self.open(PathBuf::from(path), fx);
+            self.open_merge(path, fx);
         } else if let Some(path) = id.strip_prefix("c:").or_else(|| id.strip_prefix("cs:")) {
             match self.git.moves.iter().find(|m| m.to == path) {
                 Some(m) => fx.push(Effect::OpenMove {

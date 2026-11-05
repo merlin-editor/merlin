@@ -51,6 +51,11 @@ pub enum Style {
     /// The words that changed in those lines.
     DiffAddedWord,
     DiffRemovedWord,
+    /// Lines of a conflict in the merge editor's Result: from Incoming,
+    /// from Current, or its base, not chosen yet.
+    MergeIncoming,
+    MergeCurrent,
+    MergeBase,
     /// Gutter signs for lines changed since the last commit.
     GitAdded,
     GitChanged,

@@ -252,7 +252,7 @@ impl Editor {
 
     /// The rows the peek view opens after `line` of the document drawn.
     pub(crate) fn peek_gap(&self, line: usize) -> usize {
-        self.references_gap(line) + self.change_gap(line)
+        self.references_gap(line) + self.change_gap(line) + self.merge_gap(line)
     }
 
     /// Rows the references peek opens after `line`.

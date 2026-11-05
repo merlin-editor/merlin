@@ -1282,6 +1282,18 @@ impl Gui<'_> {
             let y = area.text.y + rows * row_h + glide / s;
             f.peek(peek, area.text, y, row_h);
         }
+        // The merge editor's panes and the Result's notes.
+        for text in &texts {
+            let (Some(merge), Some(area)) = (&text.merge, areas.groups.get(text.group)) else {
+                continue;
+            };
+            let glide = match self.glide {
+                Some((g, ..)) if g == text.group => glide,
+                _ => 0.0,
+            };
+            let y0 = area.text.y + (text.area.y as f32 - text.top_frac) * row_h + glide / s;
+            f.merge_editor(merge, area, y0, row_h);
+        }
         // A commit's card over the blame column.
         for text in &texts {
             let (Some(card), Some(area)) = (&text.blame_card, areas.groups.get(text.group)) else {

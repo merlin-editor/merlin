@@ -94,6 +94,7 @@ impl Editor {
             self.change_peek
                 .as_ref()
                 .map(|p| (p.index, p.version, self.change_peeking())),
+            self.merging().map(|m| (m.version, m.conflicts.len())),
         );
         let mut cache = self.row_cache.borrow_mut();
         if let Some((k, index)) = cache.as_ref()

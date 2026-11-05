@@ -304,6 +304,7 @@ impl Session {
                 | Effect::GitStatus
                 | Effect::OpenDiff(_)
                 | Effect::OpenMove { .. }
+                | Effect::MergeSides(_)
                 | Effect::Git(_)
                 | Effect::Blame { .. }
                 | Effect::CommitInfo(_)

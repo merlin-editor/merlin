@@ -25,6 +25,7 @@ mod keys;
 mod layout;
 mod menu;
 mod merge;
+mod merge_editor;
 mod mouse;
 mod overview;
 mod palette;
@@ -33,6 +34,7 @@ mod peek;
 pub use blame::{BlameCardView, BlameCell, CommitInfo};
 pub use compare::{DiffBarView, DiffMark, DiffMarks};
 pub use inline_change::ChangeView;
+pub use merge_editor::{MergeBarView, MergeNote, MergePaneView, MergeRow, MergeSide, MergeView};
 pub use peek::{PeekItem, PeekView, PreviewLine};
 mod rename;
 pub(crate) use rename::RENAME as RENAME_REVIEW;
@@ -396,6 +398,15 @@ pub enum Event {
     /// The merge, rebase or cherry-pick git is in the middle of, if any,
     /// sent with [`Event::GitStatus`].
     GitMerge(Option<MergeState>),
+    /// A conflicted file's sides, asked for with [`Effect::MergeSides`].
+    MergeSides {
+        path: String,
+        /// The version both sides came from, for each conflict's base.
+        base: String,
+        /// What each side is, as "themes · a41c9e2".
+        incoming: String,
+        current: String,
+    },
     /// A file's changes git can't show as text: a binary file's sizes, in
     /// bytes, before and now.
     ShowBinary {
@@ -566,6 +577,9 @@ pub enum Effect {
     Search(String),
     GitStatus,
     OpenDiff(PathBuf),
+    /// A conflicted file's sides, for the merge editor: answered with
+    /// [`Event::MergeSides`].
+    MergeSides(String),
     /// A moved file's changes, from its old path as of the last commit.
     OpenMove {
         from: PathBuf,
@@ -934,6 +948,10 @@ pub struct Editor {
     opening_beside: Option<PathBuf>,
     /// A change since the last commit opened in place from its gutter bar.
     change_peek: Option<inline_change::ChangePeek>,
+    /// Files open in the merge editor, and the one asked for until it's
+    /// open: its path, the base version, and what Incoming and Current are.
+    merges: Vec<merge_editor::Merging>,
+    pending_merge: Option<(String, String, (String, String))>,
     /// Who last changed each line, by file, as of a version of its text,
     /// and what was last asked for. `now` is the time blame last came.
     blames: HashMap<PathBuf, (u64, crate::git::Blame)>,
@@ -980,6 +998,7 @@ pub struct Editor {
                 Vec<usize>,
                 Option<(usize, usize)>,
                 Option<(usize, u64, bool)>,
+                Option<(u64, usize)>,
             ),
             std::rc::Rc<Vec<usize>>,
         )>,
@@ -1113,6 +1132,8 @@ impl Editor {
             diff_refresh: HashSet::new(),
             opening_beside: None,
             change_peek: None,
+            merges: Vec::new(),
+            pending_merge: None,
             blames: HashMap::new(),
             blame_asked: None,
             now: 0,
@@ -1444,6 +1465,7 @@ impl Editor {
                 self.opened(path.clone(), &text);
                 self.split_opened(&path);
                 self.opened_for_edits(&path);
+                self.start_merge();
             }
             Event::FileConfig { path, config } => self.file_config(&path, config),
             Event::AutoSave(why) => self.auto_save(why, &mut fx),
@@ -1738,6 +1760,12 @@ impl Editor {
                 self.git.version += 1;
             }
             Event::ShowBinary { path, old, new } => self.show_binary(path, old, new),
+            Event::MergeSides {
+                path,
+                base,
+                incoming,
+                current,
+            } => self.merge_sides(path, base, (incoming, current)),
             Event::GitSync(state) => {
                 self.git.sync = state;
                 self.git.version += 1;
@@ -1787,6 +1815,7 @@ impl Editor {
             }
         }
         self.follow_change_peek();
+        self.follow_merges();
         self.ask_blame(&mut fx);
         self.scroll_out_of_folds();
         // An edited preview stays open.
