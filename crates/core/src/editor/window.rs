@@ -65,6 +65,12 @@ pub enum UiEvent {
     DiffStage(usize),
     DiffRevert(usize),
     DiffLine(usize),
+    /// The buttons of a change opened in place: Stage, Revert, the next
+    /// change or the one before, and close.
+    ChangeStage,
+    ChangeRevert,
+    ChangeStep(bool),
+    ChangeClose,
     /// A button that isn't one of a panel's targets, such as a header's.
     Press(String),
     /// One of a side's panel titles, to show that panel.
@@ -575,6 +581,10 @@ impl Editor {
             UiEvent::DiffStage(n) => self.toggle_change(n, fx),
             UiEvent::DiffRevert(n) => self.revert_change(n, fx),
             UiEvent::DiffLine(line) => self.toggle_line(line, fx),
+            UiEvent::ChangeStage => self.stage_change_peek(fx),
+            UiEvent::ChangeRevert => self.revert_change_peek(),
+            UiEvent::ChangeStep(forward) => self.step_change_peek(forward),
+            UiEvent::ChangeClose => self.change_peek = None,
             UiEvent::Press(id) => self.view_click(&id, fx),
             UiEvent::PeekRow { index, clicks } => self.peek_clicked(index, clicks, fx),
             UiEvent::PeekClose => self.peek = None,

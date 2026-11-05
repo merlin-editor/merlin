@@ -3,7 +3,7 @@
 //! rounded islands on a darker ground, and a thin status bar. Drawing also
 //! records what each clickable part does.
 
-use merlin_core::editor::{DiffBarView, PeekItem, PeekView, RenameView};
+use merlin_core::editor::{ChangeView, DiffBarView, PeekItem, PeekView, RenameView};
 use merlin_core::lang::{ActionKind, CodeAction};
 use merlin_core::panel::{Check, Entry, Node, Swap, Tone};
 use merlin_core::{
@@ -925,6 +925,172 @@ impl Frame<'_> {
     /// The references peek view, in the rows `text` opens for it from `y`:
     /// a header, the chosen reference's lines on the left, and every
     /// reference by file on the right.
+    /// A change opened in place from its gutter bar, in the `rows` after
+    /// screen position `y`: which change, Stage, Revert, the arrows and
+    /// close, then what the lines were and are.
+    pub fn change_peek(&mut self, change: &ChangeView, text: Rect, y: f32, ch: f32, rows: usize) {
+        let p = self.p;
+        let r = Rect::new(
+            text.x + 36.0,
+            y + 2.0,
+            (text.w - 36.0 - 16.0).max(200.0),
+            rows as f32 * ch - 4.0,
+        );
+        let clip = Rect::new(text.x, text.y, text.w, text.h);
+        if r.bottom() < clip.y || r.y > clip.bottom() {
+            return;
+        }
+        self.hit(r, Hit::Block);
+        self.canvas
+            .outline(r, 8.0, 1.0, p.border, mix(p.ground, p.island, 0.5));
+        let inner = Rect::new(r.x + 1.0, r.y + 1.0, r.w - 2.0, r.h - 2.0);
+        let clip = Rect::new(
+            inner.x,
+            inner.y.max(clip.y),
+            inner.w,
+            (inner.bottom().min(clip.bottom()) - inner.y.max(clip.y)).max(0.0),
+        );
+        let head = Rect::new(inner.x, inner.y, inner.w, 30.0);
+        self.canvas.round(head, 7.0, p.widget);
+        self.canvas.fill(
+            Rect::new(head.x, head.bottom() - 7.0, head.w, 7.0),
+            p.widget,
+        );
+        self.canvas
+            .fill(Rect::new(head.x, head.bottom(), head.w, 1.0), p.border);
+        let face = Face::ui(12.0);
+        let title = format!("Change {} of {}", change.index, change.count);
+        let tw = self.text.draw_in_row(
+            &mut self.canvas,
+            &title,
+            face,
+            head.x + 10.0,
+            head.y,
+            30.0,
+            p.text,
+            clip,
+        );
+        self.text.draw_in_row(
+            &mut self.canvas,
+            "· since the last commit",
+            face,
+            head.x + 10.0 + tw + 8.0,
+            head.y,
+            30.0,
+            p.muted,
+            clip,
+        );
+        // Close, the arrows, then Revert and Stage, from the right.
+        let mut x = head.right() - 8.0;
+        for (glyph, event, tip) in [
+            ("✕", UiEvent::ChangeClose, "Close (Esc)"),
+            ("↓", UiEvent::ChangeStep(true), "Next Change (Alt+F5)"),
+            ("↑", UiEvent::ChangeStep(false), "Previous Change (Alt+F3)"),
+        ] {
+            x -= 22.0;
+            let b = Rect::new(x, head.y + 4.0, 22.0, 22.0);
+            let hovered = self.hovered(b);
+            if hovered {
+                self.canvas.round(b, 5.0, p.hover);
+            }
+            let gw = self.text.width(glyph, face);
+            self.text.draw_in_row(
+                &mut self.canvas,
+                glyph,
+                face,
+                b.x + (22.0 - gw) / 2.0,
+                b.y,
+                22.0,
+                if hovered { p.bright } else { p.muted },
+                clip,
+            );
+            self.tips.push((b, tip.into()));
+            self.hit(b, Hit::Ui(event));
+        }
+        x -= 6.0;
+        let stage = if change.staged { "Unstage" } else { "Stage" };
+        for (label, event) in [
+            ("Revert", UiEvent::ChangeRevert),
+            (stage, UiEvent::ChangeStage),
+        ] {
+            let w = self.text.width(label, face) + 18.0;
+            x -= w;
+            let b = Rect::new(x, head.y + 4.0, w, 22.0);
+            let hovered = self.hovered(b);
+            self.canvas.outline(
+                b,
+                6.0,
+                1.0,
+                p.border,
+                if hovered { p.border } else { p.chip },
+            );
+            self.text.draw_in_row(
+                &mut self.canvas,
+                label,
+                face,
+                b.x + 9.0,
+                b.y,
+                22.0,
+                p.bright,
+                clip,
+            );
+            self.hit(b, Hit::Ui(event));
+            x -= 6.0;
+        }
+        // The lines: what they were in red, what they are in green.
+        let mono = Face::mono(13.0);
+        let mut ly = head.bottom() + 1.0;
+        for (sign, line) in &change.lines {
+            if ly + ch > inner.bottom() + 0.5 {
+                break;
+            }
+            let (band, colour) = if *sign == '-' {
+                (mix(p.error, p.island, 0.16), p.error)
+            } else {
+                (mix(p.success, p.island, 0.14), p.success)
+            };
+            let row = Rect::new(inner.x, ly, inner.w, ch);
+            self.canvas.fill(row, band);
+            let sw = self.text.width(&sign.to_string(), mono);
+            self.text.draw_in_row(
+                &mut self.canvas,
+                &sign.to_string(),
+                mono,
+                inner.x + 24.0 - sw / 2.0,
+                ly,
+                ch,
+                colour,
+                clip,
+            );
+            let room = inner.right() - (inner.x + 44.0) - 8.0;
+            let fitted = self.text.fit(line, mono, room);
+            self.text.draw_in_row(
+                &mut self.canvas,
+                &fitted,
+                mono,
+                inner.x + 44.0,
+                ly,
+                ch,
+                p.text,
+                clip,
+            );
+            ly += ch;
+        }
+        if change.more > 0 && ly + ch <= inner.bottom() + 0.5 {
+            let more = format!("{} more lines", change.more);
+            self.text.draw_in_row(
+                &mut self.canvas,
+                &more,
+                face,
+                inner.x + 44.0,
+                ly,
+                ch,
+                p.muted,
+                clip,
+            );
+        }
+    }
+
     pub fn peek(&mut self, peek: &PeekView, text: Rect, y: f32, ch: f32) {
         let p = self.p;
         let r = Rect::new(

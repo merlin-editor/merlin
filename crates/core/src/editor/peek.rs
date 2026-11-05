@@ -252,17 +252,25 @@ impl Editor {
 
     /// The rows the peek view opens after `line` of the document drawn.
     pub(crate) fn peek_gap(&self, line: usize) -> usize {
+        self.references_gap(line) + self.change_gap(line)
+    }
+
+    /// Rows the references peek opens after `line`.
+    pub(crate) fn references_gap(&self, line: usize) -> usize {
         match &self.peek {
             Some(p) if p.line == line && p.doc == self.doc().id && p.group == self.pane() => p.rows,
             _ => 0,
         }
     }
 
-    /// Whether the document drawn has the peek open in it.
+    /// Whether the document drawn has a peek open in it: the references, or
+    /// a change.
     pub(crate) fn peeking(&self) -> bool {
-        self.peek
-            .as_ref()
-            .is_some_and(|p| p.doc == self.doc().id && p.group == self.pane())
+        self.change_peeking()
+            || self
+                .peek
+                .as_ref()
+                .is_some_and(|p| p.doc == self.doc().id && p.group == self.pane())
     }
 
     /// The peek view, drawn after `row`, the screen row of its line's last

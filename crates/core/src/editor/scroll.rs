@@ -91,6 +91,9 @@ impl Editor {
             self.wrapping().then(|| self.text_columns()),
             self.view().folds,
             self.peek.as_ref().map(|p| (p.line, self.peek_gap(p.line))),
+            self.change_peek
+                .as_ref()
+                .map(|p| (p.index, p.version, self.change_peeking())),
         );
         let mut cache = self.row_cache.borrow_mut();
         if let Some((k, index)) = cache.as_ref()

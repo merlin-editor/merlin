@@ -66,6 +66,8 @@ pub struct TextView {
     /// On the new side of a changes tab side by side: the boxes and
     /// buttons in the gap and before the numbers, and the rows to hatch.
     pub diff: Option<super::compare::DiffMarks>,
+    /// A change opened in place from its gutter bar.
+    pub change: Option<super::inline_change::ChangeView>,
 }
 
 /// A line of the file on screen.
@@ -304,6 +306,7 @@ impl Editor {
                     minimap: None,
                     bulb: None,
                     peek: None,
+                    change: None,
                     diff: marks
                         .as_ref()
                         .map(|(o, n)| if old { o.clone() } else { n.clone() }),
@@ -382,6 +385,7 @@ impl Editor {
             bulb: if focused { self.bulb_line() } else { None },
             peek: None,
             diff: None,
+            change: None,
         };
         let bottom = area.h as i32 + overscan as i32;
         let mut row = -above;
@@ -607,10 +611,16 @@ impl Editor {
                 eol_selected,
             });
             row += shown as i32;
-            // The peek view opens under its line.
-            let gap = self.peek_gap(line);
+            // The peek views open under their line: the references, then a
+            // change.
+            let gap = self.references_gap(line);
             if gap > 0 {
                 view.peek = self.peek_view(row);
+                row += gap as i32;
+            }
+            let gap = self.change_gap(line);
+            if gap > 0 {
+                view.change = self.change_view(row);
                 row += gap as i32;
             }
             line += 1;

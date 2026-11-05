@@ -1282,6 +1282,19 @@ impl Gui<'_> {
             let y = area.text.y + rows * row_h + glide / s;
             f.peek(peek, area.text, y, row_h);
         }
+        // A change opened in place, likewise.
+        for text in &texts {
+            let (Some(change), Some(area)) = (&text.change, areas.groups.get(text.group)) else {
+                continue;
+            };
+            let glide = match self.glide {
+                Some((g, ..)) if g == text.group => glide,
+                _ => 0.0,
+            };
+            let rows = text.area.y as f32 + change.row as f32 - text.top_frac;
+            let y = area.text.y + rows * row_h + glide / s;
+            f.change_peek(change, area.text, y, row_h, change.rows);
+        }
         // The terminals' screens, each fitted to its pane first.
         let colours = self.app.terminal_colours();
         let term = view.terminal.as_ref();

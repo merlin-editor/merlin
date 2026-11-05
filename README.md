@@ -407,7 +407,10 @@ as one step you can undo. One with unsaved changes asks first: Reload from
 Disk (which you can undo too), Overwrite, or Keep Editing, which Enter
 picks, since the question comes up while you may be typing. In a git repository, the gutter marks lines changed since the last
 commit: `▎` green for added, yellow for changed, `‾` red where lines were
-deleted.
+deleted. A click on a mark opens the change in place under its lines, with
+what they were and are, Stage (or Unstage), Revert (an edit Ctrl+Z
+undoes), and arrows to the next and previous change; Esc closes it. Alt+F5
+and Alt+F3 go to the next and previous change.
 
 The clipboard goes through the window's own connection to the desktop,
 Wayland's or X11's. Selecting text makes it the selection that a middle

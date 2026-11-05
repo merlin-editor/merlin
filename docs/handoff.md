@@ -381,7 +381,27 @@ committed:
   - Tests: the changes tab tests at the end of
     `crates/core/tests/workbench.rs`.
   - Checked in the window: Alt+I, a change's box, «, and Undo.
-- Still to build, in order: the change peek from the gutter with Alt+F5 and Alt+F3, push,
+- **A change opened in place from the gutter, built** (Git.dc.html):
+  - A click on a git sign (`mouse.rs`, `sign_line`) opens it:
+    `inline_change::ChangePeek`, with the file's runs of changes
+    (`diff::runs` of `git_base` and the text), worked out again after
+    edits (`follow_change_peek`).
+  - It opens in the rows after its last line through the same gap as the
+    references peek: `peek_gap` is `references_gap` plus `change_gap`,
+    and the row cache's key has both. `TextView.change` is a
+    `ChangeView`; the window draws it in `Frame::change_peek`.
+  - Stage stages its lines through `compare::stage_parts`, the same
+    patches as the changes tab (`line_staged` says whether it's staged,
+    for Unstage). Revert edits the text back with `replace_text`, so
+    Ctrl+Z undoes it.
+  - Alt+F5 and Alt+F3 (`go.next_change`, `go.prev_change`) move the
+    cursor between changes in a file, and the open change follows. In a
+    changes tab they're `diff.next` and `diff.prev`.
+  - Test: `a_gutter_bar_opens_its_change_in_place`.
+  - Checked in the window: the click, Stage and Unstage, and the arrows.
+- Not in the mock-ups' order but still to do: the changes tab's boxes
+  inline.
+- Still to build, in order: from the gutter with Alt+F5 and Alt+F3, push,
   pull and sync with their notices (GitSync), blame, and new, deleted and
   moved files (GitFiles).
 
@@ -475,7 +495,7 @@ These are suggestions; nothing of them is written yet.
   straight into core `Event`s. The Rust SDK's re-exports are in
   `sdk/rust/src/lib.rs`; add new types to both lists there.
 - Checks before each commit:
-  - `cargo test --workspace`: 362 tests passed with editing the changes tab
+  - `cargo test --workspace`: 363 tests passed with the change peek
   - `cargo clippy --workspace --all-targets`
   - in `plugins/lsp`: `cargo clippy --release --target wasm32-wasip2`
   - `cargo fmt --all`

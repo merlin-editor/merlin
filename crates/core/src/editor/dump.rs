@@ -196,6 +196,17 @@ fn dump_text(o: &mut String, view: &TextView) {
         if let Some(peek) = view.peek.as_ref().filter(|p| p.row == y + 1) {
             dump_peek(o, peek);
         }
+        if let Some(change) = view.change.as_ref().filter(|c| c.row == y + 1) {
+            let stage = if change.staged { "Unstage" } else { "Stage" };
+            let _ = writeln!(
+                o,
+                "┌ Change {} of {} · since the last commit  [{stage}] [Revert] ↑ ↓ ✕",
+                change.index, change.count
+            );
+            for (sign, text) in &change.lines {
+                let _ = writeln!(o, "│ {sign} {text}");
+            }
+        }
     }
 }
 

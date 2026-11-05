@@ -924,3 +924,64 @@ diff --git a/src/palette.rs b/src/palette.rs
     s.run("key esc");
     assert_eq!(s.text(), NOW_PALETTE);
 }
+
+#[test]
+fn a_gutter_bar_opens_its_change_in_place() {
+    let mut s = Session::new(NOW_PALETTE, Some("src/palette.rs"), 100, 20);
+    s.send(Event::GitBase {
+        path: "src/palette.rs".into(),
+        text: Some(HEAD_PALETTE.into()),
+    });
+    s.send(Event::GitStatus {
+        branch: Some("main".into()),
+        files: vec![("src/palette.rs".into(), 'M')],
+        staged: vec![],
+        changed: vec![("src/palette.rs".into(), 'M')],
+    });
+    s.send(Event::GitDiffs {
+        staged: vec![],
+        changed: merlin_core::git::parse(PALETTE_DIFF),
+    });
+    // The bar beside line 3, the changed one.
+    s.run("click 0 2");
+    let screen = s.screen();
+    assert!(
+        screen.contains(
+            "┌ Change 2 of 3 · since the last commit  [Stage] [Revert] ↑ ↓ ✕\n\
+             │ -     accent + step\n\
+             │ +     accent + step * 2"
+        ),
+        "{screen}"
+    );
+    // Stage stages that change alone.
+    s.send(Event::Ui(merlin_core::UiEvent::ChangeStage));
+    let got = applied(&s);
+    assert_eq!(got.len(), 1, "{:?}", s.effects);
+    assert!(
+        got[0]
+            .0
+            .contains("-    accent + step\n+    accent + step * 2\n")
+    );
+    assert!(!got[0].0.contains("A colour"));
+    // ↓ goes to the next change, with the cursor.
+    s.send(Event::Ui(merlin_core::UiEvent::ChangeStep(true)));
+    assert!(s.screen().contains("┌ Change 3 of 3"), "{}", s.screen());
+    assert_eq!(s.editor.cursor_utf16().0, 6);
+    // Revert puts its line back, as an edit Ctrl+Z undoes.
+    s.send(Event::Ui(merlin_core::UiEvent::ChangeRevert));
+    assert!(
+        s.text().contains("let steps = [1u32, 2, 3];"),
+        "{}",
+        s.text()
+    );
+    assert!(!s.screen().contains("┌ Change"));
+    s.run("key ctrl+z");
+    assert!(s.text().contains("[1u32, 2, 3, 4]"));
+    // Alt+F3 goes to the change before, and Esc closes an open one.
+    s.run("key alt+f3");
+    assert_eq!(s.editor.cursor_utf16().0, 2);
+    s.run("click 0 0");
+    assert!(s.screen().contains("┌ Change 1 of 3"), "{}", s.screen());
+    s.run("key esc");
+    assert!(!s.screen().contains("┌ Change"));
+}

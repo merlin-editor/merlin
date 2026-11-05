@@ -77,6 +77,19 @@ impl Editor {
         }
     }
 
+    /// The line at screen row `y`, if it has a git sign.
+    fn sign_line(&self, y: u16) -> Option<usize> {
+        let text = self.layout().text;
+        let pos = self.pos_at_screen(text.x + self.gutter() as u16, y);
+        let line = self.doc().line_col(pos).0;
+        self.doc()
+            .git_signs
+            .get(line)
+            .copied()
+            .flatten()
+            .map(|_| line)
+    }
+
     /// Whether cell (`x`, `y`) is the lightbulb: its room in the gutter,
     /// after the sign, on its line.
     fn on_bulb(&self, x: u16, y: u16) -> bool {
@@ -184,6 +197,18 @@ impl Editor {
             MouseKind::Down if text.contains(m.x, m.y) && self.sticky_at(text, m.y).is_some() => {
                 if let Some(line) = self.sticky_at(text, m.y) {
                     self.go_to_block(line);
+                }
+            }
+            // A git bar in the gutter opens its change in place.
+            MouseKind::Down
+                if text.contains(m.x, m.y)
+                    && m.x == text.x
+                    && self.has_signs()
+                    && self.doc().review.is_none()
+                    && self.sign_line(m.y).is_some() =>
+            {
+                if let Some(line) = self.sign_line(m.y) {
+                    self.toggle_change_peek(line);
                 }
             }
             // The arrow left of a block's first line folds or unfolds it.

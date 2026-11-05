@@ -6,6 +6,7 @@
 
 use std::ops::Range;
 
+use super::views::Git;
 use super::{Editor, Effect, GitAction};
 use crate::diff::LineKind;
 use crate::doc::Review;
@@ -105,24 +106,19 @@ impl Editor {
                 continue;
             }
             let path = review.path.to_string_lossy().to_string();
-            let staged = self.git.staged_diffs.get(&path);
-            let changed = self.git.changed_diffs.get(&path);
+            let git = &self.git;
             review.staged = review
                 .lines
                 .iter()
                 .enumerate()
                 .map(|(i, (kind, number))| match kind {
-                    // Nothing's staged of a file the index has no change to.
-                    _ if staged.is_none() && !matches!(kind, LineKind::Same | LineKind::Gap) => {
-                        Some(false)
-                    }
-                    LineKind::Added => {
-                        Some(changed.is_none_or(|c| c.find('+', number + 1).is_none()))
-                    }
-                    LineKind::Removed => {
-                        let old = review.old_numbers[i];
-                        Some(staged.is_some_and(|s| s.find('-', old + 1).is_some()))
-                    }
+                    LineKind::Added => Some(line_staged(git, &path, LineKind::Added, *number)),
+                    LineKind::Removed => Some(line_staged(
+                        git,
+                        &path,
+                        LineKind::Removed,
+                        review.old_numbers[i],
+                    )),
                     _ => None,
                 })
                 .collect();
@@ -265,17 +261,34 @@ impl Editor {
             return;
         };
         let path = review.path.to_string_lossy().to_string();
-        let staged = self.git.staged_diffs.get(&path);
-        let changed = self.git.changed_diffs.get(&path);
-        // A file git doesn't track yet is staged whole.
-        let untracked = self
-            .git
-            .changed
+        let parts: Vec<(LineKind, usize)> = lines
             .iter()
-            .any(|(p, s)| *p == path && *s == '?');
+            .filter(|&&line| review.staged.get(line).copied().flatten() != Some(stage))
+            .map(|&line| match review.lines[line].0 {
+                LineKind::Removed => (LineKind::Removed, review.old_numbers[line]),
+                kind => (kind, review.lines[line].1),
+            })
+            .collect();
+        self.stage_parts(&path, &parts, stage, fx);
+    }
+
+    /// Stages or unstages lines of the file at `path`, given as added lines
+    /// by their number in the working tree and removed ones by theirs in
+    /// the last commit, from 0.
+    pub(crate) fn stage_parts(
+        &self,
+        path: &str,
+        parts: &[(LineKind, usize)],
+        stage: bool,
+        fx: &mut Vec<Effect>,
+    ) {
+        let staged = self.git.staged_diffs.get(path);
+        let changed = self.git.changed_diffs.get(path);
+        // A file git doesn't track yet is staged whole.
+        let untracked = self.git.changed.iter().any(|(p, s)| p == path && *s == '?');
         if untracked {
             if stage {
-                fx.push(Effect::Git(GitAction::Stage(path)));
+                fx.push(Effect::Git(GitAction::Stage(path.to_string())));
             }
             return;
         }
@@ -288,17 +301,12 @@ impl Editor {
                 }
             }
         };
-        for &line in lines {
-            let (kind, number) = review.lines[line];
-            let old = review.old_numbers[line];
-            if review.staged.get(line).copied().flatten() == Some(stage) {
-                continue;
-            }
+        for &(kind, number) in parts {
             match (kind, stage) {
                 // In the index's diff, from the index to the working tree.
                 (LineKind::Added, true) => take(changed.and_then(|c| c.find('+', number + 1))),
                 (LineKind::Removed, true) => {
-                    let in_index = staged.map_or(old + 1, |s| s.map_line(old + 1, true));
+                    let in_index = staged.map_or(number + 1, |s| s.map_line(number + 1, true));
                     take(changed.and_then(|c| c.find('-', in_index)));
                 }
                 // In the staged diff, from the last commit to the index.
@@ -306,7 +314,7 @@ impl Editor {
                     let in_index = changed.map_or(number + 1, |c| c.map_line(number + 1, false));
                     take(staged.and_then(|s| s.find('+', in_index)));
                 }
-                (LineKind::Removed, false) => take(staged.and_then(|s| s.find('-', old + 1))),
+                (LineKind::Removed, false) => take(staged.and_then(|s| s.find('-', number + 1))),
                 _ => {}
             }
         }
@@ -458,6 +466,21 @@ impl Editor {
             "diff.revert_file" => self.revert_file(fx),
             _ => {}
         }
+    }
+}
+
+/// Whether a line of the file at `path` is staged: an added one by its
+/// number in the working tree, a removed one by its number in the last
+/// commit, from 0. Nothing is, of a file the index has no change to.
+pub(crate) fn line_staged(git: &Git, path: &str, kind: LineKind, number: usize) -> bool {
+    let Some(staged) = git.staged_diffs.get(path) else {
+        return false;
+    };
+    let changed = git.changed_diffs.get(path);
+    match kind {
+        LineKind::Added => changed.is_none_or(|c| c.find('+', number + 1).is_none()),
+        LineKind::Removed => staged.find('-', number + 1).is_some(),
+        _ => false,
     }
 }
 

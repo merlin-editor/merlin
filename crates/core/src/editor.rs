@@ -14,6 +14,7 @@ mod find;
 pub(crate) mod fold;
 mod format;
 mod groups;
+mod inline_change;
 pub use actions::{FORMAT_FILE, FORMAT_SELECTION};
 pub use format::{FORMAT_WAIT_MS, FormatOnSave};
 pub use groups::Edge;
@@ -28,6 +29,7 @@ mod palette;
 mod panels;
 mod peek;
 pub use compare::{DiffBarView, DiffMark, DiffMarks};
+pub use inline_change::ChangeView;
 pub use peek::{PeekItem, PeekView, PreviewLine};
 mod rename;
 pub(crate) use rename::RENAME as RENAME_REVIEW;
@@ -777,6 +779,8 @@ pub struct Editor {
     /// A changes tab's file being opened beside it, which mustn't take
     /// its place.
     opening_beside: Option<PathBuf>,
+    /// A change since the last commit opened in place from its gutter bar.
+    change_peek: Option<inline_change::ChangePeek>,
     /// Signature help: the document, where the call was when it showed,
     /// and the signature.
     signature: Option<(u64, usize, crate::lang::Signature)>,
@@ -800,11 +804,18 @@ pub struct Editor {
     minimap_cache:
         std::cell::RefCell<Option<((u64, u64, u64), std::rc::Rc<Vec<overview::MinimapLine>>)>>,
     /// The rows before each line, by document, version, width, folds and
-    /// the peek view's gap.
+    /// the peek views' gaps.
     #[allow(clippy::type_complexity)]
     row_cache: std::cell::RefCell<
         Option<(
-            (u64, u64, Option<usize>, Vec<usize>, Option<(usize, usize)>),
+            (
+                u64,
+                u64,
+                Option<usize>,
+                Vec<usize>,
+                Option<(usize, usize)>,
+                Option<(usize, u64, bool)>,
+            ),
             std::rc::Rc<Vec<usize>>,
         )>,
     >,
@@ -936,6 +947,7 @@ impl Editor {
             diff_inline: None,
             diff_refresh: HashSet::new(),
             opening_beside: None,
+            change_peek: None,
             signature: None,
             diagnostics: HashMap::new(),
             diagnostics_version: 0,
@@ -1575,6 +1587,7 @@ impl Editor {
                 }
             }
         }
+        self.follow_change_peek();
         self.scroll_out_of_folds();
         // An edited preview stays open.
         if let Some(id) = self.preview

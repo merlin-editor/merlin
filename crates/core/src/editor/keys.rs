@@ -84,6 +84,8 @@ pub(super) const EDITOR_KEYS: &[(&str, &str)] = &[
     ("ctrl+d", "edit.add_next"),
     ("ctrl+shift+l", "edit.select_all_matches"),
     ("alt+up", "edit.move_line_up"),
+    ("alt+f5", "go.next_change"),
+    ("alt+f3", "go.prev_change"),
     ("alt+down", "edit.move_line_down"),
     // Shift+Alt+Up and Down add cursors on Linux, as in VS Code.
     ("ctrl+shift+alt+up", "edit.copy_line_up"),
@@ -130,6 +132,16 @@ impl Editor {
             && self.edits_file(key)
         {
             return self.through_file(fx, |e, fx| e.key(key, fx));
+        }
+        // Esc closes a change opened in place.
+        if self.focus == Focus::Editor
+            && key.code == KeyCode::Esc
+            && !key.ctrl
+            && !key.shift
+            && self.change_peeking()
+        {
+            self.change_peek = None;
+            return;
         }
         // An open completion or code action list takes the keys it uses
         // first.

@@ -123,6 +123,8 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
     ("go.line", "Go: Go to Line…"),
     ("go.definition", "Go: Go to Definition"),
     ("go.references", "Go: Peek References"),
+    ("go.next_change", "Go: Next Change"),
+    ("go.prev_change", "Go: Previous Change"),
     ("review.next", "Go: Next Change to Review"),
     ("nav.back", "Go: Back"),
     ("app.about", "Help: About"),
@@ -241,6 +243,8 @@ impl Editor {
             },
             "go.definition" => self.go_to_definition(fx),
             "go.references" => self.find_references(fx),
+            "go.next_change" => self.go_to_change(true),
+            "go.prev_change" => self.go_to_change(false),
             "view.output" => self.show_bottom(views::OUTPUT),
             "view.secondary" => {
                 let bar = self.bar_mut(Side::Right);

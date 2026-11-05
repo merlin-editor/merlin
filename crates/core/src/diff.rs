@@ -121,6 +121,28 @@ pub fn signs(old: &str, new: &str) -> Vec<Option<Sign>> {
     signs
 }
 
+/// Each run of changed lines from `old` to `new`: the lines it had in
+/// `old` and has in `new`, by line number. Ops next to each other join, as
+/// the gutter marks them as one.
+pub fn runs(old: &str, new: &str) -> Vec<(std::ops::Range<usize>, std::ops::Range<usize>)> {
+    let diff = ops(old, new);
+    let mut out: Vec<(std::ops::Range<usize>, std::ops::Range<usize>)> = Vec::new();
+    for op in diff.ops() {
+        if op.tag() == DiffTag::Equal {
+            continue;
+        }
+        let (o, n) = (op.old_range(), op.new_range());
+        match out.last_mut() {
+            Some((lo, ln)) if lo.end == o.start && ln.end == n.start => {
+                lo.end = o.end;
+                ln.end = n.end;
+            }
+            _ => out.push((o, n)),
+        }
+    }
+    out
+}
+
 /// Where each line of `old` is in `new`. A changed or deleted line maps to
 /// where its replacement starts.
 pub fn line_map(old: &str, new: &str) -> Vec<usize> {
