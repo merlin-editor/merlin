@@ -420,7 +420,13 @@ what they were and are, Stage (or Unstage), Revert (an edit Ctrl+Z
 undoes), and arrows to the next and previous change; Esc closes it. Alt+F5
 and Alt+F3 go to the next and previous change. The cursor's line says who last changed it, when
 and why, faint after its end, from git blame of the text as it is (lines
-not yet committed say nothing).
+not yet committed say nothing). Git: Blame in the palette shows a column
+beside the numbers of who last changed each line, one entry for each run
+of a commit's lines, with a bar that's brighter the newer it is. Resting on
+an entry opens its commit's card: who, when, the hash, the whole message
+and its size, with Open Changes (what it changed in this file), Blame
+Before This (leaving it out, for lines only moved or reformatted) and Copy
+Hash. Esc, or Git: Blame again, hides it.
 
 The clipboard goes through the window's own connection to the desktop,
 Wayland's or X11's. Selecting text makes it the selection that a middle
@@ -585,7 +591,7 @@ Other languages work too: anything that builds a WASI 0.2 component for
 - A wrapped line taller than the view can't scroll part way. Without a
   language server, folds go by indentation and symbols are found by
   keyword. Only one plugin's symbols or folds count for a file at a time.
-- Git blame is only for the cursor's line yet. The changes tab has its boxes only
+- The changes tab has its boxes only
   side by side, not inline, and stages only what's saved.
 - Settings have no editor of their own (they're a TOML file), and the
   theme is VS Code's Dark Modern, with no others yet.

@@ -437,10 +437,31 @@ committed:
     (`line_blame`), on the cursor's line, without a problem or selection.
     `LineView.blame`; the window draws it faint after the line.
   - Test: `the_cursors_line_says_who_last_changed_it`.
+- **The blame column and its card, built** (GitSync.dc.html, the second
+  board):
+  - Git: Blame (`git.blame`) toggles it for the file (`blame_column`); Esc
+    or the status bar's Blame hides it. It takes `blame::BLAME_COLS` at
+    the gutter's left (`gutter()` adds `blame_cols()`); the window draws
+    `LineView.blame_cell` there and moves the signs and lightbulb after
+    it, and the sign click and lightbulb test follow.
+  - Each cell: the run's first line has who, how long and the summary;
+    the bar's colour is the commit's age among the file's (`age`), and
+    lines not committed are in the accent.
+  - A rest on the column (`hover_at`) opens the card (`blame_card`,
+    `BlameCardView`) and asks `Effect::CommitInfo` for the message's body
+    and its size (`git show`); moving into the text closes it. The
+    commit's lines get a soft tint.
+  - Open Changes asks `Effect::OpenCommit`; the app answers with a
+    `merlin.commit` review of the file before and after the commit, which
+    only Esc leaves (`blame::COMMIT`). Blame Before This adds the commit
+    to `blame_ignore`, passed to `git blame --ignore-rev`. Copy Hash
+    copies the whole hash.
+  - Test: `git_blame_shows_who_changed_each_line_and_a_card_for_the_commit`.
+  - Checked in the window: the column, the card, the tint and Open
+    Changes.
 - Not in the mock-ups' order but still to do: the changes tab's boxes
   inline.
-- Still to build, in order: the blame column with its card (GitSync's
-  second board), and new, deleted and moved files
+- Still to build: new, deleted and moved files
   (GitFiles).
 
 Saved for later, by the user's choice:
@@ -533,7 +554,7 @@ These are suggestions; nothing of them is written yet.
   straight into core `Event`s. The Rust SDK's re-exports are in
   `sdk/rust/src/lib.rs`; add new types to both lists there.
 - Checks before each commit:
-  - `cargo test --workspace`: 366 tests passed with the cursor line's blame
+  - `cargo test --workspace`: 368 tests passed with the blame column
   - `cargo clippy --workspace --all-targets`
   - in `plugins/lsp`: `cargo clippy --release --target wasm32-wasip2`
   - `cargo fmt --all`

@@ -68,7 +68,11 @@ impl Editor {
         let reviews = self
             .docs
             .iter()
-            .filter(|d| d.review.as_ref().is_some_and(|r| !r.plugin.is_empty()))
+            .filter(|d| {
+                d.review
+                    .as_ref()
+                    .is_some_and(|r| !r.plugin.is_empty() && r.plugin != super::blame::COMMIT)
+            })
             .filter(|d| !super::rename::is_rename_review(d))
             .count();
         if reviews > 0 {
@@ -133,6 +137,13 @@ impl Editor {
             left.push((format!("  {}", self.review_hint()), Style::Status, None));
         } else if doc.review.is_some() {
             left.push((format!("  {}", self.review_hint()), Style::Status, None));
+        }
+        if self.blame_shown() {
+            left.push((
+                " Blame ".into(),
+                Style::StatusAccent,
+                Some(Action::Run("git.blame")),
+            ));
         }
         if self.waiting_format.is_some() {
             left.push((" Formatting… ".into(), Style::Status, None));

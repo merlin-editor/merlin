@@ -1127,3 +1127,88 @@ filename src/palette.rs
     s.run("type x");
     assert_eq!(blame_of(&s), None);
 }
+
+#[test]
+fn git_blame_shows_who_changed_each_line_and_a_card_for_the_commit() {
+    let mut s = Session::new("a\nb\nc\n", Some("notes.txt"), 100, 12);
+    s.send(Event::GitBase {
+        path: "notes.txt".into(),
+        text: Some("a\nb\nc\n".into()),
+    });
+    let version = s
+        .effects
+        .iter()
+        .find_map(|e| match e {
+            Effect::Blame { version, .. } => Some(*version),
+            _ => None,
+        })
+        .unwrap();
+    let old = "1111111111111111111111111111111111111111";
+    let new = "2222222222222222222222222222222222222222";
+    let porcelain = format!(
+        "{old} 1 1 2\nauthor sam\nauthor-time 1000\nsummary First notes\n\ta\n\
+         {old} 2 2\n\tb\n\
+         {new} 3 3 1\nauthor marc\nauthor-time 9000\nsummary Shade colours with lerp\n\tc\n"
+    );
+    s.send(Event::Blame {
+        path: "notes.txt".into(),
+        version,
+        blame: merlin_core::git::parse_blame(&porcelain),
+        now: 9000 + 14 * 86_400,
+    });
+    s.run("key ctrl+shift+p; type Git: Blame; key enter");
+    let view = s.editor.text_views().pop().unwrap();
+    // The empty line after the last has no blame.
+    let cells: Vec<_> = view
+        .lines
+        .iter()
+        .take(3)
+        .map(|l| l.blame_cell.clone().unwrap())
+        .collect();
+    assert_eq!(cells[0].text, "sam · 2 weeks · First notes");
+    assert_eq!(cells[1].text, "", "one entry for a run of one commit");
+    assert_eq!(cells[2].text, "marc · 2 weeks · Shade colours with lerp");
+    assert!(cells[2].age > cells[0].age, "newer is brighter");
+    assert!(view.blame_cols > 0);
+    assert!(s.screen().contains(" Blame "), "{}", s.screen());
+    // A rest on the column opens the commit's card and asks for the rest of
+    // its message.
+    s.run("rest 2 2");
+    assert!(s.effects.contains(&Effect::CommitInfo(new.into())));
+    s.send(Event::CommitInfo {
+        hash: new.into(),
+        info: merlin_core::editor::CommitInfo {
+            body: "Mixing towards white or black keeps hues.".into(),
+            added: 4,
+            removed: 3,
+            files: 1,
+        },
+    });
+    let card = s
+        .editor
+        .text_views()
+        .pop()
+        .unwrap()
+        .blame_card
+        .expect("the card");
+    assert_eq!(card.author, "marc");
+    assert_eq!(card.hash, "2222222");
+    assert_eq!(card.stats, Some((4, 3, 1)));
+    assert!(card.when.starts_with("2 weeks ago · "), "{}", card.when);
+    // Blame Before This leaves the commit out and asks again.
+    s.effects.clear();
+    s.send(Event::Ui(merlin_core::UiEvent::BlameButton(
+        "before".into(),
+    )));
+    assert!(
+        s.effects.iter().any(|e| matches!(
+            e,
+            Effect::Blame { ignore, .. } if ignore == &[new.to_string()]
+        )),
+        "{:?}",
+        s.effects
+    );
+    // Esc hides the column.
+    s.run("key esc");
+    assert_eq!(s.editor.text_views().pop().unwrap().blame_cols, 0);
+}

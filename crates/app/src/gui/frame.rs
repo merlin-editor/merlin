@@ -3,7 +3,7 @@
 //! rounded islands on a darker ground, and a thin status bar. Drawing also
 //! records what each clickable part does.
 
-use merlin_core::editor::{ChangeView, DiffBarView, PeekItem, PeekView, RenameView};
+use merlin_core::editor::{BlameCardView, ChangeView, DiffBarView, PeekItem, PeekView, RenameView};
 use merlin_core::lang::{ActionKind, CodeAction};
 use merlin_core::panel::{Check, Entry, Node, Swap, Tone};
 use merlin_core::{
@@ -1088,6 +1088,192 @@ impl Frame<'_> {
                 p.muted,
                 clip,
             );
+        }
+    }
+
+    /// A commit's card over the blame column, from `y` down: who and when,
+    /// its hash, its message, its size, and Open Changes, Blame Before
+    /// This and Copy Hash.
+    pub fn blame_card(&mut self, card: &BlameCardView, text: Rect, y: f32) {
+        let p = self.p;
+        let face = Face::ui(12.5);
+        let w = (text.w - 24.0).clamp(200.0, 470.0);
+        let x = text.x + 12.0;
+        let body_lines: Vec<String> = if card.body.is_empty() {
+            Vec::new()
+        } else {
+            vec![card.body.replace('\n', " ")]
+        };
+        let body_h = if body_lines.is_empty() {
+            0.0
+        } else {
+            self.text
+                .wrapped_height(&body_lines[0], face, w - 28.0)
+                .min(80.0)
+                + 6.0
+        };
+        let h = 12.0 + 22.0 + 10.0 + 18.0 + body_h + 10.0 + 38.0;
+        // It opens below the line, or above it near the bottom.
+        let y = if y + h > text.bottom() && y - h > text.y {
+            y - h - 22.0
+        } else {
+            y
+        };
+        let r = Rect::new(x, y, w, h);
+        self.hit(r, Hit::Block);
+        self.canvas.shadow(r, 10.0, false);
+        self.canvas.outline(r, 10.0, 1.0, p.border, p.widget);
+        let clip = r;
+        // Who, when, and the hash.
+        let top = r.y + 12.0;
+        let av = Rect::new(r.x + 14.0, top, 22.0, 22.0);
+        self.canvas.round(av, 11.0, mix(p.accent, p.widget, 0.3));
+        let initial: String = card
+            .author
+            .chars()
+            .take(1)
+            .collect::<String>()
+            .to_uppercase();
+        let iw = self.text.width(&initial, Face::ui(11.0).bold());
+        self.text.draw_in_row(
+            &mut self.canvas,
+            &initial,
+            Face::ui(11.0).bold(),
+            av.x + (22.0 - iw) / 2.0,
+            av.y,
+            22.0,
+            p.bright,
+            clip,
+        );
+        let aw = self.text.draw_in_row(
+            &mut self.canvas,
+            &card.author,
+            face.bold(),
+            av.right() + 8.0,
+            top,
+            22.0,
+            p.bright,
+            clip,
+        );
+        self.text.draw_in_row(
+            &mut self.canvas,
+            &card.when,
+            face,
+            av.right() + 8.0 + aw + 8.0,
+            top,
+            22.0,
+            p.muted,
+            clip,
+        );
+        let mono = Face::mono(11.5);
+        let hw = self.text.width(&card.hash, mono);
+        self.text.draw_in_row(
+            &mut self.canvas,
+            &card.hash,
+            mono,
+            r.right() - 14.0 - hw,
+            top,
+            22.0,
+            p.accent,
+            clip,
+        );
+        // The summary, then the rest of the message.
+        let mut ly = top + 22.0 + 10.0;
+        let summary = self.text.fit(&card.summary, face.medium(), w - 28.0);
+        self.text.draw_in_row(
+            &mut self.canvas,
+            &summary,
+            face.medium(),
+            r.x + 14.0,
+            ly,
+            18.0,
+            p.bright,
+            clip,
+        );
+        ly += 18.0;
+        if let Some(body) = body_lines.first() {
+            let inner = Rect::new(r.x + 14.0, ly + 4.0, w - 28.0, body_h - 6.0);
+            self.text.draw(
+                &mut self.canvas,
+                body,
+                face,
+                inner.x,
+                inner.y,
+                p.muted,
+                inner,
+                Some(inner.w),
+            );
+            ly += body_h;
+        }
+        ly += 10.0;
+        // A rule, the size, and the buttons.
+        self.canvas
+            .fill(Rect::new(r.x + 1.0, ly, w - 2.0, 1.0), p.border);
+        let row = Rect::new(r.x, ly + 1.0, w, 37.0);
+        if let Some((added, removed, files)) = card.stats {
+            let small = Face::ui(11.5);
+            let mut sx = r.x + 14.0;
+            sx += self.text.draw_in_row(
+                &mut self.canvas,
+                &format!("+{added}"),
+                small,
+                sx,
+                row.y,
+                row.h,
+                p.success,
+                clip,
+            ) + 4.0;
+            sx += self.text.draw_in_row(
+                &mut self.canvas,
+                &format!("−{removed}"),
+                small,
+                sx,
+                row.y,
+                row.h,
+                p.error,
+                clip,
+            ) + 4.0;
+            let s = if files == 1 { "" } else { "s" };
+            self.text.draw_in_row(
+                &mut self.canvas,
+                &format!("in {files} file{s}"),
+                small,
+                sx,
+                row.y,
+                row.h,
+                p.muted,
+                clip,
+            );
+        }
+        let mut bx = r.right() - 10.0;
+        for (label, id) in [
+            ("Copy Hash", "copy"),
+            ("Blame Before This", "before"),
+            ("Open Changes", "open"),
+        ] {
+            let bw = self.text.width(label, Face::ui(12.0)) + 18.0;
+            bx -= bw;
+            let b = Rect::new(bx, row.y + 7.5, bw, 22.0);
+            let hovered = self.hovered(b);
+            self.canvas.outline(
+                b,
+                6.0,
+                1.0,
+                p.border,
+                if hovered { p.border } else { p.chip },
+            );
+            self.text.draw_in_row(
+                &mut self.canvas,
+                label,
+                Face::ui(12.0),
+                b.x + 9.0,
+                b.y,
+                22.0,
+                p.bright,
+                clip,
+            );
+            self.hit(b, Hit::Ui(UiEvent::BlameButton(id.into())));
+            bx -= 6.0;
         }
     }
 

@@ -1282,6 +1282,14 @@ impl Gui<'_> {
             let y = area.text.y + rows * row_h + glide / s;
             f.peek(peek, area.text, y, row_h);
         }
+        // A commit's card over the blame column.
+        for text in &texts {
+            let (Some(card), Some(area)) = (&text.blame_card, areas.groups.get(text.group)) else {
+                continue;
+            };
+            let rows = text.area.y as f32 + card.row as f32 - text.top_frac;
+            f.blame_card(card, area.text, area.text.y + rows * row_h);
+        }
         // A change opened in place, likewise.
         for text in &texts {
             let (Some(change), Some(area)) = (&text.change, areas.groups.get(text.group)) else {

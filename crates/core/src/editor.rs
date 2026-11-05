@@ -29,6 +29,7 @@ mod overview;
 mod palette;
 mod panels;
 mod peek;
+pub use blame::{BlameCardView, BlameCell, CommitInfo};
 pub use compare::{DiffBarView, DiffMark, DiffMarks};
 pub use inline_change::ChangeView;
 pub use peek::{PeekItem, PeekView, PreviewLine};
@@ -405,6 +406,12 @@ pub enum Event {
         blame: crate::git::Blame,
         now: i64,
     },
+    /// A commit's message past its summary, and lines added and removed in
+    /// how many files.
+    CommitInfo {
+        hash: String,
+        info: blame::CommitInfo,
+    },
     /// Every changed file's hunks, staged and not, sent after
     /// [`Event::GitStatus`].
     GitDiffs {
@@ -549,6 +556,15 @@ pub enum Effect {
     /// Stage, unstage or commit; the frontend answers with
     /// [`Event::GitStatus`].
     Git(GitAction),
+    /// A commit's whole message and how big it is, for its card; answered
+    /// with [`Event::CommitInfo`].
+    CommitInfo(String),
+    /// A commit's changes to a file, to look at; answered with
+    /// [`Event::ShowReview`] for `merlin.commit`.
+    OpenCommit {
+        hash: String,
+        path: PathBuf,
+    },
     /// Who last changed each line of `text`, the file at `path` as it is
     /// now, leaving out the commits in `ignore`; answered, after a pause
     /// in asking, with [`Event::Blame`].
@@ -864,6 +880,13 @@ pub struct Editor {
     blames: HashMap<PathBuf, (u64, crate::git::Blame)>,
     blame_asked: Option<(PathBuf, u64)>,
     now: i64,
+    /// The document showing the blame column (Git: Blame), the line and
+    /// commit its card is open for, commits each file's blame leaves out,
+    /// and commits' messages and sizes as they come.
+    blame_column: Option<u64>,
+    blame_card: Option<(usize, usize)>,
+    blame_ignore: HashMap<PathBuf, Vec<String>>,
+    commit_info: HashMap<String, blame::CommitInfo>,
     /// Signature help: the document, where the call was when it showed,
     /// and the signature.
     signature: Option<(u64, usize, crate::lang::Signature)>,
@@ -1034,6 +1057,10 @@ impl Editor {
             blames: HashMap::new(),
             blame_asked: None,
             now: 0,
+            blame_column: None,
+            blame_card: None,
+            blame_ignore: HashMap::new(),
+            commit_info: HashMap::new(),
             signature: None,
             diagnostics: HashMap::new(),
             diagnostics_version: 0,
@@ -1643,6 +1670,9 @@ impl Editor {
                 self.now = now;
                 self.blames.insert(path, (version, blame));
             }
+            Event::CommitInfo { hash, info } => {
+                self.commit_info.insert(hash, info);
+            }
             Event::GitSync(state) => {
                 self.git.sync = state;
                 self.git.version += 1;
@@ -2099,6 +2129,19 @@ impl Editor {
         if key.ctrl || key.alt {
             return false;
         }
+        // A commit's changes are only looked at: Esc goes back.
+        if plugin == blame::COMMIT {
+            if key.code == Esc {
+                if let Some(i) = self.docs.iter().position(|d| d.id == back_to) {
+                    self.current = i;
+                }
+                return true;
+            }
+            return !matches!(
+                key.code,
+                Left | Right | Up | Down | Home | End | PageUp | PageDown
+            );
+        }
         // Changes since the last commit edit their file, which keys that
         // type reach first; Esc goes back.
         if plugin.is_empty() {
@@ -2145,6 +2188,7 @@ impl Editor {
             Some(r) if r.plugin == rename::RENAME => {
                 "Reviewing a rename: Enter applies, Esc discards"
             }
+            Some(r) if r.plugin == blame::COMMIT => "A commit's changes · Esc back",
             _ => "y accept · n reject · ] next change · Esc later",
         }
     }

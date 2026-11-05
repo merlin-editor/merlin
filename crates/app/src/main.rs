@@ -407,6 +407,17 @@ impl App {
                             },
                         ));
                     }
+                    Effect::CommitInfo(hash) => {
+                        let git = self.git_info();
+                        self.jobs
+                            .run(Lane::Git, move || jobs::events(vec![git.commit_info(hash)]));
+                    }
+                    Effect::OpenCommit { hash, path } => {
+                        let git = self.git_info();
+                        self.jobs.run(Lane::Git, move || {
+                            jobs::events(vec![git.commit_diff(&hash, path)])
+                        });
+                    }
                     // Stopping a push or pull can't wait behind it.
                     Effect::Git(GitAction::CancelSync) => self.git_net.cancel(),
                     Effect::Git(action) => {
@@ -1497,6 +1508,66 @@ impl Git {
             self.net(&["pull"])
         } else {
             self.net(&["pull", "--no-rebase"])
+        }
+    }
+
+    /// Git's words for `args`, or nothing if it failed.
+    fn read(&self, args: &[&str]) -> Option<String> {
+        Command::new("git")
+            .args(args)
+            .current_dir(&self.root)
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+    }
+
+    /// A commit's message past its summary, and its size.
+    fn commit_info(&self, hash: String) -> Event {
+        let message = self
+            .read(&["show", "-s", "--format=%B", &hash])
+            .unwrap_or_default();
+        let body = message
+            .split_once('\n')
+            .map_or("", |(_, rest)| rest)
+            .trim()
+            .to_string();
+        let mut info = merlin_core::editor::CommitInfo {
+            body,
+            ..Default::default()
+        };
+        let stat = self
+            .read(&["show", "--numstat", "--format=", &hash])
+            .unwrap_or_default();
+        for line in stat.lines().filter(|l| !l.trim().is_empty()) {
+            let mut parts = line.split('\t');
+            info.added += parts
+                .next()
+                .and_then(|n| n.parse::<usize>().ok())
+                .unwrap_or(0);
+            info.removed += parts
+                .next()
+                .and_then(|n| n.parse::<usize>().ok())
+                .unwrap_or(0);
+            info.files += 1;
+        }
+        Event::CommitInfo { hash, info }
+    }
+
+    /// What a commit changed in a file: the file before it and after.
+    fn commit_diff(&self, hash: &str, path: PathBuf) -> Event {
+        let at = |rev: String| {
+            self.read(&["show", &format!("{rev}:./{}", path.display())])
+                .unwrap_or_default()
+        };
+        Event::ShowReview {
+            plugin: "merlin.commit".into(),
+            id: hash.chars().take(7).collect(),
+            path: path.clone(),
+            old: at(format!("{hash}^")),
+            new: at(hash.to_string()),
         }
     }
 

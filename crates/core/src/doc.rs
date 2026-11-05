@@ -290,6 +290,8 @@ impl Doc {
             // Changes since the last commit are looked at, not answered.
             return if review.plugin.is_empty() {
                 format!("{name} (changes)")
+            } else if review.plugin == "merlin.commit" {
+                format!("{name} @ {}", review.id)
             } else if review.plugin == crate::editor::RENAME_REVIEW {
                 format!("{name} · Rename")
             } else {

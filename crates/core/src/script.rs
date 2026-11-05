@@ -305,6 +305,8 @@ impl Session {
                 | Effect::OpenDiff(_)
                 | Effect::Git(_)
                 | Effect::Blame { .. }
+                | Effect::CommitInfo(_)
+                | Effect::OpenCommit { .. }
                 | Effect::PickFile(_)
                 | Effect::OpenFolder(_)
                 | Effect::SetSelection(_)

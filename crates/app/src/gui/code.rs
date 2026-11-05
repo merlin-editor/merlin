@@ -156,6 +156,11 @@ impl Fonts {
             let x_of = |col: isize| text_x + col as f32 * cw;
             let row_y = |row: usize| y0 + row as f32 * ch;
 
+            // The lines of the commit whose card is open get a soft tint.
+            if l.blame_cell.as_ref().is_some_and(|c| c.hovered) && l.base == Style::Normal {
+                let tint = theme::mix(p.accent, p.island, 0.08);
+                quad(canvas, [text_x, y0, right, y0 + rows * ch], 0.0, tint);
+            }
             // The line's own band: the current line, or a review's colour.
             if l.base != Style::Normal {
                 let bg = if l.base == Style::CurrentLine {
@@ -446,9 +451,53 @@ impl Fonts {
                 }
             }
 
-            // The gutter: the number, a sign, and the fold arrow.
+            // The blame column, at the gutter's left: a bar coloured by the
+            // commit's age, and who, when and why on a run's first line.
+            if let Some(cell) = &l.blame_cell {
+                let width = view.blame_cols as f32 * cw;
+                let band = [gutter_x, y0, gutter_x + width - cw, y0 + rows * ch];
+                if cell.hovered {
+                    let tint = theme::mix(p.accent, p.island, 0.08);
+                    quad(canvas, [gutter_x, y0, band[2], y0 + rows * ch], 0.0, tint);
+                }
+                if cell.first && l.line > 0 {
+                    quad(canvas, [band[0], y0, band[2], y0 + s], 0.0, p.line);
+                }
+                let colour = if cell.committed {
+                    theme::mix(p.accent, p.faint, 0.25 + 0.75 * cell.age)
+                } else {
+                    p.accent
+                };
+                let bar = (3.0 * s).round();
+                quad(
+                    canvas,
+                    [
+                        gutter_x,
+                        y0 + 2.0 * s,
+                        gutter_x + bar,
+                        y0 + rows * ch - 2.0 * s,
+                    ],
+                    s,
+                    colour,
+                );
+                if !cell.text.is_empty() {
+                    let ts = text.scale();
+                    let size = (ch / ts * 0.55).round();
+                    let face = Face::ui(size);
+                    let x = (gutter_x + bar + cw * 0.8) / ts;
+                    let room = (band[2] - cw * 0.5) / ts - x;
+                    let fitted = text.fit(&cell.text, face, room);
+                    let clip = Rect::new(x, y0 / ts, room.max(0.0), ch / ts);
+                    let fg = if cell.committed { p.muted } else { p.accent };
+                    text.draw_in_row(canvas, &fitted, face, x, y0 / ts, ch / ts, fg, clip);
+                }
+            }
+
+            // The gutter: the number, a sign, and the fold arrow. Signs come
+            // after the blame column.
+            let gutter_x = gutter_x + view.blame_cols as f32 * cw;
             let number_look = look(l.number_style, Default::default(), None, None);
-            let digits_x = gutter_x + view.signs as usize as f32 * cw;
+            let digits_x = ox + area.x as f32 * cw + view.signs as usize as f32 * cw;
             for (k, c) in l.number.chars().enumerate() {
                 if c == ' ' {
                     continue;

@@ -68,6 +68,10 @@ pub struct TextView {
     pub diff: Option<super::compare::DiffMarks>,
     /// A change opened in place from its gutter bar.
     pub change: Option<super::inline_change::ChangeView>,
+    /// Columns at the gutter's left the blame column takes, and a
+    /// commit's card over it.
+    pub blame_cols: usize,
+    pub blame_card: Option<super::blame::BlameCardView>,
 }
 
 /// A line of the file on screen.
@@ -116,6 +120,8 @@ pub struct LineView {
     /// On the cursor's line: who last changed it, when and why, faint
     /// after its end.
     pub blame: Option<String>,
+    /// Its entry in the blame column, when that's shown.
+    pub blame_cell: Option<super::blame::BlameCell>,
 }
 
 /// An inlay hint on a line: the character it's before, the columns it
@@ -310,6 +316,8 @@ impl Editor {
                     bulb: None,
                     peek: None,
                     change: None,
+                    blame_cols: 0,
+                    blame_card: None,
                     diff: marks
                         .as_ref()
                         .map(|(o, n)| if old { o.clone() } else { n.clone() }),
@@ -389,6 +397,8 @@ impl Editor {
             peek: None,
             diff: None,
             change: None,
+            blame_cols: self.blame_cols(),
+            blame_card: None,
         };
         let bottom = area.h as i32 + overscan as i32;
         let mut row = -above;
@@ -618,7 +628,11 @@ impl Editor {
                 note,
                 eol_selected,
                 blame,
+                blame_cell: self.blame_cell(line),
             });
+            if self.blame_card.is_some_and(|(l, _)| l == line) {
+                view.blame_card = self.blame_card_view(row + shown as i32 - 1);
+            }
             row += shown as i32;
             // The peek views open under their line: the references, then a
             // change.
@@ -699,6 +713,7 @@ impl Editor {
             note: None,
             eol_selected: false,
             blame: None,
+            blame_cell: None,
         }
     }
 }

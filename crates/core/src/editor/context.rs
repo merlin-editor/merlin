@@ -287,6 +287,12 @@ impl Editor {
     /// there, without moving the cursor.
     pub(crate) fn hover_at(&mut self, x: u16, y: u16, fx: &mut Vec<Effect>) {
         let text = self.layout().text;
+        // A rest on the blame column brings up its commit's card.
+        if text.contains(x, y) && (x as usize) < text.x as usize + self.blame_cols() {
+            let pos = self.pos_at_screen(text.x + self.gutter() as u16, y);
+            let line = self.doc().line_col(pos).0;
+            return self.hover_blame(line, fx);
+        }
         let hoverable = self.focus == Focus::Editor
             && self.popup.is_none()
             && self.context.is_none()
@@ -512,6 +518,11 @@ impl Editor {
     /// and the problems the card is about.
     pub(crate) fn pointer_moved(&mut self, x: u16, y: u16) {
         let text = self.layout().text;
+        // A commit's card closes as the mouse leaves the blame column for
+        // the text; over the card itself, it doesn't move here.
+        if self.blame_card.is_some() && (x as usize) >= text.x as usize + self.blame_cols() {
+            self.blame_card = None;
+        }
         let pos = text.contains(x, y).then(|| self.pos_at_screen(x, y));
         let outside = |range: Option<(usize, usize)>| {
             range.is_some_and(|(start, end)| pos.is_none_or(|p| !(start..end).contains(&p)))

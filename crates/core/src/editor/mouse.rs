@@ -97,7 +97,7 @@ impl Editor {
         let Some(line) = self.bulb_line() else {
             return false;
         };
-        let from = text.x + self.has_signs() as u16;
+        let from = text.x + self.blame_cols() as u16 + self.has_signs() as u16;
         if !text.contains(x, y) || x < from || x >= from + self.bulb_room() as u16 {
             return false;
         }
@@ -202,7 +202,7 @@ impl Editor {
             // A git bar in the gutter opens its change in place.
             MouseKind::Down
                 if text.contains(m.x, m.y)
-                    && m.x == text.x
+                    && m.x as usize == text.x as usize + self.blame_cols()
                     && self.has_signs()
                     && self.doc().review.is_none()
                     && self.sign_line(m.y).is_some() =>

@@ -71,6 +71,8 @@ pub enum UiEvent {
     ChangeRevert,
     ChangeStep(bool),
     ChangeClose,
+    /// A commit card's button: `open`, `before` or `copy`.
+    BlameButton(String),
     /// A button that isn't one of a panel's targets, such as a header's.
     Press(String),
     /// One of a side's panel titles, to show that panel.
@@ -585,6 +587,7 @@ impl Editor {
             UiEvent::ChangeRevert => self.revert_change_peek(),
             UiEvent::ChangeStep(forward) => self.step_change_peek(forward),
             UiEvent::ChangeClose => self.change_peek = None,
+            UiEvent::BlameButton(b) => self.blame_card_button(&b, fx),
             UiEvent::Press(id) => self.view_click(&id, fx),
             UiEvent::PeekRow { index, clicks } => self.peek_clicked(index, clicks, fx),
             UiEvent::PeekClose => self.peek = None,

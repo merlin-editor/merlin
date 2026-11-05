@@ -133,15 +133,17 @@ impl Editor {
         {
             return self.through_file(fx, |e, fx| e.key(key, fx));
         }
-        // Esc closes a change opened in place.
-        if self.focus == Focus::Editor
-            && key.code == KeyCode::Esc
-            && !key.ctrl
-            && !key.shift
-            && self.change_peeking()
-        {
-            self.change_peek = None;
-            return;
+        // Esc closes a change opened in place, then the blame column.
+        if self.focus == Focus::Editor && key.code == KeyCode::Esc && !key.ctrl && !key.shift {
+            if self.change_peeking() {
+                self.change_peek = None;
+                return;
+            }
+            if self.blame_shown() && self.popup.is_none() && !self.has_carets() {
+                self.blame_column = None;
+                self.blame_card = None;
+                return;
+            }
         }
         // An open completion or code action list takes the keys it uses
         // first.

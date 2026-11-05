@@ -86,7 +86,11 @@ impl Editor {
             Some(review) => review.lines.iter().map(|(_, n)| n + 1).max().unwrap_or(1),
             None => doc.buffer.rope().len_lines(),
         };
-        biggest.to_string().len().max(3) + 1 + self.has_signs() as usize + self.bulb_room()
+        biggest.to_string().len().max(3)
+            + 1
+            + self.has_signs() as usize
+            + self.bulb_room()
+            + self.blame_cols()
     }
 
     /// Cells left of the line numbers for the code actions' lightbulb: in
