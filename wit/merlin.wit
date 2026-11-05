@@ -195,12 +195,14 @@ interface types {
     message: string,
   }
 
-  /// A diagnostic with what reported it, such as `rustc` or `clippy`, and
-  /// its code, such as `E0308`. Either may be empty.
+  /// A diagnostic with what reported it, such as `rustc` or `clippy`, its
+  /// code, such as `E0308`, and a web page that explains the code. Any may
+  /// be empty.
   record detailed-diagnostic {
     diagnostic: diagnostic,
     source: string,
     code: string,
+    link: string,
   }
 
   record completion {

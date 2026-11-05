@@ -318,7 +318,9 @@ fn mouse(s: &mut Session, kind: merlin_core::MouseKind, row: u16, col: u16) {
 
 fn hover(s: &Session) -> Option<(Vec<merlin_core::ProblemView>, Vec<String>)> {
     match s.editor.window_view().popup?.kind {
-        merlin_core::PopupKind::Hover { problems, lines } => Some((problems, lines)),
+        merlin_core::PopupKind::Hover {
+            problems, lines, ..
+        } => Some((problems, lines)),
         _ => None,
     }
 }
@@ -335,15 +337,17 @@ fn mismatched() -> Event {
                 message: "mismatched types\nexpected `u32`, found `usize`".into(),
                 source: "rustc".into(),
                 code: "E0308".into(),
+                link: String::new(),
             },
-            // rust-analyzer's copy of it, shorter.
+            // rust-analyzer's copy of it, worded and placed differently.
             Diagnostic {
-                start: (0, 15),
+                start: (0, 17),
                 end: (0, 26),
                 severity: Severity::Error,
-                message: "mismatched types".into(),
+                message: "expected u32, found usize".into(),
                 source: "rust-analyzer".into(),
                 code: "E0308".into(),
+                link: "https://doc.rust-lang.org/error_codes/E0308.html".into(),
             },
             Diagnostic {
                 start: (0, 4),
@@ -352,6 +356,7 @@ fn mismatched() -> Event {
                 message: "unused variable: `count`".into(),
                 source: "rustc".into(),
                 code: "unused_variables".into(),
+                link: String::new(),
             },
         ],
     }
@@ -374,6 +379,11 @@ fn resting_on_a_problem_shows_it_first_and_the_servers_hover_joins_it() {
     assert_eq!(
         (&*problems[0].source, &*problems[0].code),
         ("rustc", "E0308")
+    );
+    assert_eq!(
+        problems[0].also,
+        ["rust-analyzer"],
+        "and who else reports it"
     );
     assert!(lines.is_empty());
     assert!(
@@ -458,6 +468,7 @@ fn a_hint_that_goes_with_a_problem_is_a_note_under_it() {
         message: message.into(),
         source: "rustc".into(),
         code: "unused_variables".into(),
+        link: String::new(),
     };
     s.send(Event::SetDiagnostics {
         plugin: "lsp".into(),
@@ -477,4 +488,53 @@ fn a_hint_that_goes_with_a_problem_is_a_note_under_it() {
         problems[0].message,
         "unused variable: `hex`\nhelp: if this is intentional, prefix it with an underscore: `_hex`"
     );
+}
+
+#[test]
+fn the_cards_code_opens_its_page_and_go_to_definition_goes_from_the_word() {
+    use merlin_core::{HoverButton, MouseKind::Rest, UiEvent};
+    let mut s = hovering("let count: u32 = steps.len();\n");
+    s.send(Event::RegisterPlugin {
+        plugin: "lsp".into(),
+        commands: ["hover", "definition"]
+            .map(|id| merlin_core::Command {
+                id: id.into(),
+                title: id.into(),
+                key: None,
+            })
+            .into(),
+    });
+    s.send(mismatched());
+    mouse(&mut s, Rest, 0, 23);
+    s.send(Event::ShowHover(
+        "```rust\npub const fn len(&self) -> usize\n```".into(),
+    ));
+    let Some(merlin_core::PopupKind::Hover { definition, .. }) =
+        s.editor.window_view().popup.map(|p| p.kind)
+    else {
+        panic!("a hover shows");
+    };
+    assert!(definition, "it offers to go to the definition");
+    s.effects.clear();
+    s.send(Event::Ui(UiEvent::Hover(HoverButton::Link(0))));
+    assert_eq!(
+        s.effects,
+        [Effect::OpenUrl(
+            "https://doc.rust-lang.org/error_codes/E0308.html".into()
+        )],
+        "rust-analyzer's link serves rustc's copy"
+    );
+    s.effects.clear();
+    s.send(Event::Ui(UiEvent::Hover(HoverButton::Definition)));
+    assert_eq!(
+        s.editor.cursor_utf16(),
+        (0, 23),
+        "the cursor goes to the word"
+    );
+    assert!(
+        s.effects
+            .iter()
+            .any(|e| matches!(e, Effect::PluginCommand { command, .. } if command == "definition"))
+    );
+    assert!(hover(&s).is_none());
 }

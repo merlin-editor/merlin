@@ -113,6 +113,7 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
     ("view.hover", "View: Show Hover and Problems"),
     ("view.output", "View: Output"),
     ("go.line", "Go: Go to Line…"),
+    ("go.definition", "Go: Go to Definition"),
     ("review.next", "Go: Next Change to Review"),
     ("nav.back", "Go: Back"),
     ("app.about", "Help: About"),
@@ -215,6 +216,7 @@ impl Editor {
             }
             "view.problems" => self.show_bottom(views::PROBLEMS),
             "view.hover" => self.hover_at_cursor(fx),
+            "go.definition" => self.go_to_definition(fx),
             "view.output" => self.show_bottom(views::OUTPUT),
             "view.secondary" => {
                 let bar = self.bar_mut(Side::Right);

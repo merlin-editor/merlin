@@ -6,8 +6,8 @@
 use merlin_core::panel::{Entry, Node, Tone};
 use merlin_core::{
     ContextItem, ContextView, DialogView, FindAction, FindView, HoverButton, Key, KeyCode,
-    MenuView, PaletteView, PopupKind, PopupView, ProblemView, Side, SideView, SignatureView,
-    TabView, TerminalView, ToastView, UiEvent, WindowView, editor::GroupView,
+    MenuView, PaletteView, PopupKind, PopupView, ProblemView, Severity, Side, SideView,
+    SignatureView, TabView, TerminalView, ToastView, UiEvent, WindowView, editor::GroupView,
 };
 
 use super::canvas::{Canvas, Face, Pictures, Rect, Text};
@@ -884,66 +884,58 @@ impl Frame<'_> {
     }
 
     /// Hover and completion as a card under the text they're about, or
-    /// over it when there's no room below. A hover over a problem puts the
-    /// problem first, then what the language server says.
+    /// over it when there's no room below.
     fn popup(&mut self, popup: &PopupView, a: &Areas, (cw, ch): (f32, f32)) {
-        let p = self.p;
-        let (ax, ay) = (
+        let anchor = (
             a.text.x + popup.anchor.0 as f32 * cw,
             a.text.y + popup.anchor.1 as f32 * ch,
         );
-        let mono = Face::mono(12.5);
-        let ui = Face::ui(13.0);
-        // The rows to draw: text, whether it's code, and a detail.
-        let mut rows: Vec<(String, bool, String)> = Vec::new();
-        let mut selected = None;
-        let mut problems: &[ProblemView] = &[];
         match &popup.kind {
             PopupKind::Hover {
-                problems: found,
+                problems,
                 lines,
-            } => {
-                problems = found;
-                let mut code = false;
-                for line in lines {
-                    if line.trim_start().starts_with("```") {
-                        code = !code;
-                        continue;
-                    }
-                    if line.trim() == "---" {
-                        rows.push((String::new(), false, String::new()));
-                        continue;
-                    }
-                    rows.push((line.clone(), code, String::new()));
-                }
-                // Blank lines at the ends say nothing.
-                while rows.last().is_some_and(|r| r.0.trim().is_empty()) {
-                    rows.pop();
-                }
-                while rows.first().is_some_and(|r| r.0.trim().is_empty()) {
-                    rows.remove(0);
-                }
-                rows.truncate(if problems.is_empty() { 16 } else { 10 });
-            }
-            PopupKind::Completion { items, selected: s } => {
-                let first = s.saturating_sub(7);
-                selected = Some(s - first);
-                rows = items
-                    .iter()
-                    .skip(first)
-                    .take(8)
-                    .map(|(label, detail)| (label.clone(), true, detail.clone()))
-                    .collect();
+                definition,
+            } => self.hover_card(problems, lines, *definition, anchor, a, ch),
+            PopupKind::Completion { items, selected } => {
+                self.completions(items, *selected, anchor, a, ch)
             }
         }
-        if rows.is_empty() && problems.is_empty() {
+    }
+
+    /// Where a card of `w` by `h` goes for text at `anchor`: under its
+    /// line, or over it when there's no room below.
+    fn card_place(&self, (ax, ay): (f32, f32), w: f32, h: f32, a: &Areas, ch: f32) -> Rect {
+        let below = ay + ch + 4.0;
+        let y = if below + h > a.editor.bottom() - 4.0 && ay - h - 4.0 > a.editor.y {
+            ay - h - 4.0
+        } else {
+            below
+        };
+        let x = ax.min(a.editor.right() - w - 8.0).max(a.editor.x + 4.0);
+        Rect::new(x, y, w, h)
+    }
+
+    fn completions(
+        &mut self,
+        items: &[(String, String)],
+        selected: usize,
+        anchor: (f32, f32),
+        a: &Areas,
+        ch: f32,
+    ) {
+        let p = self.p;
+        let mono = Face::mono(12.5);
+        let ui = Face::ui(13.0);
+        let first = selected.saturating_sub(7);
+        let rows: Vec<&(String, String)> = items.iter().skip(first).take(8).collect();
+        if rows.is_empty() {
             return;
         }
         let row_h = 21.0;
         let widest = rows
             .iter()
-            .map(|(t, code, d)| {
-                self.text.width(t, if *code { mono } else { ui })
+            .map(|(t, d)| {
+                self.text.width(t, mono)
                     + if d.is_empty() {
                         0.0
                     } else {
@@ -951,76 +943,27 @@ impl Frame<'_> {
                     }
             })
             .fold(0.0, f32::max);
-        let widest = problems
-            .iter()
-            .flat_map(|pr| pr.message.lines())
-            .map(|l| self.text.width(l, ui) + 34.0)
-            .fold(widest, f32::max);
-        let pw = (widest + 24.0).clamp(if problems.is_empty() { 160.0 } else { 300.0 }, 560.0);
-        let problems_h = Self::problems_height(problems);
-        let rows_h = if rows.is_empty() {
-            0.0
-        } else {
-            rows.len() as f32 * row_h + 14.0
-        };
-        let ph = problems_h
-            + rows_h
-            + if problems_h > 0.0 && rows_h > 0.0 {
-                1.0
-            } else {
-                0.0
-            };
-        let below = ay + ch + 4.0;
-        let y = if below + ph > a.editor.bottom() - 4.0 && ay - ph - 4.0 > a.editor.y {
-            ay - ph - 4.0
-        } else {
-            below
-        };
-        let x = ax.min(a.editor.right() - pw - 8.0).max(a.editor.x + 4.0);
-        let r = Rect::new(x, y, pw, ph);
+        let pw = (widest + 24.0).clamp(160.0, 560.0);
+        let ph = rows.len() as f32 * row_h + 14.0;
+        let r = self.card_place(anchor, pw, ph, a, ch);
         self.canvas.shadow(r, 8.0, theme::is_light(&p));
         self.canvas.outline(r, 8.0, 1.0, p.border, p.widget);
         self.hit(r, Hit::Block);
-        if !problems.is_empty() {
-            // The gap between the line and the card holds it open too, so
-            // the mouse can cross into it.
-            let gap = if y > ay {
-                Rect::new(x, ay + ch, pw, y - ay - ch)
-            } else {
-                Rect::new(x, y + ph, pw, ay - y - ph)
-            };
-            self.hit(gap, Hit::Block);
-            self.problems(problems, Rect::new(x, y, pw, problems_h));
-            if rows_h > 0.0 {
-                self.canvas
-                    .fill(Rect::new(x + 1.0, y + problems_h, pw - 2.0, 1.0), p.border);
-            }
-        }
-        let top = y + problems_h + if problems_h > 0.0 { 1.0 } else { 0.0 };
-        for (k, (text, code, detail)) in rows.iter().enumerate() {
-            let ry = top + 7.0 + k as f32 * row_h;
+        for (k, (text, detail)) in rows.iter().enumerate() {
+            let ry = r.y + 7.0 + k as f32 * row_h;
             let row = Rect::new(r.x + 4.0, ry, r.w - 8.0, row_h);
-            if selected == Some(k) {
+            if selected - first == k {
                 self.canvas.round(row, 4.0, p.focus_row);
             }
-            if text.is_empty() && !code {
-                self.canvas.fill(
-                    Rect::new(r.x + 8.0, ry + row_h / 2.0, r.w - 16.0, 1.0),
-                    p.chip,
-                );
-                continue;
-            }
-            let face = if *code { mono } else { ui };
-            let colour = if *code { p.bright } else { p.text };
-            let shown = self.text.fit(text, face, row.w - 16.0);
+            let shown = self.text.fit(text, mono, row.w - 16.0);
             self.text.draw_in_row(
                 &mut self.canvas,
                 &shown,
-                face,
+                mono,
                 row.x + 8.0,
                 ry,
                 row_h,
-                colour,
+                p.bright,
                 row,
             );
             if !detail.is_empty() {
@@ -1040,115 +983,389 @@ impl Frame<'_> {
         }
     }
 
-    /// The lines of a hover's problem: its first line, then the rest, each
-    /// cut to fit.
-    fn problem_lines(problem: &ProblemView) -> Vec<&str> {
-        problem
-            .message
-            .lines()
-            .map(str::trim_end)
-            .filter(|l| !l.trim().is_empty())
-            .take(6)
-            .collect()
-    }
-
-    fn problems_height(problems: &[ProblemView]) -> f32 {
-        if problems.is_empty() {
-            return 0.0;
-        }
-        let each: f32 = problems
-            .iter()
-            .map(|pr| {
-                let lines = Self::problem_lines(pr).len().max(1) as f32;
-                let source = !pr.source.is_empty() || !pr.code.is_empty();
-                20.0 + (lines - 1.0) * 18.0 + if source { 24.0 } else { 0.0 } + 8.0
-            })
-            .sum();
-        // Padding, and the row of buttons.
-        10.0 + each + 30.0
-    }
-
-    /// A hover's problems, worst first: the severity's icon, the message
-    /// bright with its notes under it, what reported it and its code, then
-    /// buttons to copy them or see them all in Problems.
-    fn problems(&mut self, problems: &[ProblemView], r: Rect) {
+    /// The hover card: the problems at the spot first, each with its
+    /// severity's badge, its message and notes, what reported it and its
+    /// code; then, under a divider, the signature in code and the first of
+    /// the docs, and Go to definition.
+    #[allow(clippy::too_many_arguments)]
+    fn hover_card(
+        &mut self,
+        problems: &[ProblemView],
+        lines: &[String],
+        definition: bool,
+        anchor: (f32, f32),
+        a: &Areas,
+        ch: f32,
+    ) {
         let p = self.p;
-        let ui = Face::ui(13.0);
-        let note = Face::ui(12.0);
-        let text_x = r.x + 34.0;
-        let text_w = r.w - 34.0 - 12.0;
-        let mut y = r.y + 10.0;
-        for problem in problems {
-            let colour = theme::severity(&p, problem.severity);
-            let glyph = problem.icon.to_string();
-            let face = Face::mono(13.0);
-            let gw = self.text.width(&glyph, face);
-            self.text.draw_in_row(
-                &mut self.canvas,
-                &glyph,
-                face,
-                r.x + 12.0 + (16.0 - gw) / 2.0,
-                y,
-                20.0,
-                colour,
-                r,
-            );
-            for (k, line) in Self::problem_lines(problem).iter().enumerate() {
-                let (face, colour, h) = if k == 0 {
-                    (ui, p.bright, 20.0)
-                } else {
-                    (note, p.muted, 18.0)
+        let parts = hover_parts(lines);
+        if problems.is_empty() && parts.is_empty() {
+            return;
+        }
+        // As wide as the widest line, up to a limit past which prose wraps.
+        let mut widest: f32 = 0.0;
+        for pr in problems {
+            for (k, line) in pr.message.lines().enumerate() {
+                let face = if k == 0 { MESSAGE } else { PROSE };
+                widest = widest.max(self.rich_width(line.trim(), face) + 50.0);
+            }
+        }
+        for part in &parts {
+            widest = widest.max(match part {
+                Part::Code(line) => self.text.width(line, CODE) + 24.0,
+                Part::Prose(text) => self.rich_width(text, PROSE) + 24.0,
+                Part::Gap => 0.0,
+            });
+        }
+        let min = if problems.is_empty() { 200.0 } else { 340.0 };
+        let w = widest.clamp(min, 560.0);
+        let layout = self.hover_layout(problems, &parts, definition, w);
+        let h = layout.last().map_or(0.0, |(y, h, _)| y + h) + 10.0;
+        let r = self.card_place(anchor, w, h, a, ch);
+        self.canvas.shadow(r, 8.0, theme::is_light(&p));
+        self.canvas.outline(r, 8.0, 1.0, p.border, p.widget);
+        self.hit(r, Hit::Block);
+        // The gap between the line and the card holds it open too, so the
+        // mouse can cross into it.
+        let gap = if r.y > anchor.1 {
+            (anchor.1 + ch, r.y)
+        } else {
+            (r.bottom(), anchor.1)
+        };
+        self.hit(
+            Rect::new(r.x, gap.0, r.w, (gap.1 - gap.0).max(0.0)),
+            Hit::Block,
+        );
+        let clip = r;
+        let text_x = r.x + 38.0;
+        for (y, h, op) in layout {
+            let y = r.y + y;
+            match op {
+                Op::Badge(severity) => self.badge_icon(severity, r.x + 12.0, y + 2.0),
+                Op::Message(line) => {
+                    self.draw_rich(&line, text_x, y, h, MESSAGE, p.bright, p.type_, clip)
+                }
+                Op::Note { line, help } => {
+                    let mut x = text_x;
+                    if help {
+                        let face = PROSE.0;
+                        self.text.draw_in_row(
+                            &mut self.canvas,
+                            "help:",
+                            face,
+                            x,
+                            y,
+                            h,
+                            p.text,
+                            clip,
+                        );
+                        x += self.text.width("help: ", face);
+                    }
+                    self.draw_rich(&line, x, y, h, PROSE, p.muted, p.type_, clip);
+                }
+                Op::Source(i) => {
+                    let problem = &problems[i];
+                    let mut x = text_x;
+                    if !problem.source.is_empty() {
+                        x += self.chip(&problem.source, x, y + (h - 16.0) / 2.0, false) + 6.0;
+                    }
+                    let face = Face::ui(11.5);
+                    if !problem.code.is_empty() {
+                        let cw = self.text.width(&problem.code, face);
+                        let link = !problem.link.is_empty();
+                        let code = Rect::new(x, y, cw, h);
+                        let colour = match (link, self.hovered(code)) {
+                            (true, true) => p.bright,
+                            (true, false) => p.accent,
+                            (false, _) => p.muted,
+                        };
+                        self.text.draw_in_row(
+                            &mut self.canvas,
+                            &problem.code,
+                            face,
+                            x,
+                            y,
+                            h,
+                            colour,
+                            clip,
+                        );
+                        if link {
+                            self.hit(code, Hit::Ui(UiEvent::Hover(HoverButton::Link(i))));
+                        }
+                        x += cw + 6.0;
+                    }
+                    if !problem.also.is_empty() {
+                        let also = format!("·  also from {}", problem.also.join(", "));
+                        let shown = self.text.fit(&also, face, r.right() - 12.0 - x);
+                        self.text.draw_in_row(
+                            &mut self.canvas,
+                            &shown,
+                            face,
+                            x,
+                            y,
+                            h,
+                            p.muted,
+                            clip,
+                        );
+                    }
+                }
+                Op::Buttons => {
+                    // Quiet links at the right; the left is for fixes.
+                    let mut x = r.right() - 8.0;
+                    for (label, button) in [
+                        ("Problems", HoverButton::Problems),
+                        ("Copy", HoverButton::Copy),
+                    ] {
+                        let face = Face::ui(12.0);
+                        let bw = self.text.width(label, face) + 12.0;
+                        x -= bw;
+                        let b = Rect::new(x, y, bw, h);
+                        let hovered = self.hovered(b);
+                        if hovered {
+                            self.canvas.round(b, 5.0, p.hover);
+                        }
+                        let colour = if hovered { p.bright } else { p.muted };
+                        self.text.draw_in_row(
+                            &mut self.canvas,
+                            label,
+                            face,
+                            x + 6.0,
+                            y,
+                            h,
+                            colour,
+                            clip,
+                        );
+                        self.hit(b, Hit::Ui(UiEvent::Hover(button)));
+                    }
+                }
+                Op::Divider => self
+                    .canvas
+                    .fill(Rect::new(r.x + 1.0, y, r.w - 2.0, 1.0), p.border),
+                Op::Code(line) => {
+                    let shown = self.text.fit(&line, CODE, r.w - 24.0);
+                    self.text.draw_in_row(
+                        &mut self.canvas,
+                        &shown,
+                        CODE,
+                        r.x + 12.0,
+                        y,
+                        h,
+                        p.text,
+                        clip,
+                    );
+                }
+                Op::Prose(line) => {
+                    self.draw_rich(&line, r.x + 12.0, y, h, PROSE, p.muted, p.text, clip)
+                }
+                Op::Definition => {
+                    let face = Face::ui(11.5);
+                    let label = "Go to definition";
+                    let lw = self.text.width(label, face);
+                    let link = Rect::new(r.x + 12.0, y, lw + 8.0 + 30.0, h);
+                    let colour = if self.hovered(link) {
+                        p.bright
+                    } else {
+                        p.accent
+                    };
+                    self.text.draw_in_row(
+                        &mut self.canvas,
+                        label,
+                        face,
+                        r.x + 12.0,
+                        y,
+                        h,
+                        colour,
+                        clip,
+                    );
+                    self.chip("F12", r.x + 12.0 + lw + 8.0, y + (h - 16.0) / 2.0, false);
+                    self.hit(link, Hit::Ui(UiEvent::Hover(HoverButton::Definition)));
+                }
+            }
+        }
+    }
+
+    /// Lays the hover card out at width `w`: each thing to draw, with its
+    /// top and height from the card's top.
+    fn hover_layout(
+        &mut self,
+        problems: &[ProblemView],
+        parts: &[Part],
+        definition: bool,
+        w: f32,
+    ) -> Vec<(f32, f32, Op)> {
+        let mut ops = Vec::new();
+        let mut y = 10.0;
+        let text_w = w - 38.0 - 12.0;
+        for (i, problem) in problems.iter().enumerate() {
+            ops.push((y, 20.0, Op::Badge(problem.severity)));
+            let mut lines = problem.message.lines().filter(|l| !l.trim().is_empty());
+            let first = lines.next().unwrap_or_default();
+            for line in self.wrap_rich(first, MESSAGE, text_w).into_iter().take(3) {
+                ops.push((y, 20.0, Op::Message(line)));
+                y += 20.0;
+            }
+            for note in lines.take(6) {
+                let note = note.trim();
+                let (help, rest) = match note.strip_prefix("help:") {
+                    Some(rest) => (true, rest.trim_start()),
+                    None => (false, note),
                 };
-                let shown = self.text.fit(line.trim_start(), face, text_w);
-                self.text
-                    .draw_in_row(&mut self.canvas, &shown, face, text_x, y, h, colour, r);
-                y += h;
+                let indent = if help {
+                    self.text.width("help: ", PROSE.0)
+                } else {
+                    0.0
+                };
+                for (k, line) in self
+                    .wrap_rich(rest, PROSE, text_w - indent)
+                    .into_iter()
+                    .take(3)
+                    .enumerate()
+                {
+                    ops.push((
+                        y,
+                        18.0,
+                        Op::Note {
+                            line,
+                            help: help && k == 0,
+                        },
+                    ));
+                    y += 18.0;
+                }
             }
             if !problem.source.is_empty() || !problem.code.is_empty() {
-                let mut cx = text_x;
                 y += 4.0;
-                if !problem.source.is_empty() {
-                    cx += self.chip(&problem.source, cx, y + 2.0, false) + 6.0;
-                }
-                if !problem.code.is_empty() {
-                    let shown = self.text.fit(&problem.code, note, r.right() - cx - 12.0);
-                    self.text
-                        .draw_in_row(&mut self.canvas, &shown, note, cx, y, 20.0, p.muted, r);
-                }
+                ops.push((y, 20.0, Op::Source(i)));
                 y += 20.0;
             }
             y += 8.0;
         }
-        let mut bx = text_x;
-        for (label, button) in [
-            ("Copy", HoverButton::Copy),
-            ("Show in Problems", HoverButton::Problems),
-        ] {
-            bx += self.small_button(label, bx, y, Hit::Ui(UiEvent::Hover(button))) + 6.0;
+        if !problems.is_empty() {
+            ops.push((y - 4.0, 24.0, Op::Buttons));
+            y += 20.0 + 8.0;
         }
+        if !parts.is_empty() || definition {
+            if !problems.is_empty() {
+                ops.push((y, 1.0, Op::Divider));
+                y += 9.0;
+            }
+            for part in parts {
+                match part {
+                    Part::Code(line) => {
+                        ops.push((y, 19.0, Op::Code(line.clone())));
+                        y += 19.0;
+                    }
+                    Part::Prose(text) => {
+                        for line in self.wrap_rich(text, PROSE, w - 24.0).into_iter().take(4) {
+                            ops.push((y, 18.0, Op::Prose(line)));
+                            y += 18.0;
+                        }
+                    }
+                    Part::Gap => y += 6.0,
+                }
+            }
+            if definition {
+                y += 6.0;
+                ops.push((y, 20.0, Op::Definition));
+            }
+        }
+        ops
     }
 
-    /// A quiet button 24 pixels tall at (`x`, `y`). Returns its width.
-    fn small_button(&mut self, label: &str, x: f32, y: f32, hit: Hit) -> f32 {
+    /// A severity's badge: its mark in a round chip of its colour.
+    fn badge_icon(&mut self, severity: Severity, x: f32, y: f32) {
         let p = self.p;
-        let face = Face::ui(12.0);
-        let tw = self.text.width(label, face);
-        let r = Rect::new(x, y, tw + 18.0, 24.0);
-        let hovered = self.hovered(r);
-        self.canvas
-            .round(r, 5.0, if hovered { p.border } else { p.chip });
+        let colour = theme::severity(&p, severity);
+        let r = Rect::new(x, y, 16.0, 16.0);
+        self.canvas.round(r, 8.0, mix(colour, p.widget, 0.2));
+        let mark = match severity {
+            Severity::Error => "×",
+            Severity::Warning => "!",
+            _ => "i",
+        };
+        let face = Face::ui(if severity == Severity::Error {
+            13.0
+        } else {
+            11.0
+        })
+        .bold();
+        let mw = self.text.width(mark, face);
         self.text.draw_in_row(
             &mut self.canvas,
-            label,
+            mark,
             face,
-            x + 9.0,
+            x + (16.0 - mw) / 2.0,
             y,
-            24.0,
-            if hovered { p.bright } else { p.text },
+            16.0,
+            colour,
             r,
         );
-        self.hit(r, hit);
-        r.w
+    }
+
+    /// The width of a line whose `backticked` parts are code.
+    fn rich_width(&mut self, line: &str, (face, code): (Face, Face)) -> f32 {
+        code_spans(line)
+            .iter()
+            .map(|(text, is_code)| self.text.width(text, if *is_code { code } else { face }))
+            .sum()
+    }
+
+    /// A line with backticked code wrapped at `w`, as runs of text and code.
+    fn wrap_rich(
+        &mut self,
+        line: &str,
+        (face, code): (Face, Face),
+        w: f32,
+    ) -> Vec<Vec<(String, bool)>> {
+        let mut out: Vec<Vec<(String, bool)>> = vec![Vec::new()];
+        let mut width = 0.0;
+        for (span, is_code) in code_spans(line) {
+            for word in span.split_inclusive(' ') {
+                let ww = self.text.width(word, if is_code { code } else { face });
+                let line = out.last_mut().unwrap();
+                if width + ww > w && !line.is_empty() {
+                    out.push(Vec::new());
+                    width = 0.0;
+                }
+                let line = out.last_mut().unwrap();
+                match line.last_mut() {
+                    Some((text, c)) if *c == is_code => text.push_str(word),
+                    _ => line.push((word.to_string(), is_code)),
+                }
+                width += ww;
+            }
+        }
+        out.retain(|l| !l.is_empty());
+        out
+    }
+
+    /// Runs of text and code side by side, cut off at the card's edge.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_rich(
+        &mut self,
+        line: &[(String, bool)],
+        mut x: f32,
+        y: f32,
+        h: f32,
+        (face, code): (Face, Face),
+        colour: u32,
+        code_colour: u32,
+        clip: Rect,
+    ) {
+        for (text, is_code) in line {
+            let (f, c) = if *is_code {
+                (code, code_colour)
+            } else {
+                (face, colour)
+            };
+            let max = clip.right() - 12.0 - x;
+            if max <= 0.0 {
+                break;
+            }
+            let shown = self.text.fit(text, f, max);
+            self.text
+                .draw_in_row(&mut self.canvas, &shown, f, x, y, h, c, clip);
+            x += self.text.width(&shown, f);
+        }
     }
 
     /// Signature help: a card over the line of the call being typed, or
@@ -2938,5 +3155,136 @@ fn clip_cols(prims: &mut [Prim], left: f32, right: f32) {
                 clip[2] = clip[2].min(right.ceil() as i32);
             }
         }
+    }
+}
+
+/// The faces of a hover's message, and of its prose, each with the face
+/// of its code.
+const MESSAGE: (Face, Face) = (Face::ui(13.0).medium(), Face::mono(12.5));
+const PROSE: (Face, Face) = (Face::ui(12.0), Face::mono(11.5));
+const CODE: Face = Face::mono(12.5);
+
+/// What a language server's hover says, to draw: its code, its prose
+/// joined into paragraphs, and room between.
+#[derive(Clone, Debug, PartialEq)]
+enum Part {
+    Code(String),
+    Prose(String),
+    Gap,
+}
+
+/// The code in a hover, then its docs up to their first heading, at most
+/// two paragraphs: the signature and what it does, as the card has room
+/// for. Rules and runs of blank lines are room between.
+fn hover_parts(lines: &[String]) -> Vec<Part> {
+    let mut parts: Vec<Part> = Vec::new();
+    let mut code = false;
+    let mut paragraphs = 0;
+    let mut code_lines = 0;
+    for line in lines {
+        let trimmed = line.trim();
+        if trimmed.starts_with("```") {
+            code = !code;
+            if !code {
+                parts.push(Part::Gap);
+            }
+            continue;
+        }
+        if code {
+            code_lines += 1;
+            if code_lines <= 8 {
+                parts.push(Part::Code(line.trim_end().to_string()));
+            }
+            continue;
+        }
+        if trimmed.is_empty() || trimmed == "---" {
+            if !matches!(parts.last(), None | Some(Part::Gap)) {
+                parts.push(Part::Gap);
+            }
+            continue;
+        }
+        if trimmed.starts_with('#') && !parts.is_empty() {
+            break;
+        }
+        match parts.last_mut() {
+            Some(Part::Prose(text)) => {
+                text.push(' ');
+                text.push_str(trimmed);
+            }
+            _ => {
+                if paragraphs == 2 {
+                    break;
+                }
+                paragraphs += 1;
+                parts.push(Part::Prose(trimmed.to_string()));
+            }
+        }
+    }
+    while matches!(parts.last(), Some(Part::Gap)) {
+        parts.pop();
+    }
+    parts
+}
+
+/// A line's runs of text and `backticked` code.
+fn code_spans(line: &str) -> Vec<(&str, bool)> {
+    line.split('`')
+        .enumerate()
+        .filter(|(_, s)| !s.is_empty())
+        .map(|(i, s)| (s, i % 2 == 1))
+        .collect()
+}
+
+/// One thing the hover card draws.
+enum Op {
+    Badge(Severity),
+    Message(Vec<(String, bool)>),
+    Note {
+        line: Vec<(String, bool)>,
+        help: bool,
+    },
+    Source(usize),
+    Buttons,
+    Divider,
+    Code(String),
+    Prose(Vec<(String, bool)>),
+    Definition,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_hover_keeps_its_code_and_the_first_of_its_docs() {
+        // As rust-analyzer sends it.
+        let hover: Vec<String> = "```rust\ncore::slice\n```\n\n```rust\nimpl<T> [T]\npub const fn len(&self) -> usize\n```\n\n---\n\nReturns the number of elements\nin the slice.\n\n# Examples\n\n```\nlet a = [1, 2, 3];\n```"
+            .lines()
+            .map(String::from)
+            .collect();
+        assert_eq!(
+            hover_parts(&hover),
+            [
+                Part::Code("core::slice".into()),
+                Part::Gap,
+                Part::Code("impl<T> [T]".into()),
+                Part::Code("pub const fn len(&self) -> usize".into()),
+                Part::Gap,
+                Part::Prose("Returns the number of elements in the slice.".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn backticks_mark_code() {
+        assert_eq!(
+            code_spans("expected `u32`, found `usize`"),
+            [
+                ("expected ", false),
+                ("u32", true),
+                (", found ", false),
+                ("usize", true)
+            ]
+        );
     }
 }

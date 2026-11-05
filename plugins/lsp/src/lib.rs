@@ -620,6 +620,11 @@ fn hover_text(contents: &Value) -> String {
             .map(hover_text)
             .collect::<Vec<_>>()
             .join("\n\n"),
+        // An old-style code part: its language, and the code unfenced.
+        Value::Object(o) if o.get("language").is_some() => format!(
+            "```\n{}\n```",
+            o.get("value").and_then(Value::as_str).unwrap_or_default()
+        ),
         Value::Object(o) => o
             .get("value")
             .and_then(Value::as_str)
@@ -627,14 +632,11 @@ fn hover_text(contents: &Value) -> String {
             .to_string(),
         _ => String::new(),
     };
+    // Markdown, with its code fences and rules kept for the card to draw;
+    // only runs of blank lines go.
     let mut lines: Vec<&str> = Vec::new();
     for line in raw.lines() {
-        let line = if line.starts_with("```") || line.trim() == "---" {
-            ""
-        } else {
-            line
-        };
-        if !(line.is_empty() && lines.last().is_none_or(|l| l.is_empty())) {
+        if !(line.trim().is_empty() && lines.last().is_none_or(|l| l.trim().is_empty())) {
             lines.push(line);
         }
     }
@@ -718,7 +720,7 @@ impl Lsp {
                         },
                         "textDocument": {
                             "synchronization": {"didSave": true},
-                            "hover": {"contentFormat": ["plaintext", "markdown"]},
+                            "hover": {"contentFormat": ["markdown", "plaintext"]},
                             "completion": {"completionItem": {"snippetSupport": false}},
                             "definition": {},
                             "signatureHelp": {
@@ -878,6 +880,10 @@ impl Lsp {
                     Value::Number(code) => code.to_string(),
                     _ => String::new(),
                 },
+                link: d["codeDescription"]["href"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string(),
             })
             .collect();
         host::set_detailed_diagnostics(path, &detailed);

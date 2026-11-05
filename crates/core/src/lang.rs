@@ -18,10 +18,11 @@ pub struct Diagnostic {
     pub end: (u32, u32),
     pub severity: Severity,
     pub message: String,
-    /// What reported it, such as `rustc` or `clippy`, and its code, such
-    /// as `E0308`. Either may be empty.
+    /// What reported it, such as `rustc` or `clippy`, its code, such as
+    /// `E0308`, and a web page that explains the code. Any may be empty.
     pub source: String,
     pub code: String,
+    pub link: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -82,6 +83,7 @@ pub struct Mark {
     pub message: String,
     pub source: String,
     pub code: String,
+    pub link: String,
 }
 
 /// A language a plugin adds, as a VS Code extension contributes one: the

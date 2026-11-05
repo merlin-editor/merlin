@@ -348,7 +348,7 @@ impl host::Host for State {
     fn set_diagnostics(&mut self, path: String, diagnostics: Vec<types::Diagnostic>) {
         let diagnostics = diagnostics
             .into_iter()
-            .map(|d| diagnostic(d, "", ""))
+            .map(|d| diagnostic(d, String::new(), String::new(), String::new()))
             .collect();
         self.events.push(Event::SetDiagnostics {
             plugin: self.name.clone(),
@@ -364,7 +364,7 @@ impl host::Host for State {
     ) {
         let diagnostics = diagnostics
             .into_iter()
-            .map(|d| diagnostic(d.diagnostic, &d.source, &d.code))
+            .map(|d| diagnostic(d.diagnostic, d.source, d.code, d.link))
             .collect();
         self.events.push(Event::SetDiagnostics {
             plugin: self.name.clone(),
@@ -1503,7 +1503,7 @@ pub fn grant(config: &Config, dir: &Path) -> Result<(Manifest, Vec<String>)> {
     Ok((manifest, allowed))
 }
 
-fn diagnostic(d: types::Diagnostic, source: &str, code: &str) -> Diagnostic {
+fn diagnostic(d: types::Diagnostic, source: String, code: String, link: String) -> Diagnostic {
     let at = |p: types::Position| (p.line, p.column);
     Diagnostic {
         start: at(d.start),
@@ -1515,7 +1515,8 @@ fn diagnostic(d: types::Diagnostic, source: &str, code: &str) -> Diagnostic {
             types::Severity::Hint => Severity::Hint,
         },
         message: d.message,
-        source: source.into(),
-        code: code.into(),
+        source,
+        code,
+        link,
     }
 }

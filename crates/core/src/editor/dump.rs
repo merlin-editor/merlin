@@ -78,7 +78,9 @@ impl Editor {
                 }
                 if let Some(popup) = &view.popup {
                     match &popup.kind {
-                        PopupKind::Hover { problems, lines } => {
+                        PopupKind::Hover {
+                            problems, lines, ..
+                        } => {
                             let _ = writeln!(o, "hover:");
                             for p in problems {
                                 let _ = writeln!(

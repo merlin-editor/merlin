@@ -389,6 +389,7 @@ impl App {
                             jobs::events(vec![Event::ShowDiff { path, old, new }])
                         });
                     }
+                    Effect::OpenUrl(url) => open_url(&url),
                     Effect::Copy(text) => {
                         if let Some(clipboard) = &mut self.clipboard {
                             clipboard.copy(&text);
@@ -1164,6 +1165,20 @@ impl Git {
             Err(err) => Event::Error(format!("git: {err}")),
         }
     }
+}
+
+/// Opens a web page in the desktop's browser. Only web pages: a link a
+/// plugin sends mustn't open a program.
+fn open_url(url: &str) {
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return;
+    }
+    let _ = Command::new("xdg-open")
+        .arg(url)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
 }
 
 /// Starts merlin again in `folder`, on its own, as Open Folder does.

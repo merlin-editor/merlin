@@ -69,6 +69,10 @@ pub enum HoverButton {
     Copy,
     /// Show every problem in the Problems panel.
     Problems,
+    /// Open the page that explains this problem's code.
+    Link(usize),
+    /// Go to the definition of the word the card is about.
+    Definition,
 }
 
 /// A problem in a hover card: what it says, and what reported it.
@@ -80,6 +84,10 @@ pub struct ProblemView {
     pub message: String,
     pub source: String,
     pub code: String,
+    /// A page that explains the code, or empty.
+    pub link: String,
+    /// The other checkers that report it too.
+    pub also: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -89,6 +97,8 @@ pub enum PopupKind {
     Hover {
         problems: Vec<ProblemView>,
         lines: Vec<String>,
+        /// Whether it can go to the definition of what it's about.
+        definition: bool,
     },
     /// Labels and details, and the one Enter takes.
     Completion {
@@ -322,8 +332,10 @@ impl Editor {
 
     /// The problems at `pos`, worst first, and the range they cover
     /// together. A problem two checkers report shows once, the fuller of
-    /// the two. A hint that goes with a problem, as rustc's suggestions do,
-    /// is a `help:` note under it.
+    /// the two, saying who else reports it: the same first line, or the
+    /// same code where they overlap, as rust-analyzer and cargo check word
+    /// and place one error a little differently. A hint that goes with a problem, as rustc's
+    /// suggestions do, is a `help:` note under it.
     fn problems_at(&self, pos: usize) -> (Vec<ProblemView>, (usize, usize)) {
         let mut found: Vec<&crate::lang::Mark> = self
             .doc()
@@ -336,12 +348,26 @@ impl Editor {
             (a.min(m.start), b.max(m.end.max(m.start + 1)))
         });
         let mut problems: Vec<ProblemView> = Vec::new();
+        // Where each problem is, to know a second checker's copy of it.
+        let mut ranges: Vec<(usize, usize)> = Vec::new();
         for m in found {
             let first = m.message.lines().next().unwrap_or_default();
-            if problems
-                .iter()
-                .any(|p| p.message.lines().next().unwrap_or_default() == first)
-            {
+            let copy = problems.iter().zip(&ranges).position(|(p, range)| {
+                p.message.lines().next().unwrap_or_default() == first
+                    || (!m.code.is_empty()
+                        && p.code == m.code
+                        && p.severity == m.severity
+                        && range.0 < m.end.max(m.start + 1)
+                        && m.start < range.1)
+            });
+            if let Some(i) = copy {
+                let p = &mut problems[i];
+                if !m.source.is_empty() && m.source != p.source && !p.also.contains(&m.source) {
+                    p.also.push(m.source.clone());
+                }
+                if p.link.is_empty() {
+                    p.link = m.link.clone();
+                }
                 continue;
             }
             let owner = problems.iter_mut().find(|p| {
@@ -364,9 +390,22 @@ impl Editor {
                 message: m.message.trim().to_string(),
                 source: m.source.clone(),
                 code: m.code.clone(),
+                link: m.link.clone(),
+                also: Vec::new(),
             });
+            ranges.push((m.start, m.end.max(m.start + 1)));
         }
         (problems, span)
+    }
+
+    /// Asks the language server where the word at the cursor is defined.
+    pub(crate) fn go_to_definition(&mut self, fx: &mut Vec<Effect>) {
+        if self.has_lsp("definition") {
+            fx.push(Effect::PluginCommand {
+                plugin: "lsp".into(),
+                command: "definition".into(),
+            });
+        }
     }
 
     fn has_lsp(&self, command: &str) -> bool {
@@ -417,6 +456,21 @@ impl Editor {
                 self.hover_anchor = None;
                 self.show_bottom(super::views::PROBLEMS);
             }
+            HoverButton::Link(i) => {
+                if let Some(p) = problems.get(i).filter(|p| !p.link.is_empty()) {
+                    fx.push(Effect::OpenUrl(p.link.clone()));
+                }
+            }
+            HoverButton::Definition => {
+                // The mouse has left the word for the card, so the cursor
+                // goes to it first.
+                if let Some(at) = self.hover_anchor.take() {
+                    self.set_cursor(at);
+                }
+                self.popup = None;
+                self.probe = None;
+                self.go_to_definition(fx);
+            }
         }
     }
 
@@ -438,6 +492,7 @@ impl Editor {
             } => PopupKind::Hover {
                 problems: problems.clone(),
                 lines: lines.clone(),
+                definition: !lines.is_empty() && self.has_lsp("definition"),
             },
             Popup::Completion { selected, .. } => PopupKind::Completion {
                 items: self

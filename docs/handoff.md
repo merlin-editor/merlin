@@ -82,18 +82,23 @@ Built, each checked in the window with rust-analyzer:
 - **Problems in the hover card** (mock-up `Hover.dc.html`, approved
   2026-11-05). Resting the mouse on a squiggle shows a card with the
   problem first:
-  - the severity's icon, the message bright and its other lines muted
+  - the severity's badge, the message bright and its other lines muted,
+    with backticked code in the code font
   - rustc's hint for the same code folded in as a `help:` note
-  - the source as a chip, and the code
-  - Copy and Show in Problems buttons
-  - a divider, then the server's hover
+  - the source as a chip, the code (a link when the server gives its
+    `codeDescription`, opened with `xdg-open`), and "also from" for the
+    other checkers that report it
+  - quiet Copy and Problems links on the right, the left kept for fixes
+  - a divider, then the server's hover: its code in the code font, the
+    first two paragraphs of its docs up to a heading, and Go to
+    definition (F12, a new core command `go.definition`)
 
   More of how it behaves:
   - The problem part shows at once and the server's part joins it.
   - Off a word, or with no server, it's the problem alone.
-  - The same problem from two checkers shows once, if their first lines
-    match. rust-analyzer words some errors differently from rustc, so
-    those show twice.
+  - The same problem from two checkers shows once: the same first line,
+    or the same code and severity over overlapping ranges. The inline
+    note's `(+N more)` still counts both copies.
   - The card stays open while the mouse is on the word, on the
     problem's range, or over the card and the gap above it.
   - Ctrl+K Ctrl+I (`view.hover`, also the right-click menu's Show Hover)
@@ -101,14 +106,16 @@ Built, each checked in the window with rust-analyzer:
 
   Where it lives:
   - API: a new host call, `set-detailed-diagnostics`, takes a
-    `detailed-diagnostic` record (a diagnostic plus `source` and
-    `code`). The LSP plugin uses it; old plugins' `set-diagnostics`
+    `detailed-diagnostic` record (a diagnostic plus `source`, `code`
+    and `link`). The LSP plugin now asks for Markdown hovers and keeps
+    their fences, for the card to draw. The LSP plugin uses it; old plugins' `set-diagnostics`
     still works, with no source or code.
   - Core: `Diagnostic` and `Mark` gained `source` and `code`.
     `problems_at`, `hover_at`, `hover_at_cursor`, `show_hover` and
     `pointer_moved` are in `context.rs`. `PopupKind::Hover` is
     `{ problems, lines }`, and the buttons send `UiEvent::Hover`.
-  - Window: `Frame::problems` and `small_button` in `frame.rs`.
+  - Window: `Frame::hover_card`, `hover_layout` and `hover_parts` in
+    `frame.rs`.
   - Tests: the hover tests at the end of `crates/core/tests/language.rs`.
 
 Not built yet, in the order to do them:
@@ -127,8 +134,6 @@ Not built yet, in the order to do them:
    - the server's preferred fix as one button, and More fixes (Ctrl+.),
      once code actions (item 1) exist
    - scrolling a long hover with the keyboard (↑ ↓ once it's focused)
-   - Go to definition in the hover, and the code (`E0308`) linked to
-     its explanation
 5. **Find references** has its own mock-up (`References.dc.html`), the
    next item after these.
 

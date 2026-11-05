@@ -434,6 +434,8 @@ pub enum Effect {
     Open(PathBuf),
     ListFiles,
     Copy(String),
+    /// Open a web page in the browser.
+    OpenUrl(String),
     ReadClipboard,
     Quit,
     /// Asks the system for a file or folder: see [`FilePick`].
@@ -1609,6 +1611,7 @@ impl Editor {
                     message: d.message.clone(),
                     source: d.source.clone(),
                     code: d.code.clone(),
+                    link: d.link.clone(),
                 }
             })
             .collect();

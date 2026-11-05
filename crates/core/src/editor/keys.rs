@@ -13,6 +13,7 @@ pub(super) const GLOBAL_KEYS: &[(&str, &str)] = &[
     ("ctrl+shift+p", "palette.open"),
     ("ctrl+,", "settings.open"),
     ("f1", "palette.open"),
+    ("f12", "go.definition"),
     ("ctrl+f", "find.open"),
     ("ctrl+h", "find.replace"),
     ("ctrl+n", "file.new"),

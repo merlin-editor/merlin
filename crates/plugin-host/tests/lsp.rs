@@ -89,11 +89,14 @@ fn pushed_and_pulled_diagnostics_arrive_together() {
 }
 
 #[test]
-fn hover_drops_markdown_fences() {
+fn hover_keeps_its_markdown_for_the_card_to_draw() {
     let mut host = started();
     host.run_command("lsp", "hover", snapshot());
     let event = wait_for(&mut host, "hover", |e| matches!(e, Event::ShowHover(_)));
-    assert!(matches!(event, Event::ShowHover(t) if t == "fn main()\n\nThe entry point."));
+    let Event::ShowHover(text) = event else {
+        unreachable!()
+    };
+    assert_eq!(text, "```rust\nfn main()\n```\n\n---\n\nThe entry point.");
 }
 
 #[test]
