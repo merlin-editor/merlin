@@ -695,3 +695,37 @@ mod tests {
         assert_eq!(c.indexed(1, &none), c.ansi[1]);
     }
 }
+
+#[cfg(test)]
+mod replay {
+    use super::*;
+
+    /// Feeds the bytes in `MERLIN_REPLAY` to a terminal `MERLIN_COLS`
+    /// wide and prints each row with its backgrounds, for looking at
+    /// what a program drew.
+    #[test]
+    #[ignore = "a tool, run by hand"]
+    fn replay() {
+        let bytes = std::fs::read(std::env::var("MERLIN_REPLAY").unwrap()).unwrap();
+        let cols: usize = std::env::var("MERLIN_COLS").unwrap().parse().unwrap();
+        #[derive(Clone)]
+        struct Quiet;
+        impl EventListener for Quiet {}
+        let size = Size { cols, lines: 8 };
+        let mut term = Term::new(Config::default(), &size, Quiet);
+        let mut parser: alacritty_terminal::vte::ansi::Processor = Default::default();
+        parser.advance(&mut term, &bytes);
+        for line in 0..8 {
+            let row = &term.grid()[Line(line)];
+            let text: String = (0..cols).map(|c| row[Column(c)].c).collect();
+            let bg: String = (0..cols)
+                .map(|c| match row[Column(c)].bg {
+                    Color::Named(NamedColor::Background) => '.',
+                    Color::Named(n) => char::from_digit(n as u32 % 16, 16).unwrap_or('?'),
+                    _ => '#',
+                })
+                .collect();
+            println!("{text}|\n{bg}|");
+        }
+    }
+}
