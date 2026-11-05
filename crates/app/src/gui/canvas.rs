@@ -434,6 +434,20 @@ impl Canvas<'_> {
         });
     }
 
+    /// A rounded rectangle edged in `colour`, and filled with it at
+    /// `alpha`, so what's below shows through.
+    pub fn frame(&mut self, r: Rect, radius: f32, width: f32, colour: u32, alpha: u8) {
+        let s = self.scale;
+        self.scene.prims.push(Prim::Quad {
+            rect: self.edges(r),
+            radius: radius * s,
+            fill: colour,
+            alpha,
+            border: colour,
+            border_w: width * s,
+        });
+    }
+
     /// A soft shadow under a floating box; lighter for a light theme.
     pub fn shadow(&mut self, r: Rect, radius: f32, light: bool) {
         let s = self.scale;

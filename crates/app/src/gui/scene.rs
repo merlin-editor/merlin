@@ -27,7 +27,8 @@ pub type Clip = [i32; 4];
 pub enum Prim {
     /// A rectangle with corners rounded to `radius`, smoothed at the edges,
     /// in `fill` at `alpha` over what's below. With `border_w` above zero,
-    /// the outer `border_w` is in `border` instead.
+    /// the outer `border_w` is in `border` instead, solid whatever `alpha`
+    /// is.
     Quad {
         rect: Edges,
         radius: f32,

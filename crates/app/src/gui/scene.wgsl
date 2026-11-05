@@ -84,15 +84,22 @@ fn fs_shape(v: Varying) -> @location(0) vec4<f32> {
         return vec4<f32>(v.fill.rgb * c, c);
     }
     let opaque = v.params.z > 0.5;
-    var rgb = v.fill.rgb;
     let bw = v.border.w;
     if bw > 0.0 {
+        // The border is solid; only the fill inside it takes the alpha.
         let inner = vec4<f32>(v.shape.xy + bw, max(v.shape.zw - bw, v.shape.xy + bw));
         let ic = bytes(cover(p, inner, max(v.params.x - bw, 0.0), true));
-        rgb = mix(v.border.rgb, v.fill.rgb, ic);
+        let fa = ic * v.fill.a;
+        let k = (1.0 - ic) + fa;
+        let a = bytes(cover(p, v.shape, v.params.x, opaque) * k);
+        if k <= 0.0 {
+            return vec4<f32>(0.0);
+        }
+        let rgb = (v.border.rgb * (1.0 - ic) + v.fill.rgb * fa) / k;
+        return vec4<f32>(rgb * a, a);
     }
     let a = bytes(cover(p, v.shape, v.params.x, opaque) * v.fill.a);
-    return vec4<f32>(rgb * a, a);
+    return vec4<f32>(v.fill.rgb * a, a);
 }
 
 @fragment

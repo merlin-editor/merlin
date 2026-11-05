@@ -32,7 +32,16 @@ impl Pixels<'_> {
                 border,
                 border_w,
             } => {
-                if border_w > 0.0 {
+                if border_w > 0.0 && alpha < 255 {
+                    self.ring(rect, radius, border_w, border);
+                    let inner = [
+                        rect[0] + border_w,
+                        rect[1] + border_w,
+                        (rect[2] - border_w).max(rect[0] + border_w),
+                        (rect[3] - border_w).max(rect[1] + border_w),
+                    ];
+                    self.tint(inner, (radius - border_w).max(0.0), fill, alpha);
+                } else if border_w > 0.0 {
                     self.round(rect, radius, border);
                     let inner = [
                         rect[0] + border_w,
@@ -161,6 +170,37 @@ impl Pixels<'_> {
                 if cover > 0.0 {
                     let i = row + x as usize;
                     self.pixels[i] = blend(self.pixels[i], colour, (cover * alpha as f32) as u8);
+                }
+            }
+        }
+    }
+
+    /// Only the outer `width` of a rounded rectangle, in `colour`, leaving
+    /// what's inside as it was.
+    fn ring(&mut self, r: Edges, radius: f32, width: f32, colour: u32) {
+        let [fx0, fy0, fx1, fy1] = r;
+        let rad = radius
+            .min((fx1 - fx0) / 2.0)
+            .min((fy1 - fy0) / 2.0)
+            .max(0.0);
+        let inner = (rad - width).max(0.0);
+        let (x0, y0, x1, y1) = self.snap(r);
+        // How far a point is inside the rectangle cut in by `by`, with
+        // corners of `rad`: above 0.5 is in.
+        let inside = |px: f32, py: f32, by: f32, rad: f32| {
+            let dx = (fx0 + by + rad - px).max(px - (fx1 - by - rad)).max(0.0);
+            let dy = (fy0 + by + rad - py).max(py - (fy1 - by - rad)).max(0.0);
+            (0.5 - ((dx * dx + dy * dy).sqrt() - rad)).clamp(0.0, 1.0)
+        };
+        for y in y0..y1 {
+            let py = y as f32 + 0.5;
+            let row = y as usize * self.width;
+            for x in x0..x1 {
+                let px = x as f32 + 0.5;
+                let cover = inside(px, py, 0.0, rad) - inside(px, py, width, inner);
+                if cover > 0.0 {
+                    let i = row + x as usize;
+                    self.pixels[i] = blend(self.pixels[i], colour, (cover * 255.0) as u8);
                 }
             }
         }

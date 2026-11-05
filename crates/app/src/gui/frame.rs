@@ -2017,17 +2017,8 @@ impl Frame<'_> {
         }
         // Where a dragged tab or file would land: a side of a group, or
         // all of it.
-        if let Some(z) = self.drop_zone {
-            let p = self.p;
-            self.canvas.tint(z, 8.0, p.accent, 36);
-            for edge in [
-                Rect::new(z.x + 8.0, z.y, z.w - 16.0, 1.0),
-                Rect::new(z.x + 8.0, z.bottom() - 1.0, z.w - 16.0, 1.0),
-                Rect::new(z.x, z.y + 8.0, 1.0, z.h - 16.0),
-                Rect::new(z.right() - 1.0, z.y + 8.0, 1.0, z.h - 16.0),
-            ] {
-                self.canvas.tint(edge, 0.0, p.accent, 150);
-            }
+        if let Some(zone) = self.drop_zone {
+            self.canvas.frame(zone, 8.0, 1.0, self.p.accent, 36);
         }
         if let (Some((name, icon)), Some((px, py))) = (self.tab_drag.clone(), self.pointer) {
             let p = self.p;
