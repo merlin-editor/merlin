@@ -82,6 +82,12 @@ pub(crate) struct Git {
     pub discarded: Option<(String, String)>,
     /// The Source Control row a right-click menu is for.
     pub menu_row: Option<String>,
+    /// Where the branch stands with its upstream, and the push or pull
+    /// running.
+    pub sync: crate::editor::SyncState,
+    pub syncing: Option<crate::editor::SyncKind>,
+    /// Files a pull left with conflicts.
+    pub conflicts: Vec<String>,
     /// Bumped on every update, so views built from it know to rebuild.
     pub version: u64,
 }
@@ -573,23 +579,14 @@ impl Editor {
                 placeholder: format!("Message (Enter to commit on {branch})"),
                 secret: false,
             },
-            Node::Buttons(vec![
-                Button {
+            Node::Buttons(
+                std::iter::once(Button {
                     id: "g:commit".into(),
                     label: "✓ Commit".into(),
-                },
-                if git.changed.is_empty() && !git.staged.is_empty() {
-                    Button {
-                        id: "g:unstage".into(),
-                        label: "− Unstage All".into(),
-                    }
-                } else {
-                    Button {
-                        id: "g:stage".into(),
-                        label: "+ Stage All".into(),
-                    }
-                },
-            ]),
+                })
+                .chain(self.sync_button())
+                .collect(),
+            ),
             Node::Styled(format!("{branch_icon} {branch}"), Tone::Muted),
         ];
         if git.files.is_empty() {
@@ -611,7 +608,16 @@ impl Editor {
             if list.is_empty() {
                 continue;
             }
-            nodes.push(Node::Heading(format!("{title}  {}", list.len())));
+            // The section's + or − stages or unstages all of it.
+            let all = if key == "s" { "g:unstage" } else { "g:stage" };
+            nodes.push(Node::Entry(Entry {
+                id: format!("sec:{key}"),
+                label: title.to_string(),
+                badge: list.len().to_string(),
+                action: Some((action, all.into())),
+                heading: true,
+                ..Default::default()
+            }));
             for (path, status) in list {
                 let (dir, name) = path.rsplit_once('/').unwrap_or(("", path));
                 let diff = diffs.get(path).filter(|d| !d.hunks.is_empty());
@@ -656,6 +662,38 @@ impl Editor {
             }
         }
         nodes
+    }
+
+    /// The button that pushes, pulls or publishes, saying what it will do,
+    /// when there's something to do.
+    fn sync_button(&self) -> Option<Button> {
+        use crate::editor::SyncKind::*;
+        let git = &self.git;
+        if let Some(kind) = git.syncing.filter(|k| *k != Fetch) {
+            let doing = match kind {
+                Push => "Pushing…",
+                Pull => "Pulling…",
+                Sync => "Syncing…",
+                Publish | Fetch => "Publishing…",
+            };
+            return Some(Button {
+                id: "g:cancel".into(),
+                label: format!("⟳ {doing}"),
+            });
+        }
+        let (ahead, behind) = (git.sync.ahead, git.sync.behind);
+        let (id, label) = match (&git.sync.upstream, &git.sync.remote) {
+            (None, Some(_)) => ("g:publish", "⇡ Publish Branch".to_string()),
+            (None, None) => return None,
+            _ if ahead > 0 && behind > 0 => ("g:sync", format!("↓{behind} ↑{ahead} Sync")),
+            _ if ahead > 0 => ("g:push", format!("↑{ahead} Push")),
+            _ if behind > 0 => ("g:pull", format!("↓{behind} Pull")),
+            _ => return None,
+        };
+        Some(Button {
+            id: id.into(),
+            label,
+        })
     }
 
     /// Every error, warning and note, by file, for the Problems panel.
@@ -784,6 +822,17 @@ impl Editor {
             fx.push(Effect::Git(GitAction::Stage(path.into())));
         } else if let Some(path) = id.strip_prefix("u:") {
             fx.push(Effect::Git(GitAction::Unstage(path.into())));
+        } else if let Some(kind) = match id {
+            "g:push" => Some(super::SyncKind::Push),
+            "g:pull" => Some(super::SyncKind::Pull),
+            "g:sync" => Some(super::SyncKind::Sync),
+            "g:publish" => Some(super::SyncKind::Publish),
+            _ => None,
+        } {
+            self.start_sync(kind, fx);
+        } else if id == "g:cancel" {
+            fx.push(Effect::Git(GitAction::CancelSync));
+        } else if id.starts_with("sec:") {
         } else if id == "g:stage" {
             fx.push(Effect::Git(GitAction::StageAll));
         } else if id == "g:unstage" {

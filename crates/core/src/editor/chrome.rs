@@ -88,6 +88,24 @@ impl Editor {
                 Style::Status,
                 Some(Action::View(CHANGES)),
             ));
+            // Commits to pull and push, which a click syncs; while it runs,
+            // what's happening.
+            let sync = &self.git.sync;
+            if let Some(kind) = self.git.syncing.filter(|k| *k != super::SyncKind::Fetch) {
+                let doing = match kind {
+                    super::SyncKind::Push => "Pushing…",
+                    super::SyncKind::Pull => "Pulling…",
+                    super::SyncKind::Publish => "Publishing…",
+                    _ => "Syncing…",
+                };
+                left.push((format!(" ⟳ {doing} "), Style::Status, None));
+            } else if sync.ahead > 0 || sync.behind > 0 {
+                left.push((
+                    format!(" ↓{} ↑{} ", sync.behind, sync.ahead),
+                    Style::Status,
+                    Some(Action::Run("scm.sync_all")),
+                ));
+            }
         }
         let (errors, warnings) = self.problem_counts();
         left.push((

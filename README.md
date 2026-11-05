@@ -394,8 +394,16 @@ opens as a tab beside it, and Ctrl+S saves it. Side by side, each
 change has a box in the gap between the halves that stages it (Alt+S) and
 a « that reverts it to the last commit (Alt+R), and each changed row has
 its own box; Alt+F5 and Alt+F3 go to the next and previous change, and the
-status bar says how many are staged. `+` beside a file stages it and `−` unstages it, Stage All stages
-everything, and a message with Enter or Commit commits what's staged. A
+status bar says how many are staged. `+` beside a file stages it and `−` unstages it, the `+` and `−`
+on the Changes and Staged Changes headings stage or unstage all of them,
+and a message with Enter or Commit commits what's staged. Beside Commit,
+the sync button says what it will do: ↑1 Push, ↓2 Pull, ↓2 ↑1 Sync (pull,
+then push) or Publish Branch for a branch with no upstream; while it runs
+a click stops it. The counts are in the status bar too, from a quiet fetch
+every 5 minutes while the window has focus. Git never waits on a password:
+a remote that wants one says to set up an SSH key or a credential helper.
+A rejected push offers Pull and Push, and a pull that stops on conflicts
+offers Resolve and Abort Pull. A pull merges unless git is set to rebase. A
 file's arrow (or Right) unfolds its changes, each with its line: Stage or
 Unstage one alone, or Discard it. Discarding asks nothing and the notice
 has Undo; a file git doesn't track goes to the trash, after asking. A
@@ -575,7 +583,7 @@ Other languages work too: anything that builds a WASI 0.2 component for
 - A wrapped line taller than the view can't scroll part way. Without a
   language server, folds go by indentation and symbols are found by
   keyword. Only one plugin's symbols or folds count for a file at a time.
-- Git can't push, pull or blame yet. The changes tab has its boxes only
+- Git can't blame yet. The changes tab has its boxes only
   side by side, not inline, and stages only what's saved.
 - Settings have no editor of their own (they're a TOML file), and the
   theme is VS Code's Dark Modern, with no others yet.

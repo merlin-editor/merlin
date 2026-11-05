@@ -117,6 +117,9 @@ pub struct Entry {
     pub links: Vec<(String, String)>,
     /// The label and detail in the code font, as a hunk's line.
     pub code: bool,
+    /// Drawn as a section's heading, its label in capitals, with its badge
+    /// as a count and its action on hover.
+    pub heading: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

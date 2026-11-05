@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use super::context::ContextMenu;
 use super::dialog::Ask;
 use super::views::CHANGES;
-use super::{Editor, Effect, Focus, GitAction, Side};
+use super::{Editor, Effect, Focus, GitAction, Side, SyncKind, SyncOutcome};
 use crate::key::{Key, KeyCode};
 use crate::panel::Target;
 
@@ -205,9 +205,113 @@ impl Editor {
         self.focus = Focus::Menu;
     }
 
+    /// Starts a push, pull, sync or publish, unless one is running.
+    pub(crate) fn start_sync(&mut self, kind: SyncKind, fx: &mut Vec<Effect>) {
+        if self.git.syncing.is_some_and(|k| k != SyncKind::Fetch) {
+            return;
+        }
+        self.git.syncing = Some(kind);
+        self.git.version += 1;
+        fx.push(Effect::Git(GitAction::Sync(kind)));
+    }
+
+    /// A push, pull, sync or fetch finished: says how, with what to do
+    /// next, and keeps git's words in the Output panel.
+    pub(crate) fn synced(&mut self, kind: SyncKind, outcome: SyncOutcome, output: String) {
+        if self.git.syncing == Some(kind) {
+            self.git.syncing = None;
+        }
+        self.git.version += 1;
+        let verb = match kind {
+            SyncKind::Push => "push",
+            SyncKind::Pull => "pull",
+            SyncKind::Sync => "sync",
+            SyncKind::Publish => "publish",
+            SyncKind::Fetch => "fetch",
+        };
+        if !output.trim().is_empty() {
+            for line in output.lines().filter(|l| !l.trim().is_empty()) {
+                self.log
+                    .push((outcome != SyncOutcome::Done, format!("git {verb}: {line}")));
+            }
+        }
+        // A fetch is quiet: it only brings the counts up to date.
+        if kind == SyncKind::Fetch {
+            return;
+        }
+        let upstream = self
+            .git
+            .sync
+            .upstream
+            .clone()
+            .or_else(|| self.git.sync.remote.clone())
+            .unwrap_or_else(|| "the remote".into());
+        let remote = upstream.split('/').next().unwrap_or(&upstream).to_string();
+        match outcome {
+            SyncOutcome::Done => self.notify(match kind {
+                SyncKind::Push => format!("Pushed to {upstream}"),
+                SyncKind::Pull => format!("Pulled from {upstream}"),
+                SyncKind::Publish => {
+                    let branch = self.git.branch.clone().unwrap_or_default();
+                    format!("Published {branch} to {remote}")
+                }
+                _ => format!("Synced with {upstream}"),
+            }),
+            SyncOutcome::Rejected => {
+                let behind = self.git.sync.behind;
+                let what = if behind > 0 {
+                    let s = if behind == 1 { "" } else { "s" };
+                    format!("{behind} commit{s}")
+                } else {
+                    "commits".into()
+                };
+                self.error(format!(
+                    "The push was rejected: {remote} has {what} this branch doesn't."
+                ));
+                // The last button is the main one.
+                self.add_action("Show Output", "view.output");
+                self.add_action("Pull and Push", "scm.sync_all");
+            }
+            SyncOutcome::NeedsAuth { remote } => {
+                self.notify(format!(
+                    "{remote} wants a password. Set up an SSH key or a git credential helper, then try again."
+                ));
+                self.add_action("Show Output", "view.output");
+            }
+            SyncOutcome::Conflicts(files) => {
+                let n = files.len();
+                let s = if n == 1 { "" } else { "s" };
+                self.git.conflicts = files;
+                self.notify(format!("The pull stopped on conflicts in {n} file{s}."));
+                self.add_action("Abort Pull", "scm.abort_pull");
+                self.add_action("Resolve", "scm.resolve");
+            }
+            SyncOutcome::Cancelled => self.notify(format!("Stopped the {verb}")),
+            SyncOutcome::Failed(line) => {
+                self.error(format!("git {verb}: {line}"));
+                self.add_action("Show Output", "view.output");
+            }
+        }
+    }
+
     /// Runs a command from Source Control's menu, on the row it was opened
     /// for, else the one selected.
     pub(crate) fn scm_command(&mut self, id: &str, fx: &mut Vec<Effect>) {
+        match id {
+            "scm.sync_all" => return self.start_sync(SyncKind::Sync, fx),
+            "scm.push" => return self.start_sync(SyncKind::Push, fx),
+            "scm.pull" => return self.start_sync(SyncKind::Pull, fx),
+            "scm.abort_pull" => return fx.push(Effect::Git(GitAction::AbortPull)),
+            // The first file with conflicts, until the merge editor is
+            // built.
+            "scm.resolve" => {
+                if let Some(path) = self.git.conflicts.first().cloned() {
+                    self.open(PathBuf::from(path), fx);
+                }
+                return;
+            }
+            _ => {}
+        }
         if id == "scm.undo_discard" {
             if let Some((path, text)) = self.git.discarded.take() {
                 fx.push(Effect::Git(GitAction::Undiscard { path, text }));

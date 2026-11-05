@@ -21,7 +21,8 @@ use disk::{Backups, Changes, Watch};
 use jobs::{Jobs, Lane};
 use merlin_core::script::{self, Step};
 use merlin_core::{
-    AutoSaveWhy, Editor, Effect, Event, FileOp, FilePick, GitAction, SearchHit, Workspace,
+    AutoSaveWhy, Editor, Effect, Event, FileOp, FilePick, GitAction, SearchHit, SyncKind,
+    SyncOutcome, SyncState, Workspace,
 };
 use merlin_plugins::{BufferEvent, Config, PluginHost, Selection, Snapshot};
 
@@ -174,6 +175,11 @@ struct App {
     /// Where the project is in the repository, as git names paths: empty
     /// at its top, else ending in `/`.
     git_prefix: String,
+    /// The push or pull running, by its process id, to cancel it.
+    git_net: GitNet,
+    /// When to ask the remote what's new next, while the window has focus.
+    fetch_due: Option<Instant>,
+    pub(crate) window_focused: bool,
     /// The user's and the workspace's settings files.
     settings: settings::Files,
     /// Scripts run with default settings and don't change them.
@@ -381,12 +387,15 @@ impl App {
                         });
                     }
                     Effect::GitStatus => self.git_status_later(),
+                    // Stopping a push or pull can't wait behind it.
+                    Effect::Git(GitAction::CancelSync) => self.git_net.cancel(),
                     Effect::Git(action) => {
                         let commit = matches!(action, GitAction::Commit(_));
                         let git = self.git_info();
                         self.jobs.run(Lane::Git, move || {
                             let mut done = git.run(action);
-                            if !commit && matches!(done.last(), Some(Event::GitStatus { .. })) {
+                            if !commit && done.iter().any(|e| matches!(e, Event::GitStatus { .. }))
+                            {
                                 done.push(git.diffs());
                             }
                             Box::new(move |app: &mut App| {
@@ -723,21 +732,32 @@ impl App {
             root: self.root.clone(),
             repo: self.git_dir.is_some(),
             prefix: self.git_prefix.clone(),
+            net: self.git_net.clone(),
         }
+    }
+
+    /// Asks the remote what's new, quietly, so the sync counts are right.
+    fn fetch_later(&mut self) {
+        let git = self.git_info();
+        self.jobs.run(Lane::Git, move || {
+            let mut done = git.run(GitAction::Sync(SyncKind::Fetch));
+            done.push(git.diffs());
+            jobs::events(done)
+        });
     }
 
     fn git_status_later(&mut self) {
         let git = self.git_info();
         self.jobs.run(Lane::Git, move || {
-            let status = git.status();
-            let diffs = git.diffs();
+            let mut status = git.status();
+            status.push(git.diffs());
             Box::new(move |app: &mut App| {
                 // git status can touch the index; that's not a commit.
                 app.git_index = app
                     .git_dir
                     .as_ref()
                     .and_then(|d| modified(&d.join("index")));
-                vec![status, diffs]
+                status
             })
         });
     }
@@ -890,6 +910,7 @@ impl App {
     /// When the app next has something to do, if ever.
     pub(crate) fn due(&self) -> Option<Instant> {
         [
+            self.fetch_due.filter(|_| self.window_focused),
             self.settle,
             self.backups.due,
             self.auto_save,
@@ -904,6 +925,12 @@ impl App {
     pub(crate) fn tick(&mut self) -> bool {
         let now = Instant::now();
         let mut changed = false;
+        // Every few minutes while the window has focus, and as it comes
+        // back after them.
+        if self.window_focused && self.fetch_due.is_some_and(|at| at <= now) {
+            self.fetch_due = Some(now + FETCH_EVERY);
+            self.fetch_later();
+        }
         if self.settle.is_some_and(|at| at <= now) {
             self.settle = None;
             let changes = std::mem::take(&mut self.changes);
@@ -1088,9 +1115,35 @@ fn file_op(root: &Path, op: FileOp) -> Vec<Event> {
     }
 }
 
+/// How often to ask the remote what's new.
+const FETCH_EVERY: Duration = Duration::from_secs(5 * 60);
+
+/// The push, pull or fetch running, shared with the window's thread so it
+/// can be stopped.
+#[derive(Clone, Default)]
+struct GitNet {
+    pid: std::sync::Arc<std::sync::Mutex<Option<u32>>>,
+    cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl GitNet {
+    /// Stops git, and the ssh it started, as a group.
+    fn cancel(&self) {
+        let pid = *self.pid.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(pid) = pid {
+            self.cancelled
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            let _ = Command::new("kill")
+                .args(["-TERM", "--", &format!("-{pid}")])
+                .status();
+        }
+    }
+}
+
 /// What git jobs need to know of the project, to run on their own thread.
 struct Git {
     root: PathBuf,
+    net: GitNet,
     /// Whether the project is in a repository at all.
     repo: bool,
     /// Where the project is in the repository, as git names paths.
@@ -1098,8 +1151,9 @@ struct Git {
 }
 
 impl Git {
-    /// The branch and changed files, with paths relative to the project.
-    fn status(&self) -> Event {
+    /// The branch and changed files, with paths relative to the project,
+    /// then where the branch stands with its upstream.
+    fn status(&self) -> Vec<Event> {
         let output = self.repo.then(|| {
             Command::new("git")
                 .args([
@@ -1117,20 +1171,25 @@ impl Git {
                 .filter(|o| o.status.success())
         });
         let Some(output) = output.flatten() else {
-            return Event::GitStatus {
-                branch: None,
-                files: Vec::new(),
-                staged: Vec::new(),
-                changed: Vec::new(),
-            };
+            return vec![
+                Event::GitStatus {
+                    branch: None,
+                    files: Vec::new(),
+                    staged: Vec::new(),
+                    changed: Vec::new(),
+                },
+                Event::GitSync(SyncState::default()),
+            ];
         };
         let text = String::from_utf8_lossy(&output.stdout);
+        let mut sync = SyncState::default();
         let mut branch = None;
         let mut files = Vec::new();
         let mut staged = Vec::new();
         let mut changed = Vec::new();
         for line in text.lines() {
             if let Some(head) = line.strip_prefix("## ") {
+                sync = sync_state(head);
                 let name = head.split("...").next().unwrap_or(head);
                 let name = name.strip_prefix("No commits yet on ").unwrap_or(name);
                 branch = Some(if name.starts_with("HEAD") {
@@ -1165,12 +1224,29 @@ impl Git {
                 changed.push((path.to_string(), y));
             }
         }
-        Event::GitStatus {
-            branch,
-            files,
-            staged,
-            changed,
+        // A branch with nowhere to push yet is published to the first
+        // remote.
+        if sync.upstream.is_none() {
+            sync.remote = Command::new("git")
+                .arg("remote")
+                .current_dir(&self.root)
+                .stderr(std::process::Stdio::null())
+                .output()
+                .ok()
+                .and_then(|o| {
+                    let text = String::from_utf8_lossy(&o.stdout).into_owned();
+                    text.lines().next().map(str::to_string)
+                });
         }
+        vec![
+            Event::GitStatus {
+                branch,
+                files,
+                staged,
+                changed,
+            },
+            Event::GitSync(sync),
+        ]
     }
 
     /// Each changed file's hunks: in the index, and not yet staged.
@@ -1253,9 +1329,181 @@ impl Git {
         Err(format!("git {}: {first}", args[0]))
     }
 
+    /// Runs git to talk to a remote: never asking for a password, since
+    /// there's no terminal to type it in, and in its own process group so
+    /// a cancel stops what it started too. Returns how it went and what it
+    /// said.
+    fn net(&self, args: &[&str]) -> (SyncOutcome, String) {
+        use std::os::unix::process::CommandExt;
+        let mut command = Command::new("git");
+        command
+            .args(args)
+            .current_dir(&self.root)
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .process_group(0);
+        // ssh asks for passphrases itself: not when nothing set how it runs.
+        let configured = Command::new("git")
+            .args(["config", "--get", "core.sshCommand"])
+            .current_dir(&self.root)
+            .output()
+            .is_ok_and(|o| !o.stdout.is_empty());
+        if env::var_os("GIT_SSH_COMMAND").is_none() && !configured {
+            command.env("GIT_SSH_COMMAND", "ssh -o BatchMode=yes");
+        }
+        let child = match command.spawn() {
+            Ok(child) => child,
+            Err(e) => return (SyncOutcome::Failed(format!("git: {e}")), String::new()),
+        };
+        let lock = |net: &GitNet| net.pid.lock().unwrap_or_else(|e| e.into_inner()).take();
+        *self.net.pid.lock().unwrap_or_else(|e| e.into_inner()) = Some(child.id());
+        let output = child.wait_with_output();
+        lock(&self.net);
+        let cancelled = self
+            .net
+            .cancelled
+            .swap(false, std::sync::atomic::Ordering::SeqCst);
+        let Ok(o) = output else {
+            return (SyncOutcome::Failed("git didn't run".into()), String::new());
+        };
+        let said = format!(
+            "{}{}",
+            String::from_utf8_lossy(&o.stdout),
+            String::from_utf8_lossy(&o.stderr)
+        );
+        if cancelled {
+            return (SyncOutcome::Cancelled, said);
+        }
+        if o.status.success() {
+            return (SyncOutcome::Done, said);
+        }
+        let has = |words: &[&str]| words.iter().any(|w| said.contains(w));
+        let outcome = if has(&["[rejected]", "non-fast-forward", "fetch first"]) {
+            SyncOutcome::Rejected
+        } else if has(&[
+            "terminal prompts disabled",
+            "could not read Username",
+            "could not read Password",
+            "Authentication failed",
+            "Permission denied (publickey",
+            "Host key verification failed",
+        ]) {
+            SyncOutcome::NeedsAuth {
+                remote: self.remote().unwrap_or_else(|| "The remote".into()),
+            }
+        } else if has(&["CONFLICT", "Automatic merge failed", "could not apply"]) {
+            SyncOutcome::Conflicts(self.conflicted())
+        } else {
+            let first = said
+                .lines()
+                .map(str::trim)
+                .find(|l| !l.is_empty() && !l.starts_with("hint:"))
+                .unwrap_or("failed");
+            let first = first
+                .trim_start_matches("fatal: ")
+                .trim_start_matches("error: ");
+            SyncOutcome::Failed(first.to_string())
+        };
+        (outcome, said)
+    }
+
+    /// The remote the branch pushes to, else the first there is.
+    fn remote(&self) -> Option<String> {
+        let read = |args: &[&str]| {
+            Command::new("git")
+                .args(args)
+                .current_dir(&self.root)
+                .stderr(std::process::Stdio::null())
+                .output()
+                .ok()
+                .filter(|o| o.status.success())
+                .and_then(|o| {
+                    let text = String::from_utf8_lossy(&o.stdout).into_owned();
+                    text.lines().next().map(str::to_string)
+                })
+        };
+        read(&["rev-parse", "--abbrev-ref", "@{upstream}"])
+            .and_then(|u| u.split('/').next().map(str::to_string))
+            .or_else(|| read(&["remote"]))
+    }
+
+    /// Files with conflicts, as the project names them.
+    fn conflicted(&self) -> Vec<String> {
+        Command::new("git")
+            .args(["diff", "--name-only", "--relative", "--diff-filter=U"])
+            .current_dir(&self.root)
+            .output()
+            .map(|o| {
+                String::from_utf8_lossy(&o.stdout)
+                    .lines()
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// `git pull`, as git is set to: rebase or merge. Set to neither, it
+    /// merges, as git did before it asked.
+    fn pull(&self) -> (SyncOutcome, String) {
+        let set = |key: &str| {
+            Command::new("git")
+                .args(["config", "--get", key])
+                .current_dir(&self.root)
+                .output()
+                .is_ok_and(|o| !o.stdout.is_empty())
+        };
+        if set("pull.rebase") || set("pull.ff") {
+            self.net(&["pull"])
+        } else {
+            self.net(&["pull", "--no-rebase"])
+        }
+    }
+
+    /// A push, pull, sync, publish or fetch, then what git says now.
+    fn sync(&self, kind: SyncKind) -> Vec<Event> {
+        let (outcome, output) = match kind {
+            SyncKind::Fetch => self.net(&["fetch", "--quiet", "--prune"]),
+            SyncKind::Push => self.net(&["push"]),
+            SyncKind::Pull => self.pull(),
+            SyncKind::Sync => match self.pull() {
+                (SyncOutcome::Done, pulled) => {
+                    let (outcome, pushed) = self.net(&["push"]);
+                    (outcome, pulled + &pushed)
+                }
+                other => other,
+            },
+            SyncKind::Publish => match self.remote() {
+                Some(remote) => self.net(&["push", "--set-upstream", &remote, "HEAD"]),
+                None => (
+                    SyncOutcome::Failed("there's no remote to publish to".into()),
+                    String::new(),
+                ),
+            },
+        };
+        // A rejected push learns how far behind it is, to say so.
+        if outcome == SyncOutcome::Rejected {
+            self.net(&["fetch", "--quiet"]);
+        }
+        let mut events = self.status();
+        events.push(Event::Synced {
+            kind,
+            outcome,
+            output,
+        });
+        events
+    }
+
     /// Runs what Source Control asked for, and says how it went.
     fn run(&self, action: GitAction) -> Vec<Event> {
         let done = match &action {
+            GitAction::Sync(kind) => return self.sync(*kind),
+            GitAction::CancelSync => return Vec::new(),
+            // A merge stopped part way, else a rebase.
+            GitAction::AbortPull => self
+                .git(&["merge", "--abort"], None)
+                .or_else(|_| self.git(&["rebase", "--abort"], None)),
             GitAction::Stage(path) => self.git(&["add", "--", path], None),
             GitAction::Unstage(path) => self.git(&["restore", "--staged", "--", path], None),
             GitAction::StageAll => self.git(&["add", "--all", "--", "."], None),
@@ -1274,14 +1522,13 @@ impl Git {
                     None => self.git(&["restore", "--worktree", "--", path], None),
                 };
                 return match done {
-                    Ok(()) => vec![
-                        Event::Discarded {
-                            path: path.clone(),
-                            before,
-                            all: patch.is_none(),
-                        },
-                        self.status(),
-                    ],
+                    Ok(()) => std::iter::once(Event::Discarded {
+                        path: path.clone(),
+                        before,
+                        all: patch.is_none(),
+                    })
+                    .chain(self.status())
+                    .collect(),
                     Err(e) => vec![Event::Error(e)],
                 };
             }
@@ -1294,10 +1541,36 @@ impl Git {
                 let first = message.lines().next().unwrap_or_default().to_string();
                 vec![Event::Notify(format!("Committed: {first}"))]
             }
-            (Ok(()), _) => vec![self.status()],
+            (Ok(()), _) => self.status(),
             (Err(e), _) => vec![Event::Error(e)],
         }
     }
+}
+
+/// Where a branch stands, from `git status --branch`'s first line, as
+/// `main...origin/main [ahead 1, behind 2]`.
+fn sync_state(head: &str) -> SyncState {
+    let mut sync = SyncState::default();
+    let Some((_, rest)) = head.split_once("...") else {
+        return sync;
+    };
+    let (upstream, counts) = match rest.split_once(" [") {
+        Some((u, c)) => (u, c.trim_end_matches(']')),
+        None => (rest, ""),
+    };
+    // An upstream that's gone is none.
+    if counts == "gone" {
+        return sync;
+    }
+    sync.upstream = Some(upstream.to_string());
+    for part in counts.split(", ") {
+        if let Some(n) = part.strip_prefix("ahead ") {
+            sync.ahead = n.parse().unwrap_or(0);
+        } else if let Some(n) = part.strip_prefix("behind ") {
+            sync.behind = n.parse().unwrap_or(0);
+        }
+    }
+    sync
 }
 
 /// Opens a web page in the desktop's browser. Only web pages: a link a
@@ -1572,9 +1845,12 @@ fn main() -> Result<()> {
         clipboard: None,
         terminals: terminal::Terminals::new(gui::waker()),
         disk: HashMap::new(),
+        fetch_due: git_dir.is_some().then(|| Instant::now() + FETCH_EVERY),
         git_prefix,
         git_dir,
         git_index: None,
+        git_net: GitNet::default(),
+        window_focused: true,
         settings: settings_files,
         scripted: args.exec.is_some(),
         look: packs::Look::stack(&[]).expect("merlin's own look"),

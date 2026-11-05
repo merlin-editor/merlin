@@ -3301,6 +3301,52 @@ impl Frame<'_> {
         let mut x = row.x + 8.0 + e.depth as f32 * 14.0;
         let mid = row.y + row.h / 2.0;
         let mut hits = EntryHits::default();
+        // A section's heading: its title in capitals and its count, with
+        // its button on hover.
+        if e.heading {
+            let face = Face::ui(11.0).bold();
+            self.text.draw_in_row(
+                &mut self.canvas,
+                &e.label.to_uppercase(),
+                face,
+                x,
+                row.y,
+                row.h,
+                p.muted,
+                clip,
+            );
+            let bw = self.text.width(&e.badge, face);
+            let right = row.right() - 8.0;
+            self.text.draw_in_row(
+                &mut self.canvas,
+                &e.badge,
+                face,
+                right - bw,
+                row.y,
+                row.h,
+                p.muted,
+                clip,
+            );
+            if let Some((glyph, _)) = &e.action
+                && self.hovered(row)
+            {
+                let a = Rect::new(row.right() - 50.0, row.y + 3.0, 20.0, 20.0);
+                self.canvas.round(a, 5.0, p.chip);
+                let g = glyph.to_string();
+                let gw = self.text.width(&g, Face::mono(13.0));
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    &g,
+                    Face::mono(13.0),
+                    a.x + (20.0 - gw) / 2.0,
+                    a.y,
+                    20.0,
+                    p.bright,
+                    clip,
+                );
+            }
+            return hits;
+        }
         if let Some(open) = e.fold {
             self.canvas.chevron(x + 5.0, mid, 7.0, open, p.muted);
             hits.fold = Some(Rect::new(x - 4.0, row.y, 20.0, row.h));

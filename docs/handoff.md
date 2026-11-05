@@ -399,10 +399,38 @@ committed:
     changes tab they're `diff.next` and `diff.prev`.
   - Test: `a_gutter_bar_opens_its_change_in_place`.
   - Checked in the window: the click, Stage and Unstage, and the arrows.
+- **Push, pull and sync, built** (GitSync.dc.html, the first board):
+  - The app reads ahead and behind from `git status --branch`'s first line
+    (`sync_state`) and sends `Event::GitSync(SyncState)` after each status;
+    a branch with no upstream gets the first remote, to publish to.
+  - `GitAction::Sync(SyncKind)` runs push, pull (merging unless
+    `pull.rebase` or `pull.ff` is set), pull then push, `push
+    --set-upstream`, or a quiet fetch, in `Git::net`: `GIT_TERMINAL_PROMPT=0`,
+    ssh in batch mode unless the user set how it runs, its own process
+    group, and its pid in `GitNet` so `GitAction::CancelSync` (handled on
+    the window's thread, not the git lane) can stop it.
+  - What went wrong is read from git's words: rejected, a remote that
+    wants a password, conflicts (the files from `git diff
+    --diff-filter=U`), or git's first line. A rejected push fetches first,
+    to say how many commits. The result is `Event::Synced`, after the
+    status; git's words go to the Output panel.
+  - The fetch runs every 5 minutes while the window has focus
+    (`App::fetch_due`, `window_focused`).
+  - Source Control: Commit and the sync button (`views::sync_button`);
+    Stage All moved to a `+` on the Changes heading, which is now an
+    `Entry` with `heading` set. The status bar has ↓ ↑, which syncs.
+  - A reload notice no longer replaces a notice with buttons.
+  - Not yet: Resolve opens the first conflicted file, since the merge
+    editor isn't built.
+  - Test: `the_sync_button_says_what_it_will_do`.
+  - Checked in the window with a local bare remote: Push, a rejected
+    push and Pull and Push, Sync with a merge, Publish Branch, and a
+    conflict with Abort Pull.
 - Not in the mock-ups' order but still to do: the changes tab's boxes
   inline.
-- Still to build, in order: push, pull and sync with their notices
-  (GitSync), blame, and new, deleted and moved files (GitFiles).
+- Still to build, in order: blame (GitSync's second board, and the
+  cursor's line in Git.dc.html), and new, deleted and moved files
+  (GitFiles).
 
 Saved for later, by the user's choice:
 
@@ -494,7 +522,7 @@ These are suggestions; nothing of them is written yet.
   straight into core `Event`s. The Rust SDK's re-exports are in
   `sdk/rust/src/lib.rs`; add new types to both lists there.
 - Checks before each commit:
-  - `cargo test --workspace`: 363 tests passed with the change peek
+  - `cargo test --workspace`: 364 tests passed with push, pull and sync
   - `cargo clippy --workspace --all-targets`
   - in `plugins/lsp`: `cargo clippy --release --target wasm32-wasip2`
   - `cargo fmt --all`

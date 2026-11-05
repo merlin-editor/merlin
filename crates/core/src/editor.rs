@@ -385,6 +385,16 @@ pub enum Event {
         staged: Vec<(String, char)>,
         changed: Vec<(String, char)>,
     },
+    /// Where the branch stands with its upstream, sent with
+    /// [`Event::GitStatus`].
+    GitSync(SyncState),
+    /// A push, pull, sync, publish or fetch finished: how, and what git
+    /// said, for the Output panel.
+    Synced {
+        kind: SyncKind,
+        outcome: SyncOutcome,
+        output: String,
+    },
     /// Every changed file's hunks, staged and not, sent after
     /// [`Event::GitStatus`].
     GitDiffs {
@@ -531,9 +541,58 @@ pub enum Effect {
     Git(GitAction),
 }
 
+/// Where a branch stands with its upstream.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SyncState {
+    /// The branch it pushes to and pulls from, as `origin/main`; `None`
+    /// when it has none yet.
+    pub upstream: Option<String>,
+    /// Commits to push, and to pull.
+    pub ahead: usize,
+    pub behind: usize,
+    /// The remote a branch with no upstream would be published to.
+    pub remote: Option<String>,
+}
+
+/// What a sync button does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SyncKind {
+    Push,
+    Pull,
+    /// Pull, then push.
+    Sync,
+    /// Push a branch with no upstream, and set it.
+    Publish,
+    /// Ask the remote what's new, quietly.
+    Fetch,
+}
+
+/// How a push, pull or fetch went.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SyncOutcome {
+    Done,
+    /// The remote has commits this branch doesn't.
+    Rejected,
+    /// The remote wants a password or a key, which git isn't asked for.
+    NeedsAuth {
+        remote: String,
+    },
+    /// A pull stopped on conflicts, in these files.
+    Conflicts(Vec<String>),
+    Cancelled,
+    /// Git's first line about it.
+    Failed(String),
+}
+
 /// What Source Control asks git to do.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GitAction {
+    /// Push, pull, sync, publish or fetch; answered with [`Event::Synced`].
+    Sync(SyncKind),
+    /// Stops the push or pull running.
+    CancelSync,
+    /// Undoes a pull that stopped on conflicts.
+    AbortPull,
     Stage(String),
     Unstage(String),
     StageAll,
@@ -1548,6 +1607,15 @@ impl Editor {
                 self.mark_staged();
             }
             Event::Discarded { path, before, all } => self.discarded(path, before, all),
+            Event::GitSync(state) => {
+                self.git.sync = state;
+                self.git.version += 1;
+            }
+            Event::Synced {
+                kind,
+                outcome,
+                output,
+            } => self.synced(kind, outcome, output),
             Event::ShowDiff { path, old, new } => {
                 let id = path.display().to_string();
                 let refresh = self.diff_refresh.contains(&path);
@@ -2139,13 +2207,15 @@ impl Editor {
         replace_text(doc, &old, text);
         doc.buffer.mark_saved(doc.buffer.revision());
         let name = doc.name();
-        // A discard from Source Control says so itself, with Undo.
+        // A discard from Source Control says so itself, with Undo, and a
+        // notice with something to do, such as a pull's conflicts, stays.
         let discarded = self
             .git
             .discarded
             .as_ref()
             .is_some_and(|(p, _)| doc.buffer.path.as_deref() == Some(std::path::Path::new(p)));
-        if !discarded {
+        let asking = self.message.as_ref().is_some_and(|m| !m.actions.is_empty());
+        if !discarded && !asking {
             self.notify(format!("Reloaded {name}, changed on disk"));
         }
     }

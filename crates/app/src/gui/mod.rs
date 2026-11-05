@@ -1610,6 +1610,7 @@ impl ApplicationHandler for Gui<'_> {
             }
             WindowEvent::Focused(on) => {
                 self.focused = on;
+                self.app.window_focused = on;
                 if !on {
                     self.dispatch(Event::AutoSave(merlin_core::AutoSaveWhy::Window));
                 }

@@ -317,8 +317,8 @@ fn source_control_lists_changes_and_opens_their_diff() {
         "the status bar names the branch: {screen}"
     );
     // Focus starts in the commit message, as in VS Code; the first file
-    // comes after the Commit and Stage All buttons.
-    s.run("key down down down");
+    // comes after Commit, and the Changes heading and its +.
+    s.run("key down down down down");
     s.run("key enter");
     assert!(s.effects.contains(&Effect::OpenDiff("src/main.rs".into())));
     s.send(Event::ShowDiff {
@@ -984,4 +984,98 @@ fn a_gutter_bar_opens_its_change_in_place() {
     assert!(s.screen().contains("┌ Change 1 of 3"), "{}", s.screen());
     s.run("key esc");
     assert!(!s.screen().contains("┌ Change"));
+}
+
+#[test]
+fn the_sync_button_says_what_it_will_do() {
+    use merlin_core::{SyncKind, SyncOutcome, SyncState};
+    let mut s = session();
+    s.send(Event::GitStatus {
+        branch: Some("main".into()),
+        files: vec![],
+        staged: vec![],
+        changed: vec![],
+    });
+    let sync = |s: &mut Session, upstream: Option<&str>, ahead, behind| {
+        s.send(Event::GitSync(SyncState {
+            upstream: upstream.map(str::to_string),
+            ahead,
+            behind,
+            remote: Some("origin".into()),
+        }))
+    };
+    s.run("key ctrl+shift+g");
+    sync(&mut s, Some("origin/main"), 1, 0);
+    assert!(
+        s.screen().contains("[✓ Commit] [↑1 Push]"),
+        "{}",
+        s.screen()
+    );
+    assert!(
+        s.screen().contains(" ↓0 ↑1 "),
+        "the status bar: {}",
+        s.screen()
+    );
+    sync(&mut s, Some("origin/main"), 0, 2);
+    assert!(s.screen().contains("[↓2 Pull]"), "{}", s.screen());
+    sync(&mut s, Some("origin/main"), 1, 2);
+    assert!(s.screen().contains("[↓2 ↑1 Sync]"), "{}", s.screen());
+    sync(&mut s, None, 0, 0);
+    assert!(s.screen().contains("[⇡ Publish Branch]"), "{}", s.screen());
+    sync(&mut s, Some("origin/main"), 1, 0);
+    // A click pushes, and says so while it runs; another click cancels.
+    s.effects.clear();
+    s.run("key ctrl+shift+p; type Git: Push; key enter");
+    assert!(
+        s.effects
+            .contains(&Effect::Git(GitAction::Sync(SyncKind::Push)))
+    );
+    assert!(s.screen().contains("[⟳ Pushing…]"), "{}", s.screen());
+    // Rejected: it says why, with Pull and Push.
+    sync(&mut s, Some("origin/main"), 1, 2);
+    s.send(Event::Synced {
+        kind: SyncKind::Push,
+        outcome: SyncOutcome::Rejected,
+        output: " ! [rejected]        main -> main (fetch first)\n".into(),
+    });
+    let screen = s.screen();
+    assert!(
+        screen.contains("The push was rejected: origin has 2 commits this branch doesn't."),
+        "{screen}"
+    );
+    assert!(screen.contains("Pull and Push"), "{screen}");
+    s.effects.clear();
+    s.send(Event::Ui(merlin_core::UiEvent::ToastButton(1)));
+    assert!(
+        s.effects
+            .contains(&Effect::Git(GitAction::Sync(SyncKind::Sync)))
+    );
+    // A remote that wants a password says what to set up.
+    s.send(Event::Synced {
+        kind: SyncKind::Sync,
+        outcome: SyncOutcome::NeedsAuth {
+            remote: "origin".into(),
+        },
+        output: String::new(),
+    });
+    assert!(
+        s.screen()
+            .contains("origin wants a password. Set up an SSH key or a git credential helper"),
+        "{}",
+        s.screen()
+    );
+    // Conflicts offer Resolve and Abort Pull.
+    s.send(Event::Synced {
+        kind: SyncKind::Pull,
+        outcome: SyncOutcome::Conflicts(vec!["src/main.rs".into(), "a.rs".into()]),
+        output: String::new(),
+    });
+    let screen = s.screen();
+    assert!(
+        screen.contains("The pull stopped on conflicts in 2 files."),
+        "{screen}"
+    );
+    s.effects.clear();
+    s.send(Event::Ui(merlin_core::UiEvent::ToastButton(0)));
+    assert!(s.effects.contains(&Effect::Git(GitAction::AbortPull)));
 }

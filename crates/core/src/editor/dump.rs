@@ -346,6 +346,7 @@ fn dump_side(o: &mut String, which: &str, side: &SideView) {
                 .collect::<Vec<_>>()
                 .join(" "),
             Node::Item { label, .. } => label.clone(),
+            Node::Entry(e) if e.heading => format!("{}  {}", e.label.to_uppercase(), e.badge),
             Node::Entry(e) => {
                 let twisty = match e.fold {
                     Some(true) => "▾ ".to_string(),
