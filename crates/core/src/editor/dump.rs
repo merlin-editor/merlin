@@ -193,7 +193,34 @@ fn dump_text(o: &mut String, view: &TextView) {
             }
             let _ = writeln!(o, "{marks}");
         }
+        if let Some(peek) = view.peek.as_ref().filter(|p| p.row == y + 1) {
+            dump_peek(o, peek);
+        }
     }
+}
+
+/// The peek view: its header, the preview's lines, then the list.
+fn dump_peek(o: &mut String, peek: &super::PeekView) {
+    let _ = writeln!(o, "┌ {} · {}", peek.name, peek.summary);
+    for line in &peek.preview {
+        let _ = writeln!(o, "│ {:>3} {}", line.number, line.text);
+    }
+    for (i, item) in peek.items.iter().enumerate() {
+        let mark = if peek.selected == Some(i) { "›" } else { " " };
+        let _ = match item {
+            super::PeekItem::File {
+                name,
+                folder,
+                count,
+                open,
+            } => {
+                let arrow = if *open { "▾" } else { "▸" };
+                writeln!(o, "│{mark}{arrow} {name} {folder} {count}")
+            }
+            super::PeekItem::Place { line, text } => writeln!(o, "│{mark}   {line} {text}"),
+        };
+    }
+    let _ = writeln!(o, "└");
 }
 
 /// Each row of a view on screen, by its row: the gutter's sign and number,

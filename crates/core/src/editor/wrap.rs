@@ -25,6 +25,19 @@ const ONE_ROW: Row = Row {
     indent: 0,
 };
 
+/// A row opened after a line for the peek view, with nothing of the line
+/// on it.
+const GAP_ROW: Row = Row {
+    start: usize::MAX,
+    col: 0,
+    indent: 0,
+};
+
+/// The rows of a line that show its text, before any gap.
+fn text_rows(rows: &[Row]) -> usize {
+    rows.iter().take_while(|r| r.start != usize::MAX).count()
+}
+
 /// Breaks a line into rows of at most `width` cells. A space that doesn't
 /// fit hangs off the end of its row, as in VS Code. Inlay hints, as
 /// `Doc::line_inlays` gives them, take their room and go with the
@@ -70,23 +83,27 @@ impl Editor {
     /// Whether lines can take other than one row each: when they wrap, or
     /// some are folded away.
     pub(crate) fn row_based(&self) -> bool {
-        self.wrapping() || !self.view().folds.is_empty()
+        self.wrapping() || !self.view().folds.is_empty() || self.peeking()
     }
 
-    /// The rows a line takes on screen: none if it's folded away.
+    /// The rows a line takes on screen: none if it's folded away, and
+    /// the peek view's after its line.
     pub(crate) fn line_rows(&self, line: usize) -> Vec<Row> {
         if self.is_hidden(line) {
             return Vec::new();
         }
-        if !self.wrapping() {
-            return vec![ONE_ROW];
-        }
-        let doc = self.doc();
-        wrap(
-            &doc.line_chars(line),
-            &doc.line_inlays(line),
-            self.text_columns(),
-        )
+        let mut rows = if self.wrapping() {
+            let doc = self.doc();
+            wrap(
+                &doc.line_chars(line),
+                &doc.line_inlays(line),
+                self.text_columns(),
+            )
+        } else {
+            vec![ONE_ROW]
+        };
+        rows.extend(std::iter::repeat_n(GAP_ROW, self.peek_gap(line)));
+        rows
     }
 
     /// A line's rows, as if it showed.
@@ -140,7 +157,8 @@ impl Editor {
     pub(crate) fn pos_in_row(&self, line: usize, r: usize, x: usize) -> usize {
         let doc = self.doc();
         let rows = self.shown_rows(line);
-        let r = r.min(rows.len() - 1);
+        // A row of the peek's gap counts as the line's last.
+        let r = r.min(text_rows(&rows).max(1) - 1);
         let row = rows[r];
         let target = row.col + x.saturating_sub(row.indent);
         let col = doc.col_at_display(line, target).max(row.start);
@@ -169,8 +187,8 @@ impl Editor {
                     break;
                 };
                 line = above;
-                r = self.line_rows(line).len() - 1;
-            } else if r + 1 < self.line_rows(line).len() {
+                r = text_rows(&self.line_rows(line)).max(1) - 1;
+            } else if r + 1 < text_rows(&self.line_rows(line)) {
                 r += 1;
             } else {
                 let Some(below) = (line + 1..=last).find(|&l| !self.line_rows(l).is_empty()) else {

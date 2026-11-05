@@ -17,6 +17,7 @@ impl Editor {
         };
         if matches!(p.kind, MouseKind::Down | MouseKind::Context) {
             self.rename_box = None;
+            self.peek = None;
             self.focus_group(g);
         }
         let here = g == self.group;

@@ -270,12 +270,46 @@ Built, each checked in the window with rust-analyzer:
   - Checked in the window with rust-analyzer: the box and its count,
     Enter, Shift+Enter with a place left out, Esc, and a refusal.
 
-Not built yet, in the order to do them:
+- **Find references, built** to
+  [`mockups/References.dc.html`](mockups/References.dc.html):
+  - **Shift+F12** (`go.references`) runs the plugin's `references`
+    command; it asks `textDocument/references` without the declaration,
+    as VS Code's peek does, and answers with the new host call
+    `show-references(list<location>)`. Files that aren't open are read
+    (`Effect::ReadFiles`).
+  - **The peek opens between the lines:** the line it's for takes 15
+    more screen rows (`Editor::peek_gap`, rows with `start` at
+    `usize::MAX` in `line_rows`), so the code below moves down, and the
+    window draws the peek in them (`Frame::peek`).
+  - Inside: a header with the name, "N references in M files", Open
+    all in the Search view and Close; the chosen reference's lines on
+    the left, coloured, with the file's references marked; the files and
+    references on the right.
+  - Keys while it's open: ↑ ↓ move, Left and Right fold a file, Enter
+    opens the chosen reference, F4 and Shift+F4 step through them, Esc
+    closes. Any other key closes it and does what it does. A click
+    chooses a row; a double click opens it.
+  - **Differences from the mock-up:** the name in the line it's for
+    isn't highlighted, the list doesn't scroll with the wheel (it follows
+    the chosen row), and the mock-up's key note in the corner isn't shown.
+  - Where it lives: `crates/core/src/editor/peek.rs`; the gap in
+    `crates/core/src/editor/wrap.rs`.
+  - Tests: the peek tests at the end of `crates/core/tests/language.rs`,
+    and `references_come_for_the_peek_view` in
+    `crates/plugin-host/tests/lsp.rs`.
+  - Checked in the window with rust-analyzer: Shift+F12, F4, Enter, and
+    the Search view button.
 
-1. **The rest of the problem hover:** scrolling a long hover with the
-   keyboard (↑ ↓ once it's focused), from
-   [`mockups/Hover.dc.html`](mockups/Hover.dc.html).
-2. **Find references** has its own mock-up (`References.dc.html`).
+The language server features are all built. Next in
+[`feature-research.md`](feature-research.md)'s order is **Git**, from
+[`mockups/Git.dc.html`](mockups/Git.dc.html).
+
+Saved for later, by the user's choice:
+
+- **Scrolling a long hover** with the keyboard (↑ ↓ once it's
+  focused), from [`mockups/Hover.dc.html`](mockups/Hover.dc.html). The
+  card keeps only the docs' first paragraphs, so it's rarely long; this
+  pays off only if the card one day shows the full docs.
 
 #### A suggested design for what's left
 
@@ -360,7 +394,7 @@ These are suggestions; nothing of them is written yet.
   straight into core `Event`s. The Rust SDK's re-exports are in
   `sdk/rust/src/lib.rs`; add new types to both lists there.
 - Checks before each commit:
-  - `cargo test --workspace`: 344 tests passed with rename
+  - `cargo test --workspace`: 349 tests passed with find references
   - `cargo clippy --workspace --all-targets`
   - in `plugins/lsp`: `cargo clippy --release --target wasm32-wasip2`
   - `cargo fmt --all`

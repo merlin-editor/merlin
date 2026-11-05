@@ -722,6 +722,9 @@ impl Gui<'_> {
                     clicks,
                 }))
             }
+            Hit::Ui(UiEvent::PeekRow { index, .. }) => {
+                self.dispatch(Event::Ui(UiEvent::PeekRow { index, clicks }))
+            }
             Hit::Ui(event) => self.dispatch(Event::Ui(event)),
             Hit::Command(command) => self.dispatch(Event::Command(command.into())),
             Hit::Key(key) => self.dispatch(Event::Key(key)),
@@ -1249,6 +1252,20 @@ impl Gui<'_> {
                 caret,
                 glide,
             );
+        }
+        // The peek views, in the rows they open between the lines.
+        let row_h = grid.cell_h as f32 / s;
+        for text in &texts {
+            let (Some(peek), Some(area)) = (&text.peek, areas.groups.get(text.group)) else {
+                continue;
+            };
+            let glide = match self.glide {
+                Some((g, ..)) if g == text.group => glide,
+                _ => 0.0,
+            };
+            let rows = text.area.y as f32 + peek.row as f32 - text.top_frac;
+            let y = area.text.y + rows * row_h + glide / s;
+            f.peek(peek, area.text, y, row_h);
         }
         // The terminals' screens, each fitted to its pane first.
         let colours = self.app.terminal_colours();

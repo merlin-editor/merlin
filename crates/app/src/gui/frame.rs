@@ -3,7 +3,7 @@
 //! rounded islands on a darker ground, and a thin status bar. Drawing also
 //! records what each clickable part does.
 
-use merlin_core::editor::RenameView;
+use merlin_core::editor::{PeekItem, PeekView, RenameView};
 use merlin_core::lang::{ActionKind, CodeAction};
 use merlin_core::panel::{Check, Entry, Node, Swap, Tone};
 use merlin_core::{
@@ -921,6 +921,249 @@ impl Frame<'_> {
         }
     }
 
+    /// The references peek view, in the rows `text` opens for it from `y`:
+    /// a header, the chosen reference's lines on the left, and every
+    /// reference by file on the right.
+    pub fn peek(&mut self, peek: &PeekView, text: Rect, y: f32, ch: f32) {
+        let p = self.p;
+        let r = Rect::new(
+            text.x + 40.0,
+            y + 4.0,
+            (text.w - 40.0 - 16.0).max(200.0),
+            peek.rows as f32 * ch - 8.0,
+        );
+        let clip = Rect::new(text.x, text.y, text.w, text.h);
+        if r.bottom() < clip.y || r.y > clip.bottom() {
+            return;
+        }
+        self.hit(r, Hit::Block);
+        let border = if peek.focused { p.accent } else { p.border };
+        self.canvas
+            .outline(r, 8.0, 1.0, border, mix(p.ground, p.island, 0.5));
+        let inner = Rect::new(r.x + 1.0, r.y + 1.0, r.w - 2.0, r.h - 2.0);
+        let clip = Rect::new(
+            inner.x,
+            inner.y.max(clip.y),
+            inner.w,
+            (inner.bottom().min(clip.bottom()) - inner.y.max(clip.y)).max(0.0),
+        );
+        // The header: the name, how many, and its buttons.
+        let head = Rect::new(inner.x, inner.y, inner.w, 30.0);
+        self.canvas.round(head, 7.0, p.widget);
+        self.canvas.fill(
+            Rect::new(head.x, head.bottom() - 7.0, head.w, 7.0),
+            p.widget,
+        );
+        self.canvas
+            .fill(Rect::new(head.x, head.bottom(), head.w, 1.0), p.border);
+        let bold = Face::ui(12.5).bold();
+        let nw = self.text.draw_in_row(
+            &mut self.canvas,
+            &peek.name,
+            bold,
+            head.x + 12.0,
+            head.y,
+            30.0,
+            p.bright,
+            clip,
+        );
+        self.text.draw_in_row(
+            &mut self.canvas,
+            &peek.summary,
+            Face::ui(12.5),
+            head.x + 12.0 + nw + 10.0,
+            head.y,
+            30.0,
+            p.muted,
+            clip,
+        );
+        let close = Rect::new(head.right() - 30.0, head.y + 3.0, 24.0, 24.0);
+        let search = Rect::new(close.x - 26.0, close.y, 24.0, 24.0);
+        for (b, event) in [(search, UiEvent::PeekToSearch), (close, UiEvent::PeekClose)] {
+            let hovered = self.hovered(b);
+            if hovered {
+                self.canvas.round(b, 5.0, p.hover);
+            }
+            let c = if hovered { p.bright } else { p.muted };
+            let (cx, cy) = (b.x + 12.0, b.y + 12.0);
+            if event == UiEvent::PeekClose {
+                self.canvas
+                    .line((cx - 3.5, cy - 3.5), (cx + 3.5, cy + 3.5), 1.5, c);
+                self.canvas
+                    .line((cx + 3.5, cy - 3.5), (cx - 3.5, cy + 3.5), 1.5, c);
+            } else {
+                self.canvas
+                    .frame(Rect::new(cx - 5.0, cy - 5.0, 10.0, 10.0), 1.5, 1.3, c, 0);
+                self.canvas
+                    .line((cx - 2.0, cy - 5.0), (cx - 2.0, cy + 5.0), 1.3, c);
+            }
+            self.hit(b, Hit::Ui(event));
+        }
+        // The list, on the right.
+        let list_w = (inner.w * 0.32).clamp(220.0, 330.0);
+        let body = Rect::new(
+            inner.x,
+            head.bottom() + 1.0,
+            inner.w,
+            inner.bottom() - head.bottom() - 1.0,
+        );
+        let list = Rect::new(body.right() - list_w, body.y, list_w, body.h);
+        let code = Rect::new(body.x, body.y, body.w - list_w - 1.0, body.h);
+        self.canvas.fill(code, p.island);
+        self.canvas
+            .fill(Rect::new(list.x - 1.0, list.y, 1.0, list.h), p.border);
+        let code_clip = Rect::new(
+            code.x,
+            clip.y.max(code.y),
+            code.w,
+            clip.bottom().min(code.bottom()) - clip.y.max(code.y),
+        );
+        let mono = Face::mono(13.0);
+        let cw = self.text.width("0", mono);
+        let mut ly = code.y + 6.0;
+        for line in &peek.preview {
+            if ly + ch > code.bottom() {
+                break;
+            }
+            let number = line.number.to_string();
+            let nw = self.text.width(&number, mono);
+            self.text.draw_in_row(
+                &mut self.canvas,
+                &number,
+                mono,
+                code.x + 40.0 - nw,
+                ly,
+                ch,
+                p.muted,
+                code_clip,
+            );
+            let x = code.x + 60.0;
+            let chars: Vec<char> = line.text.chars().collect();
+            for &(a, b) in &line.marks {
+                let before: String = chars[..a.min(chars.len())].iter().collect();
+                let word: String = chars[a.min(chars.len())..b.min(chars.len())]
+                    .iter()
+                    .collect();
+                let mx = x + self.text.width(&before, mono);
+                let mw = self.text.width(&word, mono).max(cw);
+                self.canvas
+                    .round(Rect::new(mx, ly + 2.0, mw, ch - 4.0), 2.0, p.find_match);
+            }
+            self.code_line_in(&line.text, &line.colours, x, ly, ch, code_clip, mono);
+            ly += ch;
+        }
+        // Files and their references.
+        let list_clip = Rect::new(
+            list.x,
+            clip.y.max(list.y),
+            list.w,
+            clip.bottom().min(list.bottom()) - clip.y.max(list.y),
+        );
+        let mut iy = list.y + 4.0;
+        for (i, item) in peek.items.iter().enumerate() {
+            let h = if matches!(item, PeekItem::File { .. }) {
+                26.0
+            } else {
+                24.0
+            };
+            if iy + h > list.bottom() {
+                break;
+            }
+            let row = Rect::new(list.x, iy, list.w, h);
+            if peek.selected == Some(i) {
+                self.canvas.fill(
+                    row,
+                    if peek.focused {
+                        p.focus_row
+                    } else {
+                        p.selected
+                    },
+                );
+            } else if self.hovered(row) {
+                self.canvas.fill(row, p.hover);
+            }
+            match item {
+                PeekItem::File {
+                    name,
+                    folder,
+                    count,
+                    open,
+                } => {
+                    let mid = iy + h / 2.0;
+                    self.canvas.chevron(row.x + 15.0, mid, 7.0, *open, p.muted);
+                    let mut x = row.x + 24.0;
+                    x += self.file_icon(name, None, x, mid - 8.0, 16.0, list_clip);
+                    let face = Face::ui(12.5);
+                    x += self.text.draw_in_row(
+                        &mut self.canvas,
+                        name,
+                        face,
+                        x,
+                        iy,
+                        h,
+                        p.text,
+                        list_clip,
+                    );
+                    let badge = count.to_string();
+                    let bf = Face::ui(11.0);
+                    let bw = self.text.width(&badge, bf) + 12.0;
+                    let pill = Rect::new(row.right() - 10.0 - bw, mid - 8.0, bw, 16.0);
+                    let room = (pill.x - x - 14.0).max(0.0);
+                    let folder = self.text.fit(folder, Face::ui(11.5), room);
+                    self.text.draw_in_row(
+                        &mut self.canvas,
+                        &folder,
+                        Face::ui(11.5),
+                        x + 6.0,
+                        iy,
+                        h,
+                        p.muted,
+                        list_clip,
+                    );
+                    self.canvas.round(pill, 8.0, p.chip);
+                    self.text.draw_in_row(
+                        &mut self.canvas,
+                        &badge,
+                        bf,
+                        pill.x + 6.0,
+                        pill.y,
+                        16.0,
+                        p.muted,
+                        list_clip,
+                    );
+                }
+                PeekItem::Place { line, text } => {
+                    let face = Face::mono(12.0);
+                    let colour = if peek.selected == Some(i) {
+                        p.bright
+                    } else {
+                        p.text
+                    };
+                    let label = format!("{line}  {text}");
+                    let shown = self.text.fit(&label, face, row.w - 36.0);
+                    self.text.draw_in_row(
+                        &mut self.canvas,
+                        &shown,
+                        face,
+                        row.x + 26.0,
+                        iy,
+                        h,
+                        colour,
+                        list_clip,
+                    );
+                }
+            }
+            self.hit(
+                row,
+                Hit::Ui(UiEvent::PeekRow {
+                    index: i,
+                    clicks: 1,
+                }),
+            );
+            iy += h;
+        }
+    }
+
     /// The rename box (F2) under the name, which is outlined: the new name
     /// in a field, and what Enter and Shift+Enter do.
     fn rename_box(
@@ -1536,7 +1779,22 @@ impl Frame<'_> {
     /// A line of code in a card, in the colours its language's plugin
     /// gave, by character.
     #[allow(clippy::too_many_arguments)]
-    fn code_line(&mut self, line: &str, spans: &Spans, mut x: f32, y: f32, h: f32, clip: Rect) {
+    fn code_line(&mut self, line: &str, spans: &Spans, x: f32, y: f32, h: f32, clip: Rect) {
+        self.code_line_in(line, spans, x, y, h, clip, CODE);
+    }
+
+    /// A line of code in `face`, coloured by `spans`.
+    #[allow(clippy::too_many_arguments)]
+    fn code_line_in(
+        &mut self,
+        line: &str,
+        spans: &Spans,
+        mut x: f32,
+        y: f32,
+        h: f32,
+        clip: Rect,
+        face: Face,
+    ) {
         let p = self.p;
         let chars: Vec<char> = line.chars().collect();
         let mut runs: Vec<(String, u32)> = Vec::new();
@@ -1561,10 +1819,10 @@ impl Frame<'_> {
             if max <= 0.0 {
                 break;
             }
-            let shown = self.text.fit(&text, CODE, max);
+            let shown = self.text.fit(&text, face, max);
             self.text
-                .draw_in_row(&mut self.canvas, &shown, CODE, x, y, h, colour, clip);
-            x += self.text.width(&shown, CODE);
+                .draw_in_row(&mut self.canvas, &shown, face, x, y, h, colour, clip);
+            x += self.text.width(&shown, face);
         }
     }
 

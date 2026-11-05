@@ -14,6 +14,7 @@ pub(super) const GLOBAL_KEYS: &[(&str, &str)] = &[
     ("ctrl+,", "settings.open"),
     ("f1", "palette.open"),
     ("f12", "go.definition"),
+    ("shift+f12", "go.references"),
     ("ctrl+f", "find.open"),
     ("ctrl+h", "find.replace"),
     ("ctrl+n", "file.new"),
@@ -116,7 +117,10 @@ impl Editor {
         // An open completion or code action list takes the keys it uses
         // first.
         if self.focus == Focus::Editor
-            && (self.rename_box_key(key, fx) || self.actions_key(key, fx) || self.popup_key(key))
+            && (self.rename_box_key(key, fx)
+                || self.peek_key(key, fx)
+                || self.actions_key(key, fx)
+                || self.popup_key(key))
         {
             return;
         }

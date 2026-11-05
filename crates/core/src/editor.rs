@@ -25,6 +25,8 @@ mod mouse;
 mod overview;
 mod palette;
 mod panels;
+mod peek;
+pub use peek::{PeekItem, PeekView, PreviewLine};
 mod rename;
 pub(crate) use rename::RENAME as RENAME_REVIEW;
 pub use rename::RenameView;
@@ -296,6 +298,8 @@ pub enum Event {
     ShowRename(Result<crate::lang::RenameInfo, String>),
     /// A rename's edits, to review before they're made.
     ShowRenameReview(Vec<crate::lang::FileEdit>),
+    /// Where the name at the cursor is used, for the peek view.
+    ShowReferences(Vec<crate::lang::Location>),
     /// Files read for a rename's review, each with its text, or none if
     /// it couldn't be read.
     FilesRead(Vec<(PathBuf, Option<String>)>),
@@ -725,6 +729,10 @@ pub struct Editor {
     rename_box: Option<rename::RenameBox>,
     renaming: Option<(String, String, bool)>,
     rename_review: Option<rename::Review>,
+    /// The references peek view (Shift+F12), and what it was asked for:
+    /// the document, line and name.
+    peek: Option<peek::Peek>,
+    peek_asked: Option<(u64, usize, String)>,
     /// Signature help: the document, where the call was when it showed,
     /// and the signature.
     signature: Option<(u64, usize, crate::lang::Signature)>,
@@ -747,11 +755,12 @@ pub struct Editor {
     #[allow(clippy::type_complexity)]
     minimap_cache:
         std::cell::RefCell<Option<((u64, u64, u64), std::rc::Rc<Vec<overview::MinimapLine>>)>>,
-    /// The rows before each line, by document, version, width and folds.
+    /// The rows before each line, by document, version, width, folds and
+    /// the peek view's gap.
     #[allow(clippy::type_complexity)]
     row_cache: std::cell::RefCell<
         Option<(
-            (u64, u64, Option<usize>, Vec<usize>),
+            (u64, u64, Option<usize>, Vec<usize>, Option<(usize, usize)>),
             std::rc::Rc<Vec<usize>>,
         )>,
     >,
@@ -878,6 +887,8 @@ impl Editor {
             rename_box: None,
             renaming: None,
             rename_review: None,
+            peek: None,
+            peek_asked: None,
             signature: None,
             diagnostics: HashMap::new(),
             diagnostics_version: 0,
@@ -1372,7 +1383,11 @@ impl Editor {
             }
             Event::ShowRename(info) => self.show_rename(info),
             Event::ShowRenameReview(edits) => self.show_rename_review(edits, &mut fx),
-            Event::FilesRead(files) => self.files_read(files),
+            Event::ShowReferences(places) => self.show_references(places, &mut fx),
+            Event::FilesRead(files) => {
+                self.peek_files_read(&files);
+                self.files_read(files);
+            }
             Event::ShowSignature(signature) => {
                 let doc = self.doc().id;
                 self.signature = match signature {

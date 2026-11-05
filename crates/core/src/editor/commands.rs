@@ -122,6 +122,7 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
     ("view.output", "View: Output"),
     ("go.line", "Go: Go to Line…"),
     ("go.definition", "Go: Go to Definition"),
+    ("go.references", "Go: Peek References"),
     ("review.next", "Go: Next Change to Review"),
     ("nav.back", "Go: Back"),
     ("app.about", "Help: About"),
@@ -233,6 +234,7 @@ impl Editor {
                 None => self.run("file.save_as", fx),
             },
             "go.definition" => self.go_to_definition(fx),
+            "go.references" => self.find_references(fx),
             "view.output" => self.show_bottom(views::OUTPUT),
             "view.secondary" => {
                 let bar = self.bar_mut(Side::Right);

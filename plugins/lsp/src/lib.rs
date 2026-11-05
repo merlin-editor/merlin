@@ -133,6 +133,8 @@ enum Request {
     References {
         name: Option<((u32, u32), (u32, u32))>,
     },
+    /// Where the name at the cursor is used, for the peek view.
+    Peek,
     /// A rename's edits: made, or sent to review.
     Rename {
         review: bool,
@@ -925,6 +927,13 @@ impl Lsp {
                 "range": {"start": here, "end": here},
                 "context": {"diagnostics": diagnostics, "triggerKind": 1},
             })
+        } else if matches!(request, Request::Peek) {
+            // As VS Code's peek, without the name's own definition.
+            json!({
+                "textDocument": {"uri": uri(&path)},
+                "position": here,
+                "context": {"includeDeclaration": false},
+            })
         } else {
             json!({
                 "textDocument": {"uri": uri(&path)},
@@ -1431,6 +1440,21 @@ impl Lsp {
                     files: files.len().max(1) as u32,
                 }));
             }
+            Request::Peek => {
+                let places: Vec<Location> = result
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|l| {
+                        Some(Location {
+                            path: path_of(l["uri"].as_str()?)?,
+                            start: position(&l["range"]["start"]),
+                            end: position(&l["range"]["end"]),
+                        })
+                    })
+                    .collect();
+                host::show_references(&places);
+            }
             Request::Rename { review } => {
                 let edits = file_edits(result);
                 if edits.is_empty() {
@@ -1598,6 +1622,8 @@ impl Plugin for Lsp {
             Command::new("format-changed", "Language: Format the Changed Lines"),
             // The editor's F2, which shows its box over the name.
             Command::new("rename", "Language: Rename"),
+            // The editor's Shift+F12, which peeks at them.
+            Command::new("references", "Language: Find References"),
         ]
     }
 
@@ -1611,6 +1637,7 @@ impl Plugin for Lsp {
             "format-selection" => self.format(Formatting::Selection, false),
             "format-changed" => self.format(Formatting::Changed, true),
             "rename" => self.prepare_rename(),
+            "references" => self.ask("textDocument/references", Request::Peek),
             "complete" => self.ask(
                 "textDocument/completion",
                 Request::Completion { manual: true },

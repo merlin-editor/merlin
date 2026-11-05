@@ -65,6 +65,14 @@ pub struct FileEdit {
     pub edits: Vec<TextEdit>,
 }
 
+/// Where a name is used: a file, and the UTF-16 range in it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Location {
+    pub path: std::path::PathBuf,
+    pub start: (u32, u32),
+    pub end: (u32, u32),
+}
+
 /// What renaming the name at the cursor would change: the name's place in
 /// the active file, as UTF-16 line and column, and how far it reaches.
 #[derive(Clone, Debug, PartialEq, Eq)]

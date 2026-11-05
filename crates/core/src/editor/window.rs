@@ -45,6 +45,15 @@ pub enum UiEvent {
         side: Side,
         index: usize,
     },
+    /// The peek view's `i`th list row shown, clicked.
+    PeekRow {
+        index: usize,
+        clicks: u8,
+    },
+    /// The peek view's buttons, and its list scrolled by the wheel.
+    PeekClose,
+    PeekToSearch,
+    PeekScroll(i32),
     /// A button that isn't one of a panel's targets, such as a header's.
     Press(String),
     /// One of a side's panel titles, to show that panel.
@@ -543,6 +552,10 @@ impl Editor {
                 }
             }
             UiEvent::Press(id) => self.view_click(&id, fx),
+            UiEvent::PeekRow { index, clicks } => self.peek_clicked(index, clicks, fx),
+            UiEvent::PeekClose => self.peek = None,
+            UiEvent::PeekToSearch => self.peek_to_search(fx),
+            UiEvent::PeekScroll(rows) => self.scroll_peek(rows as isize),
             UiEvent::PanelTitle { side, name } => {
                 if side == Side::Bottom && name == super::terminal::TERMINAL {
                     self.run("terminal.toggle", fx);

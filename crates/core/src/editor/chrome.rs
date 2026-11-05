@@ -100,7 +100,11 @@ impl Editor {
             Some(Action::Run("view.problems")),
         ));
         if self.reviewing_rename() {
-            left.push((format!(" {} ", self.review_hint()), Style::StatusAccent, None));
+            left.push((
+                format!(" {} ", self.review_hint()),
+                Style::StatusAccent,
+                None,
+            ));
         } else if doc.review.is_some() {
             left.push((format!("  {}", self.review_hint()), Style::Status, None));
         }

@@ -216,6 +216,14 @@ interface types {
     files: u32,
   }
 
+  /// A place in a file, as a reference to a name. The path is relative to
+  /// the workspace root, or absolute.
+  record location {
+    path: string,
+    start: position,
+    end: position,
+  }
+
   /// Selected text and where it is.
   record selection {
     start: position,
@@ -289,7 +297,7 @@ interface types {
 /// What the editor offers a plugin. Calls that need a permission check the
 /// plugin's manifest and return an error naming the permission if denied.
 interface host {
-  use types.{framing, pick-item, position, selection, text-change, diagnostic, detailed-diagnostic, code-action, file-edit, rename-info, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint, signature};
+  use types.{framing, pick-item, position, selection, text-change, diagnostic, detailed-diagnostic, code-action, file-edit, rename-info, location, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint, signature};
 
   /// Text of the active buffer. Needs `editor-read`.
   active-text: func() -> result<string, string>;
@@ -377,6 +385,10 @@ interface host {
   /// Answers `rename-review` with the rename's edits, for the user to
   /// look through and leave places out of before the editor makes them.
   show-rename-review: func(edits: list<file-edit>);
+
+  /// Answers the editor's `references` command (Shift+F12): where the name
+  /// at the cursor is used, for the editor's peek view.
+  show-references: func(places: list<location>);
 
   /// Shows text next to the cursor until the next key.
   show-hover: func(text: string);

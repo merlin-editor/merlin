@@ -170,9 +170,9 @@ are mostly in the VS Code half.
   the frame and the code is still to do.
 - **Hot exit:** unsaved changes aren't kept across restarts. Killing merlin
   counts as a crash.
-- **Language servers:** no find references. Completions don't add
-  imports. (Inlay hints, signature help, errors inline, problems in the
-  hover, code actions, format and rename are now built.)
+- **Language servers:** completions don't add imports. (Inlay hints,
+  signature help, errors inline, problems in the hover, code actions,
+  format, rename and find references are now built.)
 - **Git:** no staging or discarding of parts of a file, no blame, no push,
   no diff of two files, and no merge editor.
 - **Running code:** no tasks, no test runner and no debugger. (The
@@ -238,14 +238,13 @@ These are ordered by votes against effort.
    bottom panel tab, with tabs for each shell
    and splits. Use the `alacritty_terminal` crate for the VT state and a
    pty, drawn by merlin's own renderer.
-2. **Language servers, finished** (**partly built**; see
+2. **Language servers, finished** (**built**; see
    [`handoff.md`](handoff.md) for details and a design for the rest):
    errors inline (`d5c2091`), inlay hints (`09b607e`), signature help
    (`d4283cc`), problems in the hover card (`Hover.dc.html`), code
    actions (a lightbulb and a menu) and format and format on save
-   (`Format.dc.html`) and rename with its review (`Rename.dc.html`) are
-   **Built**. Still to do: find references (a peek view,
-   `References.dc.html`).
+   (`Format.dc.html`), rename with its review (`Rename.dc.html`) and find
+   references in a peek view (`References.dc.html`) are **Built**.
 3. **Git**:
    - stage, unstage and discard hunks from the gutter and Changes
    - blame, inline and in a gutter

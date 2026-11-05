@@ -544,6 +544,19 @@ impl host::Host for State {
         self.events.push(Event::ShowRenameReview(edits));
     }
 
+    fn show_references(&mut self, places: Vec<types::Location>) {
+        let at = |p: types::Position| (p.line, p.column);
+        let places = places
+            .into_iter()
+            .map(|l| merlin_core::lang::Location {
+                path: self.snapshot.local(&l.path),
+                start: at(l.start),
+                end: at(l.end),
+            })
+            .collect();
+        self.events.push(Event::ShowReferences(places));
+    }
+
     fn insert_text(&mut self, text: String) -> Result<(), String> {
         self.need(self.permissions.editor_write, "editor-write")?;
         self.events.push(Event::InsertText(text));

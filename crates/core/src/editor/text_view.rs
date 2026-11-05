@@ -61,6 +61,8 @@ pub struct TextView {
     /// The line a lightbulb shows on, in the gutter's left: the cursor's,
     /// when it has a problem code actions might fix.
     pub bulb: Option<usize>,
+    /// The references peek view, in the rows it opens after its line.
+    pub peek: Option<super::PeekView>,
 }
 
 /// A line of the file on screen.
@@ -264,6 +266,7 @@ impl Editor {
                     scrollbar: self.scrollbar_view(),
                     minimap: None,
                     bulb: None,
+                    peek: None,
                 }
             })
             .collect()
@@ -337,6 +340,7 @@ impl Editor {
             scrollbar: self.scrollbar_view(),
             minimap: self.minimap_view(),
             bulb: if focused { self.bulb_line() } else { None },
+            peek: None,
         };
         let bottom = area.h as i32 + overscan as i32;
         let mut row = -above;
@@ -562,6 +566,12 @@ impl Editor {
                 eol_selected,
             });
             row += shown as i32;
+            // The peek view opens under its line.
+            let gap = self.peek_gap(line);
+            if gap > 0 {
+                view.peek = self.peek_view(row);
+                row += gap as i32;
+            }
             line += 1;
         }
         view.sticky = self

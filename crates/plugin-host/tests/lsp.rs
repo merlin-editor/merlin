@@ -381,3 +381,29 @@ fn a_name_the_server_cant_rename_says_why() {
         Err("Can't rename this: No references found at position".into())
     );
 }
+
+#[test]
+fn references_come_for_the_peek_view() {
+    use merlin_core::lang::Location;
+    let mut host = started();
+    host.run_command("lsp", "references", on_v());
+    let event = wait_on_v(&mut host, "references", |e| {
+        matches!(e, Event::ShowReferences(_))
+    });
+    let Event::ShowReferences(places) = event else {
+        unreachable!()
+    };
+    let at = |path: &str, line, a, b| Location {
+        path: path.into(),
+        start: (line, a),
+        end: (line, b),
+    };
+    assert_eq!(
+        places,
+        [
+            at("src/main.rs", 1, 8, 9),
+            at("src/main.rs", 2, 4, 5),
+            at("src/lib.rs", 0, 0, 1),
+        ]
+    );
+}

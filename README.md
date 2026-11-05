@@ -29,7 +29,7 @@ looking at [ttt](https://github.com/eugenioenko/ttt), and merlin keeps both:
 | `sdk/grammar` | `merlin-grammar`: colour a language in a plugin with a tree-sitter grammar. |
 | `plugins/rust`, `python`, `javascript`, `json`, `toml` | Those languages and their tree-sitter colours. |
 | `plugins/word-count` | Small example plugin: commands, a key, a panel and a button. |
-| `plugins/lsp` | Language servers: diagnostics, hover, go-to-definition, completion, code actions, format, rename. |
+| `plugins/lsp` | Language servers: diagnostics, hover, go-to-definition, completion, code actions, format, rename, references. |
 | `plugins/cpp` | C and C++: the languages and their colours. |
 | `plugins/merlin-themes` | Eight colour themes, as data. |
 | `plugins/testbed` | Exercises the plugin API for the host's tests. |
@@ -460,7 +460,8 @@ hover, `Alt+D` goes to the definition (`Alt+Left` comes back), and
 `Ctrl+Space` completes, as does typing `.` or `::`. `Ctrl+.` lists code
 actions, `Ctrl+Shift+I` formats, and `F2` renames: Enter renames every
 place, and Shift+Enter shows them in the bottom panel's Rename tab first,
-to leave some out.
+to leave some out. `Shift+F12` peeks at a name's references between the
+lines; `F4` steps through them and Enter opens one.
 
 rust-analyzer reports some errors as you type, such as unresolved modules,
 and the rest, such as type errors, from `cargo check` when you save. Its
@@ -565,8 +566,8 @@ Other languages work too: anything that builds a WASI 0.2 component for
   discard changes, push, or blame.
 - Settings have no editor of their own (they're a TOML file), and the
   theme is VS Code's Dark Modern, with no others yet.
-- Language servers can't find references yet, and completions don't add
-  imports. Renames don't create, move or delete files.
+- Completions don't add imports, and renames don't create, move or delete
+  files.
 - A review is all or nothing per edit; you can't accept some hunks and not
   others. Markdown has no tables or nested quotes.
 - The SDK isn't published, so `plugin new` points at the copy in this repo.

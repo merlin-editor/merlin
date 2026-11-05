@@ -1157,3 +1157,121 @@ fn escape_discards_a_review() {
         "fn shade(accent: u8) -> u8 {\n    accent + 1\n}\n"
     );
 }
+
+/// A Rust file a language server finds references in, with the cursor on
+/// `shade`, and another file that uses it.
+fn peeking() -> Session {
+    let mut s =
+        hovering("fn shade(x: u8) -> u8 {\n    x + 1\n}\n\nfn main() {\n    shade(1);\n}\n");
+    s.send(Event::RegisterPlugin {
+        plugin: "lsp".into(),
+        commands: vec![merlin_core::Command {
+            id: "references".into(),
+            title: "references".into(),
+            key: None,
+        }],
+    });
+    s.send(Event::Viewports(vec![(60, 30)]));
+    s.files.insert(
+        "theme.rs".into(),
+        "use crate::shade;\nlet a = shade(2);\nlet b = shade(3);\n".into(),
+    );
+    s.run("key right right right right");
+    s.effects.clear();
+    s
+}
+
+fn references() -> Event {
+    use merlin_core::lang::Location;
+    let at = |path: &str, line: u32, col: u32| Location {
+        path: path.into(),
+        start: (line, col),
+        end: (line, col + 5),
+    };
+    Event::ShowReferences(vec![
+        at("theme.rs", 1, 8),
+        at("main.rs", 5, 4),
+        at("theme.rs", 2, 8),
+    ])
+}
+
+fn peek(s: &Session) -> Option<merlin_core::editor::PeekView> {
+    s.editor.text_views().into_iter().find_map(|v| v.peek)
+}
+
+#[test]
+fn shift_f12_peeks_at_the_references_between_the_lines() {
+    let mut s = peeking();
+    s.run("key shift+f12");
+    assert!(asked(&s, "references"));
+    s.send(references());
+    assert!(
+        s.effects.iter().any(
+            |e| matches!(e, Effect::ReadFiles(p) if p == &[std::path::PathBuf::from("theme.rs")])
+        ),
+        "the file that isn't open is read"
+    );
+    let dump = s.editor.dump();
+    let peek_at = dump.find("┌ shade · 3 references in 2 files").expect(&dump);
+    let line_1 = dump.find("fn shade(x: u8)").unwrap();
+    let line_2 = dump.find("x + 1").unwrap();
+    assert!(
+        line_1 < peek_at && peek_at < line_2,
+        "it opens under its line: {dump}"
+    );
+    assert!(dump.contains("│›   2 let a = shade(2);"), "{dump}");
+    assert!(dump.contains("│ ▾ theme.rs  2"), "{dump}");
+    assert!(dump.contains("│    6 shade(1);"), "{dump}");
+    let view = peek(&s).unwrap();
+    assert_eq!(view.preview[1].text, "let a = shade(2);");
+    assert_eq!(
+        view.preview[1].marks,
+        vec![(8, 13)],
+        "its references marked"
+    );
+    // F4 steps through them, round to the first.
+    s.run("key f4");
+    assert!(s.editor.dump().contains("│›   3 let b = shade(3);"));
+    s.run("key f4 f4");
+    assert!(s.editor.dump().contains("│›   2 let a = shade(2);"));
+    s.run("key shift+f4");
+    assert!(s.editor.dump().contains("│›   6 shade(1);"));
+    // Enter opens it.
+    s.run("key enter");
+    assert!(peek(&s).is_none());
+    assert_eq!(s.editor.cursor_utf16(), (5, 4));
+}
+
+#[test]
+fn escape_closes_the_peek_and_the_lines_close_up() {
+    let mut s = peeking();
+    s.run("key shift+f12");
+    s.send(references());
+    s.run("key esc");
+    assert!(peek(&s).is_none());
+    let dump = s.editor.dump();
+    assert!(!dump.contains("┌"), "{dump}");
+}
+
+#[test]
+fn a_peek_goes_to_the_search_view() {
+    let mut s = peeking();
+    s.run("key shift+f12");
+    s.send(references());
+    s.send(Event::Ui(merlin_core::UiEvent::PeekToSearch));
+    assert!(peek(&s).is_none());
+    let dump = s.editor.dump();
+    assert!(dump.contains("3 results in 2 files"), "{dump}");
+}
+
+#[test]
+fn no_references_says_so() {
+    let mut s = peeking();
+    s.run("key shift+f12");
+    s.send(Event::ShowReferences(Vec::new()));
+    assert!(peek(&s).is_none());
+    assert_eq!(
+        s.editor.window_view().toast.map(|t| t.text),
+        Some("No references to shade".into())
+    );
+}
