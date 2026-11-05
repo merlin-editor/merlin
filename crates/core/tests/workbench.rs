@@ -1410,7 +1410,7 @@ fn a_merge_shows_what_is_coming_in_and_waits_for_its_conflicts() {
 fn the_merge_editor_shows_both_sides_over_the_result_and_takes_lines_from_each() {
     let marked = "fn a() {}\n<<<<<<< HEAD\nlet x = 1;\nlet y = 2;\n=======\nlet x = 9;\n>>>>>>> themes\nfn b() {}\n";
     let base = "fn a() {}\nlet x = 0;\nfn b() {}\n";
-    let mut s = Session::new(marked, Some("src/main.rs"), 80, 20);
+    let mut s = Session::new(marked, Some("src/main.rs"), 160, 20);
     s.send(Event::MergeSides {
         path: "src/main.rs".into(),
         base: base.into(),
@@ -1431,6 +1431,7 @@ fn the_merge_editor_shows_both_sides_over_the_result_and_takes_lines_from_each()
                     format!("{}{text}", if conflict.is_some() { "!" } else { "" })
                 }
                 merlin_core::MergeRow::Accept(_) => "[Accept]".into(),
+                merlin_core::MergeRow::Title(_, t) => format!("# {t}"),
             })
             .collect()
     };
@@ -1488,4 +1489,55 @@ fn the_merge_editor_shows_both_sides_over_the_result_and_takes_lines_from_each()
         "{screen}"
     );
     assert!(screen.contains("Open lib.rs"), "{screen}");
+}
+
+#[test]
+fn a_narrow_merge_editor_shows_both_sides_in_place_and_alt_i_switches() {
+    let marked =
+        "fn a() {}\n<<<<<<< HEAD\nlet x = 1;\n=======\nlet x = 9;\n>>>>>>> themes\nfn b() {}\n";
+    let mut s = Session::new(marked, Some("src/main.rs"), 80, 20);
+    s.send(Event::GitStatus {
+        branch: Some("main".into()),
+        files: vec![("src/main.rs".into(), '!')],
+        staged: vec![],
+        changed: vec![],
+    });
+    // Opened as text, its bar offers the merge editor.
+    assert!(s.editor.window_view().merge_bar.unwrap().offer);
+    s.run("cmd merge.open_here");
+    assert!(
+        s.effects
+            .contains(&Effect::MergeSides("src/main.rs".into()))
+    );
+    s.send(Event::MergeSides {
+        path: "src/main.rs".into(),
+        base: "fn a() {}\nlet x = 0;\nfn b() {}\n".into(),
+        incoming: "themes · a41c9e2".into(),
+        current: "main · 0e890a1".into(),
+    });
+    let merge = s.editor.text_views().pop().unwrap().merge.unwrap();
+    assert!(merge.inline && merge.panes.is_empty());
+    let block = &merge.notes[0];
+    let labels: Vec<&str> = block.links.iter().map(|(l, _)| l.as_str()).collect();
+    assert_eq!(
+        labels,
+        [
+            "Accept Incoming",
+            "Accept Current",
+            "Accept Both",
+            "Side by side"
+        ]
+    );
+    assert_eq!(block.sides.len(), 4, "a title and a line for each side");
+    // Choosing leaves its note only.
+    s.send(Event::Ui(merlin_core::UiEvent::Press(
+        "merge:current:0".into(),
+    )));
+    assert_eq!(s.text(), "fn a() {}\nlet x = 1;\nfn b() {}\n");
+    let merge = s.editor.text_views().pop().unwrap().merge.unwrap();
+    assert!(merge.notes[0].sides.is_empty());
+    // Alt+I shows the panes.
+    s.run("key alt+i");
+    let merge = s.editor.text_views().pop().unwrap().merge.unwrap();
+    assert_eq!(merge.panes.len(), 2);
 }

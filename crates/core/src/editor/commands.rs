@@ -158,6 +158,11 @@ impl Editor {
         if id.starts_with("scm.") {
             return self.scm_command(id, fx);
         }
+        // Alt+I in the merge editor: the Result alone, or side by side.
+        if id == "diff.inline" && self.merging().is_some() {
+            self.merge_inline = Some(!self.merge_inline());
+            return;
+        }
         if id.starts_with("diff.") {
             return self.diff_command(id, fx);
         }

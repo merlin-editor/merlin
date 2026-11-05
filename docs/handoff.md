@@ -541,8 +541,20 @@ committed:
   or, with none left, Commit Merge (`merge.commit`) with a green dot
   (`Message.done`, `ToastView.done`). Checked in the window across two
   files, to the merge commit.
-- Still to build for Git, next: the merge editor's narrow layout and
-  Open in Merge Editor, then Compare Files (all in `MergeFlow.dc.html`).
+- **The merge editor, narrow:** under `SIDE_BY_SIDE` (125) columns of
+  Result, or by `merge_inline` (Alt+I, `MERGE_KEYS` under
+  `isInMergeEditor`, or a block's Side by side), it's the Result alone
+  (`GroupView.merge_inline`, `split_for_merge(.., inline)`). Each
+  conflict not chosen yet opens a block of rows over its base
+  (`block_line`, `block_rows`; `MergeNote.sides` with `MergeRow::Title`),
+  drawn by `Frame::merge_editor`; chosen ones keep their note. The bar is
+  shorter (`MergeBarView.inline`). A conflicted file opened as text shows
+  Open in Merge Editor (`MergeBarView.offer`, while it has markers, so a
+  file just completed doesn't flash it). Test:
+  `a_narrow_merge_editor_shows_both_sides_in_place_and_alt_i_switches`.
+  Checked in the window: Open in Merge Editor, the Result alone, Side by
+  side and Alt+I back, Accept in place, Complete.
+- Still to build for Git, next: Compare Files (in `MergeFlow.dc.html`).
 
 Saved for later, by the user's choice:
 

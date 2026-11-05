@@ -12,6 +12,13 @@ pub(super) const DIFF_KEYS: &[(&str, &str)] = &[
     ("alt+r", "diff.revert"),
 ];
 
+/// Keys in the merge editor: the changes tab's, for conflicts.
+pub(super) const MERGE_KEYS: &[(&str, &str)] = &[
+    ("alt+f5", "merge.next"),
+    ("alt+f3", "merge.prev"),
+    ("alt+i", "diff.inline"),
+];
+
 /// Keys that work wherever focus is, as VS Code binds them on Linux.
 pub(super) const GLOBAL_KEYS: &[(&str, &str)] = &[
     ("ctrl+s", "file.save"),

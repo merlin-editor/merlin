@@ -45,6 +45,8 @@ pub struct GroupView {
     /// Its tab shown is in the merge editor: the code is the Result, under
     /// Incoming and Current.
     pub merging: bool,
+    /// In the merge editor, the Result alone.
+    pub merge_inline: bool,
 }
 
 impl Editor {
@@ -83,6 +85,7 @@ impl Editor {
                     width: self.groups[g].width,
                     height: self.groups[g].height,
                     merging: self.merging().is_some(),
+                    merge_inline: self.merging().is_some() && self.merge_inline(),
                 })
             })
             .collect()

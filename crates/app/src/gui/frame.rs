@@ -302,7 +302,8 @@ pub fn group_areas(
             let merging = groups.get(g).is_some_and(|v| v.merging);
             let mut area = GroupArea::of(Rect::new(x, y, w, h), crumbs, minimap, sizes);
             if merging {
-                area.split_for_merge(sizes);
+                let inline = groups.get(g).is_some_and(|v| v.merge_inline);
+                area.split_for_merge(sizes, inline);
             }
             areas.push(area);
             if g + 1 < end {
@@ -355,8 +356,9 @@ impl GroupArea {
     }
 
     /// The merge editor's panes, as in VS Code: Incoming and Current side
-    /// by side, over the Result, whose code is the group's text.
-    fn split_for_merge(&mut self, sizes: &Sizes) {
+    /// by side, over the Result, whose code is the group's text; or the
+    /// Result alone.
+    fn split_for_merge(&mut self, sizes: &Sizes, inline: bool) {
         let body = Rect::new(
             self.text.x + 8.0,
             self.text.y,
@@ -367,7 +369,11 @@ impl GroupArea {
         let half = ((body.w - 8.0) / 2.0).floor().max(0.0);
         let incoming = Rect::new(body.x, body.y, half, top);
         let current = Rect::new(body.x + half + 8.0, body.y, body.w - half - 8.0, top);
-        let result = Rect::new(body.x, body.y + top + 8.0, body.w, body.h - top - 8.0);
+        let result = if inline {
+            body
+        } else {
+            Rect::new(body.x, body.y + top + 8.0, body.w, body.h - top - 8.0)
+        };
         let code_y = result.y + MERGE_HEAD_H;
         let code_h = (result.h - MERGE_HEAD_H - 1.0).max(0.0);
         let bar_w = sizes.scrollbar;
@@ -4252,10 +4258,18 @@ impl Frame<'_> {
         let h = 24.0;
         let y = row.y + (row.h - h) / 2.0;
         let mut x = right - 6.0;
-        for (label, command, primary) in [
-            ("Complete Merge", "merge.complete", true),
-            ("Accept All Incoming", "merge.accept_all_incoming", false),
-        ] {
+        // A file with markers opened as text: only the way in.
+        let buttons: &[(&str, &'static str, bool)] = if bar.offer {
+            &[("Open in Merge Editor", "merge.open_here", true)]
+        } else if bar.inline {
+            &[("Complete", "merge.complete", true)]
+        } else {
+            &[
+                ("Complete Merge", "merge.complete", true),
+                ("Accept All Incoming", "merge.accept_all_incoming", false),
+            ]
+        };
+        for &(label, command, primary) in buttons {
             let face = if primary { face.medium() } else { face };
             let w = self.text.width(label, face) + 20.0;
             x -= w;
@@ -4272,6 +4286,9 @@ impl Frame<'_> {
                 .draw_in_row(&mut self.canvas, label, face, r.x + 10.0, y, h, fg, r);
             self.hit(r, Hit::Command(command));
             x -= 6.0;
+        }
+        if bar.offer {
+            return right - x;
         }
         x -= 4.0;
         for (glyph, command) in [("↓", "merge.next"), ("↑", "merge.prev")] {
@@ -4293,10 +4310,11 @@ impl Frame<'_> {
             );
             self.hit(r, Hit::Command(command));
         }
-        let (label, colour) = match bar.left {
-            0 => ("No conflicts left".to_string(), p.success),
-            1 => ("1 conflict left".to_string(), p.error),
-            n => (format!("{n} conflicts left"), p.error),
+        let (label, colour) = match (bar.left, bar.inline) {
+            (0, _) => ("No conflicts left".to_string(), p.success),
+            (n, true) => (format!("{n} left"), p.error),
+            (1, false) => ("1 conflict left".to_string(), p.error),
+            (n, false) => (format!("{n} conflicts left"), p.error),
         };
         let lw = self.text.width(&label, face);
         x -= lw + 10.0;
@@ -4317,7 +4335,14 @@ impl Frame<'_> {
     /// each line of a conflict with its box and Accept under it, the
     /// panes' titles, and the Result's notes under its conflicts, from
     /// `y0`, the Result's first row.
-    pub fn merge_editor(&mut self, merge: &MergeView, area: &GroupArea, y0: f32, row_h: f32) {
+    pub fn merge_editor(
+        &mut self,
+        merge: &MergeView,
+        area: &GroupArea,
+        y0: f32,
+        row_h: f32,
+        gutter: f32,
+    ) {
         let p = self.p;
         let Some([incoming, current, result]) = area.merge else {
             return;
@@ -4350,7 +4375,11 @@ impl Frame<'_> {
         ) + 8.0;
         self.text.draw_in_row(
             &mut self.canvas,
-            &format!("{} · you can edit here", merge.name),
+            &if merge.inline {
+                "with each conflict in place".to_string()
+            } else {
+                format!("{} · you can edit here", merge.name)
+            },
             face,
             x,
             head.y,
@@ -4360,7 +4389,7 @@ impl Frame<'_> {
         );
         let hint = "Base shows through until you choose";
         let hw = self.text.width(hint, face);
-        if head.w > 520.0 {
+        if head.w > 520.0 && !merge.inline {
             self.text.draw_in_row(
                 &mut self.canvas,
                 hint,
@@ -4375,41 +4404,120 @@ impl Frame<'_> {
         // Each conflict's note and links, in the row under it.
         let code = area.text;
         let link = Face::ui(11.5);
+        let clip = Rect::new(code.x, code.y, code.w, code.h);
+        let text_x = code.x + gutter;
         for note in &merge.notes {
             let y = y0 + note.row as f32 * row_h;
-            if y + row_h <= code.y || y >= code.bottom() {
+            let rows = 1 + note.sides.len();
+            if y + rows as f32 * row_h <= code.y || y >= code.bottom() {
                 continue;
             }
-            let clip = Rect::new(code.x, code.y, code.w, code.h);
             self.canvas.fill(
-                Rect::new(code.x, y, code.w, row_h).intersect(clip),
+                Rect::new(code.x, y, code.w, rows as f32 * row_h).intersect(clip),
                 p.island,
             );
-            let mut x = code.x + 46.0;
-            x += self.text.draw_in_row(
-                &mut self.canvas,
-                &note.text,
-                link,
-                x,
-                y,
-                row_h,
-                p.muted,
-                clip,
-            ) + 6.0;
-            for (label, id) in &note.links {
-                x += self
-                    .text
-                    .draw_in_row(&mut self.canvas, "·", link, x, y, row_h, p.muted, clip)
-                    + 6.0;
+            let mut x = text_x;
+            if !note.text.is_empty() {
+                x += self.text.draw_in_row(
+                    &mut self.canvas,
+                    &note.text,
+                    link,
+                    x,
+                    y,
+                    row_h,
+                    p.muted,
+                    clip,
+                ) + 6.0;
+            }
+            for (k, (label, id)) in note.links.iter().enumerate() {
+                if k > 0 || !note.text.is_empty() {
+                    x += self.text.draw_in_row(
+                        &mut self.canvas,
+                        "·",
+                        link,
+                        x,
+                        y,
+                        row_h,
+                        p.muted,
+                        clip,
+                    ) + 6.0;
+                }
                 let w = self.text.width(label, link);
                 let r = Rect::new(x - 2.0, y + 2.0, w + 4.0, row_h - 4.0);
                 if self.hovered(r) {
                     self.canvas.round(r, 4.0, p.hover);
                 }
+                // Side by side changes the view, not the text: muted.
+                let colour = if id.starts_with("merge:side") {
+                    p.muted
+                } else {
+                    p.accent
+                };
                 self.text
-                    .draw_in_row(&mut self.canvas, label, link, x, y, row_h, p.accent, clip);
+                    .draw_in_row(&mut self.canvas, label, link, x, y, row_h, colour, clip);
                 self.hit(r.intersect(clip), Hit::Ui(UiEvent::Press(id.clone())));
                 x += w + 6.0;
+            }
+            // In the Result alone: both sides under their titles.
+            for (k, row) in note.sides.iter().enumerate() {
+                let ry = y + (k + 1) as f32 * row_h;
+                if ry >= code.bottom() {
+                    break;
+                }
+                let line = Rect::new(code.x, ry, code.w, row_h).intersect(clip);
+                match row {
+                    MergeRow::Title(side, label) => {
+                        let (who, edge) = match side {
+                            MergeSide::Incoming => ("Incoming", p.git_changed),
+                            MergeSide::Current => ("Current", p.success),
+                        };
+                        self.canvas.fill(line, mix(edge, p.island, 0.10));
+                        self.text.draw_in_row(
+                            &mut self.canvas,
+                            &format!("{who} · {label}"),
+                            Face::ui(11.0),
+                            text_x,
+                            ry,
+                            row_h,
+                            mix(edge, p.bright, 0.7),
+                            clip,
+                        );
+                    }
+                    MergeRow::Line {
+                        number,
+                        text,
+                        colours,
+                        ..
+                    } => {
+                        let incoming = note.sides[..k]
+                            .iter()
+                            .rfind(|r| matches!(r, MergeRow::Title(..)))
+                            .is_some_and(|r| matches!(r, MergeRow::Title(MergeSide::Incoming, _)));
+                        let edge = if incoming { p.git_changed } else { p.success };
+                        let tint = if incoming { 0.16 } else { 0.15 };
+                        self.canvas.fill(line, mix(edge, p.island, tint));
+                        self.canvas.fill(
+                            Rect::new(text_x - 6.0, ry, 3.0, row_h).intersect(clip),
+                            edge,
+                        );
+                        if incoming {
+                            let n = number.to_string();
+                            let nw = self.text.width(&n, CODE);
+                            self.text.draw_in_row(
+                                &mut self.canvas,
+                                &n,
+                                CODE,
+                                text_x - 14.0 - nw,
+                                ry,
+                                row_h,
+                                p.faint,
+                                clip,
+                            );
+                        }
+                        self.code_line(text, colours, text_x, ry, row_h, clip);
+                    }
+                    MergeRow::Accept(_) => {}
+                }
             }
         }
     }
@@ -4538,6 +4646,7 @@ impl Frame<'_> {
                     }
                     self.code_line(text, colours, text_x, y, row_h, code);
                 }
+                MergeRow::Title(..) => {}
                 MergeRow::Accept(i) => {
                     let link = Face::ui(11.5);
                     let w = self.text.width(accept, link);

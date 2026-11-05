@@ -652,16 +652,12 @@ impl Editor {
                 view.change = self.change_view(row);
                 row += gap as i32;
             }
-            // A conflict's note under its last line in the merge editor.
-            if self.merge_gap(line) > 0
-                && let Some(m) = self.merging()
-            {
-                for (i, c) in m.conflicts.iter().enumerate() {
-                    if c.result.end.max(1) - 1 == line {
-                        notes.extend(self.merge_note(i, row));
-                        row += 1;
-                    }
-                }
+            // A conflict's note under it in the merge editor, or both
+            // sides over it in the Result alone.
+            if self.merge_gap(line) > 0 {
+                let (more, next) = self.merge_notes(line, row);
+                notes.extend(more);
+                row = next;
             }
             line += 1;
         }

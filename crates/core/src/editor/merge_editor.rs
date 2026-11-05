@@ -48,9 +48,28 @@ pub(crate) struct Conflict {
     pub edited: bool,
 }
 
+/// Below this many columns, the merge editor is the Result alone, each
+/// conflict shown in place with both sides.
+const SIDE_BY_SIDE: u16 = 125;
+
 impl Conflict {
     fn chosen(&self) -> bool {
         self.edited || self.take_incoming.contains(&true) || self.take_current.contains(&true)
+    }
+
+    /// The Result's line its note goes under: its last.
+    fn note_line(&self) -> usize {
+        self.result.end.max(1) - 1
+    }
+
+    /// The line both sides open under in the Result alone: the one before
+    /// it, and their rows: the links, then each side's title and lines.
+    fn block_line(&self) -> usize {
+        self.result.start.saturating_sub(1)
+    }
+
+    fn block_rows(&self) -> usize {
+        3 + self.incoming.len() + self.current.len()
     }
 }
 
@@ -276,6 +295,10 @@ impl Merging {
 pub struct MergeBarView {
     pub left: usize,
     pub conflicts: usize,
+    /// The Result alone: a shorter bar.
+    pub inline: bool,
+    /// Not merging yet: only Open in Merge Editor.
+    pub offer: bool,
 }
 
 /// A line of Incoming or Current, as its pane shows it.
@@ -292,6 +315,8 @@ pub enum MergeRow {
     },
     /// Under a conflict: Accept for its side.
     Accept(usize),
+    /// In the Result alone, over a side's lines: which, and what it is.
+    Title(MergeSide, String),
 }
 
 /// Incoming or Current, from the row the Result's top is at.
@@ -312,12 +337,17 @@ pub struct MergeNote {
     pub text: String,
     /// Each link's label and its id for [`super::UiEvent::Press`].
     pub links: Vec<(String, String)>,
+    /// In the Result alone, a conflict not chosen yet: both sides, in the
+    /// rows under its links.
+    pub sides: Vec<MergeRow>,
 }
 
 /// What the merge editor shows besides the Result's text.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MergeView {
-    pub panes: [MergePaneView; 2],
+    /// Incoming and Current; none in the Result alone.
+    pub panes: Vec<MergePaneView>,
+    pub inline: bool,
     /// The Result's file name.
     pub name: String,
     pub notes: Vec<MergeNote>,
@@ -409,13 +439,121 @@ impl Editor {
         }
     }
 
-    /// Rows the merge editor opens after `line`, for a conflict's note.
+    /// Whether the merge editor is the Result alone: in a narrow group,
+    /// unless Alt+I says otherwise.
+    pub(crate) fn merge_inline(&self) -> bool {
+        self.merge_inline
+            .unwrap_or(self.layout().text.w < SIDE_BY_SIDE)
+    }
+
+    /// Rows the merge editor opens after `line`: a conflict's note, or in
+    /// the Result alone, both sides of one not chosen yet.
     pub(crate) fn merge_gap(&self, line: usize) -> usize {
         let Some(m) = self.merging() else { return 0 };
+        let inline = self.merge_inline();
         m.conflicts
             .iter()
-            .filter(|c| c.result.end.max(1) - 1 == line)
-            .count()
+            .map(|c| match inline && !c.chosen() {
+                true if c.block_line() == line => c.block_rows(),
+                false if c.note_line() == line => 1,
+                _ => 0,
+            })
+            .sum()
+    }
+
+    /// The notes and blocks after `line`, from screen row `row`, and the
+    /// row after them.
+    pub(crate) fn merge_notes(&self, line: usize, mut row: i32) -> (Vec<MergeNote>, i32) {
+        let mut out = Vec::new();
+        let Some(m) = self.merging() else {
+            return (out, row);
+        };
+        let inline = self.merge_inline();
+        for (i, c) in m.conflicts.iter().enumerate() {
+            if inline && !c.chosen() {
+                if c.block_line() == line {
+                    out.extend(self.merge_block(i, row));
+                    row += c.block_rows() as i32;
+                }
+            } else if c.note_line() == line {
+                out.extend(self.merge_note(i, row));
+                row += 1;
+            }
+        }
+        (out, row)
+    }
+
+    /// A file's extension, for its colours.
+    fn merge_ext(m: &Merging) -> String {
+        std::path::Path::new(&m.path)
+            .extension()
+            .map(|e| e.to_string_lossy().to_ascii_lowercase())
+            .unwrap_or_default()
+    }
+
+    /// Each of `lines` with its colours, as `ext`.
+    fn coloured(
+        &self,
+        ext: &str,
+        lines: &[&str],
+    ) -> Vec<Vec<(usize, usize, merlin_syntax::Syntax)>> {
+        let spans = self.colours.get(ext, &lines.join("\n")).unwrap_or_default();
+        let mut offset = 0;
+        lines
+            .iter()
+            .map(|text| {
+                let len = text.chars().count();
+                let colours = spans
+                    .iter()
+                    .filter(|&&(a, b, _)| b > offset && a < offset + len)
+                    .map(|&(a, b, s)| (a.saturating_sub(offset), (b - offset).min(len), s))
+                    .collect();
+                offset += len + 1;
+                colours
+            })
+            .collect()
+    }
+
+    /// Conflict `i` in the Result alone, at screen row `row`: its links,
+    /// then Incoming's lines and Current's under their titles.
+    fn merge_block(&self, i: usize, row: i32) -> Option<MergeNote> {
+        let m = self.merging()?;
+        let c = m.conflicts.get(i)?;
+        let ext = Self::merge_ext(m);
+        let link = |label: &str, what: &str| (label.to_string(), format!("merge:{what}:{i}"));
+        let mut sides = Vec::new();
+        for (side, label, lines, range) in [
+            (
+                MergeSide::Incoming,
+                &m.incoming,
+                &m.incoming_lines,
+                &c.incoming,
+            ),
+            (MergeSide::Current, &m.current, &m.current_lines, &c.current),
+        ] {
+            sides.push(MergeRow::Title(side, label.clone()));
+            let texts: Vec<&str> = lines[range.clone()].iter().map(|l| bare(l)).collect();
+            for (k, (text, colours)) in texts.iter().zip(self.coloured(&ext, &texts)).enumerate() {
+                sides.push(MergeRow::Line {
+                    number: range.start + k + 1,
+                    text: text.to_string(),
+                    colours,
+                    conflict: Some((i, k, false)),
+                });
+            }
+        }
+        Some(MergeNote {
+            row,
+            conflict: i,
+            text: String::new(),
+            links: vec![
+                link("Accept Incoming", "incoming"),
+                link("Accept Current", "current"),
+                link("Accept Both", "both"),
+                link("Side by side", "side"),
+            ],
+            sides,
+        })
     }
 
     /// The Result's line's look in a conflict: from Incoming, from Current,
@@ -472,6 +610,7 @@ impl Editor {
             conflict: i,
             text: text.into(),
             links,
+            sides: Vec::new(),
         })
     }
 
@@ -479,10 +618,7 @@ impl Editor {
     pub(crate) fn merge_view(&self, rows: usize, notes: Vec<MergeNote>) -> Option<MergeView> {
         let m = self.merging()?;
         let top = self.view().scroll;
-        let ext = std::path::Path::new(&m.path)
-            .extension()
-            .map(|e| e.to_string_lossy().to_ascii_lowercase())
-            .unwrap_or_default();
+        let ext = Self::merge_ext(m);
         let pane = |side: MergeSide| {
             let (lines, detail) = match side {
                 MergeSide::Incoming => (&m.incoming_lines, &m.incoming),
@@ -516,21 +652,10 @@ impl Editor {
                 .take(rows + 1)
                 .map(|l| bare(l))
                 .collect();
-            let spans = self
-                .colours
-                .get(&ext, &shown.join("\n"))
-                .unwrap_or_default();
             let mut out = Vec::new();
-            let mut offset = 0;
-            for (k, text) in shown.iter().enumerate() {
+            let colours = self.coloured(&ext, &shown);
+            for (k, (text, colours)) in shown.iter().zip(colours).enumerate() {
                 let n = first + k;
-                let len = text.chars().count();
-                let colours = spans
-                    .iter()
-                    .filter(|&&(a, b, _)| b > offset && a < offset + len)
-                    .map(|&(a, b, s)| (a.saturating_sub(offset), (b - offset).min(len), s))
-                    .collect();
-                offset += len + 1;
                 let at = m
                     .conflicts
                     .iter()
@@ -559,18 +684,46 @@ impl Editor {
         let name = std::path::Path::new(&m.path)
             .file_name()
             .map_or(m.path.clone(), |n| n.to_string_lossy().to_string());
+        let inline = self.merge_inline();
         Some(MergeView {
-            panes: [pane(MergeSide::Incoming), pane(MergeSide::Current)],
+            panes: if inline {
+                Vec::new()
+            } else {
+                vec![pane(MergeSide::Incoming), pane(MergeSide::Current)]
+            },
+            inline,
             name,
             notes,
         })
     }
 
+    /// The merge editor's bar; for a file with conflicts opened another
+    /// way, Open in Merge Editor.
     pub(crate) fn merge_bar(&self) -> Option<MergeBarView> {
-        let m = self.merging()?;
+        let Some(m) = self.merging() else {
+            let doc = self.doc();
+            let path = doc.buffer.path.as_ref()?.to_string_lossy();
+            // Git's status is a step behind a file just completed, so the
+            // markers say.
+            let conflicted = doc.review.is_none()
+                && self.git.files.iter().any(|(p, s)| *s == '!' && *p == path)
+                && doc
+                    .buffer
+                    .rope()
+                    .lines()
+                    .any(|l| l.chars().take(8).eq("<<<<<<< ".chars()));
+            return conflicted.then_some(MergeBarView {
+                left: 0,
+                conflicts: 0,
+                inline: false,
+                offer: true,
+            });
+        };
         Some(MergeBarView {
             left: m.left(),
             conflicts: m.conflicts.len(),
+            inline: self.merge_inline(),
+            offer: false,
         })
     }
 
@@ -645,6 +798,7 @@ impl Editor {
     pub(crate) fn merge_press(&mut self, id: &str) {
         let parts: Vec<&str> = id.split(':').collect();
         match parts.as_slice() {
+            ["merge", "side", _] => self.merge_inline = Some(false),
             ["merge", "box", side, i, line] => {
                 let side = if *side == "i" {
                     MergeSide::Incoming
@@ -672,6 +826,13 @@ impl Editor {
         }
         if id == "merge.commit" {
             return self.finish_merge(fx);
+        }
+        if id == "merge.open_here" {
+            let path = self.doc().buffer.path.clone();
+            if let Some(path) = path {
+                self.open_merge(&path.to_string_lossy(), fx);
+            }
+            return;
         }
         if self.merging().is_none() {
             return self.notify("No file is being merged here".into());

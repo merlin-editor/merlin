@@ -956,6 +956,8 @@ pub struct Editor {
     pending_merge: Option<(String, String, (String, String))>,
     /// Files completed in the merge editor, to stage once they're saved.
     merge_staging: Vec<(u64, String)>,
+    /// Alt+I in the merge editor: the Result alone, or side by side.
+    merge_inline: Option<bool>,
     /// Who last changed each line, by file, as of a version of its text,
     /// and what was last asked for. `now` is the time blame last came.
     blames: HashMap<PathBuf, (u64, crate::git::Blame)>,
@@ -1002,7 +1004,7 @@ pub struct Editor {
                 Vec<usize>,
                 Option<(usize, usize)>,
                 Option<(usize, u64, bool)>,
-                Option<(u64, usize)>,
+                Option<(u64, usize, bool)>,
             ),
             std::rc::Rc<Vec<usize>>,
         )>,
@@ -1139,6 +1141,7 @@ impl Editor {
             merges: Vec::new(),
             pending_merge: None,
             merge_staging: Vec::new(),
+            merge_inline: None,
             blames: HashMap::new(),
             blame_asked: None,
             now: 0,

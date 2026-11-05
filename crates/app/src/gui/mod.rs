@@ -1292,7 +1292,8 @@ impl Gui<'_> {
                 _ => 0.0,
             };
             let y0 = area.text.y + (text.area.y as f32 - text.top_frac) * row_h + glide / s;
-            f.merge_editor(merge, area, y0, row_h);
+            let gutter = text.gutter as f32 * grid.cell_w as f32 / s;
+            f.merge_editor(merge, area, y0, row_h, gutter);
         }
         // A commit's card over the blame column.
         for text in &texts {
