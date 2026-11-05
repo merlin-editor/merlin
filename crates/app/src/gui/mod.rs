@@ -105,6 +105,9 @@ pub fn run(app: &mut App) -> Result<()> {
         .build()
         .context("opening a window")?;
     let _ = PROXY.set(Mutex::new(event_loop.create_proxy()));
+    // Plugins' processes may have answered before there was a loop to
+    // wake, as a language server started for the file opened first does.
+    let _ = event_loop.create_proxy().send_event(());
     let mut gui = Gui {
         app,
         window: None,
