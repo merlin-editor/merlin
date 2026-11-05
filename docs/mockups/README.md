@@ -28,8 +28,10 @@ exact paddings, follow the window's existing helpers (`Frame`, `Canvas`,
 | `Workspace.dc.html` | Several folders, a second window | An Explorer with a root header for each folder, each with its branch, and Add Folder. Tabs name their folder. A second window for a tab dragged out. |
 | `Markdown.dc.html` | Markdown preview | A preview beside the source (Ctrl+K V) that scrolls with it, with tables and Mermaid diagrams. |
 | `Hover.dc.html` | Problems in the hover card | Hovering a squiggle puts the problem first: an icon for its severity, the message, rustc's second line and `help:`, then the source and code (`rustc E0308`, linked). The preferred fix is one click, with More fixes on Ctrl+. beside it. A divider follows, then the type and docs the hover shows today. Where there's no hover, the card shows the problem alone. The card stays open while the pointer moves into it, Ctrl+K Ctrl+I opens it at the cursor, and long hovers scroll. |
+| `Format.dc.html` | Format and format on save | The approved "Format the file Ctrl Shift I" row in the code actions card, with "Format the selection Ctrl K Ctrl F" while something is selected. Format on save in Settings › Files as Off, File or Changed lines (only what git says changed). "Formatting…" in the status bar while a save waits, at most 1.5 s, and a notice when it saved unformatted. File: Save without Formatting (Ctrl K S). |
 
-`Hover.dc.html` came later and the user approved it on 2026-11-05 too.
+`Hover.dc.html` and `Format.dc.html` came later, and the user approved
+them on 2026-11-05 too.
 It isn't on the live canvas.
 
 Hot exit has no mock-up: it changes only whether quitting asks. Unsaved
