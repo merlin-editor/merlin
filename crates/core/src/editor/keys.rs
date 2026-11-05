@@ -92,6 +92,7 @@ pub(super) const EDITOR_KEYS: &[(&str, &str)] = &[
 /// Two keys in a row, as VS Code's Ctrl+K chords.
 pub(super) const CHORDS: &[(&str, &str, &str)] = &[
     ("ctrl+k", "ctrl+d", "edit.skip_next"),
+    ("ctrl+k", "ctrl+i", "view.hover"),
     ("ctrl+k", "ctrl+0", "edit.fold_all"),
     ("ctrl+k", "ctrl+j", "edit.unfold_all"),
     ("ctrl+k", "ctrl+t", "theme.pick"),

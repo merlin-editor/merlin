@@ -110,6 +110,7 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
     ("view.group2", "View: Focus Second Editor Group"),
     ("view.group3", "View: Focus Third Editor Group"),
     ("view.problems", "View: Problems"),
+    ("view.hover", "View: Show Hover and Problems"),
     ("view.output", "View: Output"),
     ("go.line", "Go: Go to Line…"),
     ("review.next", "Go: Next Change to Review"),
@@ -213,6 +214,7 @@ impl Editor {
                 self.scroll_to_cursor();
             }
             "view.problems" => self.show_bottom(views::PROBLEMS),
+            "view.hover" => self.hover_at_cursor(fx),
             "view.output" => self.show_bottom(views::OUTPUT),
             "view.secondary" => {
                 let bar = self.bar_mut(Side::Right);

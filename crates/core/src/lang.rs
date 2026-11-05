@@ -2,21 +2,26 @@
 //! Positions count UTF-16 code units in their line, as LSP does.
 
 /// Most severe first, so the smallest wins.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Severity {
+    #[default]
     Error,
     Warning,
     Info,
     Hint,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Diagnostic {
     /// Line and UTF-16 column.
     pub start: (u32, u32),
     pub end: (u32, u32),
     pub severity: Severity,
     pub message: String,
+    /// What reported it, such as `rustc` or `clippy`, and its code, such
+    /// as `E0308`. Either may be empty.
+    pub source: String,
+    pub code: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -75,6 +80,8 @@ pub struct Mark {
     pub end: usize,
     pub severity: Severity,
     pub message: String,
+    pub source: String,
+    pub code: String,
 }
 
 /// A language a plugin adds, as a VS Code extension contributes one: the

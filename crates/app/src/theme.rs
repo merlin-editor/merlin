@@ -384,7 +384,7 @@ pub fn hue(p: &Palette, hue: Hue) -> u32 {
     }
 }
 
-fn severity(p: &Palette, severity: Severity) -> u32 {
+pub fn severity(p: &Palette, severity: Severity) -> u32 {
     match severity {
         Severity::Error => p.error,
         Severity::Warning => p.warning,

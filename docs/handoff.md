@@ -79,6 +79,38 @@ Built, each checked in the window with rust-analyzer:
   - Tests: the two `signature_help_*` tests in
     `crates/core/tests/language.rs`.
 
+- **Problems in the hover card** (mock-up `Hover.dc.html`, approved
+  2026-11-05). Resting the mouse on a squiggle shows a card with the
+  problem first:
+  - the severity's icon, the message bright and its other lines muted
+  - rustc's hint for the same code folded in as a `help:` note
+  - the source as a chip, and the code
+  - Copy and Show in Problems buttons
+  - a divider, then the server's hover
+
+  More of how it behaves:
+  - The problem part shows at once and the server's part joins it.
+  - Off a word, or with no server, it's the problem alone.
+  - The same problem from two checkers shows once, if their first lines
+    match. rust-analyzer words some errors differently from rustc, so
+    those show twice.
+  - The card stays open while the mouse is on the word, on the
+    problem's range, or over the card and the gap above it.
+  - Ctrl+K Ctrl+I (`view.hover`, also the right-click menu's Show Hover)
+    opens it for the cursor.
+
+  Where it lives:
+  - API: a new host call, `set-detailed-diagnostics`, takes a
+    `detailed-diagnostic` record (a diagnostic plus `source` and
+    `code`). The LSP plugin uses it; old plugins' `set-diagnostics`
+    still works, with no source or code.
+  - Core: `Diagnostic` and `Mark` gained `source` and `code`.
+    `problems_at`, `hover_at`, `hover_at_cursor`, `show_hover` and
+    `pointer_moved` are in `context.rs`. `PopupKind::Hover` is
+    `{ problems, lines }`, and the buttons send `UiEvent::Hover`.
+  - Window: `Frame::problems` and `small_button` in `frame.rs`.
+  - Tests: the hover tests at the end of `crates/core/tests/language.rs`.
+
 Not built yet, in the order to do them:
 
 1. **Code actions and the lightbulb.** The mock-up has a lightbulb in the
@@ -89,37 +121,14 @@ Not built yet, in the order to do them:
    `editor.format_on_save`.
 3. **Rename.** F2 opens an inline box over the name, with "Enter to
    rename N places in M files · Shift+Enter to review first".
-4. **Problems in the hover card.** The user asked (2026-11-05) whether
-   hovering a squiggle gives a proper hover, as other editors do. It
-   doesn't yet.
-   - Today, resting the mouse on a word asks the server for its hover
-     (`hover_at` in `context.rs`): its type and docs only. The problem
-     under the pointer isn't shown. Its message shows only in the status
-     bar when the cursor is on it (`cursor_mark` in `chrome.rs`), and now
-     after the line.
-   - VS Code's hover over a squiggle puts the problem first: the message
-     coloured by severity, its source and code (such as `rustc E0308`,
-     linked), and "View Problem" and "Quick Fix… (Ctrl+.)". A divider
-     follows, then the type and docs. It also shows when the pointer
-     rests on a squiggle that isn't on a word, and a problem-only card
-     appears even without a language server's hover.
-   - To build it:
-     - have `hover_at` also look up `doc.marks` under the pointer
-     - give `Popup::Hover` / `PopupKind::Hover` a problems part
-     - let `Diagnostic` carry the server's `source` and `code`
-     - draw them in `Frame::popup`
-   - Its mock-up is [`mockups/Hover.dc.html`](mockups/Hover.dc.html)
-     (2026-11-05), **approved** the same day. It also answers the
-     most-voted hover complaints on VS Code's tracker:
-     - errors sank to the bottom of long hovers (131 votes)
-     - no way to scroll a hover with the keyboard (215)
-     - the hover vanished when the pointer moved into it (114). merlin
-       has the same problem: `pointer_moved` closes the card once the
-       pointer leaves the word.
-     - no way to go to the definition from the hover (61)
-
-     The one-click preferred fix and More fixes both depend on code
-     actions (item 1).
+4. **The rest of the problem hover.** Its first part is built (see
+   **Problems in the hover card** above). Still to do, from
+   [`mockups/Hover.dc.html`](mockups/Hover.dc.html):
+   - the server's preferred fix as one button, and More fixes (Ctrl+.),
+     once code actions (item 1) exist
+   - scrolling a long hover with the keyboard (↑ ↓ once it's focused)
+   - Go to definition in the hover, and the code (`E0308`) linked to
+     its explanation
 5. **Find references** has its own mock-up (`References.dc.html`), the
    next item after these.
 
@@ -206,7 +215,7 @@ These are suggestions; nothing of them is written yet.
   straight into core `Event`s. The Rust SDK's re-exports are in
   `sdk/rust/src/lib.rs`; add new types to both lists there.
 - Checks before each commit:
-  - `cargo test --workspace`: 312 tests passed at `d4283cc`
+  - `cargo test --workspace`: 318 tests passed with the problem hover
   - `cargo clippy --workspace --all-targets`
   - in `plugins/lsp`: `cargo clippy --release --target wasm32-wasip2`
   - `cargo fmt --all`
@@ -219,9 +228,12 @@ python-uinput scripts for the mouse. They were in that session's
 scratchpad, which the next agent won't have, so here is enough to
 recreate them:
 
-- **Launch:** kill any running `target/release/merlin` with an
-  *anchored* `pgrep -f '^/home/marc/programming/rust/merlin/target/release/merlin'`
-  (an unanchored pattern can kill your own shell). Then, from a test
+- **Launch:** kill any running `target/release/merlin` by its PID, from
+  an *anchored*
+  `pgrep -f '^/home/marc/programming/rust/merlin/target/release/merlin'`.
+  An unanchored pattern can kill your own shell. `pkill` with that
+  pattern once left the old one running, and the next launch did
+  nothing. Then, from a test
   project folder, run
   `setsid target/release/merlin src/main.rs > log 2>&1 < /dev/null &`.
   Poll `hyprctl clients -j` for the window whose `class` is `""`, and
@@ -230,6 +242,19 @@ recreate them:
   `hyprctl clients -j`, then `grim -g "x,y wxh" out.png`.
 - **Keys:** `wtype -M ctrl s -m ctrl` presses Ctrl+S, and `wtype "text"`
   types text.
+  Send a chord's keys as separate calls (`wtype -M ctrl -k k -m ctrl`,
+  then the same for `i`). One call drops the second key.
+- **Mouse:** `hyprctl dispatch movecursor` moves the cursor without
+  sending the window any motion, so hovers never fire. Warp there, then
+  nudge it with a virtual mouse, using python's `evdev`
+  (`/dev/uinput` is writable):
+  - make `UInput({EV_REL: [REL_X, REL_Y], EV_KEY: [BTN_LEFT]})`
+  - wait 0.3 s for it to register
+  - `movecursor` to one pixel left of the target
+  - write `REL_X` +1 and −1 a few times, then +1
+  - for a click, `BTN_LEFT` 1 then 0
+  - give zsh one script per call: an unquoted `$var` holding a command
+    with arguments isn't split.
 - **Test project:** a small Cargo project whose `src/main.rs` has a
   type error (`let count: u32 = steps.len();`), an unused variable, and
   calls with several arguments shows every language feature.

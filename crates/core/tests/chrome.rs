@@ -36,6 +36,7 @@ fn problem(s: &mut Session) {
             end: (0, 9),
             severity: Severity::Error,
             message: "something is wrong".into(),
+            ..Default::default()
         }],
     });
 }

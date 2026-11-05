@@ -237,6 +237,7 @@ fn the_scrollbar_marks_rows_of_the_file() {
             end: (50, 4),
             severity: Severity::Error,
             message: "bad".into(),
+            ..Default::default()
         }],
     });
     s.run("key ctrl+g; type 76; key enter; key shift+end");

@@ -38,7 +38,9 @@ pub use window::{
     PaletteView, RailItem, SideView, StatusView, TabView, ToastView, UiEvent, WindowView,
 };
 
-pub use context::{ContextItem, ContextView, PopupKind, PopupView, SignatureView};
+pub use context::{
+    ContextItem, ContextView, HoverButton, PopupKind, PopupView, ProblemView, SignatureView,
+};
 pub use dialog::DialogView;
 pub use files::{FileOp, FilePick};
 pub use find::{FindAction, FindView};
@@ -573,7 +575,14 @@ enum Source {
 }
 
 enum Popup {
-    Hover(Vec<String>),
+    /// The problems at a spot, worst first, then what the language server
+    /// says about it, a line each. A hover the mouse brought up stays while
+    /// the mouse is in `span`, the word and the problems' ranges.
+    Hover {
+        problems: Vec<context::ProblemView>,
+        lines: Vec<String>,
+        span: Option<(usize, usize)>,
+    },
     Completion {
         items: Vec<Completion>,
         selected: usize,
@@ -1011,7 +1020,16 @@ impl Editor {
     /// The text of the popup, if one is showing, for tests.
     pub fn popup_text(&self) -> Option<String> {
         match self.popup.as_ref()? {
-            Popup::Hover(lines) => Some(lines.join("\n")),
+            Popup::Hover {
+                problems, lines, ..
+            } => Some(
+                problems
+                    .iter()
+                    .map(|p| p.message.as_str())
+                    .chain(lines.iter().map(String::as_str))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            ),
             Popup::Completion { .. } => Some(
                 self.completions()
                     .iter()
@@ -1281,10 +1299,8 @@ impl Editor {
             }
             Event::ShowHover(text) => {
                 let lines: Vec<String> = text.trim().lines().map(String::from).collect();
-                // A hover the mouse asked for is about the word it's on.
-                self.hover_anchor = self.probe.map(|(start, _)| start);
                 if self.focus == Focus::Editor && !lines.is_empty() {
-                    self.popup = Some(Popup::Hover(lines));
+                    self.show_hover(lines);
                 }
             }
             Event::ShowSignature(signature) => {
@@ -1591,6 +1607,8 @@ impl Editor {
                     end: doc.pos_at_utf16(d.end.0, d.end.1).max(start),
                     severity: d.severity,
                     message: d.message.clone(),
+                    source: d.source.clone(),
+                    code: d.code.clone(),
                 }
             })
             .collect();
@@ -2001,7 +2019,7 @@ impl Editor {
         }
         match &mut self.popup {
             None => false,
-            Some(Popup::Hover(_)) => {
+            Some(Popup::Hover { .. }) => {
                 self.popup = None;
                 key.code == KeyCode::Esc
             }

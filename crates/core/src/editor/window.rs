@@ -107,6 +107,8 @@ pub enum UiEvent {
         index: usize,
     },
     SideMenu(Side),
+    /// A button in the hover card.
+    Hover(super::context::HoverButton),
 }
 
 /// What the window draws around the text.
@@ -421,6 +423,7 @@ impl Editor {
     pub(crate) fn ui(&mut self, event: UiEvent, fx: &mut Vec<Effect>) {
         match event {
             UiEvent::ContextItem(i) => self.context_item(i, fx),
+            UiEvent::Hover(button) => self.hover_button(button, fx),
             UiEvent::CloseContext => self.close_context(),
             UiEvent::MenuTitle(i) => self.menu_title(i),
             UiEvent::MenuItem(i) => self.menu_item(i, fx),

@@ -508,15 +508,13 @@ impl Editor {
                     kind: i.kind,
                 })
                 .collect();
-            let note = note
-                .filter(|_| self.inline_notes)
-                .map(|m| {
-                    let text = note_text(&m.message);
-                    match notable.len().saturating_sub(1) {
-                        0 => (m.severity, text),
-                        more => (m.severity, format!("{text}  (+{more} more)")),
-                    }
-                });
+            let note = note.filter(|_| self.inline_notes).map(|m| {
+                let text = note_text(&m.message);
+                match notable.len().saturating_sub(1) {
+                    0 => (m.severity, text),
+                    more => (m.severity, format!("{text}  (+{more} more)")),
+                }
+            });
             let swatches = if self.colour_swatches && doc.review.is_none() {
                 super::swatches::find(&chars)
             } else {

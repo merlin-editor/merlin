@@ -3,13 +3,15 @@
 //! from resting the mouse on a word, as other editors do it.
 
 use super::{Editor, Effect, Focus, Popup};
+use crate::icons::{Icon, icon};
 use crate::key::{Key, KeyCode};
+use crate::lang::Severity;
 
 /// The right-click menu's commands, by id; `-` is a separator. Plugin
 /// commands that aren't loaded are left out.
 const ITEMS: &[(&str, &str)] = &[
     ("lsp.definition", "Go to Definition"),
-    ("lsp.hover", "Show Hover"),
+    ("view.hover", "Show Hover"),
     ("-", ""),
     ("edit.select_all_matches", "Change All Occurrences"),
     ("edit.expand_selection", "Expand Selection"),
@@ -60,10 +62,34 @@ pub struct SignatureView {
     pub signature: crate::lang::Signature,
 }
 
+/// A button in the hover card.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HoverButton {
+    /// Copy what the card's problems say.
+    Copy,
+    /// Show every problem in the Problems panel.
+    Problems,
+}
+
+/// A problem in a hover card: what it says, and what reported it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProblemView {
+    pub severity: Severity,
+    /// The severity's icon, as Problems shows it.
+    pub icon: char,
+    pub message: String,
+    pub source: String,
+    pub code: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PopupKind {
-    /// Markdown, a line each.
-    Hover(Vec<String>),
+    /// The problems at the spot, worst first, then the language server's
+    /// hover as Markdown, a line each. Either may be empty.
+    Hover {
+        problems: Vec<ProblemView>,
+        lines: Vec<String>,
+    },
     /// Labels and details, and the one Enter takes.
     Completion {
         items: Vec<(String, String)>,
@@ -219,39 +245,177 @@ impl Editor {
             && self.context.is_none()
             && text.contains(x, y)
             && (x as usize) >= text.x as usize + self.gutter();
-        let has_hover = self
-            .plugins
-            .iter()
-            .any(|p| p.name == "lsp" && p.commands.iter().any(|c| c.id == "hover"));
-        if !hoverable || !has_hover {
+        if !hoverable {
             return;
         }
         let pos = self.pos_at_screen(x, y);
         let doc = self.doc();
         let (start, end) = (doc.word_start_at(pos), doc.word_end_at(pos));
-        // Only words; past a line's end there's nothing to ask about.
-        if start == end || !(start..end).contains(&pos) {
+        // Past a line's end there's no word to ask about.
+        let word = (start < end && (start..end).contains(&pos)).then_some((start, end));
+        let (problems, span) = self.problems_at(pos);
+        if !problems.is_empty() {
+            // The card shows the problems at once, and the language
+            // server's part joins them when it comes.
+            self.hover_anchor = Some(word.map_or(span.0, |w| w.0));
+            self.popup = Some(Popup::Hover {
+                problems,
+                lines: Vec::new(),
+                span: Some(join(span, word)),
+            });
+        }
+        if let Some(word) = word
+            && self.has_lsp("hover")
+        {
+            self.probe = Some(word);
+            fx.push(Effect::PluginCommand {
+                plugin: "lsp".into(),
+                command: "hover".into(),
+            });
+        }
+    }
+
+    /// Shows the hover card at the cursor, as resting the mouse there
+    /// would: its problems at once, and the language server's hover when
+    /// it comes.
+    pub(crate) fn hover_at_cursor(&mut self, fx: &mut Vec<Effect>) {
+        self.probe = None;
+        self.hover_anchor = None;
+        let (problems, _) = self.problems_at(self.doc().cursor);
+        self.popup = (!problems.is_empty()).then(|| Popup::Hover {
+            problems,
+            lines: Vec::new(),
+            span: None,
+        });
+        if self.has_lsp("hover") {
+            fx.push(Effect::PluginCommand {
+                plugin: "lsp".into(),
+                command: "hover".into(),
+            });
+        }
+    }
+
+    /// The language server's hover came: it joins the problems a card
+    /// already shows, or brings up a card of its own with the problems at
+    /// its spot.
+    pub(crate) fn show_hover(&mut self, server: Vec<String>) {
+        if let Some(Popup::Hover { lines, .. }) = &mut self.popup
+            && lines.is_empty()
+        {
+            *lines = server;
             return;
         }
-        self.probe = Some((start, end));
-        fx.push(Effect::PluginCommand {
-            plugin: "lsp".into(),
-            command: "hover".into(),
+        // A hover the mouse asked for is about the word it's on.
+        self.hover_anchor = self.probe.map(|(start, _)| start);
+        let at = self.hover_anchor.unwrap_or(self.doc().cursor);
+        let (problems, span) = self.problems_at(at);
+        let span = match (problems.is_empty(), self.probe) {
+            (true, probe) => probe,
+            (false, probe) => Some(join(span, probe)),
+        };
+        self.popup = Some(Popup::Hover {
+            problems,
+            lines: server,
+            span,
         });
     }
 
-    /// The mouse moved: a hover it brought up goes once it leaves the word.
+    /// The problems at `pos`, worst first, and the range they cover
+    /// together. A problem two checkers report shows once, the fuller of
+    /// the two. A hint that goes with a problem, as rustc's suggestions do,
+    /// is a `help:` note under it.
+    fn problems_at(&self, pos: usize) -> (Vec<ProblemView>, (usize, usize)) {
+        let mut found: Vec<&crate::lang::Mark> = self
+            .doc()
+            .marks
+            .iter()
+            .filter(|m| m.start <= pos && pos < m.end.max(m.start + 1))
+            .collect();
+        found.sort_by_key(|m| (m.severity, std::cmp::Reverse(m.message.len())));
+        let span = found.iter().fold((pos, pos), |(a, b), m| {
+            (a.min(m.start), b.max(m.end.max(m.start + 1)))
+        });
+        let mut problems: Vec<ProblemView> = Vec::new();
+        for m in found {
+            let first = m.message.lines().next().unwrap_or_default();
+            if problems
+                .iter()
+                .any(|p| p.message.lines().next().unwrap_or_default() == first)
+            {
+                continue;
+            }
+            let owner = problems.iter_mut().find(|p| {
+                m.severity == Severity::Hint
+                    && !m.code.is_empty()
+                    && (&p.source, &p.code) == (&m.source, &m.code)
+            });
+            if let Some(owner) = owner {
+                owner.message = format!("{}\nhelp: {}", owner.message, m.message.trim());
+                continue;
+            }
+            let glyph = match m.severity {
+                Severity::Error => Icon::Error,
+                Severity::Warning => Icon::Warning,
+                _ => Icon::Info,
+            };
+            problems.push(ProblemView {
+                severity: m.severity,
+                icon: icon(glyph, self.nerd),
+                message: m.message.trim().to_string(),
+                source: m.source.clone(),
+                code: m.code.clone(),
+            });
+        }
+        (problems, span)
+    }
+
+    fn has_lsp(&self, command: &str) -> bool {
+        self.plugins
+            .iter()
+            .any(|p| p.name == "lsp" && p.commands.iter().any(|c| c.id == command))
+    }
+
+    /// The mouse moved: a hover it brought up goes once it leaves the word
+    /// and the problems the card is about.
     pub(crate) fn pointer_moved(&mut self, x: u16, y: u16) {
-        let Some((start, end)) = self.probe else {
-            return;
-        };
         let text = self.layout().text;
         let pos = text.contains(x, y).then(|| self.pos_at_screen(x, y));
-        if pos.is_none_or(|p| !(start..end).contains(&p)) {
+        let outside = |range: Option<(usize, usize)>| {
+            range.is_some_and(|(start, end)| pos.is_none_or(|p| !(start..end).contains(&p)))
+        };
+        if outside(self.probe) {
             self.probe = None;
-            if matches!(self.popup, Some(Popup::Hover(_))) && self.hover_anchor.is_some() {
+        }
+        let span = match &self.popup {
+            Some(Popup::Hover { span, .. }) if self.hover_anchor.is_some() => *span,
+            _ => None,
+        };
+        if outside(span) {
+            self.popup = None;
+            self.hover_anchor = None;
+        }
+    }
+
+    /// A button in the hover card: copy its problems, or show them all in
+    /// Problems.
+    pub(crate) fn hover_button(&mut self, button: HoverButton, fx: &mut Vec<Effect>) {
+        let Some(Popup::Hover { problems, .. }) = &self.popup else {
+            return;
+        };
+        match button {
+            HoverButton::Copy => {
+                let text = problems
+                    .iter()
+                    .map(|p| p.message.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n\n");
+                fx.push(Effect::Copy(text));
+                self.notify("Copied the problem".into());
+            }
+            HoverButton::Problems => {
                 self.popup = None;
                 self.hover_anchor = None;
+                self.show_bottom(super::views::PROBLEMS);
             }
         }
     }
@@ -269,7 +433,12 @@ impl Editor {
         let (x, y) = self.cell_of(at)?;
         let anchor = (x.saturating_sub(text.x), y.saturating_sub(text.y));
         let kind = match popup {
-            Popup::Hover(lines) => PopupKind::Hover(lines.clone()),
+            Popup::Hover {
+                problems, lines, ..
+            } => PopupKind::Hover {
+                problems: problems.clone(),
+                lines: lines.clone(),
+            },
             Popup::Completion { selected, .. } => PopupKind::Completion {
                 items: self
                     .completions()
@@ -291,4 +460,9 @@ impl Editor {
             signature: signature.clone(),
         })
     }
+}
+
+/// The range covering `a` and `b`.
+fn join(a: (usize, usize), b: Option<(usize, usize)>) -> (usize, usize) {
+    b.map_or(a, |b| (a.0.min(b.0), a.1.max(b.1)))
 }

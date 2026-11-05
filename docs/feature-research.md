@@ -240,8 +240,9 @@ These are ordered by votes against effort.
    pty, drawn by merlin's own renderer.
 2. **Language servers, finished** (**partly built**; see
    [`handoff.md`](handoff.md) for details and a design for the rest):
-   errors inline (`d5c2091`), inlay hints (`09b607e`) and signature help
-   (`d4283cc`) are **Built**. Still to do: code actions (a lightbulb and a
+   errors inline (`d5c2091`), inlay hints (`09b607e`), signature help
+   (`d4283cc`) and problems in the hover card (`Hover.dc.html`) are
+   **Built**. Still to do: code actions (a lightbulb and a
    menu), format and format on save, rename (inline box), then find
    references (a peek view, `References.dc.html`).
 3. **Git**:

@@ -346,24 +346,30 @@ impl host::Host for State {
     }
 
     fn set_diagnostics(&mut self, path: String, diagnostics: Vec<types::Diagnostic>) {
-        let at = |p: types::Position| (p.line, p.column);
+        let diagnostics = diagnostics
+            .into_iter()
+            .map(|d| diagnostic(d, "", ""))
+            .collect();
         self.events.push(Event::SetDiagnostics {
             plugin: self.name.clone(),
             path: self.snapshot.local(&path),
-            diagnostics: diagnostics
-                .into_iter()
-                .map(|d| Diagnostic {
-                    start: at(d.start),
-                    end: at(d.end),
-                    severity: match d.severity {
-                        types::Severity::Error => Severity::Error,
-                        types::Severity::Warning => Severity::Warning,
-                        types::Severity::Info => Severity::Info,
-                        types::Severity::Hint => Severity::Hint,
-                    },
-                    message: d.message,
-                })
-                .collect(),
+            diagnostics,
+        });
+    }
+
+    fn set_detailed_diagnostics(
+        &mut self,
+        path: String,
+        diagnostics: Vec<types::DetailedDiagnostic>,
+    ) {
+        let diagnostics = diagnostics
+            .into_iter()
+            .map(|d| diagnostic(d.diagnostic, &d.source, &d.code))
+            .collect();
+        self.events.push(Event::SetDiagnostics {
+            plugin: self.name.clone(),
+            path: self.snapshot.local(&path),
+            diagnostics,
         });
     }
 
@@ -1495,4 +1501,21 @@ pub fn grant(config: &Config, dir: &Path) -> Result<(Manifest, Vec<String>)> {
         allowed.push(format!("run `{program}`, outside the sandbox"));
     }
     Ok((manifest, allowed))
+}
+
+fn diagnostic(d: types::Diagnostic, source: &str, code: &str) -> Diagnostic {
+    let at = |p: types::Position| (p.line, p.column);
+    Diagnostic {
+        start: at(d.start),
+        end: at(d.end),
+        severity: match d.severity {
+            types::Severity::Error => Severity::Error,
+            types::Severity::Warning => Severity::Warning,
+            types::Severity::Info => Severity::Info,
+            types::Severity::Hint => Severity::Hint,
+        },
+        message: d.message,
+        source: source.into(),
+        code: code.into(),
+    }
 }

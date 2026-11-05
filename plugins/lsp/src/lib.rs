@@ -866,7 +866,21 @@ impl Lsp {
         } else {
             self.problems.insert(path.to_string(), problems);
         }
-        host::set_diagnostics(path, &diagnostics);
+        let detailed: Vec<DetailedDiagnostic> = list
+            .iter()
+            .zip(diagnostics)
+            .map(|(d, diagnostic)| DetailedDiagnostic {
+                diagnostic,
+                source: d["source"].as_str().unwrap_or_default().to_string(),
+                // A code is a string or a number.
+                code: match &d["code"] {
+                    Value::String(code) => code.clone(),
+                    Value::Number(code) => code.to_string(),
+                    _ => String::new(),
+                },
+            })
+            .collect();
+        host::set_detailed_diagnostics(path, &detailed);
     }
 
     fn on_notification(&mut self, program: &str, method: &str, params: &Value) {

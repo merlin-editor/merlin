@@ -195,6 +195,14 @@ interface types {
     message: string,
   }
 
+  /// A diagnostic with what reported it, such as `rustc` or `clippy`, and
+  /// its code, such as `E0308`. Either may be empty.
+  record detailed-diagnostic {
+    diagnostic: diagnostic,
+    source: string,
+    code: string,
+  }
+
   record completion {
     label: string,
     /// Shown dimmed after the label, such as a type.
@@ -244,7 +252,7 @@ interface types {
 /// What the editor offers a plugin. Calls that need a permission check the
 /// plugin's manifest and return an error naming the permission if denied.
 interface host {
-  use types.{framing, pick-item, position, selection, text-change, diagnostic, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint, signature};
+  use types.{framing, pick-item, position, selection, text-change, diagnostic, detailed-diagnostic, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint, signature};
 
   /// Text of the active buffer. Needs `editor-read`.
   active-text: func() -> result<string, string>;
@@ -284,6 +292,10 @@ interface host {
   /// the workspace root, or absolute. They're underlined, and move with
   /// edits until the plugin sends new ones.
   set-diagnostics: func(path: string, diagnostics: list<diagnostic>);
+
+  /// As `set-diagnostics`, with each one's source and code, which the
+  /// hover card shows.
+  set-detailed-diagnostics: func(path: string, diagnostics: list<detailed-diagnostic>);
 
   /// Colours a file: replaces this layer's tokens on `lines`, or in the
   /// whole file. Positions count UTF-16 columns, as LSP does. Tokens move

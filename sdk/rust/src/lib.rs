@@ -39,7 +39,7 @@ pub mod bindings {
 /// processes and secrets.
 pub use bindings::merlin::plugin::host;
 pub use bindings::merlin::plugin::types::{
-    BufferEvent, Button, Command, Completion, Diagnostic, DocSymbol, FoldRange, Framing, InlayHint,
+    BufferEvent, Button, Command, Completion, DetailedDiagnostic, Diagnostic, DocSymbol, FoldRange, Framing, InlayHint,
     InlayKind, Input, Item, LineRange, Node, Panel, PickItem, Position, ProcessEvent, Selection,
     Setting, Severity, Signature, Styled, TextChange, Token, TokenKind, TokenLayer, Tone,
 };
@@ -90,7 +90,7 @@ pub mod settings {
 
 pub mod prelude {
     pub use crate::{
-        BufferEvent, Button, Command, Completion, Diagnostic, DocSymbol, FoldRange, Framing,
+        BufferEvent, Button, Command, Completion, DetailedDiagnostic, Diagnostic, DocSymbol, FoldRange, Framing,
         InlayHint, InlayKind, LineRange, Node, Panel, PickItem, Plugin, Position, ProcessEvent,
         Selection, Severity, Signature, TextChange, Token, TokenKind, TokenLayer, Tone, host,
         settings,

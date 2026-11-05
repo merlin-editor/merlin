@@ -5,9 +5,9 @@
 
 use merlin_core::panel::{Entry, Node, Tone};
 use merlin_core::{
-    ContextItem, ContextView, DialogView, FindAction, FindView, Key, KeyCode, MenuView,
-    PaletteView, PopupKind, PopupView, Side, SideView, SignatureView, TabView, TerminalView,
-    ToastView, UiEvent, WindowView, editor::GroupView,
+    ContextItem, ContextView, DialogView, FindAction, FindView, HoverButton, Key, KeyCode,
+    MenuView, PaletteView, PopupKind, PopupView, ProblemView, Side, SideView, SignatureView,
+    TabView, TerminalView, ToastView, UiEvent, WindowView, editor::GroupView,
 };
 
 use super::canvas::{Canvas, Face, Pictures, Rect, Text};
@@ -884,7 +884,8 @@ impl Frame<'_> {
     }
 
     /// Hover and completion as a card under the text they're about, or
-    /// over it when there's no room below.
+    /// over it when there's no room below. A hover over a problem puts the
+    /// problem first, then what the language server says.
     fn popup(&mut self, popup: &PopupView, a: &Areas, (cw, ch): (f32, f32)) {
         let p = self.p;
         let (ax, ay) = (
@@ -896,8 +897,13 @@ impl Frame<'_> {
         // The rows to draw: text, whether it's code, and a detail.
         let mut rows: Vec<(String, bool, String)> = Vec::new();
         let mut selected = None;
+        let mut problems: &[ProblemView] = &[];
         match &popup.kind {
-            PopupKind::Hover(lines) => {
+            PopupKind::Hover {
+                problems: found,
+                lines,
+            } => {
+                problems = found;
                 let mut code = false;
                 for line in lines {
                     if line.trim_start().starts_with("```") {
@@ -914,7 +920,10 @@ impl Frame<'_> {
                 while rows.last().is_some_and(|r| r.0.trim().is_empty()) {
                     rows.pop();
                 }
-                rows.truncate(16);
+                while rows.first().is_some_and(|r| r.0.trim().is_empty()) {
+                    rows.remove(0);
+                }
+                rows.truncate(if problems.is_empty() { 16 } else { 10 });
             }
             PopupKind::Completion { items, selected: s } => {
                 let first = s.saturating_sub(7);
@@ -927,7 +936,7 @@ impl Frame<'_> {
                     .collect();
             }
         }
-        if rows.is_empty() {
+        if rows.is_empty() && problems.is_empty() {
             return;
         }
         let row_h = 21.0;
@@ -942,8 +951,25 @@ impl Frame<'_> {
                     }
             })
             .fold(0.0, f32::max);
-        let pw = (widest + 24.0).clamp(160.0, 560.0);
-        let ph = rows.len() as f32 * row_h + 14.0;
+        let widest = problems
+            .iter()
+            .flat_map(|pr| pr.message.lines())
+            .map(|l| self.text.width(l, ui) + 34.0)
+            .fold(widest, f32::max);
+        let pw = (widest + 24.0).clamp(if problems.is_empty() { 160.0 } else { 300.0 }, 560.0);
+        let problems_h = Self::problems_height(problems);
+        let rows_h = if rows.is_empty() {
+            0.0
+        } else {
+            rows.len() as f32 * row_h + 14.0
+        };
+        let ph = problems_h
+            + rows_h
+            + if problems_h > 0.0 && rows_h > 0.0 {
+                1.0
+            } else {
+                0.0
+            };
         let below = ay + ch + 4.0;
         let y = if below + ph > a.editor.bottom() - 4.0 && ay - ph - 4.0 > a.editor.y {
             ay - ph - 4.0
@@ -955,8 +981,24 @@ impl Frame<'_> {
         self.canvas.shadow(r, 8.0, theme::is_light(&p));
         self.canvas.outline(r, 8.0, 1.0, p.border, p.widget);
         self.hit(r, Hit::Block);
+        if !problems.is_empty() {
+            // The gap between the line and the card holds it open too, so
+            // the mouse can cross into it.
+            let gap = if y > ay {
+                Rect::new(x, ay + ch, pw, y - ay - ch)
+            } else {
+                Rect::new(x, y + ph, pw, ay - y - ph)
+            };
+            self.hit(gap, Hit::Block);
+            self.problems(problems, Rect::new(x, y, pw, problems_h));
+            if rows_h > 0.0 {
+                self.canvas
+                    .fill(Rect::new(x + 1.0, y + problems_h, pw - 2.0, 1.0), p.border);
+            }
+        }
+        let top = y + problems_h + if problems_h > 0.0 { 1.0 } else { 0.0 };
         for (k, (text, code, detail)) in rows.iter().enumerate() {
-            let ry = r.y + 7.0 + k as f32 * row_h;
+            let ry = top + 7.0 + k as f32 * row_h;
             let row = Rect::new(r.x + 4.0, ry, r.w - 8.0, row_h);
             if selected == Some(k) {
                 self.canvas.round(row, 4.0, p.focus_row);
@@ -996,6 +1038,117 @@ impl Frame<'_> {
                 );
             }
         }
+    }
+
+    /// The lines of a hover's problem: its first line, then the rest, each
+    /// cut to fit.
+    fn problem_lines(problem: &ProblemView) -> Vec<&str> {
+        problem
+            .message
+            .lines()
+            .map(str::trim_end)
+            .filter(|l| !l.trim().is_empty())
+            .take(6)
+            .collect()
+    }
+
+    fn problems_height(problems: &[ProblemView]) -> f32 {
+        if problems.is_empty() {
+            return 0.0;
+        }
+        let each: f32 = problems
+            .iter()
+            .map(|pr| {
+                let lines = Self::problem_lines(pr).len().max(1) as f32;
+                let source = !pr.source.is_empty() || !pr.code.is_empty();
+                20.0 + (lines - 1.0) * 18.0 + if source { 24.0 } else { 0.0 } + 8.0
+            })
+            .sum();
+        // Padding, and the row of buttons.
+        10.0 + each + 30.0
+    }
+
+    /// A hover's problems, worst first: the severity's icon, the message
+    /// bright with its notes under it, what reported it and its code, then
+    /// buttons to copy them or see them all in Problems.
+    fn problems(&mut self, problems: &[ProblemView], r: Rect) {
+        let p = self.p;
+        let ui = Face::ui(13.0);
+        let note = Face::ui(12.0);
+        let text_x = r.x + 34.0;
+        let text_w = r.w - 34.0 - 12.0;
+        let mut y = r.y + 10.0;
+        for problem in problems {
+            let colour = theme::severity(&p, problem.severity);
+            let glyph = problem.icon.to_string();
+            let face = Face::mono(13.0);
+            let gw = self.text.width(&glyph, face);
+            self.text.draw_in_row(
+                &mut self.canvas,
+                &glyph,
+                face,
+                r.x + 12.0 + (16.0 - gw) / 2.0,
+                y,
+                20.0,
+                colour,
+                r,
+            );
+            for (k, line) in Self::problem_lines(problem).iter().enumerate() {
+                let (face, colour, h) = if k == 0 {
+                    (ui, p.bright, 20.0)
+                } else {
+                    (note, p.muted, 18.0)
+                };
+                let shown = self.text.fit(line.trim_start(), face, text_w);
+                self.text
+                    .draw_in_row(&mut self.canvas, &shown, face, text_x, y, h, colour, r);
+                y += h;
+            }
+            if !problem.source.is_empty() || !problem.code.is_empty() {
+                let mut cx = text_x;
+                y += 4.0;
+                if !problem.source.is_empty() {
+                    cx += self.chip(&problem.source, cx, y + 2.0, false) + 6.0;
+                }
+                if !problem.code.is_empty() {
+                    let shown = self.text.fit(&problem.code, note, r.right() - cx - 12.0);
+                    self.text
+                        .draw_in_row(&mut self.canvas, &shown, note, cx, y, 20.0, p.muted, r);
+                }
+                y += 20.0;
+            }
+            y += 8.0;
+        }
+        let mut bx = text_x;
+        for (label, button) in [
+            ("Copy", HoverButton::Copy),
+            ("Show in Problems", HoverButton::Problems),
+        ] {
+            bx += self.small_button(label, bx, y, Hit::Ui(UiEvent::Hover(button))) + 6.0;
+        }
+    }
+
+    /// A quiet button 24 pixels tall at (`x`, `y`). Returns its width.
+    fn small_button(&mut self, label: &str, x: f32, y: f32, hit: Hit) -> f32 {
+        let p = self.p;
+        let face = Face::ui(12.0);
+        let tw = self.text.width(label, face);
+        let r = Rect::new(x, y, tw + 18.0, 24.0);
+        let hovered = self.hovered(r);
+        self.canvas
+            .round(r, 5.0, if hovered { p.border } else { p.chip });
+        self.text.draw_in_row(
+            &mut self.canvas,
+            label,
+            face,
+            x + 9.0,
+            y,
+            24.0,
+            if hovered { p.bright } else { p.text },
+            r,
+        );
+        self.hit(r, hit);
+        r.w
     }
 
     /// Signature help: a card over the line of the call being typed, or

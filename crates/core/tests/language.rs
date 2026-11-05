@@ -17,6 +17,7 @@ fn diagnostic(start: (u32, u32), end: (u32, u32), message: &str) -> Event {
             end,
             severity: Severity::Error,
             message: message.into(),
+            ..Default::default()
         }],
     }
 }
@@ -180,6 +181,7 @@ fn a_lines_worst_problem_is_written_after_it() {
                 end: (0, 5),
                 severity: Severity::Warning,
                 message: "unused variable `x`".into(),
+                ..Default::default()
             },
             Diagnostic {
                 start: (0, 8),
@@ -187,6 +189,7 @@ fn a_lines_worst_problem_is_written_after_it() {
                 severity: Severity::Error,
                 message: "cannot find value `y`\nhelp: a local variable with a similar name exists"
                     .into(),
+                ..Default::default()
             },
             // The same error again, as a second checker reports it.
             Diagnostic {
@@ -194,12 +197,14 @@ fn a_lines_worst_problem_is_written_after_it() {
                 end: (0, 9),
                 severity: Severity::Error,
                 message: "cannot find value `y`".into(),
+                ..Default::default()
             },
             Diagnostic {
                 start: (1, 4),
                 end: (1, 5),
                 severity: Severity::Hint,
                 message: "a hint stays out of the way".into(),
+                ..Default::default()
             },
         ],
     });
@@ -277,5 +282,199 @@ fn signature_help_goes_when_the_cursor_leaves_the_call() {
     assert!(
         s.editor.window_view().signature.is_none(),
         "the server says so"
+    );
+}
+
+/// A window drawing the code itself, as the GUI has it, with a language
+/// server that answers hovers.
+fn hovering(text: &str) -> Session {
+    let mut s = rust(text);
+    s.send(Event::Viewports(vec![(60, 8)]));
+    s.send(Event::RegisterPlugin {
+        plugin: "lsp".into(),
+        commands: vec![merlin_core::Command {
+            id: "hover".into(),
+            title: "Language: Show Hover".into(),
+            key: None,
+        }],
+    });
+    s
+}
+
+/// The mouse at text column `col` of `row`, moving or resting.
+fn mouse(s: &mut Session, kind: merlin_core::MouseKind, row: u16, col: u16) {
+    let (x, y) = s.editor.text_origin();
+    s.send(Event::Pointer(merlin_core::Pointer {
+        group: 0,
+        kind,
+        row: (y + row) as f32,
+        col: (x + col) as f32 + 0.2,
+        shift: false,
+        alt: false,
+        ctrl: false,
+        clicks: 1,
+    }));
+}
+
+fn hover(s: &Session) -> Option<(Vec<merlin_core::ProblemView>, Vec<String>)> {
+    match s.editor.window_view().popup?.kind {
+        merlin_core::PopupKind::Hover { problems, lines } => Some((problems, lines)),
+        _ => None,
+    }
+}
+
+fn mismatched() -> Event {
+    Event::SetDiagnostics {
+        plugin: "lsp".into(),
+        path: "main.rs".into(),
+        diagnostics: vec![
+            Diagnostic {
+                start: (0, 15),
+                end: (0, 26),
+                severity: Severity::Error,
+                message: "mismatched types\nexpected `u32`, found `usize`".into(),
+                source: "rustc".into(),
+                code: "E0308".into(),
+            },
+            // rust-analyzer's copy of it, shorter.
+            Diagnostic {
+                start: (0, 15),
+                end: (0, 26),
+                severity: Severity::Error,
+                message: "mismatched types".into(),
+                source: "rust-analyzer".into(),
+                code: "E0308".into(),
+            },
+            Diagnostic {
+                start: (0, 4),
+                end: (0, 9),
+                severity: Severity::Warning,
+                message: "unused variable: `count`".into(),
+                source: "rustc".into(),
+                code: "unused_variables".into(),
+            },
+        ],
+    }
+}
+
+#[test]
+fn resting_on_a_problem_shows_it_first_and_the_servers_hover_joins_it() {
+    use merlin_core::MouseKind::Rest;
+    let mut s = hovering("let count: u32 = steps.len();\n");
+    s.send(mismatched());
+    s.effects.clear();
+    // On `len`, inside the error.
+    mouse(&mut s, Rest, 0, 23);
+    let (problems, lines) = hover(&s).expect("a card shows at once");
+    assert_eq!(problems.len(), 1, "the same problem twice shows once");
+    assert_eq!(
+        problems[0].message, "mismatched types\nexpected `u32`, found `usize`",
+        "the fuller copy is kept"
+    );
+    assert_eq!(
+        (&*problems[0].source, &*problems[0].code),
+        ("rustc", "E0308")
+    );
+    assert!(lines.is_empty());
+    assert!(
+        s.effects
+            .iter()
+            .any(|e| matches!(e, Effect::PluginCommand { command, .. } if command == "hover")),
+        "the server is asked about the word too"
+    );
+    s.send(Event::ShowHover(
+        "```rust\npub const fn len(&self) -> usize\n```".into(),
+    ));
+    let (problems, lines) = hover(&s).unwrap();
+    assert_eq!(problems.len(), 1, "the problem stays first");
+    assert_eq!(lines[1], "pub const fn len(&self) -> usize");
+}
+
+#[test]
+fn a_problem_off_a_word_still_gets_a_card() {
+    use merlin_core::MouseKind::Rest;
+    // The error covers `( )`, where there's no word to ask the server about.
+    let mut s = hovering("call( );\n");
+    s.send(diagnostic((0, 4), (0, 7), "this function takes 1 argument"));
+    s.effects.clear();
+    mouse(&mut s, Rest, 0, 5);
+    let (problems, _) = hover(&s).expect("a card of the problem alone");
+    assert_eq!(problems[0].message, "this function takes 1 argument");
+    assert!(s.effects.is_empty(), "nothing to ask the server");
+}
+
+#[test]
+fn the_card_stays_while_the_mouse_is_on_its_problem() {
+    use merlin_core::MouseKind::{Move, Rest};
+    let mut s = hovering("let count: u32 = steps.len();\n");
+    s.send(mismatched());
+    mouse(&mut s, Rest, 0, 17);
+    assert!(hover(&s).is_some());
+    // Along the error from `steps` to `len`, it stays.
+    mouse(&mut s, Move, 0, 24);
+    assert!(hover(&s).is_some());
+    // Off it, it goes.
+    mouse(&mut s, Move, 0, 2);
+    assert!(hover(&s).is_none());
+}
+
+#[test]
+fn ctrl_k_ctrl_i_shows_the_hover_at_the_cursor() {
+    let mut s = hovering("let count: u32 = steps.len();\n");
+    s.send(mismatched());
+    s.run("key right right right right right");
+    s.run("key ctrl+k\nkey ctrl+i");
+    let (problems, _) = hover(&s).expect("the cursor's problem shows");
+    assert_eq!(problems[0].message, "unused variable: `count`");
+    assert_eq!(problems[0].severity, Severity::Warning);
+}
+
+#[test]
+fn the_cards_buttons_copy_the_problem_and_open_problems() {
+    use merlin_core::{HoverButton, MouseKind::Rest, UiEvent};
+    let mut s = hovering("let count: u32 = steps.len();\n");
+    s.send(mismatched());
+    mouse(&mut s, Rest, 0, 6);
+    s.effects.clear();
+    s.send(Event::Ui(UiEvent::Hover(HoverButton::Copy)));
+    assert!(
+        s.effects
+            .contains(&Effect::Copy("unused variable: `count`".into()))
+    );
+    s.send(Event::Ui(UiEvent::Hover(HoverButton::Problems)));
+    assert!(hover(&s).is_none(), "the card goes");
+    let bottom = s.editor.window_view().bottom.expect("the panel shows");
+    assert_eq!(bottom.title, "Problems");
+}
+
+#[test]
+fn a_hint_that_goes_with_a_problem_is_a_note_under_it() {
+    use merlin_core::MouseKind::Rest;
+    let mut s = hovering("let hex = 5;\n");
+    let unused = |severity, message: &str| Diagnostic {
+        start: (0, 4),
+        end: (0, 7),
+        severity,
+        message: message.into(),
+        source: "rustc".into(),
+        code: "unused_variables".into(),
+    };
+    s.send(Event::SetDiagnostics {
+        plugin: "lsp".into(),
+        path: "main.rs".into(),
+        diagnostics: vec![
+            unused(Severity::Warning, "unused variable: `hex`"),
+            unused(
+                Severity::Hint,
+                "if this is intentional, prefix it with an underscore: `_hex`",
+            ),
+        ],
+    });
+    mouse(&mut s, Rest, 0, 5);
+    let (problems, _) = hover(&s).unwrap();
+    assert_eq!(problems.len(), 1);
+    assert_eq!(
+        problems[0].message,
+        "unused variable: `hex`\nhelp: if this is intentional, prefix it with an underscore: `_hex`"
     );
 }
