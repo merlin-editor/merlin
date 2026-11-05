@@ -639,7 +639,8 @@ impl Editor {
     /// Runs `edit` in the changes tab's file, at the same place as the
     /// tab's cursor and selection, then shows the changes again with the
     /// cursor where the edit left it. The file opens beside the tab when
-    /// the tab does; the last commit's side can't be edited.
+    /// the tab does; the last commit's side can't be edited. Two files
+    /// compared are both edited: the left one when the cursor is on it.
     pub(crate) fn through_file(
         &mut self,
         fx: &mut Vec<Effect>,
@@ -649,37 +650,52 @@ impl Editor {
         let Some(review) = self.docs[tab].review.clone() else {
             return;
         };
-        let name = review
-            .path
+        let compare = review.plugin == super::COMPARE_REVIEW;
+        let line = self.docs[tab].line_col(self.docs[tab].cursor).0;
+        let kind = review.lines.get(line).map(|l| l.0);
+        let left = compare
+            && kind != Some(LineKind::Added)
+            && (self.compare_on_left || kind == Some(LineKind::Removed));
+        let path = if left {
+            match self.compare_left() {
+                Some(super::compare_files::Left::File(p)) => p,
+                _ => return self.notify("The left side is read-only".into()),
+            }
+        } else {
+            review.path.clone()
+        };
+        let name = path
             .file_name()
             .map_or(String::new(), |n| n.to_string_lossy().into_owned());
         let Some(file) = self
             .docs
             .iter()
-            .position(|d| d.buffer.path.as_ref() == Some(&review.path))
+            .position(|d| d.review.is_none() && d.buffer.path.as_ref() == Some(&path))
         else {
-            self.open_beside(review.path.clone(), fx);
+            self.open_beside(path, fx);
             return self.notify(format!("Opening {name} to edit it…"));
         };
-        let to_file = |pos: usize| {
-            let (line, col) = self.docs[tab].line_col(pos);
-            match review.lines.get(line) {
-                Some((LineKind::Same | LineKind::Added, number)) => {
-                    let doc = &self.docs[file];
-                    let start = doc.line_start(*number);
-                    let len = doc.line_chars(*number).len();
-                    Some(start + col.min(len))
+        // A buffer line's number in the file edited: the new side's, or
+        // the old side's on the left.
+        let number_of = |row: usize| -> Option<usize> {
+            match (review.lines.get(row)?, left) {
+                ((LineKind::Same | LineKind::Removed, _), true) => {
+                    review.old_numbers.get(row).copied()
                 }
+                ((LineKind::Same | LineKind::Added, n), false) => Some(*n),
                 _ => None,
             }
         };
-        let compare = review.plugin == super::COMPARE_REVIEW;
+        let to_file = |pos: usize| {
+            let (line, col) = self.docs[tab].line_col(pos);
+            let number = number_of(line)?;
+            let doc = &self.docs[file];
+            let start = doc.line_start(number);
+            let len = doc.line_chars(number).len();
+            Some(start + col.min(len))
+        };
         let Some(cursor) = to_file(self.docs[tab].cursor) else {
-            return self.notify(if compare {
-                "Only the right side is edited here; ⇄ Swap puts the other there".into()
-            } else {
-                "The last commit's side can't be edited".into()
-            });
+            return self.notify("The last commit's side can't be edited".into());
         };
         let anchor = self.docs[tab].anchor.and_then(to_file);
         let doc = &mut self.docs[file];
@@ -693,20 +709,37 @@ impl Editor {
         let doc = &self.docs[file];
         let at = |pos: usize| doc.line_col(pos);
         let (cursor, anchor) = (at(doc.cursor), doc.anchor.map(at));
-        let new = doc.buffer.text();
-        let old = match doc.git_base.clone() {
-            Some(base) if !compare => base,
-            _ => old_text(&self.docs[tab]),
+        let edited = doc.buffer.text();
+        let (old, new) = if left {
+            // The right side as its file has it, if it's open.
+            let right = self
+                .docs
+                .iter()
+                .find(|d| d.review.is_none() && d.buffer.path.as_ref() == Some(&review.path))
+                .map_or_else(|| new_text(&self.docs[tab]), |d| d.buffer.text());
+            (edited, right)
+        } else {
+            let old = match doc.git_base.clone() {
+                Some(base) if !compare => base,
+                _ => old_text(&self.docs[tab]),
+            };
+            (old, edited)
         };
         self.current = tab;
         self.rebuild_changes(tab, &old, &new);
         let doc = &self.docs[tab];
         let from_file = |(line, col): (usize, usize)| {
             let review = doc.review.as_ref()?;
-            let row = review
-                .lines
-                .iter()
-                .position(|(k, n)| *k != LineKind::Removed && *k != LineKind::Gap && *n == line)?;
+            let row = (0..review.lines.len()).find(|&row| {
+                let (k, n) = review.lines[row];
+                match left {
+                    true => {
+                        matches!(k, LineKind::Same | LineKind::Removed)
+                            && review.old_numbers.get(row) == Some(&line)
+                    }
+                    false => k != LineKind::Removed && k != LineKind::Gap && n == line,
+                }
+            })?;
             Some(doc.line_start(row) + col)
         };
         let cursor = from_file(cursor);
@@ -768,12 +801,22 @@ impl Editor {
 /// The last commit's text, from a changes tab's unchanged and removed
 /// lines, for a file with no git base.
 fn old_text(doc: &crate::doc::Doc) -> String {
+    side_text(doc, LineKind::Removed)
+}
+
+/// The new side's text, from its unchanged and added lines.
+fn new_text(doc: &crate::doc::Doc) -> String {
+    side_text(doc, LineKind::Added)
+}
+
+/// One side's text: the unchanged lines and those of `kind`.
+fn side_text(doc: &crate::doc::Doc, side: LineKind) -> String {
     let Some(review) = doc.review.as_ref() else {
         return String::new();
     };
     let mut out = String::new();
     for (i, (kind, _)) in review.lines.iter().enumerate() {
-        if matches!(kind, LineKind::Same | LineKind::Removed) {
+        if *kind == LineKind::Same || *kind == side {
             out.extend(
                 doc.line_chars(i)
                     .into_iter()

@@ -966,6 +966,9 @@ pub struct Editor {
     compare_selected: Option<PathBuf>,
     /// The comparison a swap replaces once it's shown.
     compare_replace: Option<u64>,
+    /// Two files compared side by side: the cursor is on the left one,
+    /// where it was last clicked.
+    compare_on_left: bool,
     /// Who last changed each line, by file, as of a version of its text,
     /// and what was last asked for. `now` is the time blame last came.
     blames: HashMap<PathBuf, (u64, crate::git::Blame)>,
@@ -1153,6 +1156,7 @@ impl Editor {
             comparing: None,
             compare_selected: None,
             compare_replace: None,
+            compare_on_left: false,
             blames: HashMap::new(),
             blame_asked: None,
             now: 0,

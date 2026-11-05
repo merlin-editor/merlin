@@ -272,12 +272,16 @@ impl Editor {
                     .collect();
                 let gutter = if git && !old { gutter + 2 } else { gutter };
                 // The cursor, on the side its line is on: a changes tab is
-                // edited on its new side.
+                // edited on its new side, two files compared on the side
+                // clicked.
+                let on_left = self.in_compare()
+                    && (self.compare_on_left
+                        || review.lines.get(cur).map(|l| l.0) == Some(LineKind::Removed));
                 let carets = shown
                     .iter()
                     .enumerate()
                     .find(|(_, (l, r))| if old { *l } else { *r } == Some(cur))
-                    .filter(|_| focused && (git || !old))
+                    .filter(|_| focused && (git || old == on_left))
                     .map(|(row, _)| {
                         let start = doc.line_start(cur);
                         let col: usize = doc

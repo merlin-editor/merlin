@@ -569,8 +569,11 @@ committed:
   (`GroupArea::under_titles`). The Explorer's menu has
   `explorer.select_compare` and `explorer.compare_with` (labelled with the
   chosen file's name). Tab icons go by the tab name's first word.
-  - Not built from the mock-up: editing the left side in place ("you can
-    edit both"); Swap is the way to edit it.
+  - Both sides edit: a click records the half (`compare_on_left`, in
+    `mouse.rs`), the caret shows there, and `through_file` maps the
+    cursor through `old_numbers` into the left file (opened beside), then
+    rebuilds from it and the right file (or `new_text`). A removed line
+    is always the left's. The clipboard and saved sides are read-only.
   - Test: `compare_files_asks_for_two_files_and_shows_them_side_by_side`.
   - Checked in the window: Compare Files…, side by side, typing on the
     right, Swap, the Explorer's menu, Compare with Saved and with

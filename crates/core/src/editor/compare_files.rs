@@ -88,7 +88,7 @@ impl Editor {
             Left::Saved => (format!("{right} (saved)"), "on disk".into()),
         };
         let editable = match self.compare_left()? {
-            Left::File(_) => "you can edit this side; ⇄ swaps",
+            Left::File(_) => "you can edit both",
             _ => "you can edit here",
         };
         let detail = match folder(&review.path) {

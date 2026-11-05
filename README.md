@@ -426,8 +426,8 @@ Merge Editor in its bar.
 
 File: Compare Files… asks for two files with the file picker and shows
 them side by side in the changes tab's view, with its bar: Change 1 of 2,
-↑ ↓, Inline. The right side is the real file and can be typed in; ⇄ Swap
-puts the other file there. The Explorer's menu has Select for Compare,
+↑ ↓, Inline. Both sides are the real files and can be typed in: the
+side clicked is the one edited. ⇄ Swap changes sides. The Explorer's menu has Select for Compare,
 then Compare with it on another file. Compare with Clipboard and Compare
 with Saved (a file's unsaved edits against the disk) work the same way.
 
@@ -628,8 +628,7 @@ Other languages work too: anything that builds a WASI 0.2 component for
 - Git: images don't show side by side, very large files compare anyway,
   a submodule's commits aren't listed, and there's no Show Ignored. The
   changes tab has its boxes only side by side, not inline, and stages
-  only what's saved. Compare Files edits only its right side (⇄ swaps
-the other there).
+  only what's saved.
 - Settings have no editor of their own (they're a TOML file), and the
   theme is VS Code's Dark Modern, with no others yet.
 - Completions don't add imports, and renames don't create, move or delete

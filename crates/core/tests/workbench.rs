@@ -1571,7 +1571,31 @@ fn compare_files_asks_for_two_files_and_shows_them_side_by_side() {
     let titles = view.groups[0].compare.clone().unwrap();
     assert_eq!(titles[0], ("old.rs".to_string(), "src/".to_string()));
     assert_eq!(titles[1].0, "main.rs");
-    // ⇄ puts old.rs on the right, to edit.
+    // Typing on the left edits old.rs, opened beside to take it.
+    s.run("click 12 1");
+    s.run("type X");
+    s.run("type Y");
+    let old = s
+        .editor
+        .text_views()
+        .into_iter()
+        .flat_map(|v| v.lines)
+        .find(|l| l.chars.iter().collect::<String>().contains("Yfn"));
+    assert!(old.is_some(), "{}", s.screen());
+    assert!(s.screen().contains("main.rs ↔ old.rs"), "{}", s.screen());
+    assert!(
+        s.effects
+            .iter()
+            .any(|e| matches!(e, Effect::Open(p) if p.ends_with("old.rs"))),
+        "old.rs opens to take the edit"
+    );
+    // The tab shows old.rs's line changed, and main.rs's as it was.
+    let tab = s.editor.buffer().text();
+    assert!(
+        tab.contains("Yfn old() {}") && tab.contains("\nfn b() {}"),
+        "{tab}"
+    );
+    // ⇄ puts old.rs on the right.
     s.run("cmd compare.swap");
     let view = s.editor.window_view();
     assert!(view.tabs.iter().any(|t| t.name == "old.rs ↔ main.rs"));

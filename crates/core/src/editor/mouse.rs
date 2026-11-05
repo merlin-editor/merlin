@@ -193,6 +193,12 @@ impl Editor {
             }
             _ => {}
         }
+        // Two files compared side by side: the half clicked is the one
+        // typing edits.
+        if m.kind == MouseKind::Down && text.contains(m.x, m.y) && self.in_compare() {
+            self.compare_on_left =
+                self.split_rows().is_some() && m.x < text.x + text.w.saturating_sub(2) / 2;
+        }
         match m.kind {
             MouseKind::Down if text.contains(m.x, m.y) && self.sticky_at(text, m.y).is_some() => {
                 if let Some(line) = self.sticky_at(text, m.y) {
