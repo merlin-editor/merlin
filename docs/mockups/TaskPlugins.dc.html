@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tasks and tests from plugins</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.w{width:1280px;height:800px;background:#0f1012;font-family:Inter,sans-serif;color:#d4d5da;font-size:13px;overflow:hidden;position:relative}
+.island{position:absolute;background:#17181b;border-radius:10px;overflow:hidden}
+.label{position:absolute;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#7c9cff}
+.note{position:absolute;font-size:11.5px;color:#8e9099;line-height:1.5}
+.pal{background:#1c1d21;border:1px solid #2c2d33;border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.5);padding:6px}
+.pin{height:32px;border:1px solid #7c9cff;border-radius:6px;background:#1f2024;display:flex;align-items:center;padding:0 10px;font-size:13px;color:#eef0f3;margin-bottom:4px}
+.grp{height:24px;display:flex;align-items:center;padding:0 10px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#7a7d86}
+.pi{height:30px;display:flex;align-items:center;gap:10px;padding:0 10px;border-radius:6px;font-size:13px}
+.pi.on{background:#262b3d;color:#eef0f3}
+.src{margin-left:auto;font-size:11.5px;color:#8e9099;display:flex;align-items:center;gap:6px}
+.chip{font-size:10.5px;background:#26272c;border-radius:4px;padding:1px 6px;color:#b4b6bd}
+.pchip{font-size:10.5px;background:#232a3d;border-radius:4px;padding:1px 6px;color:#9db3ff}
+.kbd{font-size:11px;background:#26272c;border-radius:4px;padding:1px 6px;color:#b4b6bd}
+.h{height:30px;display:flex;align-items:center;gap:6px;padding:0 12px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#8e9099}
+.t-row{height:24px;display:flex;align-items:center;gap:7px;font-size:12.5px;color:#d4d5da;padding-right:12px}
+.t-row .d{margin-left:auto;font-size:11px;color:#8e9099}
+.root{color:#8e9099;font-size:11.5px;margin-left:4px}
+.code{font-family:'JetBrains Mono',monospace;font-size:13px;line-height:22px;white-space:pre;padding:4px 0}
+.ln{display:inline-block;width:56px;text-align:right;padding-right:16px;color:#7a7d86;position:relative}
+.run{position:absolute;left:8px;top:4px}
+.lens{font-family:Inter,sans-serif;font-size:11.5px;color:#8e9099;padding-left:72px;height:18px;display:flex;gap:12px;align-items:center}
+.k{color:#c4a7e7}.s{color:#a6d189}.f{color:#f0c674}.t{color:#9ccfd8}.c{color:#7f8794}.n{color:#f5a97f}
+.g{color:#6cc070}.r{color:#f0807a}.m{color:#8e9099}.b{color:#7c9cff}
+.tabs{height:32px;display:flex;align-items:center;gap:3px;padding:0 6px}
+.tab{height:24px;padding:0 10px;border-radius:6px;display:flex;align-items:center;gap:6px;color:#8e9099;font-size:12.5px}
+.tab.on{background:#26272c;color:#eef0f3;box-shadow:inset 0 0 0 1px #2c2d33}
+.ic{width:14px;height:14px;border-radius:3px;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.toast{position:absolute;background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.45);display:flex;align-items:center;gap:12px;padding:12px 14px;font-size:13px;color:#d4d5da}
+.dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.btn{height:26px;border-radius:6px;padding:0 10px;font-size:12px;display:inline-flex;align-items:center;border:1px solid #2c2d33;background:#1f2024;color:#d4d5da}
+.p-row{display:flex;align-items:center;gap:10px;padding:8px 12px}
+.picon{width:28px;height:28px;border-radius:7px;background:#232a3d;color:#9db3ff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center}
+</style>
+</helmet>
+<div class="w">
+
+  <span class="label" style="left:24px;top:18px">Run Task, with plugins' tasks</span>
+  <div class="pal" style="position:absolute;left:24px;top:40px;width:560px">
+    <div class="pin">Run Task<span style="color:#8e9099;margin-left:6px">› </span><span style="width:1.5px;height:15px;background:#7c9cff"></span></div>
+    <div class="grp">Test</div>
+    <div class="pi on">cargo test<span class="src">Cargo.toml</span><span class="kbd">Ctrl Shift T</span></div>
+    <div class="pi">pytest tests/<span class="src"><span class="pchip">python</span></span></div>
+    <div class="grp">Build and run</div>
+    <div class="pi">cargo build --release<span class="src">Cargo.toml</span></div>
+    <div class="pi">Run merlin<span class="src">bin · <span class="pchip">lsp · rust-analyzer</span></span></div>
+    <div class="pi">Bench layout<span class="src">bench · <span class="pchip">lsp · rust-analyzer</span></span></div>
+    <div class="pi">Deploy preview<span class="src">in the plugin · <span class="pchip">netlify</span></span></div>
+    <div class="grp">Other</div>
+    <div class="pi">check-budgets<span class="src">.merlin/tasks.toml</span></div>
+    <div class="pi" style="color:#8e9099">Configure tasks…</div>
+  </div>
+  <div class="note" style="left:24px;top:432px;width:560px">A plugin's tasks join the built-in ones, grouped as Test, Build and run, or Other, each with the plugin's name as a blue chip. Most are a command line, run in a terminal tab as the others are. A task "in the plugin" runs one of the plugin's own commands instead, and says what happened in a notice.</div>
+
+  <span class="label" style="left:620px;top:18px">Tests from every source in one tree</span>
+  <div class="island" style="left:620px;top:40px;width:300px;height:372px">
+    <div class="h">Tests<span style="margin-left:auto;text-transform:none;letter-spacing:0;font-weight:500"><span class="g">43 ✓</span> <span class="r">2 ✕</span></span></div>
+    <div style="display:flex;gap:6px;padding:0 12px 8px"><span class="kbd" style="padding:3px 8px">▶ Run All</span><span class="kbd" style="padding:3px 8px">Run Failed</span><span class="kbd" style="padding:3px 8px">⟳ On Save</span></div>
+    <div class="t-row" style="padding-left:12px"><span class="r">✕</span>merlin-core<span class="root">cargo</span><span class="d">0.4s</span></div>
+    <div class="t-row" style="padding-left:28px"><span class="g">✓</span>tests/find.rs<span class="d">8</span></div>
+    <div class="t-row" style="padding-left:28px"><span class="r">✕</span>tests/saving.rs<span class="d">11</span></div>
+    <div class="t-row" style="padding-left:12px"><span class="r">✕</span>tests/<span class="root"><span class="pchip">python</span></span><span class="d">1.2s</span></div>
+    <div class="t-row" style="padding-left:28px"><span class="r">✕</span>test_parse.py<span class="d">6</span></div>
+    <div class="t-row" style="padding-left:44px;background:#262b3d"><span class="r">✕</span>test_empty_input<span class="d">4ms</span></div>
+    <div class="t-row" style="padding-left:44px"><span class="g">✓</span>test_unicode<span class="d">2ms</span></div>
+    <div class="t-row" style="padding-left:28px"><span class="g">✓</span>test_cli.py<span class="d">6</span></div>
+    <div class="t-row" style="padding-left:12px;color:#8e9099"><span>⟳</span>web/<span class="root"><span class="pchip">javascript · jest</span></span><span class="d">running</span></div>
+    <div class="h" style="margin-top:6px">Tasks</div>
+    <div class="t-row" style="padding-left:12px"><span class="g">●</span>pytest tests/<span class="root"><span class="pchip">python</span></span><span class="d">done</span></div>
+  </div>
+  <div class="note" style="left:620px;top:420px;width:300px">Each source is a root, named after it. Run All runs every root; a plugin's tests are run by the plugin, which sends their results back. Not run yet: ○; running: ⟳.</div>
+
+  <span class="label" style="left:956px;top:18px">The Plugins view</span>
+  <div class="island" style="left:956px;top:40px;width:300px;height:200px">
+    <div class="h">Plugins</div>
+    <div class="p-row"><div class="picon">PY</div><div><div style="color:#eef0f3">python</div><div style="font-size:11.5px;color:#8e9099;margin-top:2px">Tests 12 · Tasks 1</div></div></div>
+    <div class="p-row"><div class="picon">LS</div><div><div style="color:#eef0f3">lsp</div><div style="font-size:11.5px;color:#8e9099;margin-top:2px">rust-analyzer · Tests 31 · Tasks 2</div></div></div>
+    <div class="p-row"><div class="picon">NE</div><div><div style="color:#eef0f3">netlify</div><div style="font-size:11.5px;color:#8e9099;margin-top:2px">Tasks 1</div></div></div>
+  </div>
+  <div class="note" style="left:956px;top:248px;width:300px">What each plugin gives, beside its name, so it's clear where a task or test came from.</div>
+
+  <span class="label" style="left:956px;top:318px">For plugin authors</span>
+  <div class="island" style="left:956px;top:340px;width:300px;height:180px;padding:10px 12px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;font-size:11.5px;line-height:19px;color:#b4b6bd;white-space:pre"><span class="f">set-tasks</span>(tasks)
+<span class="f">set-tests</span>(path, tests)
+<span class="f">set-test-results</span>(results)
+<span class="f">run-task</span>(name)
+<span class="c">// Running a plugin's test or its
+// "in the plugin" task calls its
+// run-command, as now: plugins
+// built before still load.</span></div>
+
+  <span class="label" style="left:24px;top:540px">A plugin's tests in the gutter</span>
+  <div class="island" style="left:24px;top:562px;width:560px;height:214px">
+    <div class="tabs"><div class="tab on"><span class="ic" style="background:#1e2a3a;color:#7fb0ff">PY</span>test_parse.py</div></div>
+    <div class="code"><div class="lens"><a style="color:#8e9099">▶ Run Test</a><a style="color:#8e9099">Debug</a><span class="r">✕ failed just now</span><span class="pchip" style="margin-left:auto;margin-right:14px">python</span></div><span class="ln"><svg class="run" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5" fill="#3a1d1d"/><path d="M4 4l4 4M8 4l-4 4" stroke="#f0807a" stroke-width="1.4"/></svg>14</span><span class="k">def</span> <span class="f">test_empty_input</span>():
+<span class="ln">15</span>    <span class="k">assert</span> <span class="f">parse</span>(<span class="s">""</span>) == []
+<span class="ln"></span>    <span style="font-family:Inter,sans-serif;font-size:12px;color:#f0807a;background:#2a1a1a;border-radius:5px;padding:3px 8px">AssertionError: assert None == []</span>
+<span class="ln">16</span>
+<span class="ln"><svg class="run" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5" fill="#1f2e1f"/><path d="M3.5 6.2l1.7 1.6 3.3-3.6" stroke="#6cc070" stroke-width="1.4" fill="none"/></svg>17</span><span class="k">def</span> <span class="f">test_unicode</span>():</div>
+  </div>
+  <div class="note" style="left:620px;top:562px;width:300px">Where a plugin lists a file's tests, they get ▶ Run Test and Debug, a result in the gutter, and a failure under its line, as merlin's own do. In Rust, rust-analyzer's tests (from the lsp plugin) take the place of merlin's own search for #[test].</div>
+
+  <div class="toast" style="left:620px;top:682px;width:300px"><span class="dot" style="background:#6cc070"></span><span style="flex:1">netlify: Deploy preview is live</span><span class="btn">Open</span></div>
+  <div class="note" style="left:956px;top:682px;width:300px">An "in the plugin" task answers with a notice, its buttons from the plugin.</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
