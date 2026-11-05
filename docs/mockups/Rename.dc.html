@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Rename, reviewed first</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.w{width:1280px;height:800px;background:#0f1012;font-family:Inter,sans-serif;color:#d4d5da;display:flex;flex-direction:column;font-size:13px;overflow:hidden}
+.bar{height:40px;display:flex;align-items:center;gap:10px;padding:0 12px;flex-shrink:0}
+.logo{width:20px;height:20px;border-radius:5px;background:#7c9cff;color:#0f1012;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
+.search{margin:0 auto;width:400px;height:26px;border-radius:7px;background:#1c1d21;border:1px solid #2c2d33;color:#8e9099;display:flex;align-items:center;gap:8px;padding:0 10px;font-size:12.5px;box-sizing:border-box}
+.kbd{font-size:11px;background:#26272c;border-radius:4px;padding:1px 6px;color:#b4b6bd;font-family:Inter,sans-serif}
+.mid{flex:1;display:flex;gap:6px;padding-right:6px;min-height:0}
+.rail{width:44px;flex-shrink:0}
+.col{flex:1;display:flex;flex-direction:column;gap:6px;min-width:0}
+.island{background:#17181b;border-radius:10px;display:flex;flex-direction:column;min-width:0;overflow:hidden;position:relative}
+.tabs{height:32px;display:flex;align-items:center;gap:3px;padding:0 6px;flex-shrink:0}
+.tab{height:24px;padding:0 10px;border-radius:6px;display:flex;align-items:center;gap:6px;color:#8e9099;font-size:12.5px}
+.tab.on{background:#26272c;color:#eef0f3;box-shadow:inset 0 0 0 1px #2c2d33}
+.ic{width:14px;height:14px;border-radius:3px;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;background:#3a2a1e;color:#f5a97f}
+.code{font-family:'JetBrains Mono',monospace;font-size:13px;line-height:22px;white-space:pre;padding:4px 0}
+.row{position:relative}
+.ln{display:inline-block;width:40px;text-align:right;padding-right:8px;color:#7a7d86}
+.sg{display:inline-block;width:14px;color:#7a7d86}
+.k{color:#c4a7e7}.s{color:#a6d189}.f{color:#f0c674}.t{color:#9ccfd8}.c{color:#7f8794}.n{color:#f5a97f}
+.add{background:#24301f}.add .sg{color:#6cc070}
+.del{background:#3a1d1d}.del .sg{color:#f0807a}
+.addw{background:rgba(108,192,112,.28);border-radius:2px}
+.delw{background:rgba(240,128,122,.3);border-radius:2px}
+.ptabs{height:34px;display:flex;align-items:center;gap:2px;padding:0 8px;flex-shrink:0}
+.ptab{height:26px;padding:0 10px;display:flex;align-items:center;font-size:12.5px;color:#8e9099;border-radius:6px}
+.ptab.on{color:#eef0f3}
+.ptab.on span{border-bottom:2px solid #7c9cff;padding-bottom:3px}
+.head{display:flex;align-items:center;gap:10px;padding:4px 14px 8px}
+.mono{font-family:'JetBrains Mono',monospace;font-size:12.5px}
+.btn{height:26px;display:flex;align-items:center;gap:8px;padding:0 10px;border-radius:6px;font-size:12.5px;background:#26272c;color:#eef0f3;white-space:nowrap}
+.btn.pri{background:#7c9cff;color:#0f1012;font-weight:500}
+.btn.pri .kbd{background:rgba(15,16,18,.18);color:#0f1012}
+.tree{padding:0 8px;font-size:12.5px;width:700px}
+.tr{height:26px;display:flex;align-items:center;gap:8px;padding:0 8px;border-radius:6px;color:#d4d5da;white-space:nowrap}
+.tr.on{background:#262b3d;color:#eef0f3}
+.tr .m{color:#8e9099}
+.cb{width:14px;height:14px;border-radius:4px;border:1.5px solid #4a4c55;box-sizing:border-box;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+.cb.on{background:#7c9cff;border-color:#7c9cff}
+.cb.on::after{content:"";width:7px;height:4px;border-left:1.8px solid #0f1012;border-bottom:1.8px solid #0f1012;transform:rotate(-45deg) translate(1px,-1px)}
+.cb.part{border-color:#7c9cff}
+.cb.part::after{content:"";width:7px;height:2px;background:#7c9cff;border-radius:1px}
+.chev{width:12px;color:#8e9099;font-size:10px}
+.count{margin-left:auto;font-size:11px;color:#8e9099;background:#26272c;border-radius:9px;padding:0 7px}
+.status{height:24px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px;color:#8e9099;flex-shrink:0}
+.label{position:absolute;font-family:Inter,sans-serif;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#7c9cff}
+.note{position:absolute;font-family:Inter,sans-serif;font-size:11.5px;color:#8e9099;line-height:16px}
+</style>
+</helmet>
+<div class="w">
+  <div class="bar">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#8e9099" stroke-width="1.5" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
+    <div class="logo">m</div><strong style="font-size:13px;color:#eef0f3;font-weight:600">merlin</strong>
+    <div class="search">Search files, commands and symbols<span class="kbd" style="margin-left:auto">Ctrl P</span></div>
+  </div>
+  <div class="mid">
+    <div class="rail"></div>
+    <div class="col">
+      <!-- The chosen place's file, as a review: what the rename does to it -->
+      <div class="island" style="flex:1">
+        <div class="tabs"><div class="tab"><span class="ic">RS</span>palette.rs</div><div class="tab on"><span class="ic">RS</span>palette.rs <span style="color:#8e9099">· Rename</span></div></div>
+        <div class="code"><div class="row"><span class="ln">24</span><span class="sg"></span>}</div><div class="row"><span class="ln">25</span><span class="sg"></span></div><div class="row del"><span class="ln">26</span><span class="sg">-</span><span class="k">pub fn</span> <span class="f">theme_colours</span>(<span class="delw">accent</span>: <span class="t">Rgb</span>) -&gt; <span class="t">Vec</span>&lt;<span class="t">Rgb</span>&gt; {</div><div class="row add"><span class="ln">26</span><span class="sg">+</span><span class="k">pub fn</span> <span class="f">theme_colours</span>(<span class="addw">base_colour</span>: <span class="t">Rgb</span>) -&gt; <span class="t">Vec</span>&lt;<span class="t">Rgb</span>&gt; {</div><div class="row"><span class="ln">27</span><span class="sg"></span>    <span class="k">let</span> steps = [<span class="n">-0.4</span>, <span class="n">0.0</span>, <span class="n">0.4</span>];</div><div class="row del"><span class="ln">28</span><span class="sg">-</span>    steps.<span class="f">iter</span>().<span class="f">map</span>(|s| <span class="f">shade</span>(<span class="delw">accent</span>, *s)).<span class="f">collect</span>()</div><div class="row add"><span class="ln">28</span><span class="sg">+</span>    steps.<span class="f">iter</span>().<span class="f">map</span>(|s| <span class="f">shade</span>(<span class="addw">base_colour</span>, *s)).<span class="f">collect</span>()</div><div class="row"><span class="ln">29</span><span class="sg"></span>}</div><div class="row"><span class="ln">30</span><span class="sg"></span></div><div class="row"><span class="ln">31</span><span class="sg"></span><span class="c">// The accent goes first, as the theme's own.</span></div><div class="row"><span class="ln">32</span><span class="sg"></span><span class="k">pub fn</span> <span class="f">default_theme</span>() -&gt; <span class="t">Theme</span> {</div></div>
+        <span class="label" style="left:760px;top:52px">The chosen file, as a review</span>
+        <div class="note" style="left:760px;top:72px;width:380px">The diff of what the rename does to the file of the row chosen below, in a read-only tab beside the file. Moving through the rows moves through the files; a place that's left out shows unchanged.</div>
+      </div>
+      <!-- The places, in the bottom panel -->
+      <div class="island" style="height:300px;flex-shrink:0">
+        <div class="ptabs"><div class="ptab">Problems</div><div class="ptab">Output</div><div class="ptab">Terminal</div><div class="ptab on"><span>Rename</span></div></div>
+        <div class="head">
+          <span>Rename <span class="mono" style="color:#f0807a">accent</span> to <span class="mono" style="color:#6cc070">base_colour</span></span>
+          <span style="color:#8e9099">·  3 of 4 places in 2 files</span>
+          <span style="margin-left:auto" class="btn">Discard<span class="kbd">Esc</span></span>
+          <span class="btn pri">Apply 3<span class="kbd">Enter</span></span>
+        </div>
+        <div class="tree">
+          <div class="tr"><span class="chev">▾</span><span class="cb on"></span><span class="ic">RS</span>palette.rs <span class="m">src</span><span class="count">2</span></div>
+          <div class="tr on" style="padding-left:52px"><span class="cb on"></span><span class="m mono" style="width:26px;text-align:right">26</span><span class="mono">pub fn theme_colours(<span class="delw" style="text-decoration:line-through">accent</span><span class="addw">base_colour</span>: Rgb) -&gt; …</span></div>
+          <div class="tr" style="padding-left:52px"><span class="cb on"></span><span class="m mono" style="width:26px;text-align:right">28</span><span class="mono">steps.iter().map(|s| shade(<span class="delw" style="text-decoration:line-through">accent</span><span class="addw">base_colour</span>, *s))…</span></div>
+          <div class="tr"><span class="chev">▾</span><span class="cb part"></span><span class="ic">RS</span>theme.rs <span class="m">src</span><span class="count">1 of 2</span></div>
+          <div class="tr" style="padding-left:52px"><span class="cb on"></span><span class="m mono" style="width:26px;text-align:right">12</span><span class="mono">let colours = theme_colours(<span class="delw" style="text-decoration:line-through">accent</span><span class="addw">base_colour</span>);</span></div>
+          <div class="tr" style="padding-left:52px;color:#8e9099"><span class="cb"></span><span class="m mono" style="width:26px;text-align:right">40</span><span class="mono">let accent = user.accent.unwrap_or(<span style="text-decoration:line-through">accent</span>);</span><span style="margin-left:10px;font-size:11px">left out</span></div>
+        </div>
+        <span class="label" style="left:760px;top:132px">Every place, to leave some out</span>
+        <div class="note" style="left:760px;top:152px;width:380px">By file, each place with its line, the old name struck through and the new beside it. ↑ ↓ move, Space leaves a place in or out (a file's box does all its places), and Enter applies what's ticked, each file one undo step. Esc, or Discard, changes nothing.</div>
+      </div>
+    </div>
+  </div>
+  <div class="status"><span>⑂ main</span><span style="color:#7c9cff">Reviewing a rename: Enter applies, Esc discards</span><span style="margin-left:auto">Ln 26, Col 22</span><span>rust-analyzer ✓</span><span>Rust</span></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

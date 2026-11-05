@@ -29,9 +29,10 @@ exact paddings, follow the window's existing helpers (`Frame`, `Canvas`,
 | `Markdown.dc.html` | Markdown preview | A preview beside the source (Ctrl+K V) that scrolls with it, with tables and Mermaid diagrams. |
 | `Hover.dc.html` | Problems in the hover card | Hovering a squiggle puts the problem first: an icon for its severity, the message, rustc's second line and `help:`, then the source and code (`rustc E0308`, linked). The preferred fix is one click, with More fixes on Ctrl+. beside it. A divider follows, then the type and docs the hover shows today. Where there's no hover, the card shows the problem alone. The card stays open while the pointer moves into it, Ctrl+K Ctrl+I opens it at the cursor, and long hovers scroll. |
 | `Format.dc.html` | Format and format on save | The approved "Format the file Ctrl Shift I" row in the code actions card, with "Format the selection Ctrl K Ctrl F" while something is selected. Format on save in Settings › Files as Off, File or Changed lines (only what git says changed). "Formatting…" in the status bar while a save waits, at most 1.5 s, and a notice when it saved unformatted. File: Save without Formatting (Ctrl K S). |
+| `Rename.dc.html` | Reviewing a rename first (Shift+Enter in the rename box) | A Rename tab in the bottom panel: "Rename `accent` to `base_colour` · 3 of 4 places in 2 files", Discard (Esc) and Apply (Enter). Every place by file, each with a box to leave it out, its line, and the old name struck through beside the new. Above, the chosen row's file as a read-only review diff. The status bar says what Enter and Esc do. |
 
-`Hover.dc.html` and `Format.dc.html` came later, and the user approved
-them on 2026-11-05 too.
+`Hover.dc.html`, `Format.dc.html` and `Rename.dc.html` came later, and
+the user approved them on 2026-11-05 too.
 They aren't on the live canvas, which no longer opens.
 
 Hot exit has no mock-up: it changes only whether quitting asks. Unsaved
