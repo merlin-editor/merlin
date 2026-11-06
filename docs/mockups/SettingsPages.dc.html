@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Settings pages</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.w{width:1280px;height:800px;position:relative;background:#0f1012;font-family:Inter,sans-serif;color:#d4d5da;font-size:13px;overflow:hidden}
+.island{position:absolute;background:#17181b;border-radius:10px;overflow:hidden;display:flex;flex-direction:column}
+.label{position:absolute;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#7c9cff}
+.note{position:absolute;font-size:11.5px;color:#8e9099;line-height:1.5}
+.note b{color:#d4d5da;font-weight:500}
+.tabs{height:32px;display:flex;align-items:center;gap:3px;padding:0 6px;flex-shrink:0}
+.tab{height:24px;padding:0 10px;border-radius:6px;display:flex;align-items:center;gap:6px;color:#8e9099;font-size:12.5px}
+.tab.on{background:#26272c;color:#eef0f3;box-shadow:inset 0 0 0 1px #2c2d33}
+.split{flex:1;display:flex;min-height:0}
+.nav{width:176px;padding:12px 8px;display:flex;flex-direction:column;gap:2px;flex-shrink:0}
+.nv{height:30px;display:flex;align-items:center;gap:10px;padding:0 10px;border-radius:6px;font-size:13px;color:#b4b6bd}
+.nv.on{background:#26272c;color:#eef0f3}
+.nv .c{margin-left:auto;font-size:11px;color:#8e9099}
+.body{flex:1;overflow:hidden;padding:14px 24px 0 18px;min-width:0;position:relative}
+.sec{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#8e9099;margin:16px 0 8px;display:flex;align-items:center;gap:8px}
+.sec .more{margin-left:auto;text-transform:none;letter-spacing:0;font-weight:500;color:#7c9cff;font-size:12px}
+.row{display:flex;align-items:center;gap:20px;padding:10px 0;border-bottom:1px solid #222328}
+.row .l{flex:1;min-width:0}
+.row .t{font-size:13.5px;color:#eef0f3;font-weight:500;display:flex;align-items:center;gap:8px}
+.row .a{font-size:12.5px;color:#8e9099;margin-top:3px;line-height:1.45}
+.mod{font-size:10.5px;color:#7c9cff;background:#1f2638;border-radius:4px;padding:1px 6px;font-weight:500}
+.key{font-family:'JetBrains Mono',monospace;font-size:11px;color:#8e9099}
+.sw{width:34px;height:20px;border-radius:10px;background:#2c2d33;position:relative;flex-shrink:0}
+.sw::after{content:"";position:absolute;left:3px;top:3px;width:14px;height:14px;border-radius:50%;background:#8e9099}
+.sw.on{background:#7c9cff}
+.sw.on::after{left:17px;background:#0f1012}
+.seg{display:flex;background:#1f2024;border:1px solid #2c2d33;border-radius:7px;padding:2px;flex-shrink:0}
+.seg span{height:24px;padding:0 10px;display:flex;align-items:center;gap:6px;border-radius:5px;font-size:12px;color:#b4b6bd}
+.seg span.on{background:#2c3a5e;color:#eef0f3}
+.seg .n{font-size:11px;color:#8e9099}
+.sel{min-width:130px;height:28px;border:1px solid #2c2d33;border-radius:6px;background:#1f2024;display:flex;align-items:center;justify-content:space-between;padding:0 10px;font-size:12.5px;box-sizing:border-box;gap:12px;flex-shrink:0}
+.find{height:32px;border:1px solid #2c2d33;border-radius:7px;background:#1f2024;display:flex;align-items:center;gap:8px;padding:0 10px;font-size:13px;color:#8e9099;box-sizing:border-box}
+.find.on{border-color:#7c9cff;color:#eef0f3}
+.scope{display:flex;gap:18px;font-size:12.5px;margin-top:12px;border-bottom:1px solid #222328}
+.scope span{padding-bottom:8px;color:#8e9099}
+.scope span.on{color:#eef0f3;border-bottom:2px solid #7c9cff}
+.btn{height:26px;border-radius:6px;padding:0 10px;font-size:12px;display:inline-flex;align-items:center;gap:6px;border:1px solid #2c2d33;background:#1f2024;color:#d4d5da;white-space:nowrap;box-sizing:border-box}
+.btn.p{background:#7c9cff;border-color:#7c9cff;color:#0f1012;font-weight:600}
+.btn.d{color:#f0807a}
+.kbd{font-size:11px;background:#26272c;border:1px solid #2f3036;border-radius:4px;padding:1px 6px;color:#d4d5da;font-family:Inter,sans-serif}
+.chip{font-size:10.5px;border-radius:4px;padding:1px 6px;font-weight:500;background:#1f2638;color:#7c9cff}
+.chip.g{background:#202b22;color:#6cc070}
+.chip.m{background:#24252a;color:#8e9099}
+.status{position:absolute;left:0;right:0;bottom:0;height:24px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px;color:#8e9099}
+.bar{position:absolute;left:0;right:0;top:0;height:40px;display:flex;align-items:center;gap:10px;padding:0 12px}
+.logo{width:20px;height:20px;border-radius:5px;background:#7c9cff;color:#0f1012;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
+
+/* Theme cards */
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.card{border-radius:8px;overflow:hidden;box-shadow:inset 0 0 0 1px #2c2d33;background:#1c1d21}
+.card.cur{box-shadow:0 0 0 2px #7c9cff}
+.pv{height:62px;padding:8px 9px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;font-size:9.5px;line-height:15px;white-space:pre;position:relative}
+.pv .sb{position:absolute;left:0;top:0;bottom:0;width:7px}
+.cl{height:28px;display:flex;align-items:center;gap:6px;padding:0 9px;font-size:12px;color:#d4d5da}
+.cl .tg{margin-left:auto;font-size:10.5px;color:#8e9099}
+.cl .tg.on{color:#7c9cff;font-weight:600}
+.icards{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.icard{height:52px;border-radius:8px;box-shadow:inset 0 0 0 1px #2c2d33;background:#1c1d21;padding:8px 10px;box-sizing:border-box;display:flex;flex-direction:column;gap:6px}
+.icard.cur{box-shadow:0 0 0 2px #7c9cff}
+.icard .ics{display:flex;gap:6px;align-items:center}
+.icard .nm{font-size:12px;display:flex}
+.fromt{margin-left:auto;white-space:nowrap;font-size:10.5px;color:#8e9099;font-family:Inter,sans-serif}
+.ic{width:14px;height:14px;border-radius:3px;font-size:7.5px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.layer{display:flex;align-items:center;gap:10px;height:34px;border-bottom:1px solid #222328;font-size:12.5px}
+.layer .grip{color:#5d6068;font-size:11px}
+.layer .w2{margin-left:auto;display:flex;gap:4px}
+.ib{width:24px;height:24px;border-radius:5px;display:flex;align-items:center;justify-content:center;color:#8e9099;background:#1f2024;border:1px solid #2c2d33;box-sizing:border-box;font-size:11px}
+
+/* Keys */
+.kh,.kr{display:grid;grid-template-columns:1fr 220px 120px 30px;align-items:center;gap:12px;padding:0 6px}
+.kh{height:28px;font-size:11px;color:#8e9099;font-weight:600;letter-spacing:.04em;text-transform:uppercase;border-bottom:1px solid #222328}
+.kr{height:34px;border-bottom:1px solid #1f2024;font-size:12.5px}
+.kr.on{background:#1d2130;border-radius:6px;border-bottom-color:transparent}
+.kr .cmd{display:flex;align-items:center;gap:8px;color:#eef0f3}
+.kr .cmd span.m{color:#8e9099}
+.kr .ks{display:flex;align-items:center;gap:4px;color:#5d6068;font-size:11px}
+.kr .fr{font-size:11.5px;color:#8e9099}
+.kr .rs{color:#7c9cff;font-size:13px;text-align:center}
+.capture{position:absolute;box-sizing:border-box;background:#1c1d21;border:1px solid #7c9cff;border-radius:8px;box-shadow:0 12px 32px rgba(0,0,0,.5);padding:12px 14px}
+
+/* Plugins */
+.plist{width:250px;flex-shrink:0;padding:10px 8px;border-right:1px solid #222328;display:flex;flex-direction:column;gap:2px}
+.pi{height:40px;display:flex;align-items:center;gap:10px;padding:0 10px;border-radius:6px}
+.pi.on{background:#26272c}
+.pi .pn{font-size:12.5px;color:#eef0f3;line-height:1.25}
+.pi .pn div{font-size:11px;color:#8e9099}
+.pi .pm{margin-left:auto;font-size:11px;color:#8e9099;text-align:right}
+.pico{width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0}
+.stat{display:flex;flex-direction:column;gap:2px}
+.stat .v{font-size:15px;color:#eef0f3;font-weight:600}
+.stat .s{font-size:11px;color:#8e9099}
+.perm{display:flex;align-items:center;gap:8px;font-size:12.5px;height:24px}
+.perm .ok{color:#6cc070;width:14px}
+.perm .no{color:#5d6068;width:14px}
+.banner{display:flex;align-items:center;gap:8px;padding:8px 12px;background:#2a1b1b;border-bottom:1px solid #3a2424;font-size:12.5px;color:#f0c8c4}
+</style>
+</helmet>
+
+<!-- Artboard 1: Appearance, search and scopes -->
+<div class="w">
+  <div class="bar"><div class="logo">m</div><strong style="font-size:13px;color:#eef0f3;font-weight:600">merlin</strong><span style="color:#8e9099;font-size:12.5px">⑂ main</span></div>
+  <div class="island" style="left:50px;top:40px;width:822px;bottom:24px">
+    <div class="tabs"><div class="tab"><span class="ic" style="background:#3a2a1e;color:#f5a97f">RS</span>main.rs</div><div class="tab on"><svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="#b4b6bd" stroke-width="1.4" aria-hidden="true"><circle cx="7" cy="7" r="2"/><path d="M7 1v2M7 11v2M1 7h2M11 7h2M2.8 2.8l1.4 1.4M9.8 9.8l1.4 1.4M2.8 11.2l1.4-1.4M9.8 4.2l1.4-1.4"/></svg>Settings</div></div>
+    <div class="split">
+      <div class="nav">
+        <div class="nv on"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M8 2a6 6 0 0 0 0 12z" fill="currentColor"/></svg>Appearance<span class="c">1</span></div>
+        <div class="nv"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M3 4h10M3 8h7M3 12h9"/></svg>Text Editor<span class="c">3</span></div>
+        <div class="nv"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M4 2h5l3 3v9H4z"/></svg>Files</div>
+        <div class="nv"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.5" y="4" width="13" height="8" rx="1.5"/><path d="M4 7h1M7 7h1M10 7h2M4.5 9.5h7"/></svg>Keyboard Shortcuts</div>
+        <div class="nv"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg>Plugins<span class="c">11</span></div>
+        <div style="flex:1"></div>
+        <div class="nv" style="color:#8e9099;font-size:12px">Open settings.toml</div>
+      </div>
+      <div class="body">
+        <div class="find"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#8e9099" stroke-width="1.6" aria-hidden="true"><circle cx="7" cy="7" r="5"/><path d="M11 11l3.5 3.5"/></svg>Search settings</div>
+        <div class="scope"><span class="on">User</span><span>Workspace · hovertest</span></div>
+
+        <div class="sec">Colour theme<span class="more">More themes in Plugins ›</span></div>
+        <div class="row" style="padding:6px 0 10px;border:0"><div class="l"><div class="t">Follow the system</div><div class="a">One theme for a dark desktop, another for a light one. <span class="key">editor.theme_follows_system</span></div></div><div class="sw on"></div></div>
+        <div class="cards">
+          <div class="card cur"><div class="pv" style="background:#17181b"><span class="sb" style="background:#0f1012"></span>  <span style="color:#c4a7e7">fn</span> <span style="color:#f0c674">main</span>() {
+    <span style="color:#c4a7e7">let</span> s = <span style="color:#a6d189">"hi"</span>;
+    <span style="color:#9ccfd8">Args</span>::<span style="color:#f0c674">parse</span>()</div><div class="cl">merlin Dark<span class="tg on">✓ Dark</span></div></div>
+          <div class="card"><div class="pv" style="background:#1b1a19"><span class="sb" style="background:#121110"></span>  <span style="color:#b8b0a5">fn</span> <span style="color:#ece7df">main</span>() {
+    <span style="color:#b8b0a5">let</span> s = <span style="color:#a9b48f">"hi"</span>;
+    <span style="color:#cbbd9f">Args</span>::<span style="color:#ece7df">parse</span>()</div><div class="cl">Sumi<span class="tg">Dark</span></div></div>
+          <div class="card"><div class="pv" style="background:#161b26"><span class="sb" style="background:#10141d"></span>  <span style="color:#a594e6">fn</span> <span style="color:#82b8ea">main</span>() {
+    <span style="color:#a594e6">let</span> s = <span style="color:#9ec48a">"hi"</span>;
+    <span style="color:#74c7c2">Args</span>::<span style="color:#82b8ea">parse</span>()</div><div class="cl">Nami<span class="tg">Dark</span></div></div>
+          <div class="card"><div class="pv" style="background:#1d2027"><span class="sb" style="background:#15171c"></span>  <span style="color:#b5a8e0">fn</span> <span style="color:#a8c4e8">main</span>() {
+    <span style="color:#b5a8e0">let</span> s = <span style="color:#a9c4a8">"hi"</span>;
+    <span style="color:#9ec9cf">Args</span>::<span style="color:#a8c4e8">parse</span>()</div><div class="cl">Tsuki<span class="tg">Dark</span></div></div>
+          <div class="card"><div class="pv" style="background:#1e171c"><span class="sb" style="background:#161115"></span>  <span style="color:#c9a6ea">fn</span> <span style="color:#f2c48d">main</span>() {
+    <span style="color:#c9a6ea">let</span> s = <span style="color:#b9d3a1">"hi"</span>;
+    <span style="color:#9fc9d6">Args</span>::<span style="color:#f2c48d">parse</span>()</div><div class="cl">Sakura<span class="tg">Dark</span></div></div>
+          <div class="card"><div class="pv" style="background:#1a1e18"><span class="sb" style="background:#131611"></span>  <span style="color:#dc9f7f">fn</span> <span style="color:#a3c9ab">main</span>() {
+    <span style="color:#dc9f7f">let</span> s = <span style="color:#cbbd84">"hi"</span>;
+    <span style="color:#8fbcb4">Args</span>::<span style="color:#a3c9ab">parse</span>()</div><div class="cl">Matcha<span class="tg">Dark</span></div></div>
+          <div class="card"><div class="pv" style="background:#1d1710"><span class="sb" style="background:#15110b"></span>  <span style="color:#e8a35c">fn</span> <span style="color:#f5cf7a">main</span>() {
+    <span style="color:#e8a35c">let</span> s = <span style="color:#d6c780">"hi"</span>;
+    <span style="color:#c9b48a">Args</span>::<span style="color:#f5cf7a">parse</span>()</div><div class="cl">Kohaku<span class="tg">Dark</span></div></div>
+          <div class="card" style="box-shadow:0 0 0 2px #4a5a86"><div class="pv" style="background:#faf7f1;color:#3b3631"><span class="sb" style="background:#efe9df"></span>  <span style="color:#87499f">fn</span> <span style="color:#9a5810">main</span>() {
+    <span style="color:#87499f">let</span> s = <span style="color:#53762f">"hi"</span>;
+    <span style="color:#2b6a89">Args</span>::<span style="color:#9a5810">parse</span>()</div><div class="cl">Yuki<span class="tg on">✓ Light</span></div></div>
+        </div>
+
+        <div class="sec">Icons</div>
+        <div class="icards">
+          <div class="icard cur"><div class="nm">merlin</div><div class="ics"><span class="ic" style="background:#3a2a1e;color:#f5a97f">RS</span><span class="ic" style="background:#1e2a3a;color:#7fb0ff">MD</span><span class="ic" style="background:#2a2a1e;color:#e5c07b">JS</span><span class="ic" style="background:#1e3a2a;color:#6cc070">PY</span><span class="fromt">Built in</span></div></div>
+          <div class="icard"><div class="nm">Origami</div><div class="ics" style="color:#b4b6bd;font-size:12px;gap:9px"><span>◆</span><span>◇</span><span>▲</span><span class="fromt">merlin Icons</span></div></div>
+          <div class="icard"><div class="nm">Outline</div><div class="ics" style="color:#b4b6bd;font-size:12px;gap:9px"><span>▢</span><span>◯</span><span>△</span><span class="fromt">merlin Icons</span></div></div>
+          <div class="icard"><div class="nm">Line Icons</div><div class="ics" style="color:#b4b6bd;font-size:12px;gap:9px"><span>⎯</span><span>∕</span><span>⌒</span><span class="fromt">merlin Icons</span></div></div>
+        </div>
+
+        <div class="sec">Layouts <span class="mod" style="text-transform:none;letter-spacing:0">Modified</span><span class="more">Add a layout ▾</span></div>
+        <div class="layer"><span class="grip">⋮⋮</span><span style="color:#eef0f3">Compact</span><span class="chip m">merlin Layouts</span><span style="color:#8e9099;font-size:12px">Tighter rows and tabs</span><span class="w2"><span class="ib">↑</span><span class="ib">↓</span><span class="ib">✕</span></span></div>
+        <div class="layer" style="border:0"><span class="grip">⋮⋮</span><span style="color:#eef0f3">Large Code</span><span class="chip m">merlin Layouts</span><span style="color:#8e9099;font-size:12px">Code at 15, the rest as is</span><span class="w2"><span class="ib">↑</span><span class="ib">↓</span><span class="ib">✕</span></span></div>
+      </div>
+    </div>
+  </div>
+  <div class="status"><span style="margin-left:auto">Changes apply as you make them</span></div>
+
+  <span class="label" style="left:900px;top:44px">Themes, as cards</span>
+  <div class="note" style="left:900px;top:64px;width:356px">Each card draws its theme's own colours on a few lines of code. <b>Arrow keys or the pointer over a card preview it on the whole window</b>, and Esc or leaving puts yours back. A click picks it. With Follow the system on, each card says Dark or Light, and a click picks it for that one; with it off, there's one ✓. This replaces the Theme Packs side view, and the palette's Color Theme stays.</div>
+
+  <span class="label" style="left:900px;top:206px">Icons and layouts</span>
+  <div class="note" style="left:900px;top:226px;width:356px">Icon themes are the same kind of card. Layouts stack, top over bottom, as theme packs do now: ↑ and ↓ reorder, ✕ takes one off, and Add a layout lists the ones not in use.</div>
+
+  <span class="label" style="left:900px;top:314px">Search finds every page</span>
+  <div class="island" style="left:900px;top:334px;width:356px;height:166px;padding:10px 12px;box-sizing:border-box;gap:6px">
+    <div class="find on" style="height:28px;font-size:12.5px">tab<span style="border-left:1.5px solid #7c9cff;height:14px;margin-left:-6px"></span><span style="margin-left:auto;font-size:11px;color:#8e9099">9 settings · 6 keys</span></div>
+    <div style="font-size:10.5px;color:#8e9099;font-weight:600;letter-spacing:.06em;margin-top:4px">TEXT EDITOR</div>
+    <div style="font-size:12.5px;display:flex;justify-content:space-between"><span><b style="color:#7c9cff;font-weight:600">Tab</b> size</span><span class="seg" style="transform:scale(.85);transform-origin:right"><span>2</span><span class="on">4</span><span>8</span></span></div>
+    <div style="font-size:12.5px">Preview <b style="color:#7c9cff;font-weight:600">tab</b>s</div>
+    <div style="font-size:10.5px;color:#8e9099;font-weight:600;letter-spacing:.06em;margin-top:2px">KEYBOARD SHORTCUTS</div>
+    <div style="font-size:12.5px;display:flex;justify-content:space-between"><span>Next <b style="color:#7c9cff;font-weight:600">Tab</b></span><span><span class="kbd">Ctrl</span> <span class="kbd">Tab</span></span></div>
+  </div>
+  <div class="note" style="left:900px;top:506px;width:356px">Typing in the search box shows what matches from every page, under the page's name, with the controls working in place. It matches labels, what they say, and keys: <span class="key" style="color:#b4b6bd">files.hot_exit</span> finds Hot exit. Ctrl+F jumps to the box.</div>
+
+  <span class="label" style="left:900px;top:592px">Set in this folder</span>
+  <div class="island" style="left:900px;top:612px;width:356px;height:62px;padding:0 12px;box-sizing:border-box;justify-content:center">
+    <div style="display:flex;align-items:center;gap:10px"><div style="flex:1"><div style="font-size:13px;color:#eef0f3;font-weight:500;display:flex;gap:8px;align-items:center">Tab size <span class="mod">Workspace</span></div><div style="font-size:11.5px;color:#8e9099;margin-top:2px">Yours is 4; this folder says 2.</div></div><span style="color:#7c9cff;font-size:14px">↺</span><span class="seg"><span class="on">2</span><span>4</span><span>8</span></span></div>
+  </div>
+  <div class="note" style="left:900px;top:680px;width:356px">On the Workspace tab a change goes to <span class="key" style="color:#b4b6bd">.merlin/settings.toml</span>. A row set there says what yours is, and ↺ takes it out of the file, so yours applies again. ↺ appears on any changed row.</div>
+</div>
+
+<!-- Artboard 2: keyboard shortcuts and plugins -->
+<div class="w">
+  <span class="label" style="left:24px;top:18px">Keyboard Shortcuts</span>
+  <div class="island" style="left:24px;top:40px;width:850px;height:392px">
+    <div class="split">
+      <div class="nav">
+        <div class="nv">Appearance</div>
+        <div class="nv">Text Editor</div>
+        <div class="nv">Files</div>
+        <div class="nv on">Keyboard Shortcuts<span class="c">3</span></div>
+        <div class="nv">Plugins</div>
+      </div>
+      <div class="body" style="padding-top:14px">
+        <div style="display:flex;flex-direction:column;gap:10px;align-items:flex-start">
+          <div class="find" style="width:100%"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#8e9099" stroke-width="1.6" aria-hidden="true"><circle cx="7" cy="7" r="5"/><path d="M11 11l3.5 3.5"/></svg>Search commands or keys<span style="margin-left:auto" class="btn" title="Record keys"><svg width="14" height="12" viewBox="0 0 16 12" fill="none" stroke="#b4b6bd" stroke-width="1.3" aria-hidden="true"><rect x="1" y="1" width="14" height="10" rx="1.5"/><path d="M4 4h1M7 4h1M10 4h2M4.5 7.5h7"/></svg>Record Keys</span></div>
+          <div class="seg"><span class="on">All <span class="n">214</span></span><span>Changed <span class="n">3</span></span><span>Plugins <span class="n">12</span></span><span style="color:#e5b567">Conflicts <span class="n" style="color:#e5b567">1</span></span></div>
+        </div>
+        <div style="margin-top:8px">
+          <div class="kh"><span>Command</span><span>Keys</span><span>From</span><span></span></div>
+          <div class="kr"><span class="cmd">Go to Definition</span><span class="ks"><span class="kbd">F12</span></span><span class="fr">merlin</span><span></span></div>
+          <div class="kr"><span class="cmd">Find All References</span><span class="ks"><span class="kbd">Shift</span><span class="kbd">F12</span></span><span class="fr">merlin</span><span></span></div>
+          <div class="kr on"><span class="cmd">Rename Symbol</span><span class="ks"><span class="kbd">F2</span></span><span class="fr">merlin</span><span></span></div>
+          <div class="kr"><span class="cmd">Toggle Minimap <span class="mod">Changed</span></span><span class="ks"><span class="kbd">Ctrl</span><span class="kbd">K</span> <span>then</span> <span class="kbd">M</span></span><span class="fr">merlin</span><span class="rs">↺</span></div>
+          <div class="kr"><span class="cmd">Format the File</span><span class="ks"><span class="kbd">Ctrl</span><span class="kbd">Shift</span><span class="kbd">I</span></span><span class="fr">merlin</span><span></span></div>
+          <div class="kr"><span class="cmd">Word Count: Count the Selection</span><span class="ks"><span class="kbd">Ctrl</span><span class="kbd">Alt</span><span class="kbd">W</span></span><span class="fr"><span class="chip">word-count</span></span><span></span></div>
+                  </div>
+        <div class="capture" style="left:250px;top:222px;width:340px">
+          <div style="font-size:12.5px;color:#eef0f3;font-weight:500">Press the keys for Rename Symbol</div>
+          <div style="display:flex;align-items:center;gap:4px;margin-top:10px;height:30px;border:1px solid #2c2d33;border-radius:6px;background:#141518;padding:0 10px"><span class="kbd">Ctrl</span><span class="kbd">J</span><span style="border-left:1.5px solid #7c9cff;height:14px;margin-left:4px"></span></div>
+          <div style="font-size:11.5px;color:#e5b567;margin-top:8px;line-height:1.45">⚠ Ctrl J is Toggle Panel's now. Adding it here takes it off Toggle Panel.</div>
+          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;align-items:center"><span style="font-size:11px;color:#8e9099;margin-right:auto">Enter to add · Esc to cancel</span><span class="btn">Replace F2</span><span class="btn p">Add</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="note" style="left:900px;top:40px;width:356px"><b>Double-click a row, or Enter on it, to give it keys.</b> The card waits for a key, or two in a row (a chord, as Ctrl K Ctrl F is). It says at once what else has them. <b>Add</b> keeps the keys the command had; <b>Replace</b> drops them. Right-click a row for Remove Keys, Reset, and Copy Command ID.</div>
+  <div class="note" style="left:900px;top:160px;width:356px"><b>Record Keys</b> turns the search box into a key catcher: press Shift+F12 and the list shows what Shift+F12 runs. <b>Conflicts</b> lists keys that two commands have, as VS Code users have long asked for. <b>Changed</b> lists yours, with ↺ to go back to merlin's. <b>Plugins</b> lists the keys plugins added, each marked with its plugin.</div>
+  <div class="note" style="left:900px;top:296px;width:356px">Changes go to <span class="key" style="color:#b4b6bd">[keys]</span> in your settings, as <span class="key" style="color:#b4b6bd">"ctrl+j" = "edit.rename"</span>, and work at once. A key taken off is written as <span class="key" style="color:#b4b6bd">"f2" = ""</span>, as it can be by hand now.</div>
+
+  <span class="label" style="left:24px;top:452px">Plugins</span>
+  <div class="island" style="left:24px;top:474px;width:850px;height:304px">
+    <div class="split">
+      <div class="plist">
+        <div class="find" style="height:28px;font-size:12px;margin:0 2px 6px">Search plugins</div>
+        <div class="pi on"><span class="pico" style="background:#1f2638;color:#7c9cff">L</span><div class="pn">Language<div>lsp</div></div><div class="pm">2.1 MB<br><span style="color:#6cc070">●</span> on</div></div>
+        <div class="pi"><span class="pico" style="background:#3a2a1e;color:#f5a97f">RS</span><div class="pn">Rust<div>rust</div></div><div class="pm">0.4 MB<br><span style="color:#6cc070">●</span> on</div></div>
+        <div class="pi"><span class="pico" style="background:#1e3a2a;color:#6cc070">PY</span><div class="pn">Python<div>python</div></div><div class="pm">0.3 MB<br><span style="color:#6cc070">●</span> on</div></div>
+        <div class="pi"><span class="pico" style="background:#2a2338;color:#c4a7e7">T</span><div class="pn">merlin Themes<div>16 themes · data</div></div><div class="pm">—<br><span style="color:#6cc070">●</span> on</div></div>
+        <div class="pi"><span class="pico" style="background:#24252a;color:#8e9099">W</span><div class="pn" style="color:#8e9099">Word Count<div>word-count</div></div><div class="pm">—<br>off</div></div>
+      </div>
+      <div class="body" style="padding:14px 20px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span class="pico" style="width:32px;height:32px;font-size:13px;background:#1f2638;color:#7c9cff">L</span>
+          <div style="flex:1"><div style="font-size:15px;color:#eef0f3;font-weight:600">Language</div><div style="font-size:11.5px;color:#8e9099">lsp · API 0.8 · bundled · Hovers, completions, rename and problems from language servers.</div></div>
+          <span class="btn">Reload</span><span class="btn">Output</span><div class="sw on" style="margin-left:4px"></div>
+        </div>
+        <div style="display:flex;gap:28px;margin-top:14px">
+          <div class="stat"><span class="v">2.1 MB</span><span class="s">in merlin</span></div>
+          <div class="stat"><span class="v">412 MB</span><span class="s">rust-analyzer, pid 48213</span></div>
+          <div class="stat"><span class="v">1.4 s</span><span class="s">CPU since it started</span></div>
+          <div class="stat"><span class="v">9 · 4</span><span class="s">commands · languages</span></div>
+        </div>
+        <div style="display:flex;gap:28px;margin-top:12px">
+          <div style="width:260px">
+            <div class="sec" style="margin:4px 0 4px">Allowed</div>
+            <div class="perm"><span class="ok">✓</span>Read the open files</div>
+            <div class="perm"><span class="ok">✓</span>Start <span class="key" style="color:#b4b6bd">rust-analyzer</span>, <span class="key" style="color:#b4b6bd">pyright</span></div>
+            <div class="perm"><span class="no">—</span><span style="color:#8e9099">Change files</span></div>
+          </div>
+          <div style="flex:1">
+            <div class="sec" style="margin:4px 0 0">Its settings</div>
+            <div class="row" style="padding:7px 0"><div class="l"><div class="t" style="font-size:12.5px">Inlay hints</div></div><div class="sw on"></div></div>
+            <div class="row" style="padding:7px 0;border:0"><div class="l"><div class="t" style="font-size:12.5px;white-space:nowrap">Rust server <span class="mod">Modified</span></div></div><div class="sel" style="min-width:110px;font-family:'JetBrains Mono',monospace;font-size:11.5px">ra-nightly</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="note" style="left:900px;top:474px;width:356px">Each plugin with its switch and what it costs now: its own memory, the programs it started, and CPU. The rows' memory updates every few seconds while the page shows, and not at all when it's hidden.</div>
+  <div class="note" style="left:900px;top:556px;width:356px">A plugin's page says <b>what it's allowed</b> to do, as its manifest asks, and <b>what it adds</b>: commands, languages, themes and keys, each one click from where it lives. <b>Its settings</b> are the plugin's own table, drawn as rows like the rest. Uninstall is at the bottom for plugins installed with <span class="key" style="color:#b4b6bd">merlin plugin install</span>, and asks twice.</div>
+
+  <span class="label" style="left:900px;top:672px">When settings.toml can't be read</span>
+  <div class="island" style="left:900px;top:692px;width:356px;height:86px">
+    <div class="banner"><span style="color:#f0807a">⊗</span><span style="flex:1"><b style="color:#f6d6d2">settings.toml</b>, line 7: expected a value</span><span class="btn">Open</span></div>
+    <div style="padding:8px 12px;font-size:11.5px;color:#8e9099;line-height:1.45">The page shows what merlin is using, and changes wait until the file reads again, so nothing in it is overwritten.</div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1600}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
