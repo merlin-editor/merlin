@@ -637,9 +637,18 @@ Built, each checked in the window on a small cargo project:
   `experimental/runnables` with the rest of `describe`, sending tests
   with rust-analyzer's cargo command (less `--nocapture` and
   `--show-output`) and binaries and benches as tasks.
-- Not built: problems from a task's output (a problem matcher), a
-  python or jest plugin giving tests (the API is ready for one), and
-  buttons on a plugin's notice.
+- **Problems from a task's output** (`crates/core/src/editor/matcher.rs`).
+  When a task's output comes (`task_output`), `problems` reads rustc's
+  header and `-->` line, `path:line:col: [error|warning|note:] message`,
+  TypeScript's `path(line,col): error TS…:` and a Python traceback's last
+  frame in the project. They go into `Editor.diagnostics` under
+  `task:<name>`, replacing that task's last run, with the task as their
+  source and rustc's codes linked. One a language server already shows
+  on that line with that message is left out. `place_marks` widens a
+  task's one-character problem to its word (`word_end`). Test:
+  `a_tasks_errors_become_problems_until_it_runs_clean`.
+- Not built: a python or jest plugin giving tests (the API is ready for
+  one), and buttons on a plugin's notice.
 
 ### Hot exit (`HotExit.dc.html`)
 
@@ -813,7 +822,7 @@ These are suggestions; nothing of them is written yet.
   straight into core `Event`s. The Rust SDK's re-exports are in
   `sdk/rust/src/lib.rs`; add new types to both lists there.
 - Checks before each commit:
-  - `cargo test --workspace`: 393 tests passed with the Settings editor
+  - `cargo test --workspace`: 400 tests passed with the problem matcher
   - `cargo clippy --workspace --all-targets`
   - in `plugins/lsp`: `cargo clippy --release --target wasm32-wasip2`
   - `cargo fmt --all`

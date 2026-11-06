@@ -382,6 +382,10 @@ impl Editor {
     /// What a task printed, once it ends.
     pub(crate) fn task_output(&mut self, term: u64, text: &str) {
         self.tests_output(term, text);
+        let run = self.tasks.runs.iter().rev().find(|r| r.term == term);
+        if let Some(name) = run.map(|r| r.name.clone()) {
+            self.task_problems(&name, text);
+        }
     }
 
     /// The tasks still running, for the status bar.

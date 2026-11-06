@@ -460,6 +460,12 @@ command = "cargo watch -x check"
 group = "build"
 ```
 
+When a task finishes, the errors and warnings it printed go to Problems
+and under the code they point at, from rustc and cargo, most compilers
+and linters (`path:line:col: message`), TypeScript, and Python's
+tracebacks. Its next run replaces them, and one the language server
+already shows isn't listed twice.
+
 The Tests view lists the project's tests by crate and file, with Run
 All, Run Failed and On Save. In a Rust file each test has ▶ Run Test and
 Debug over it, a ✓ or ✕ in the gutter, and a failure's message under the

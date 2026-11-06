@@ -18,6 +18,7 @@ mod format;
 mod groups;
 mod hot_exit;
 mod inline_change;
+mod matcher;
 pub use actions::{FORMAT_FILE, FORMAT_SELECTION};
 pub use format::{FORMAT_WAIT_MS, FormatOnSave};
 pub use groups::Edge;
@@ -2141,12 +2142,21 @@ impl Editor {
             .diagnostics
             .iter()
             .filter(|((_, p), _)| p == path)
-            .flat_map(|(_, list)| list)
-            .map(|d| {
+            .flat_map(|((source, _), list)| list.iter().map(move |d| (source, d)))
+            .map(|(source, d)| {
                 let start = doc.pos_at_utf16(d.start.0, d.start.1);
+                // A task's problem points at a place: it covers the word.
+                let mut end = d.end;
+                if source.starts_with("task:")
+                    && d.end == (d.start.0, d.start.1 + 1)
+                    && (d.start.0 as usize) < doc.buffer.rope().len_lines()
+                {
+                    let line: String = doc.buffer.rope().line(d.start.0 as usize).chars().collect();
+                    end.1 = matcher::word_end(&line, d.start.1);
+                }
                 Mark {
                     start,
-                    end: doc.pos_at_utf16(d.end.0, d.end.1).max(start),
+                    end: doc.pos_at_utf16(end.0, end.1).max(start),
                     severity: d.severity,
                     message: d.message.clone(),
                     source: d.source.clone(),

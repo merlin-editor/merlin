@@ -358,3 +358,52 @@ test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; 
     let view = s.editor.text_views().remove(0);
     assert_eq!(view.failures[0].text, "left: 1  right: 2");
 }
+
+#[test]
+fn a_tasks_errors_become_problems_until_it_runs_clean() {
+    let mut s = project();
+    s.run("cmd task.run");
+    s.run("type budgets");
+    s.run("key enter");
+    let id = s.editor.window_view().terminal.unwrap().sessions[0].id;
+    let counts = |s: &Session| {
+        s.editor
+            .window_view()
+            .status
+            .iter()
+            .map(|i| i.text.clone())
+            .find(|t| t.starts_with('⊗'))
+            .unwrap_or_default()
+    };
+    s.send(Event::TaskOutput {
+        id,
+        text: "error[E0425]: cannot find value `b` in this scope\n --> src/main.rs:1:10\n\
+warning: unused import\n --> src/lib.rs:2:5\n"
+            .into(),
+    });
+    assert_eq!(counts(&s), "⊗ 1  ⚠ 1");
+    // In the open file, under the word it points at: `a`.
+    assert_eq!(marked(&s), 1);
+
+    // A clean run takes them away.
+    s.run("cmd task.run");
+    s.run("type budgets");
+    s.run("key enter");
+    let id = s.editor.window_view().terminal.unwrap().sessions[0].id;
+    s.send(Event::TaskOutput {
+        id,
+        text: "   Finished `dev` profile\n".into(),
+    });
+    assert_eq!(counts(&s), "⊗ 0  ⚠ 0");
+    assert_eq!(marked(&s), 0);
+}
+
+/// How many characters of the text shown have a problem under them.
+fn marked(s: &Session) -> usize {
+    let view = s.editor.text_views().pop().unwrap();
+    view.lines
+        .iter()
+        .flat_map(|l| &l.marks)
+        .filter(|m| m.is_some())
+        .count()
+}
