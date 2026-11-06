@@ -284,3 +284,50 @@ fn breakpoints_and_the_target_are_kept_with_the_workspace() {
         .and_then(|l| l.breakpoint);
     assert_eq!(line, Some(merlin_core::BreakMark::Conditional));
 }
+
+#[test]
+fn the_gutter_menu_sets_a_condition_in_the_box_under_the_line() {
+    use merlin_core::{MouseKind, Pointer, PopupKind};
+    let mut s = project();
+    let press = |s: &mut Session, kind| {
+        s.send(Event::Pointer(Pointer {
+            group: 0,
+            kind,
+            row: 1.0,
+            col: 0.5,
+            shift: false,
+            alt: false,
+            ctrl: false,
+            clicks: 1,
+        }))
+    };
+    press(&mut s, MouseKind::Context);
+    let menu = s.editor.window_view().context.expect("the breakpoint menu");
+    let labels: Vec<&str> = menu.items.iter().map(|i| i.label.as_str()).collect();
+    assert_eq!(
+        labels,
+        ["Add Breakpoint", "Add Conditional Breakpoint…", "Add Logpoint…"]
+    );
+    s.send(Event::Ui(merlin_core::UiEvent::ContextItem(1)));
+    for c in "n > 0".chars() {
+        key(&mut s, KeyCode::Char(c), false);
+    }
+    let popup = s.editor.window_view().popup.expect("the box");
+    let PopupKind::Breakpoint(b) = popup.kind else {
+        panic!("not the breakpoint box");
+    };
+    assert_eq!((b.field.as_str(), b.text.as_str()), ("Condition", "n > 0"));
+    key(&mut s, KeyCode::Enter, false);
+    assert!(s.editor.window_view().popup.is_none());
+    let mark = s.editor.text_views()[0]
+        .lines
+        .iter()
+        .find(|l| l.line == 1)
+        .and_then(|l| l.breakpoint);
+    assert_eq!(mark, Some(merlin_core::BreakMark::Conditional));
+    // On a breakpoint, the menu changes it instead.
+    press(&mut s, MouseKind::Context);
+    let menu = s.editor.window_view().context.expect("the menu again");
+    assert_eq!(menu.items[0].label, "Edit Breakpoint…");
+    assert_eq!(menu.items[1].label, "Disable Breakpoint");
+}

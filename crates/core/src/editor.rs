@@ -37,7 +37,7 @@ mod panels;
 mod peek;
 pub use blame::{BlameCardView, BlameCell, CommitInfo};
 pub use debug::{
-    BreakMark, Breakpoint, BreakpointState, DAP, DebugBarView, DebugButton, DebugStart, DebugState,
+    BreakBoxView, BreakField, BreakMark, Breakpoint, BreakpointState, DAP, DebugBarView, DebugButton, DebugStart, DebugState,
     DebugTarget, DebugThread, DebugUpdate, DebugVariable, Debugger, OutputKind, StackFrame,
     StopFilter,
 };

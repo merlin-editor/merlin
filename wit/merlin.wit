@@ -420,8 +420,8 @@ interface types {
     children: u32,
   }
 
-  /// Whether the debugger could set a breakpoint, where (from 0), and if
-  /// not, why.
+  /// Whether the debugger could set a breakpoint, where (from 0, or the
+  /// largest u32 when it doesn't say), and if not, why.
   record breakpoint-state {
     id: u32,
     set: bool,

@@ -795,7 +795,20 @@ declaring a debugger, with no code in merlin for its language.
 - **Kept with the workspace:** `break` lines (with `break-if`, `break-hit`,
   `break-log`) and `debug <target>`; `Event::RestoreBreakpoints` brings
   them back when merlin opens named files instead of the last tabs.
-- **Left:** attaching by picking a process, the condition/log box, the panic card,
+- **Breakpoint menu and box.** A right-click in the breakpoint room
+  (`break_line`) opens `break_menu`: Add Breakpoint, Add Conditional
+  Breakpoint…, Add Logpoint…, or on one Edit, Disable or Enable, Remove
+  (`BREAK_ITEMS`). The box (`BreakBox`, `PopupKind::Breakpoint`) sits under
+  the line like the rename box: Tab goes through Condition, Hit Count and
+  Log Message, Enter sets it, Esc leaves it. gdb's hit count skips that
+  many hits and stops on the next.
+- **Values after lines** come from every scope the debugger doesn't mark
+  `expensive`, and only from the paused function's lines
+  (`function_start`, which looks up for `fn`, `def` or `function`).
+- The Debugger plugin maps the debugger's breakpoint ids to merlin's, so a
+  `breakpoint` event updates that one; sending all again reset gdb's hit
+  counts. A `pending` breakpoint counts as set.
+- **Left:** attaching by picking a process, the panic card,
   Add to Watch and Set Value, Debug the
   Last Build, Debug on a Rust test, a Rust panic stop filter.
 

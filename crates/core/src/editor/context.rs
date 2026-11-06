@@ -102,6 +102,8 @@ pub struct ProblemView {
 pub enum PopupKind {
     /// The rename box (F2), over the name.
     Rename(super::RenameView),
+    /// The breakpoint box, under its line.
+    Breakpoint(super::BreakBoxView),
     /// The problems at the spot, worst first, then the language server's
     /// hover as Markdown, a line each. Either may be empty.
     Hover {
@@ -138,6 +140,10 @@ impl Editor {
         }
         self.popup = None;
         self.probe = None;
+        // Left of the numbers, it's the breakpoint's menu.
+        if let Some(line) = self.break_line(x, y) {
+            return self.break_menu(line);
+        }
         let pos = self.pos_at_screen(x, y);
         let inside = self
             .carets()
@@ -222,6 +228,7 @@ impl Editor {
                         .chain(super::tabs::TAB_ITEMS)
                         .chain(super::files::EXPLORER_ITEMS)
                         .chain(super::scm::SCM_ITEMS)
+                        .chain(super::debug::BREAK_ITEMS)
                         .find(|(i, _)| *i == id)
                         .map_or(id, |(_, l)| l)
                         .to_string(),
@@ -633,6 +640,15 @@ impl Editor {
             let (x, y) = self.cell_of(at)?;
             Some((x.saturating_sub(text.x), y.saturating_sub(text.y)))
         };
+        // So does the breakpoint box, under its line.
+        if let Some((view, at)) = self.break_box_view() {
+            let (x, y) = anchor_at(at)?;
+            let gutter = self.gutter() as u16;
+            return Some(PopupView {
+                anchor: (x.max(gutter), y),
+                kind: PopupKind::Breakpoint(view),
+            });
+        }
         // The rename box takes the place of any other.
         if let (Some(view), Some(at)) = (self.rename_view(), self.rename_anchor()) {
             return Some(PopupView {

@@ -35,7 +35,7 @@ pub use editor::{
     from_cargo, from_package, from_tasks_file,
 };
 pub use editor::{
-    BreakMark, Breakpoint, BreakpointState, DAP, DebugBarView, DebugButton, DebugStart, DebugState,
+    BreakBoxView, BreakField, BreakMark, Breakpoint, BreakpointState, DAP, DebugBarView, DebugButton, DebugStart, DebugState,
     DebugTarget, DebugThread, DebugUpdate, DebugVariable, Debugger, OutputKind, StackFrame,
     StopFilter,
 };

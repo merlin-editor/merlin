@@ -44,6 +44,8 @@ struct Run {
     filters: Vec<(String, String, bool)>,
     /// Files breakpoints were sent for, so emptied ones are cleared.
     files: Vec<String>,
+    /// The debugger's id for each breakpoint, to ours.
+    ids: HashMap<i64, u32>,
     exit: Option<i32>,
     ended: bool,
 }
@@ -156,6 +158,18 @@ impl Run {
         }
         self.ended = true;
         let _ = host::set_debug_state(&DebugState::Ended(self.exit));
+    }
+}
+
+/// How the debugger says a breakpoint went, as the editor's.
+fn breakpoint_state(id: u32, b: &Value) -> BreakpointState {
+    // A pending one waits for its code to load: it isn't wrong.
+    let pending = b["reason"].as_str() == Some("pending");
+    BreakpointState {
+        id,
+        set: b["verified"].as_bool().unwrap_or(false) || pending,
+        line: b["line"].as_u64().map_or(u32::MAX, |l| l.saturating_sub(1) as u32),
+        message: b["message"].as_str().unwrap_or_default().to_string(),
     }
 }
 
@@ -309,16 +323,13 @@ impl Debugger {
             }
             Asked::Breakpoints { ids } => {
                 let list = body["breakpoints"].as_array().cloned().unwrap_or_default();
-                let states: Vec<BreakpointState> = ids
-                    .iter()
-                    .zip(list.iter())
-                    .map(|(id, b)| BreakpointState {
-                        id: *id,
-                        set: b["verified"].as_bool().unwrap_or(false),
-                        line: b["line"].as_u64().map_or(0, |l| l.saturating_sub(1) as u32),
-                        message: b["message"].as_str().unwrap_or_default().to_string(),
-                    })
-                    .collect();
+                let mut states = Vec::new();
+                for (id, b) in ids.iter().zip(list.iter()) {
+                    if let Some(theirs) = b["id"].as_i64() {
+                        run.ids.insert(theirs, *id);
+                    }
+                    states.push(breakpoint_state(*id, b));
+                }
                 let _ = host::set_breakpoint_states(&states);
             }
             Asked::Threads => {
@@ -369,6 +380,7 @@ impl Debugger {
                 }
             }
             Asked::Scopes => {
+                let list = body["scopes"].as_array().cloned().unwrap_or_default();
                 let scopes: Vec<DebugVariable> = body["scopes"]
                     .as_array()
                     .map(|list| {
@@ -383,14 +395,17 @@ impl Debugger {
                     })
                     .unwrap_or_default();
                 let _ = host::set_variables(0, &scopes);
-                // The first scope, the locals, opens at once.
-                if let Some(first) = scopes.first().filter(|s| s.children != 0) {
-                    let parent = first.children;
-                    run.send(
-                        "variables",
-                        json!({ "variablesReference": parent }),
-                        Asked::Variables { parent },
-                    );
+                // Every scope's variables but the costly ones, such as
+                // registers, so values show after the lines at once.
+                for (scope, raw) in scopes.iter().zip(&list) {
+                    if scope.children != 0 && raw["expensive"].as_bool() != Some(true) {
+                        let parent = scope.children;
+                        run.send(
+                            "variables",
+                            json!({ "variablesReference": parent }),
+                            Asked::Variables { parent },
+                        );
+                    }
                 }
             }
             Asked::Variables { parent } => {
@@ -492,8 +507,12 @@ impl Debugger {
                 }
             }
             "breakpoint" => {
-                // Easier to send them all again than to match this one.
-                run.send_breakpoints();
+                // One changed, as a pending one being set once its code
+                // loads. Sending them again would reset their hit counts.
+                let b = &body["breakpoint"];
+                if let Some(id) = b["id"].as_i64().and_then(|i| run.ids.get(&i)) {
+                    let _ = host::set_breakpoint_states(&[breakpoint_state(*id, b)]);
+                }
             }
             _ => {}
         }

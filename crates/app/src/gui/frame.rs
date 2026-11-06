@@ -997,6 +997,7 @@ impl Frame<'_> {
         );
         match &popup.kind {
             PopupKind::Rename(view) => self.rename_box(view, anchor, a, (cw, ch)),
+            PopupKind::Breakpoint(view) => self.break_box(view, anchor, a, ch),
             PopupKind::Hover {
                 problems,
                 lines,
@@ -1721,6 +1722,70 @@ impl Frame<'_> {
         self.canvas
             .fill(Rect::new(cx, field.y + 5.5, 1.5, 15.0), p.accent);
         let shown = self.text.fit(&view.note, note, r.w - 16.0);
+        self.text.draw_in_row(
+            &mut self.canvas,
+            &shown,
+            note,
+            r.x + 8.0,
+            field.bottom() + 4.0,
+            16.0,
+            p.muted,
+            r,
+        );
+    }
+
+    /// The box that edits a breakpoint, under its line: the kind it sets
+    /// in a chip, the text with its caret, and what Enter does.
+    fn break_box(
+        &mut self,
+        view: &merlin_core::BreakBoxView,
+        anchor: (f32, f32),
+        a: &Areas,
+        ch: f32,
+    ) {
+        let p = self.p;
+        let mono = Face::mono(13.0);
+        let note = Face::ui(11.5);
+        let chip_face = Face::ui(12.0).medium();
+        let chip_w = self.text.width(&view.field, chip_face) + 20.0;
+        let text_w = self.text.width(&view.text, mono);
+        let note_w = self.text.width(&view.hint, note);
+        let w = (chip_w + text_w + 52.0).max(note_w + 16.0).clamp(360.0, 620.0);
+        let h = 6.0 + 26.0 + 6.0 + 16.0 + 6.0;
+        let r = self.card_place((anchor.0 - 7.0, anchor.1), w, h, a, ch);
+        self.canvas.shadow(r, 8.0, theme::is_light(&p));
+        self.canvas.outline(r, 8.0, 1.0, p.border, p.widget);
+        self.hit(r, Hit::Block);
+        let chip = Rect::new(r.x + 6.0, r.y + 6.0, chip_w, 26.0);
+        self.canvas.outline(chip, 5.0, 1.0, p.border, p.raised);
+        self.text.draw_in_row(
+            &mut self.canvas,
+            &view.field,
+            chip_face,
+            chip.x + 10.0,
+            chip.y,
+            chip.h,
+            p.text,
+            chip,
+        );
+        let field = Rect::new(chip.right() + 6.0, chip.y, r.right() - 6.0 - chip.right() - 6.0, 26.0);
+        self.canvas.outline(field, 5.0, 1.0, p.accent, p.raised);
+        let x = field.x + 8.0;
+        self.text.draw_in_row(
+            &mut self.canvas,
+            &view.text,
+            mono,
+            x,
+            field.y,
+            field.h,
+            p.bright,
+            field.inset(1.0),
+        );
+        let before: String = view.text.chars().take(view.caret).collect();
+        let cx = x + self.text.width(&before, mono);
+        self.canvas
+            .fill(Rect::new(cx, field.y + 5.5, 1.5, 15.0), p.accent);
+        let shown = self.text.fit(&view.hint, note, r.w - 16.0);
         self.text.draw_in_row(
             &mut self.canvas,
             &shown,

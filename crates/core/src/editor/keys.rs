@@ -171,6 +171,7 @@ impl Editor {
         // first.
         if self.focus == Focus::Editor
             && (self.rename_box_key(key, fx)
+                || self.break_box_key(key, fx)
                 || self.peek_key(key, fx)
                 || self.actions_key(key, fx)
                 || self.popup_key(key))

@@ -116,7 +116,7 @@ impl Editor {
 
     /// The line whose breakpoint room cell (`x`, `y`) is in: the gutter's
     /// cells left of the numbers, after the sign.
-    fn break_line(&self, x: u16, y: u16) -> Option<usize> {
+    pub(crate) fn break_line(&self, x: u16, y: u16) -> Option<usize> {
         let text = self.layout().text;
         let from = text.x + self.blame_cols() as u16 + self.has_signs() as u16;
         let room = self.bulb_room() as u16;

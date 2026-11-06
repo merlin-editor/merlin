@@ -183,6 +183,62 @@ pub enum DebugUpdate {
     Output(OutputKind, String),
 }
 
+/// The right-click menu on the breakpoint room.
+pub(crate) const BREAK_ITEMS: &[(&str, &str)] = &[
+    ("debug.bp_add", "Add Breakpoint"),
+    ("debug.bp_condition", "Add Conditional Breakpoint…"),
+    ("debug.bp_log", "Add Logpoint…"),
+    ("debug.bp_edit", "Edit Breakpoint…"),
+    ("debug.bp_disable", "Disable Breakpoint"),
+    ("debug.bp_enable", "Enable Breakpoint"),
+    ("debug.bp_remove", "Remove Breakpoint"),
+];
+
+/// What the breakpoint box sets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BreakField {
+    Condition,
+    Hit,
+    Log,
+}
+
+impl BreakField {
+    fn label(self) -> &'static str {
+        match self {
+            BreakField::Condition => "Condition",
+            BreakField::Hit => "Hit Count",
+            BreakField::Log => "Log Message",
+        }
+    }
+
+    fn hint(self) -> &'static str {
+        match self {
+            BreakField::Condition => "Stops when this is true",
+            BreakField::Hit => "A count of hits, as the debugger takes it: gdb stops after skipping that many",
+            BreakField::Log => "Prints this, with {names} filled in, and doesn't stop",
+        }
+    }
+}
+
+/// The box between the lines that edits a breakpoint.
+#[derive(Debug)]
+pub(crate) struct BreakBox {
+    pub doc: u64,
+    pub line: u32,
+    pub field: BreakField,
+    pub text: String,
+    pub caret: usize,
+}
+
+/// The breakpoint box, to draw.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BreakBoxView {
+    pub field: String,
+    pub text: String,
+    pub caret: usize,
+    pub hint: String,
+}
+
 /// A breakpoint's mark in the gutter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BreakMark {
@@ -272,6 +328,9 @@ pub(crate) struct Debugging {
     /// Stop filters the user turned on, by id, kept across runs.
     pub stop_on: HashSet<String>,
     pub expanded: HashSet<u32>,
+    /// The line the breakpoint menu was opened on.
+    pub menu_line: Option<u32>,
+    pub break_box: Option<BreakBox>,
     /// The variable the hover card is about, by name.
     pub hover: Option<String>,
     /// Ctrl+F5 is waiting for launch.toml.
@@ -535,6 +594,34 @@ impl Editor {
                     b.enabled = on;
                 }
                 self.breakpoints_changed(fx);
+            }
+            "debug.bp_add" | "debug.bp_remove" => {
+                if let (Some(line), Some(path)) =
+                    (self.debug.menu_line, self.doc().buffer.path.clone())
+                {
+                    self.toggle_breakpoint(&path, line, fx);
+                }
+            }
+            "debug.bp_condition" => self.open_break_box(BreakField::Condition),
+            "debug.bp_log" => self.open_break_box(BreakField::Log),
+            "debug.bp_edit" => {
+                let field = self.menu_breakpoint().map_or(BreakField::Condition, |b| {
+                    if !b.log.is_empty() {
+                        BreakField::Log
+                    } else if !b.hit.is_empty() && b.condition.is_empty() {
+                        BreakField::Hit
+                    } else {
+                        BreakField::Condition
+                    }
+                });
+                self.open_break_box(field);
+            }
+            "debug.bp_disable" | "debug.bp_enable" => {
+                let on = id == "debug.bp_enable";
+                if let Some(i) = self.menu_breakpoint_index() {
+                    self.debug.breakpoints[i].enabled = on;
+                    self.breakpoints_changed(fx);
+                }
             }
             "view.debug" => self.show_view(DEBUG, fx),
             "view.debug_console" => self.show_bottom(CONSOLE),
@@ -870,6 +957,146 @@ impl Editor {
         self.breakpoints_changed(fx);
     }
 
+    fn menu_breakpoint_index(&self) -> Option<usize> {
+        let path = self.doc().buffer.path.as_ref()?;
+        self.debug.breakpoint_at(path, self.debug.menu_line?)
+    }
+
+    fn menu_breakpoint(&self) -> Option<&Breakpoint> {
+        self.menu_breakpoint_index().map(|i| &self.debug.breakpoints[i])
+    }
+
+    /// The right-click menu on the breakpoint room of line `line`: add
+    /// one, or change the one there.
+    pub(crate) fn break_menu(&mut self, line: usize) {
+        self.debug.menu_line = Some(line as u32);
+        let items: Vec<&'static str> = match self.menu_breakpoint() {
+            Some(b) => vec![
+                "debug.bp_edit",
+                if b.enabled { "debug.bp_disable" } else { "debug.bp_enable" },
+                "debug.bp_remove",
+            ],
+            None => vec!["debug.bp_add", "debug.bp_condition", "debug.bp_log"],
+        };
+        self.context = Some(super::context::ContextMenu {
+            items,
+            selected: None,
+        });
+        self.focus = Focus::Menu;
+    }
+
+    /// Opens the box between the lines on the menu's line, with what the
+    /// breakpoint there already has.
+    fn open_break_box(&mut self, field: BreakField) {
+        let Some(line) = self.debug.menu_line else {
+            return;
+        };
+        let text = self.menu_breakpoint().map_or(String::new(), |b| match field {
+            BreakField::Condition => b.condition.clone(),
+            BreakField::Hit => b.hit.clone(),
+            BreakField::Log => b.log.clone(),
+        });
+        self.debug.break_box = Some(BreakBox {
+            doc: self.doc().id,
+            line,
+            field,
+            caret: text.chars().count(),
+            text,
+        });
+        self.focus = Focus::Editor;
+    }
+
+    /// The box, to draw, and the position it's under.
+    pub(crate) fn break_box_view(&self) -> Option<(BreakBoxView, usize)> {
+        let b = self.debug.break_box.as_ref().filter(|b| b.doc == self.doc().id)?;
+        let line = (b.line as usize).min(self.doc().last_line());
+        Some((
+            BreakBoxView {
+                field: b.field.label().into(),
+                text: b.text.clone(),
+                caret: b.caret,
+                hint: format!("{} · Tab for another kind · Enter sets it · Esc leaves it", b.field.hint()),
+            },
+            self.doc().line_start(line),
+        ))
+    }
+
+    /// Keys while the breakpoint box is open: they edit its text. Tab
+    /// goes to the next kind, Enter sets it, Esc leaves it as it was.
+    pub(crate) fn break_box_key(&mut self, key: Key, fx: &mut Vec<Effect>) -> bool {
+        let id = self.doc().id;
+        let Some(b) = self.debug.break_box.as_mut().filter(|b| b.doc == id) else {
+            return false;
+        };
+        let byte = |text: &str, i: usize| text.char_indices().nth(i).map_or(text.len(), |c| c.0);
+        let len = b.text.chars().count();
+        match key.code {
+            KeyCode::Esc => self.debug.break_box = None,
+            KeyCode::Tab | KeyCode::BackTab => {
+                b.field = match (b.field, key.code == KeyCode::BackTab) {
+                    (BreakField::Condition, false) | (BreakField::Log, true) => BreakField::Hit,
+                    (BreakField::Hit, false) | (BreakField::Condition, true) => BreakField::Log,
+                    (BreakField::Log, false) | (BreakField::Hit, true) => BreakField::Condition,
+                };
+                b.text.clear();
+                b.caret = 0;
+            }
+            KeyCode::Enter => {
+                let b = self.debug.break_box.take().expect("open");
+                self.set_break_field(b.line, b.field, b.text.trim(), fx);
+            }
+            KeyCode::Char(c) if !key.ctrl && !key.alt => {
+                let at = byte(&b.text, b.caret);
+                b.text.insert(at, c);
+                b.caret += 1;
+            }
+            KeyCode::Backspace if b.caret > 0 => {
+                let at = byte(&b.text, b.caret - 1);
+                b.text.remove(at);
+                b.caret -= 1;
+            }
+            KeyCode::Delete if b.caret < len => {
+                let at = byte(&b.text, b.caret);
+                b.text.remove(at);
+            }
+            KeyCode::Left => b.caret = b.caret.saturating_sub(1),
+            KeyCode::Right => b.caret = (b.caret + 1).min(len),
+            KeyCode::Home => b.caret = 0,
+            KeyCode::End => b.caret = len,
+            _ => {}
+        }
+        true
+    }
+
+    /// Sets a breakpoint's condition, hit count or message, making the
+    /// breakpoint if the line has none.
+    fn set_break_field(&mut self, line: u32, field: BreakField, text: &str, fx: &mut Vec<Effect>) {
+        let Some(path) = self.doc().buffer.path.clone() else {
+            return;
+        };
+        let i = match self.debug.breakpoint_at(&path, line) {
+            Some(i) => i,
+            None => {
+                self.debug.next_id += 1;
+                self.debug.breakpoints.push(Breakpoint {
+                    id: self.debug.next_id,
+                    path,
+                    line,
+                    enabled: true,
+                    ..Default::default()
+                });
+                self.debug.breakpoints.len() - 1
+            }
+        };
+        let b = &mut self.debug.breakpoints[i];
+        match field {
+            BreakField::Condition => b.condition = text.into(),
+            BreakField::Hit => b.hit = text.into(),
+            BreakField::Log => b.log = text.into(),
+        }
+        self.breakpoints_changed(fx);
+    }
+
     /// Breakpoints and the chosen target, kept with the workspace.
     pub(crate) fn restore_breakpoints(&mut self, mut list: Vec<Breakpoint>, target: Option<String>) {
         for b in &mut list {
@@ -1033,14 +1260,16 @@ impl Editor {
         let frame = self.debug.current_frame()?;
         if !frame.path.as_ref().is_some_and(|p| self.same_file(p, path))
             || line > frame.line as usize
-            || frame.line as usize - line > 40
+            || line < self.function_start(frame.line as usize)
         {
             return None;
         }
         let scopes = session.variables.get(&0)?;
-        let locals = scopes
-            .first()
-            .and_then(|s| session.variables.get(&s.children))?;
+        let locals: Vec<&DebugVariable> = scopes
+            .iter()
+            .filter_map(|s| session.variables.get(&s.children))
+            .flatten()
+            .collect();
         let words: HashSet<&str> = text
             .split(|c: char| !(c.is_alphanumeric() || c == '_'))
             .filter(|w| !w.is_empty())
@@ -1052,6 +1281,24 @@ impl Editor {
             .map(|v| format!("{} = {}", v.name, short_value(&v.value)))
             .collect();
         (!shown.is_empty()).then(|| shown.join(", "))
+    }
+
+    /// The first line of the function a line is in, as far as 40 lines
+    /// up: where its `fn`, `def` or `function` is. Values show only from
+    /// there, as the frame's variables are only that function's.
+    fn function_start(&self, line: usize) -> usize {
+        let doc = self.doc();
+        let top = line.saturating_sub(40);
+        (top..=line)
+            .rev()
+            .find(|&l| {
+                let text: String = doc.line_chars(l).into_iter().collect();
+                let mut words = text.split_whitespace().skip_while(|w| {
+                    w.starts_with("pub") || matches!(*w, "async" | "const" | "unsafe" | "static" | "export")
+                });
+                matches!(words.next(), Some("fn" | "def" | "function" | "func"))
+            })
+            .unwrap_or(top)
     }
 
     fn paused_on_exception(&self) -> bool {
@@ -1178,6 +1425,7 @@ impl Editor {
                 for s in states {
                     if let Some(b) = self.debug.breakpoints.iter_mut().find(|b| b.id == s.id)
                         && s.set
+                        && s.line != u32::MAX
                     {
                         // The debugger moved it to the nearest line with code.
                         b.line = s.line;
