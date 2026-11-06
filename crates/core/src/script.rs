@@ -244,6 +244,8 @@ impl Session {
                         path,
                     });
                 }
+                // Scripts have no launch.toml: plugins' targets only.
+                Effect::ReadLaunch => self.send(Event::LaunchConfigs(Ok(Vec::new()))),
                 Effect::Open(path) => {
                     let event = match self.files.get(&path.display().to_string()) {
                         Some(text) => Event::Opened {

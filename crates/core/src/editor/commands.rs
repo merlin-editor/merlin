@@ -150,6 +150,7 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
     ("debug.step_over", "Debug: Step Over"),
     ("debug.step_into", "Debug: Step Into"),
     ("debug.step_out", "Debug: Step Out"),
+    ("debug.configure", "Debug: Add Configuration…"),
     ("debug.toggle_breakpoint", "Debug: Toggle Breakpoint"),
     ("debug.toggle_breakpoints", "Debug: Turn All Breakpoints On or Off"),
     ("debug.remove_breakpoints", "Debug: Remove All Breakpoints"),

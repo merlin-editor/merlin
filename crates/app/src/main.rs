@@ -560,6 +560,14 @@ impl App {
                         queue.extend(self.host.run_command(&plugin, &command, snapshot));
                         self.panels_for = None;
                     }
+                    Effect::ReadLaunch => {
+                        let path = self.root.join(".merlin/launch.toml");
+                        let configs = match fs::read_to_string(&path) {
+                            Ok(text) => launch_configs(&text),
+                            Err(_) => Ok(Vec::new()),
+                        };
+                        queue.push_back(Event::LaunchConfigs(configs));
+                    }
                     Effect::LocateDebuggers(programs) => {
                         let found = programs
                             .into_iter()
@@ -2541,4 +2549,76 @@ fn on_path(program: &str) -> bool {
     std::env::var_os("PATH").is_some_and(|dirs| {
         std::env::split_paths(&dirs).any(|dir| dir.join(program).is_file())
     })
+}
+
+/// `.merlin/launch.toml`'s `[[debug]]` tables as things to debug. The keys
+/// merlin knows are its own; the rest go to the debugger as they are, and
+/// `attach = <pid>` attaches.
+fn launch_configs(text: &str) -> Result<Vec<merlin_core::DebugTarget>, String> {
+    let table: toml::Table = text.parse().map_err(|e: toml::de::Error| {
+        e.message().to_string()
+    })?;
+    let Some(list) = table.get("debug").and_then(|d| d.as_array()) else {
+        return Ok(Vec::new());
+    };
+    let mut out = Vec::new();
+    for (i, item) in list.iter().enumerate() {
+        let Some(t) = item.as_table() else { continue };
+        let text = |key: &str| t.get(key).and_then(|v| v.as_str()).unwrap_or_default().to_string();
+        let mut launch = serde_json::Map::new();
+        for (key, value) in t {
+            match key.as_str() {
+                "name" | "program" | "args" | "build" | "debugger" | "language" => {}
+                "attach" => {
+                    if let Some(pid) = value.as_integer() {
+                        launch.insert("pid".into(), serde_json::json!(pid));
+                    }
+                }
+                _ => {
+                    if let Ok(v) = serde_json::to_value(value) {
+                        launch.insert(key.clone(), v);
+                    }
+                }
+            }
+        }
+        let name = match text("name") {
+            n if n.is_empty() => format!("Configuration {}", i + 1),
+            n => n,
+        };
+        out.push(merlin_core::DebugTarget {
+            name,
+            debugger: text("debugger"),
+            language: text("language"),
+            program: text("program"),
+            args: t
+                .get("args")
+                .and_then(|a| a.as_array())
+                .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                .unwrap_or_default(),
+            build: text("build"),
+            detail: String::new(),
+            launch: serde_json::Value::Object(launch).to_string(),
+            plugin: None,
+        });
+    }
+    Ok(out)
+}
+
+#[cfg(test)]
+mod launch_tests {
+    #[test]
+    fn launch_toml_keeps_the_debuggers_own_keys() {
+        let configs = super::launch_configs(
+            "[[debug]]\nname = \"notes\"\nprogram = \"target/debug/m\"\nargs = [\"~/notes\"]\n\
+             build = \"cargo build\"\nenv = { A = \"1\" }\njustMyCode = false\n\n\
+             [[debug]]\nname = \"attach\"\nattach = 42\n",
+        )
+        .unwrap();
+        assert_eq!(configs[0].name, "notes");
+        assert_eq!(configs[0].args, ["~/notes"]);
+        assert_eq!(configs[0].build, "cargo build");
+        assert_eq!(configs[0].launch, r#"{"env":{"A":"1"},"justMyCode":false}"#);
+        assert_eq!(configs[1].launch, r#"{"pid":42}"#);
+        assert!(super::launch_configs("[[debug]\n").is_err());
+    }
 }

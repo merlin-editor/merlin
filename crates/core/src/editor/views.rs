@@ -333,6 +333,7 @@ impl Editor {
             }
             CHANGES => fx.push(Effect::GitStatus),
             super::testing::TESTS => self.find_tests(fx),
+            super::debug::DEBUG => fx.push(Effect::ReadLaunch),
             _ => {}
         }
     }

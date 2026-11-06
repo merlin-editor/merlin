@@ -20,6 +20,24 @@ pub(crate) const DEBUG: &str = "merlin.debug";
 pub(crate) const CONSOLE: &str = "merlin.debug-console";
 /// The plugin that drives a debugger unless its manifest names another.
 pub const DAP: &str = "dap";
+/// Your own configurations.
+pub(crate) const LAUNCH_FILE: &str = ".merlin/launch.toml";
+/// What a new launch.toml starts with.
+const EXAMPLE: &str = "\
+# What Run and Debug can start, besides what plugins find. Keys merlin
+# doesn't know go to the debugger as they are.
+[[debug]]
+name = \"my program\"
+program = \"target/debug/my-program\"
+args = []
+# A task's name or a command, run first.
+build = \"cargo build\"
+# env = { RUST_LOG = \"info\" }
+
+# [[debug]]
+# name = \"attach\"
+# attach = 12345        # a process id
+";
 /// Lines the Debug Console keeps.
 const CONSOLE_LINES: usize = 2000;
 
@@ -234,6 +252,13 @@ pub(crate) struct Debugging {
     /// Programs found on `PATH`, by name, once looked for.
     pub installed: HashMap<String, bool>,
     pub targets: Vec<(String, Vec<DebugTarget>)>,
+    /// launch.toml's, and why it couldn't be read.
+    pub launch: Vec<DebugTarget>,
+    pub launch_error: Option<String>,
+    /// F5 waits for launch.toml to be read.
+    pub reading: bool,
+    /// Add a Configuration opened launch.toml: it gets the example if new.
+    pub example: bool,
     /// The target F5 starts, by name, once chosen.
     pub chosen: Option<String>,
     pub breakpoints: Vec<Breakpoint>,
@@ -249,6 +274,8 @@ pub(crate) struct Debugging {
     pub expanded: HashSet<u32>,
     /// The variable the hover card is about, by name.
     pub hover: Option<String>,
+    /// Ctrl+F5 is waiting for launch.toml.
+    pub run_plain: bool,
     /// Restart asked for: the run starts again once it ends.
     pub restart: bool,
     /// Library frames unfolded in Call Stack, by thread.
@@ -378,7 +405,9 @@ impl Debugging {
 
     /// Every target: plugins', in the order they came.
     pub(crate) fn all_targets(&self) -> impl Iterator<Item = &DebugTarget> {
-        self.targets.iter().flat_map(|(_, t)| t.iter())
+        self.launch
+            .iter()
+            .chain(self.targets.iter().flat_map(|(_, t)| t.iter()))
     }
 
     /// The debuggers that can debug a target, in the manifest's order,
@@ -482,8 +511,12 @@ impl Debugging {
 impl Editor {
     pub(crate) fn debug_command(&mut self, id: &str, fx: &mut Vec<Effect>) {
         match id {
-            "debug.start" => self.debug_start(false, fx),
-            "debug.run" => self.debug_start(true, fx),
+            "debug.start" => self.debug_read_then(false, fx),
+            "debug.run" => self.debug_read_then(true, fx),
+            "debug.configure" => {
+                self.debug.example = true;
+                self.open(PathBuf::from(LAUNCH_FILE), fx);
+            }
             "debug.pick" => self.debug_pick(),
             "debug.toggle_breakpoint" => {
                 let line = self.doc().line_col(self.cursor()).0 as u32;
@@ -522,7 +555,7 @@ impl Editor {
                     self.debug_start(false, fx);
                 }
             }
-            "debug.continue" if !self.debug.running() => self.debug_start(false, fx),
+            "debug.continue" if !self.debug.running() => self.debug_read_then(false, fx),
             _ if self.debug.running() => self.send_debug(id, fx),
             _ => {}
         }
@@ -543,6 +576,55 @@ impl Editor {
             start: None,
             breakpoints: self.debug.breakpoints.clone(),
         });
+    }
+
+    /// F5: reads launch.toml first, unless a run is on, then goes on.
+    fn debug_read_then(&mut self, without_debugger: bool, fx: &mut Vec<Effect>) {
+        if self.debug.running() || self.debug_building().is_some() {
+            return self.debug_start(without_debugger, fx);
+        }
+        self.debug.reading = true;
+        self.debug.run_plain = without_debugger;
+        fx.push(Effect::ReadLaunch);
+    }
+
+    /// launch.toml read: Run and Debug lists it, and a waiting F5 goes on.
+    pub(crate) fn launch_configs(&mut self, configs: Result<Vec<DebugTarget>, String>, fx: &mut Vec<Effect>) {
+        match configs {
+            Ok(mut list) => {
+                let language = self.plugin_language().map(|l| l.id.clone()).unwrap_or_default();
+                for t in &mut list {
+                    if t.language.is_empty() && t.debugger.is_empty() {
+                        t.language = language.clone();
+                    }
+                    t.detail = LAUNCH_FILE.into();
+                }
+                self.debug.launch = list;
+                self.debug.launch_error = None;
+            }
+            Err(e) => self.debug.launch_error = Some(e),
+        }
+        if std::mem::take(&mut self.debug.reading) {
+            if let Some(e) = self.debug.launch_error.clone() {
+                self.error(format!("{LAUNCH_FILE} can't be read: {e}"));
+                self.add_action("Open It", "debug.configure");
+                return self.build_views();
+            }
+            let plain = self.debug.run_plain;
+            self.debug_start(plain, fx);
+        }
+        self.build_views();
+    }
+
+    /// A file opened: launch.toml new for Add a Configuration gets the
+    /// example.
+    pub(crate) fn launch_opened(&mut self, path: &Path) {
+        if !std::mem::take(&mut self.debug.example) || path != Path::new(LAUNCH_FILE) {
+            return;
+        }
+        if self.doc().buffer.path.as_deref() == Some(path) && self.doc().buffer.text().is_empty() {
+            self.type_text(EXAMPLE, crate::history::Kind::Other);
+        }
     }
 
     /// F5: continues a paused run, or starts the chosen target, asking
@@ -712,6 +794,11 @@ impl Editor {
             breakpoints: self.debug.breakpoints.clone(),
         });
         self.show_view(DEBUG, fx);
+        // The console comes to the front, as VS Code's does, but the keys
+        // stay in the code.
+        let bottom = self.bar_mut(Side::Bottom);
+        bottom.visible = true;
+        bottom.active = Some(CONSOLE.into());
         if self.focus == Focus::SideBar {
             self.focus = Focus::Editor;
         }
@@ -1189,18 +1276,8 @@ impl Editor {
                     },
                     ready: true,
                 });
-                nodes.push(heading("Found in the project"));
-                let targets: Vec<&DebugTarget> = self.debug.all_targets().collect();
-                if targets.is_empty() {
-                    nodes.push(Node::Styled(
-                        "Nothing yet. Language plugins list what can be debugged when they see \
-                         it, as rust-analyzer does for a crate's binaries."
-                            .into(),
-                        Tone::Muted,
-                    ));
-                }
-                for t in targets {
-                    nodes.push(Node::Entry(Entry {
+                let target_entry = |t: &DebugTarget| {
+                    Node::Entry(Entry {
                         id: format!("dbg:t:{}", t.name),
                         label: t.name.clone(),
                         icon: Some((
@@ -1212,10 +1289,47 @@ impl Editor {
                             },
                         )),
                         chip: t.plugin.clone(),
-                        badge: t.detail.clone(),
+                        badge: match t.plugin {
+                            Some(_) => t.detail.clone(),
+                            None if !t.build.is_empty() => format!("{} first", t.build),
+                            None => String::new(),
+                        },
+                        ..Default::default()
+                    })
+                };
+                if !self.debug.launch.is_empty() || self.debug.launch_error.is_some() {
+                    nodes.push(Node::Entry(Entry {
+                        id: "dbg:h:launch".into(),
+                        label: "From launch.toml".into(),
+                        heading: true,
+                        action: Some(('✎', "dbg:configure".into())),
                         ..Default::default()
                     }));
+                    if let Some(e) = &self.debug.launch_error {
+                        nodes.push(Node::Styled(format!("Can't be read: {e}"), Tone::Error));
+                    }
+                    for t in &self.debug.launch {
+                        nodes.push(target_entry(t));
+                    }
                 }
+                nodes.push(heading("Found in the project"));
+                let targets: Vec<&DebugTarget> =
+                    self.debug.targets.iter().flat_map(|(_, t)| t.iter()).collect();
+                if targets.is_empty() {
+                    nodes.push(Node::Styled(
+                        "Nothing yet. Language plugins list what can be debugged when they see \
+                         it, as rust-analyzer does for a crate's binaries."
+                            .into(),
+                        Tone::Muted,
+                    ));
+                }
+                for t in targets {
+                    nodes.push(target_entry(t));
+                }
+                nodes.push(Node::Tools(vec![Button {
+                    id: "dbg:configure".into(),
+                    label: "Add a Configuration…".into(),
+                }]));
             }
             Some(session) => {
                 let state = match &session.state {
@@ -1479,14 +1593,17 @@ impl Editor {
     pub(crate) fn debug_click(&mut self, id: &str, fx: &mut Vec<Effect>) {
         let rest = id.strip_prefix("dbg:").unwrap_or(id);
         if rest == "start" {
-            return self.debug_start(false, fx);
+            return self.debug_read_then(false, fx);
+        }
+        if rest == "configure" {
+            return self.debug_command("debug.configure", fx);
         }
         if rest == "again" {
             return self.debug_command("debug.restart", fx);
         }
         if let Some(name) = rest.strip_prefix("t:") {
             self.debug.chosen = Some(name.to_string());
-            return self.debug_start(false, fx);
+            return self.debug_read_then(false, fx);
         }
         if let Some(id) = rest.strip_prefix("rb:").and_then(|i| i.parse::<u32>().ok()) {
             self.debug.breakpoints.retain(|b| b.id != id);

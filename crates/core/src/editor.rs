@@ -341,6 +341,9 @@ pub enum Event {
     /// Which debuggers' programs are installed, by name, asked for with
     /// [`Effect::LocateDebuggers`].
     DebuggersLocated(Vec<(String, bool)>),
+    /// `.merlin/launch.toml`'s configurations, asked for with
+    /// [`Effect::ReadLaunch`], or why it couldn't be read.
+    LaunchConfigs(Result<Vec<DebugTarget>, String>),
     /// A plugin's things to debug, replacing its earlier ones.
     SetDebugTargets {
         plugin: String,
@@ -637,6 +640,8 @@ pub enum Effect {
     /// Look for these programs on `PATH`, and answer with
     /// [`Event::DebuggersLocated`].
     LocateDebuggers(Vec<String>),
+    /// Read `.merlin/launch.toml`, and answer with [`Event::LaunchConfigs`].
+    ReadLaunch,
     PluginClick {
         plugin: String,
         button: String,
@@ -1599,6 +1604,7 @@ impl Editor {
                 self.opened_for_edits(&path);
                 self.start_merge();
                 self.tasks_opened(&path);
+                self.launch_opened(&path);
             }
             Event::FileConfig { path, config } => self.file_config(&path, config),
             Event::AutoSave(why) => self.auto_save(why, &mut fx),
@@ -1762,6 +1768,7 @@ impl Editor {
             }
             Event::DebuggersLocated(found) => self.debug.installed.extend(found),
             Event::SetDebugTargets { plugin, targets } => self.set_debug_targets(plugin, targets),
+            Event::LaunchConfigs(configs) => self.launch_configs(configs, &mut fx),
             Event::Debug { plugin, update } => self.debug_update(&plugin, update, &mut fx),
             Event::SetFolds { path, ranges } => {
                 if let Some(doc) = self.doc_at(&path) {

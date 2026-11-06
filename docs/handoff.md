@@ -785,8 +785,18 @@ declaring a debugger, with no code in merlin for its language.
 - **The hover card while paused** starts with the variable's value as a
   code block in the file's language, with what's in it unfolded under it
   (`hover_variable`, `hover_value_lines`), then the language server's part.
-- **Left:** launch.toml, attaching, the condition/log box, the panic card,
-  Add to Watch and Set Value, breakpoints kept with the workspace, Debug the
+- **launch.toml.** The app reads `.merlin/launch.toml` (`launch_configs`
+  in main.rs) on `Effect::ReadLaunch`, before each F5 and when Run and
+  Debug shows; `[[debug]]` tables with name, program, args, build,
+  debugger and language, every other key passed to the debugger, and
+  `attach = <pid>` as `pid`, which the Debugger plugin attaches with. A
+  config with neither debugger nor language takes the open file's.
+  Debug: Add Configuration opens it with an example when new.
+- **Kept with the workspace:** `break` lines (with `break-if`, `break-hit`,
+  `break-log`) and `debug <target>`; `Event::RestoreBreakpoints` brings
+  them back when merlin opens named files instead of the last tabs.
+- **Left:** attaching by picking a process, the condition/log box, the panic card,
+  Add to Watch and Set Value, Debug the
   Last Build, Debug on a Rust test, a Rust panic stop filter.
 
 ### Memory and CPU (2026-11-06)
