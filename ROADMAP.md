@@ -40,6 +40,13 @@ Next:
 *Done when:* a day's work on merlin's own code happens in merlin, under
 100 MB with the bundled plugins and at 0% CPU while idle.
 
+*Measured 2026-11-06* on merlin's own code, with the bundled plugins:
+77 MB (PSS) idle after start and 85 MB after opening files, typing,
+Settings and a terminal, of which about 30 MB is merlin's own; 0.00% CPU
+idle, focused or not, with about 2 wakeups a second. The language servers
+are their own processes and aren't counted. The day's work itself is
+still to try.
+
 ## 1. Usable for everyday editing
 
 *Status: built. The "done when" test is still to do.*

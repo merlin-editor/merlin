@@ -63,7 +63,7 @@ impl Fonts {
         line_height: Option<f32>,
         ligatures: bool,
     ) -> Self {
-        let mut system = FontSystem::new();
+        let mut system = super::fonts::system();
         let size = env::var("MERLIN_FONT_SIZE")
             .ok()
             .and_then(|s| s.parse::<f32>().ok())

@@ -732,6 +732,28 @@ Built and checked in the window, with a copy of the user's config
   between light and dark wasn't seen happen, since the desktop wasn't
   changed.
 
+### Memory and CPU (2026-11-06)
+
+Measured with merlin on its own repo and the bundled plugins
+(`/proc/<pid>/smaps_rollup`, CPU from `/proc/<pid>/stat` over 30–60 s):
+
+- **Fonts were 270 MB.** cosmic-text keeps every font it opens mapped, and
+  for a character in no font its fallback tries for, it opens every font
+  installed (2,554 files with Noto). `gui/fonts.rs` now reads the fonts
+  once for both font systems, and its `Fallback` keeps cosmic-text's
+  script and common lists but forbids the last resort every family but
+  broad, symbol, emoji and icon fonts (`LAST_RESORT`, `is_icons`). A face
+  counts as wanted by any of its names: Nerd Fonts are also "… NF".
+- **A terminal kept the window awake** at 60 Hz, 6% CPU, once it had
+  printed anything: alacritty's `damage()` always reports the cursor's
+  cell, so `poll_busy` never saw it go quiet. It now ignores that cell
+  (`is_output`).
+- Now: 77 MB PSS idle after start (RSS 107), 85 MB after use with a
+  terminal open, about 30 MB of it private; 0.00% CPU idle and 2 wakeups
+  a second. The caret's blink costs about 3% CPU for its first 10 s.
+- Without a Nerd Font the core's Nerd icons are boxes, as they were
+  before; Glyph icons: Plain is for that.
+
 Saved for later, by the user's choice:
 
 - **Scrolling a long hover** with the keyboard (↑ ↓ once it's
@@ -822,7 +844,7 @@ These are suggestions; nothing of them is written yet.
   straight into core `Event`s. The Rust SDK's re-exports are in
   `sdk/rust/src/lib.rs`; add new types to both lists there.
 - Checks before each commit:
-  - `cargo test --workspace`: 400 tests passed with the problem matcher
+  - `cargo test --workspace`: 401 tests passed after the memory and CPU check
   - `cargo clippy --workspace --all-targets`
   - in `plugins/lsp`: `cargo clippy --release --target wasm32-wasip2`
   - `cargo fmt --all`

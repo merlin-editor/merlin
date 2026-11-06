@@ -13,6 +13,7 @@
 mod canvas;
 mod code;
 mod cpu;
+mod fonts;
 mod frame;
 mod gpu;
 mod grid;

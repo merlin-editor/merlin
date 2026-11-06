@@ -542,9 +542,13 @@ impl Terminals {
         let mut changed = false;
         for s in self.sessions.values() {
             let mut term = s.term.lock();
+            // alacritty always counts the cursor's cell as damaged, so
+            // that alone isn't output: else a terminal is busy for good.
+            let cursor = term.grid().cursor.point;
+            let at = (cursor.line.0.max(0) as usize, cursor.column.0);
             changed |= match term.damage() {
                 TermDamage::Full => true,
-                TermDamage::Partial(mut lines) => lines.next().is_some(),
+                TermDamage::Partial(lines) => is_output(lines, at),
             };
             term.reset_damage();
         }
@@ -680,6 +684,15 @@ fn text_of(term: &Term<Proxy>) -> String {
     out.trim_end().to_string()
 }
 
+/// Whether damage is more than the cursor's own cell, at (line, column),
+/// which alacritty always counts.
+fn is_output(
+    mut lines: impl Iterator<Item = alacritty_terminal::term::LineDamageBounds>,
+    at: (usize, usize),
+) -> bool {
+    lines.any(|d| (d.line, d.left, d.right) != (at.0, at.1, at.1))
+}
+
 /// How the mouse acts on a selection.
 #[derive(Clone, Copy, Debug)]
 pub enum SelectKind {
@@ -772,6 +785,26 @@ pub fn encode(key: Key, mode: TermMode) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_cursors_own_cell_isnt_output() {
+        use alacritty_terminal::term::LineDamageBounds as D;
+        let cursor = D {
+            line: 3,
+            left: 7,
+            right: 7,
+        };
+        assert!(!is_output([cursor].into_iter(), (3, 7)));
+        assert!(!is_output(std::iter::empty(), (3, 7)));
+        let printed = D {
+            line: 3,
+            left: 0,
+            right: 7,
+        };
+        assert!(is_output([cursor, printed].into_iter(), (3, 7)));
+        // The cursor moved: its old cell is damaged too.
+        assert!(is_output([cursor].into_iter(), (4, 0)));
+    }
 
     fn key(code: KeyCode, ctrl: bool, alt: bool, shift: bool) -> Key {
         Key {

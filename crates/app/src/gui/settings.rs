@@ -1395,7 +1395,13 @@ impl<'a> Frame<'a> {
         let p = self.p;
         let clip = c.clip;
         c.y += 12.0;
-        let list_w = 240.0_f32.min(c.w * 0.38);
+        // Narrow, the list goes over the page rather than beside it.
+        let stacked = c.w < 640.0;
+        let list_w = if stacked {
+            c.w
+        } else {
+            240.0_f32.min(c.w * 0.38)
+        };
         let top = c.y;
         let picked = v.page.as_ref().map(|pg| pg.name.as_str());
         let mut y = top;
@@ -1469,16 +1475,22 @@ impl<'a> Frame<'a> {
             y += 44.0;
         }
         let list_bottom = y;
-        let dx = c.x + list_w + 24.0;
-        self.s_fill(
-            Rect::new(dx - 12.0, top, 1.0, (list_bottom - top).max(200.0)),
-            clip,
-            p.line,
-        );
+        let (dx, dy) = if stacked {
+            self.s_fill(Rect::new(c.x, list_bottom + 8.0, c.w, 1.0), clip, p.line);
+            (c.x, list_bottom + 24.0)
+        } else {
+            let dx = c.x + list_w + 24.0;
+            self.s_fill(
+                Rect::new(dx - 12.0, top, 1.0, (list_bottom - top).max(200.0)),
+                clip,
+                p.line,
+            );
+            (dx, top)
+        };
         let mut d = Ctx {
             x: dx,
             w: c.x + c.w - dx,
-            y: top,
+            y: dy,
             clip,
             list: None,
             picked: None,

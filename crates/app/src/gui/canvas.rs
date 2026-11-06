@@ -158,7 +158,7 @@ impl Text {
     /// Fonts for the interface and for icons from the code's font, as the
     /// packs ask for them, unless `MERLIN_UI_FONT` or `MERLIN_FONT` say.
     pub fn new(scale: f32, ui: Option<&str>, code: Option<&str>) -> Self {
-        let mut system = FontSystem::new();
+        let mut system = super::fonts::system();
         for face in INTER {
             system.db_mut().load_font_data(face.to_vec());
         }
