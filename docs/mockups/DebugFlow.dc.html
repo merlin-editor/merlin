@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Debugging, filled in</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.w{width:1280px;height:800px;position:relative;background:#0f1012;font-family:Inter,sans-serif;color:#d4d5da;font-size:13px;overflow:hidden}
+.island{position:absolute;background:#17181b;border-radius:10px;overflow:hidden}
+.label{position:absolute;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#7c9cff}
+.note{position:absolute;font-size:11.5px;color:#8e9099;line-height:1.5;width:392px}
+.note b{color:#d4d5da;font-weight:500}
+.key{font-family:'JetBrains Mono',monospace;font-size:11px;color:#b4b6bd}
+.code{font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:21px;white-space:pre;padding:4px 0}
+.ln{display:inline-block;width:44px;text-align:right;padding-right:14px;color:#7a7d86;position:relative}
+.k{color:#c4a7e7}.s{color:#a6d189}.f{color:#f0c674}.t{color:#9ccfd8}.c{color:#7f8794}.n{color:#f5a97f}
+.g{color:#6cc070}.r{color:#f0807a}.m{color:#8e9099}.b{color:#7c9cff}.y{color:#e3b341}
+.tabs{height:32px;display:flex;align-items:center;gap:3px;padding:0 6px}
+.tab{height:24px;padding:0 10px;border-radius:6px;display:flex;align-items:center;gap:6px;color:#8e9099;font-size:12.5px}
+.tab.on{background:#26272c;color:#eef0f3;box-shadow:inset 0 0 0 1px #2c2d33}
+.ic{width:14px;height:14px;border-radius:3px;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;background:#3a2a1e;color:#f5a97f}
+.h{height:28px;display:flex;align-items:center;gap:6px;padding:0 12px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#8e9099}
+.h .a{margin-left:auto;display:flex;gap:10px;font-weight:500;text-transform:none;letter-spacing:0;color:#8e9099;font-size:12px}
+.row{height:24px;display:flex;align-items:center;gap:8px;padding:0 12px;font-size:12.5px;white-space:nowrap}
+.row .at{margin-left:auto;font-size:11.5px;color:#8e9099}
+.row.on{background:#262b3d;color:#eef0f3}
+.toast{position:absolute;box-sizing:border-box;background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.45);padding:11px 13px;font-size:12.5px;color:#d4d5da;line-height:1.45}
+.toast .bs{display:flex;gap:6px;margin-top:9px;flex-wrap:wrap}
+.btn{height:24px;border-radius:6px;padding:0 9px;font-size:12px;display:inline-flex;align-items:center;gap:6px;border:1px solid #2c2d33;background:#1f2024;color:#d4d5da;white-space:nowrap}
+.btn.p{background:#7c9cff;border-color:#7c9cff;color:#0f1012;font-weight:600}
+.menu{position:absolute;background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;box-shadow:0 12px 32px rgba(0,0,0,.5);padding:5px}
+.mi{height:26px;display:flex;align-items:center;gap:8px;padding:0 10px;border-radius:5px;font-size:12.5px;white-space:nowrap}
+.mi.on{background:#262b3d;color:#eef0f3}
+.mi .kbd{margin-left:auto}
+.mi .d{margin-left:auto;font-size:11.5px;color:#8e9099}
+.kbd{font-size:10.5px;background:#26272c;border-radius:4px;padding:1px 5px;color:#b4b6bd;margin-left:8px}
+.sep{height:1px;background:#2c2d33;margin:4px 6px}
+.chip{font-size:10.5px;border-radius:4px;padding:1px 6px;background:#1e2433;color:#7c9cff}
+.input{height:28px;margin:8px;border-radius:6px;background:#0f1012;box-shadow:inset 0 0 0 1px #7c9cff;display:flex;align-items:center;padding:0 10px;font-size:13px;gap:6px}
+.caret{display:inline-block;width:1.5px;height:15px;background:#d4d5da}
+.dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;box-sizing:border-box}
+.bpf{background:#e5534b}.bph{border:1.5px solid #e5534b}.bpg{border:1.5px solid #7a7d86}
+.dia{width:9px;height:9px;background:#e5534b;transform:rotate(45deg) scale(.8);flex-shrink:0}
+.bp{position:absolute;left:8px;top:5px;width:11px;height:11px;border-radius:50%;background:#e5534b;box-sizing:border-box}
+.status{position:absolute;left:0;right:0;bottom:0;height:24px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px}
+.status.dbg{background:#2a2416;color:#e3b341}
+.status.idle{background:#0f1012;color:#8e9099;border-top:1px solid #222328}
+.tool{position:absolute;height:32px;display:flex;align-items:center;gap:2px;padding:0 6px;background:#1c1d21;border:1px solid #2c2d33;border-radius:9px;box-shadow:0 8px 22px rgba(0,0,0,.45)}
+.tb{width:28px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center}
+.term{font-family:'JetBrains Mono',monospace;font-size:12px;line-height:19px;white-space:pre;padding:6px 12px}
+.ptabs{height:32px;display:flex;align-items:center;gap:14px;padding:0 14px;font-size:12.5px;color:#8e9099}
+.ptabs .on{color:#eef0f3;border-bottom:2px solid #7c9cff;padding-bottom:3px}
+.chk{width:13px;height:13px;border-radius:3px;border:1.5px solid #5f626b;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
+.chk.on{background:#7c9cff;border-color:#7c9cff}
+</style>
+</helmet>
+
+<!-- Artboard 1: starting, and when it can't -->
+<div class="w">
+
+  <!-- 1. Run and Debug, nothing running -->
+  <span class="label" style="left:24px;top:16px">Run and Debug, before a run</span>
+  <div class="island" style="left:24px;top:38px;width:392px;height:262px">
+    <div class="h" style="height:32px">Run and Debug</div>
+    <div style="display:flex;gap:6px;padding:0 12px">
+      <span class="btn p" style="height:28px;flex:1;justify-content:center"><svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 1l9 5-9 5z" fill="#0f1012"/></svg>Start Debugging<span style="font-weight:500;opacity:.7">F5</span></span>
+      <span class="btn" style="height:28px;width:150px;justify-content:space-between">merlin on notes<span class="m">▾</span></span>
+    </div>
+    <div class="h" style="margin-top:8px">From launch.toml<span class="a"><span>✎</span></span></div>
+    <div class="row on"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 1l9 5-9 5z" fill="#6cc070"/></svg>merlin on notes<span class="at">cargo build first</span></div>
+    <div class="h">Found in the project</div>
+    <div class="row"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 1l9 5-9 5z" fill="#8e9099"/></svg>merlin<span class="chip">rust</span><span class="at">--bin merlin</span></div>
+    <div class="row"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 1l9 5-9 5z" fill="#8e9099"/></svg>hovertest<span class="chip">rust</span><span class="at">--bin hovertest</span></div>
+    <div class="row"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 1l9 5-9 5z" fill="#8e9099"/></svg>The test at the cursor<span class="chip">rust</span><span class="at">a_point_widens_to_its_word</span></div>
+    <div style="display:flex;gap:16px;padding:10px 12px 0;font-size:12.5px;color:#7c9cff"><span>Attach to Process…</span><span>Add a Configuration…</span></div>
+  </div>
+  <div class="note" style="left:24px;top:308px"><b>The Run and Debug side view</b>, before anything runs, lists what can be debugged: yours from <span class="key">.merlin/launch.toml</span> first, then what language plugins find, each marked with its plugin, as Run Task does. F5 starts the one chosen in the box, and a click on a row starts that one and makes it the choice.</div>
+
+  <!-- 2. F5 with nothing chosen -->
+  <span class="label" style="left:444px;top:16px">F5, the first time</span>
+  <div class="island" style="left:444px;top:38px;width:392px;height:262px;background:#141518">
+    <div class="menu" style="left:12px;top:10px;width:356px;padding:0 0 5px">
+      <div class="input" style="box-shadow:inset 0 0 0 1px #2c2d33"><span class="m">Debug what?</span></div>
+      <div style="padding:0 5px">
+        <div class="mi on"><svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 1l9 5-9 5z" fill="#6cc070"/></svg>merlin<span class="d">cargo run --bin merlin</span></div>
+        <div class="mi"><svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 1l9 5-9 5z" fill="#8e9099"/></svg>hovertest<span class="d">cargo run --bin hovertest</span></div>
+        <div class="mi"><svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 1l9 5-9 5z" fill="#8e9099"/></svg>The test at the cursor<span class="d">a_point_widens_to_its_word</span></div>
+        <div class="mi"><svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 1l9 5-9 5z" fill="#8e9099"/></svg>This file<span class="chip" style="background:#1f2a1e;color:#a6d189">python</span><span class="d">tools/measure.py</span></div>
+        <div class="sep"></div>
+        <div class="mi">Attach to Process…<span class="d">a program already running</span></div>
+        <div class="mi">Add a Configuration…<span class="d">.merlin/launch.toml</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="note" style="left:444px;top:308px">With nothing chosen yet, F5 asks. <b>What's picked is remembered for the folder</b>, so the next F5 starts it at once, with no question. Ctrl+F5 runs it without the debugger. The ▶ Debug link above a <span class="key">#[test]</span> starts that test the same way, and now stops at its breakpoints.</div>
+
+  <!-- 3. launch.toml -->
+  <span class="label" style="left:864px;top:16px">Your own, in launch.toml</span>
+  <div class="island" style="left:864px;top:38px;width:392px;height:262px">
+    <div class="tabs"><div class="tab on"><span class="ic" style="background:#2a2a1e;color:#e3c86f">TO</span>launch.toml</div></div>
+<div class="code"><span class="ln">1</span><span class="b">[[debug]]</span>
+<span class="ln">2</span>name = <span class="s">"merlin on notes"</span>
+<span class="ln">3</span>program = <span class="s">"target/debug/merlin"</span>
+<span class="ln">4</span>args = [<span class="s">"~/notes"</span>]
+<span class="ln">5</span>build = <span class="s">"cargo build"</span>   <span class="c"># run first</span>
+<span class="ln">6</span>env = { RUST_LOG = <span class="s">"info"</span> }
+<span class="ln">7</span>console = <span class="s">"terminal"</span>   <span class="c"># or "debug"</span>
+<span class="ln">8</span>
+<span class="ln">9</span><span class="b">[[debug]]</span>
+<span class="ln">10</span>name = <span class="s">"attach"</span>
+<span class="ln">11</span>attach = <span class="s">"merlin"</span>  <span class="c"># or a pid</span></div>
+  </div>
+  <div class="note" style="left:864px;top:308px">Written like <span class="key">tasks.toml</span>, with completions for its keys. <span class="key">build</span> is a task's name or a command, run first. <span class="key">console = "terminal"</span> runs the program in a Terminal tab, so it can read what you type; the default prints into the Debug Console. A language plugin may add its own keys, such as Python's <span class="key">module</span>.</div>
+
+  <!-- 4. Building first, and a build that fails -->
+  <span class="label" style="left:24px;top:400px">Building first, and when it fails</span>
+  <div class="island" style="left:24px;top:422px;width:392px;height:262px;background:#141518">
+    <div class="tool" style="left:150px;top:10px" role="toolbar" aria-label="Debug">
+      <span class="tb" aria-label="Stop (Shift+F5)"><svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><rect x="1" y="1" width="10" height="10" rx="1.5" fill="#f0807a"/></svg></span>
+    </div>
+    <div class="toast" style="left:12px;top:76px;width:368px">
+      <div style="display:flex;gap:8px"><span class="r">⊗</span><span><b style="font-weight:600;color:#eef0f3">merlin didn't build</b>, so debugging didn't start. cargo found 2 errors, and they're in Problems.</span></div>
+      <div class="bs"><span class="btn p">Show Problems</span><span class="btn">Debug the Last Build</span></div>
+    </div>
+    <div class="status dbg" style="bottom:0"><span>⟳ Building merlin · cargo build</span><span style="margin-left:auto">Shift+F5 stops</span></div>
+  </div>
+  <div class="note" style="left:24px;top:692px">While <span class="key">build</span> runs, the status bar says so in the debug colour and the toolbar has only Stop. Its output is in Output, and its errors go to Problems through the task matcher. <b>Debug the Last Build</b> appears only when an older program is there to run.</div>
+
+  <!-- 5. No debugger installed -->
+  <span class="label" style="left:444px;top:400px">No debugger installed</span>
+  <div class="island" style="left:444px;top:422px;width:392px;height:262px;background:#141518">
+    <div class="toast" style="left:12px;top:12px;width:368px">
+      <div style="display:flex;gap:8px"><span class="y">⚠</span><span><b style="font-weight:600;color:#eef0f3">Debugging Rust needs lldb-dap or CodeLLDB</b>, and merlin found neither. lldb-dap comes with LLDB:</span></div>
+      <div style="margin-top:8px;display:flex;align-items:center;gap:8px;background:#0f1012;border-radius:6px;padding:6px 10px;font-family:'JetBrains Mono',monospace;font-size:12px">sudo apt install lldb<span style="margin-left:auto;color:#7c9cff;font-family:Inter,sans-serif">Copy</span></div>
+      <div class="bs"><span class="btn p">Use gdb 15 Instead</span><span class="btn">Choose the Path…</span><span class="btn">Not Now</span></div>
+    </div>
+    <div style="position:absolute;left:12px;right:12px;top:186px;font-size:12px;color:#8e9099;line-height:1.5">Looked on <span class="key">PATH</span> and in VS Code's extensions for CodeLLDB. gdb 14 and later speak the same protocol, so it's offered when it's there.</div>
+  </div>
+  <div class="note" style="left:444px;top:692px"><b>merlin doesn't download debuggers.</b> Each language plugin names the ones it knows and the command to install them: lldb-dap, CodeLLDB and gdb for Rust and C++, debugpy for Python, js-debug for JavaScript. Choose the Path… opens Settings at <span class="key">debug.rust.adapter</span>.</div>
+
+  <!-- 6. Attaching -->
+  <span class="label" style="left:864px;top:400px">Attach to Process</span>
+  <div class="island" style="left:864px;top:422px;width:392px;height:262px;background:#141518">
+    <div class="menu" style="left:12px;top:10px;width:356px;padding:0 0 5px">
+      <div class="input">merl<span class="caret"></span></div>
+      <div style="padding:0 5px">
+        <div class="mi on">merlin<span class="m" style="font-size:11.5px">48211</span><span class="d">target/debug/merlin ~/notes</span></div>
+        <div class="mi">merlin<span class="m" style="font-size:11.5px">3120</span><span class="d">/usr/bin/merlin</span></div>
+      </div>
+    </div>
+    <div class="toast" style="left:12px;top:126px;width:368px">
+      <div style="display:flex;gap:8px"><span class="r">⊗</span><span><b style="font-weight:600;color:#eef0f3">Linux didn't let merlin attach to 48211.</b> ptrace_scope is 1: only a program's parent may debug it.</span></div>
+      <div class="bs"><span class="btn p">Start It from merlin</span><span class="btn">What This Means</span></div>
+    </div>
+  </div>
+  <div class="note" style="left:864px;top:692px">Typing filters by name, pid and command line; your own processes come first, newest at the top. When Linux refuses, the notice says why and offers to start the program from merlin, which is allowed. What This Means explains <span class="key">ptrace_scope</span> and how to change it, and merlin doesn't change it for you.</div>
+</div>
+
+<!-- Artboard 2: breakpoints, pausing, and the end of a run -->
+<div class="w">
+
+  <!-- 1. Making a conditional breakpoint -->
+  <span class="label" style="left:24px;top:16px">A breakpoint with a condition</span>
+  <div class="island" style="left:24px;top:38px;width:392px;height:262px">
+    <div class="tabs"><div class="tab on"><span class="ic">RS</span>main.rs</div></div>
+<div class="code"><span class="ln">8</span>    <span class="k">for</span> c <span class="k">in</span> colours {
+<span class="ln"><span class="bp" style="background:none;border:1.5px solid #e5534b"></span>9</span>        <span class="f">check</span>(c);</div>
+    <div style="margin:0 10px 0 58px;background:#1c1d21;border:1px solid #2c2d33;border-radius:7px;padding:6px">
+      <div style="display:flex;gap:6px;align-items:center">
+        <span class="btn" style="height:26px">Condition<span class="m">▾</span></span>
+        <div style="flex:1;height:26px;border-radius:6px;background:#0f1012;box-shadow:inset 0 0 0 1px #7c9cff;display:flex;align-items:center;padding:0 8px;font-family:'JetBrains Mono',monospace;font-size:12px">c.<span class="f">starts_with</span>(<span class="s">'#f'</span>)<span class="caret"></span></div>
+      </div>
+      <div style="font-size:11.5px;color:#8e9099;padding:6px 2px 0">Stops when this is true · Enter sets it · Esc leaves it as it was</div>
+    </div>
+<div class="code"><span class="ln">10</span>    }
+<span class="ln">11</span>}</div>
+    <div class="menu" style="left:196px;top:150px;width:184px">
+      <div class="mi on">Condition</div>
+      <div class="mi">Hit Count<span class="d">5th time</span></div>
+      <div class="mi">Log Message<span class="d">no stop</span></div>
+    </div>
+  </div>
+  <div class="note" style="left:24px;top:308px">A click in the gutter sets a breakpoint, as now. <b>A right-click there</b> has Add Breakpoint, Add Conditional Breakpoint… and Add Logpoint…; on a breakpoint, Edit, Disable and Remove. Editing opens this box between the lines, as rename does. A logpoint prints its message, such as <span class="key">{i}: {c}</span>, to the Debug Console and doesn't stop.</div>
+
+  <!-- 2. The Breakpoints list -->
+  <span class="label" style="left:444px;top:16px">Every kind in Breakpoints</span>
+  <div class="island" style="left:444px;top:38px;width:392px;height:262px">
+    <div class="h" style="height:32px">Breakpoints<span class="a"><span title="Add a function breakpoint">+</span><span title="Turn all off">⊘</span><span title="Remove all">✕</span></span></div>
+    <div class="row"><span class="chk on"><svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="#0f1012" stroke-width="2" aria-hidden="true"><path d="M1.5 5l2.5 2.5 4.5-5"/></svg></span><span class="dot bpf"></span>main.rs<span class="at">6</span></div>
+    <div class="row"><span class="chk on"><svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="#0f1012" stroke-width="2" aria-hidden="true"><path d="M1.5 5l2.5 2.5 4.5-5"/></svg></span><span class="dot bph"></span>main.rs<span class="m" style="font-family:'JetBrains Mono',monospace;font-size:11.5px">c.starts_with('#f')</span><span class="at">9</span></div>
+    <div class="row"><span class="chk on"><svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="#0f1012" stroke-width="2" aria-hidden="true"><path d="M1.5 5l2.5 2.5 4.5-5"/></svg></span><span class="dia"></span>main.rs<span class="m" style="font-family:'JetBrains Mono',monospace;font-size:11.5px">log "{i}: {c}"</span><span class="at">14</span></div>
+    <div class="row"><span class="chk on"><svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="#0f1012" stroke-width="2" aria-hidden="true"><path d="M1.5 5l2.5 2.5 4.5-5"/></svg></span><span class="dot bpg"></span><span class="m">palette.rs</span><span class="m" style="font-size:11.5px">not set: no code on this line</span><span class="at">40</span></div>
+    <div class="row" style="color:#8e9099"><span class="chk"></span><span class="dot bpf" style="opacity:.4"></span>theme.rs<span class="at">112</span></div>
+    <div class="row"><span class="chk on"><svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="#0f1012" stroke-width="2" aria-hidden="true"><path d="M1.5 5l2.5 2.5 4.5-5"/></svg></span><svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 1h6l-1.5 4L8 9H2z" fill="#e5534b"/></svg><span style="font-family:'JetBrains Mono',monospace;font-size:12px">Palette::blend</span><span class="at">function</span></div>
+    <div class="h" style="margin-top:4px">Stop on</div>
+    <div class="row"><span class="chk on"><svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="#0f1012" stroke-width="2" aria-hidden="true"><path d="M1.5 5l2.5 2.5 4.5-5"/></svg></span>Rust panics<span class="at">lldb-dap</span></div>
+    <div class="row"><span class="chk"></span>C++ exceptions when thrown</div>
+  </div>
+  <div class="note" style="left:444px;top:308px">The box turns one off without losing it. <b>A grey breakpoint wasn't set</b>, and says why; when the debugger moves one to the nearest line with code, the dot moves too. <b>Stop on</b> lists what the running debugger can stop on, so a Python run shows Raised and Uncaught exceptions instead. Breakpoints are kept with the workspace.</div>
+
+  <!-- 3. Paused on a panic -->
+  <span class="label" style="left:864px;top:16px">Paused on a panic</span>
+  <div class="island" style="left:864px;top:38px;width:392px;height:262px">
+    <div class="tabs"><div class="tab on"><span class="ic">RS</span>main.rs</div></div>
+<div class="code"><span class="ln">20</span><span class="k">fn</span> <span class="f">check</span>(c: &amp;<span class="t">str</span>) {
+<div style="background:rgba(229,83,75,.13);box-shadow:inset 3px 0 0 #e5534b"><span class="ln"><svg style="position:absolute;left:2px;top:5px" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2h5l3 4-3 4H2z" fill="#e5534b"/></svg>21</span>    <span class="k">let</span> n = <span class="f">parse</span>(c).<span class="f">unwrap</span>();</div></div>
+    <div style="margin:0 10px 0 58px;background:#1f1718;border:1px solid #4a2a2a;border-radius:7px;padding:9px 11px;font-size:12.5px;line-height:1.45">
+      <div style="display:flex;align-items:center;gap:8px"><span class="r">⊗</span><b style="font-weight:600;color:#f6d6d2">Paused on a panic</b><span class="m" style="margin-left:auto;font-size:11.5px">thread main</span></div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:12px;margin-top:5px;color:#e8c9c5;white-space:normal">called `Option::unwrap()` on a `None` value</div>
+      <div style="display:flex;gap:6px;margin-top:9px"><span class="btn p">Continue F5</span><span class="btn">Copy</span><span class="btn">Don't Stop on Panics</span></div>
+    </div>
+<div class="code"><span class="ln">22</span>    <span class="f">println!</span>(<span class="s">"{n}"</span>);</div>
+  </div>
+  <div class="note" style="left:864px;top:308px">A panic or an exception stops on the line in the project that caused it, not deep in std: the frames in libraries are folded in Call Stack as <b>6 frames in std</b>, and a click opens them. The card says what went wrong, and Copy copies the message and the stack. The line and the arrow take the error colour.</div>
+
+  <!-- 4. Hovering a value -->
+  <span class="label" style="left:24px;top:400px">A value under the pointer</span>
+  <div class="island" style="left:24px;top:422px;width:392px;height:262px">
+    <div class="tabs"><div class="tab on"><span class="ic">RS</span>main.rs</div></div>
+<div class="code"><span class="ln">4</span>    <span class="k">let</span> <span style="text-decoration:underline;text-decoration-color:#7c9cff">colours</span> = [<span class="s">"#a6e3a1"</span>, <span class="s">"#89b4fa"</span>…</div>
+    <div class="menu" style="left:60px;top:64px;width:240px;padding:8px 0 6px">
+      <div style="padding:0 12px 6px;font-family:'JetBrains Mono',monospace;font-size:12px"><span class="m">▾</span> <span class="k">colours</span>: <span class="t">[&amp;str; 3]</span></div>
+      <div style="padding:0 12px 0 30px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:20px">[0] <span class="s">"#a6e3a1"</span><br>[1] <span class="s">"#89b4fa"</span><br>[2] <span class="s">"#f38ba8"</span></div>
+    </div>
+    <div class="menu" style="left:196px;top:112px;width:184px">
+      <div class="mi on">Set Value<span class="kbd">F2</span></div>
+      <div class="mi">Copy Value</div>
+      <div class="mi">Copy as Expression</div>
+      <div class="mi">Add to Watch</div>
+      <div class="mi">Stop When It Changes</div>
+    </div>
+  </div>
+  <div class="note" style="left:24px;top:692px">While paused, the hover card shows the value first, unfolding as Variables does, then the type and docs it shows now. <b>Right-click a variable</b>, here or in Variables, for Set Value, Copy as Expression and Add to Watch. Stop When It Changes appears only when the debugger can watch memory.</div>
+
+  <!-- 5. Running, with threads -->
+  <span class="label" style="left:444px;top:400px">Running, with threads</span>
+  <div class="island" style="left:444px;top:422px;width:392px;height:262px">
+    <div class="tool" style="left:110px;top:8px;position:absolute" role="toolbar" aria-label="Debug">
+      <span class="tb" aria-label="Pause (F6)" style="background:#2a2416"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><rect x="2" y="1.5" width="2.6" height="9" rx=".6" fill="#e3b341"/><rect x="7.4" y="1.5" width="2.6" height="9" rx=".6" fill="#e3b341"/></svg></span>
+      <span class="tb" style="opacity:.35"><svg width="16" height="14" viewBox="0 0 16 14" fill="none" stroke="#7c9cff" stroke-width="1.5" aria-hidden="true"><path d="M2 8a6 6 0 0 1 11-2M13 2v4H9"/><circle cx="8" cy="11.5" r="1.5" fill="#7c9cff"/></svg></span>
+      <span class="tb" style="opacity:.35"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#7c9cff" stroke-width="1.5" aria-hidden="true"><path d="M7 1v7M4 5l3 3 3-3"/><circle cx="7" cy="11.5" r="1.5" fill="#7c9cff"/></svg></span>
+      <span class="tb" style="opacity:.35"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#7c9cff" stroke-width="1.5" aria-hidden="true"><path d="M7 8V1M4 4l3-3 3 3"/><circle cx="7" cy="11.5" r="1.5" fill="#7c9cff"/></svg></span>
+      <span class="tb"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#6cc070" stroke-width="1.5" aria-hidden="true"><path d="M11.5 7A4.5 4.5 0 1 1 9 3M9 1v2.5h2.5"/></svg></span>
+      <span class="tb"><svg width="11" height="11" viewBox="0 0 12 12" aria-hidden="true"><rect x="1" y="1" width="10" height="10" rx="1.5" fill="#f0807a"/></svg></span>
+    </div>
+    <div class="h" style="margin-top:48px">Call Stack</div>
+    <div class="row"><span class="m">▾</span><span class="dot" style="background:#e3b341;width:7px;height:7px"></span>main<span class="at y">Paused on breakpoint</span></div>
+    <div class="row on" style="padding-left:34px">main::print_all<span class="at">main.rs:6</span></div>
+    <div class="row" style="padding-left:34px">main::main<span class="at">main.rs:12</span></div>
+    <div class="row" style="padding-left:34px;color:#8e9099">6 frames in std</div>
+    <div class="row"><span class="m">▸</span><span class="dot" style="background:#6cc070;width:7px;height:7px"></span>fs-watch<span class="at">Running · Pause</span></div>
+    <div class="row"><span class="m">▸</span><span class="dot" style="background:#6cc070;width:7px;height:7px"></span>tokio-worker-1<span class="at">Running · Pause</span></div>
+  </div>
+  <div class="note" style="left:444px;top:692px">While it runs, Continue becomes <b>Pause (F6)</b> and the steps wait. A program with threads lists each under Call Stack with its state; the one that stopped opens, and the others can be paused alone. The toolbar can be dragged along the top, and stays where it's left.</div>
+
+  <!-- 6. The end of a run -->
+  <span class="label" style="left:864px;top:400px">When it ends</span>
+  <div class="island" style="left:864px;top:422px;width:392px;height:262px">
+    <div class="ptabs"><span>Problems</span><span>Output</span><span>Terminal</span><span class="on">Debug Console</span></div>
+    <div class="term"><span class="m">0: #a6e3a1</span>
+<span class="m">1: #89b4fa</span>
+<span class="r">thread 'main' panicked at src/main.rs:21:23:</span>
+<span class="r">called `Option::unwrap()` on a `None` value</span>
+<span style="font-family:Inter,sans-serif;font-size:12px;display:inline-flex;gap:10px;align-items:center;margin-top:6px"><span class="r">⊗ merlin ended with code 101 after 4.2 s</span><span class="b">Run Again F5</span></span></div>
+    <div class="status idle"><span>⑂ main</span><span style="margin-left:auto">Ln 21, Col 23</span><span>Rust</span></div>
+  </div>
+  <div class="note" style="left:864px;top:692px">When the program ends, the toolbar goes, the status bar takes its usual colour, and the Debug Console says how it ended, in green for 0 and red otherwise. <b>What it printed stays</b> until the next run. Variables, Watch and Call Stack say "Not running · F5 starts merlin on notes"; Watch keeps its expressions.</div>
+</div>
+
+<!-- Artboard 3: all of it from plugins -->
+<div class="w">
+
+  <!-- 1. A plugin declares its debugger -->
+  <span class="label" style="left:24px;top:16px">A language plugin adds its debugger</span>
+  <div class="island" style="left:24px;top:38px;width:392px;height:262px">
+    <div class="tabs"><div class="tab on"><span class="ic" style="background:#2a2a1e;color:#e3c86f">TO</span>plugins/go/plugin.toml</div></div>
+<div class="code" style="font-size:12px;line-height:20px"><span class="ln">8</span><span class="b">[permissions]</span>
+<span class="ln">9</span>processes = [<span class="s">"gopls"</span>, <span class="s">"dlv"</span>]
+<span class="ln">10</span>
+<span class="ln">11</span><span class="b">[[debuggers]]</span>
+<span class="ln">12</span>id = <span class="s">"delve"</span>
+<span class="ln">13</span>name = <span class="s">"Delve"</span>
+<span class="ln">14</span>languages = [<span class="s">"go"</span>]
+<span class="ln">15</span>command = [<span class="s">"dlv"</span>, <span class="s">"dap"</span>]
+<span class="ln">16</span>install = <span class="s">"go install …/dlv@latest"</span>
+<span class="ln">17</span>launch = { mode = <span class="s">"debug"</span> }</div>
+  </div>
+  <div class="note" style="left:24px;top:308px"><b>Any plugin can bring a debugger</b> in its manifest, the way it brings a language: which languages, the command, other names to look for, and how to install it, which the "no debugger" notice shows. Being in the manifest, merlin knows it before the plugin runs. <span class="key">launch</span> is sent with every start.</div>
+
+  <!-- 2. What plugins find -->
+  <span class="label" style="left:444px;top:16px">What plugins find to debug</span>
+  <div class="island" style="left:444px;top:38px;width:392px;height:262px">
+    <div class="h" style="height:32px">Run and Debug</div>
+    <div class="h">Found in the project</div>
+    <div class="row"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 1l9 5-9 5z" fill="#8e9099"/></svg>merlin<span class="chip">rust</span><span class="at">--bin merlin</span></div>
+    <div class="row"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 1l9 5-9 5z" fill="#8e9099"/></svg>cmd/server<span class="chip">go</span><span class="at">go build ./cmd/server</span></div>
+    <div class="row"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 1l9 5-9 5z" fill="#8e9099"/></svg>TestParse<span class="chip">go</span><span class="at">parse_test.go</span></div>
+    <div class="row"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 1l9 5-9 5z" fill="#8e9099"/></svg>tools/measure.py<span class="chip">python</span><span class="at">this file</span></div>
+    <div class="row"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 1l9 5-9 5z" fill="#8e9099"/></svg>web<span class="chip">javascript</span><span class="at">npm run dev</span></div>
+    <div style="margin:12px;padding:8px 10px;background:#0f1012;border-radius:6px;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#b4b6bd"><span class="f">set-debug-targets</span>(targets)</div>
+  </div>
+  <div class="note" style="left:444px;top:308px">A plugin lists what can be debugged with <span class="key">set-debug-targets</span>, as it lists tasks with <span class="key">set-tasks</span>: a name, its debugger, and what to start. <b>A plugin's tests get Debug</b> above them the same way, through the test's own id. Rust's come from rust-analyzer, as its tests do.</div>
+
+  <!-- 3. The Debugger plugin -->
+  <span class="label" style="left:864px;top:16px">One plugin speaks to every debugger</span>
+  <div class="island" style="left:864px;top:38px;width:392px;height:262px">
+    <div style="padding:12px 14px 0;display:flex;align-items:center;gap:10px"><b style="font-weight:600;color:#eef0f3;font-size:14px">Debugger</b><span class="chip" style="background:#26272c;color:#b4b6bd">dap</span><span style="margin-left:auto;font-size:11.5px;color:#8e9099">2.1 MB · lldb-dap 38 MB</span></div>
+    <div class="h" style="margin-top:6px">Speaks the Debug Adapter Protocol to</div>
+    <div class="row">Delve<span class="chip">go</span><span class="at g">~/go/bin/dlv</span></div>
+    <div class="row">lldb-dap · CodeLLDB · gdb<span class="chip">rust</span><span class="chip">cpp</span><span class="at g">/usr/bin/lldb-dap</span></div>
+    <div class="row">debugpy<span class="chip">python</span><span class="at y">not installed</span></div>
+    <div class="row">js-debug<span class="chip">javascript</span><span class="at g">found</span></div>
+    <div class="h">Allowed</div>
+    <div class="row" style="color:#b4b6bd">Start the debuggers its plugins name · Drive the debugger</div>
+  </div>
+  <div class="note" style="left:864px;top:308px"><b>The Debugger plugin</b> does for debuggers what the lsp plugin does for language servers: it starts each one the plugins declare and speaks the protocol, so a new language needs no code to be debugged, only the manifest. It's a plugin like the others, so it can be turned off, or replaced.</div>
+
+  <!-- 4. Host calls -->
+  <span class="label" style="left:24px;top:400px">For plugin authors</span>
+  <div class="island" style="left:24px;top:422px;width:392px;height:262px;padding:10px 12px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;font-size:11.5px;line-height:18.5px;color:#b4b6bd;white-space:pre"><span class="c">// What there is to debug</span>
+<span class="f">set-debug-targets</span>(targets)
+<span class="c">// Running one</span>
+<span class="f">debug-start</span>() -> option&lt;start&gt;
+<span class="f">breakpoints</span>() -> list&lt;breakpoint&gt;
+<span class="f">set-debug-state</span>(state)
+<span class="f">set-threads</span>(threads)
+<span class="f">set-stack</span>(thread, frames)
+<span class="f">set-variables</span>(parent, variables)
+<span class="f">set-breakpoint-states</span>(states)
+<span class="f">set-stop-filters</span>(filters)
+<span class="f">set-inline-values</span>(path, values)
+<span class="f">debug-output</span>(kind, text)</div>
+  <div class="note" style="left:24px;top:692px">All new host imports, and no new exports, so plugins built before still load and the API stays 0.8. <b>What you do comes back as it does now</b>: the toolbar and keys as <span class="key">run-command</span> (<span class="key">debug.step-over</span>, <span class="key">debug.expand:12</span>), a typed value and the console as <span class="key">on-submit</span>.</div>
+
+  <!-- 5. Only what the debugger can do -->
+  <span class="label" style="left:444px;top:400px">Only what this debugger can do</span>
+  <div class="island" style="left:444px;top:422px;width:392px;height:262px">
+    <div class="h" style="height:32px">Breakpoints<span class="a"><span class="chip">debugpy</span></span></div>
+    <div class="row"><span class="chk on"><svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="#0f1012" stroke-width="2" aria-hidden="true"><path d="M1.5 5l2.5 2.5 4.5-5"/></svg></span><span class="dot bpf"></span>measure.py<span class="at">31</span></div>
+    <div class="h" style="margin-top:4px">Stop on</div>
+    <div class="row"><span class="chk"></span>Raised exceptions</div>
+    <div class="row"><span class="chk on"><svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="#0f1012" stroke-width="2" aria-hidden="true"><path d="M1.5 5l2.5 2.5 4.5-5"/></svg></span>Uncaught exceptions</div>
+    <div class="row"><span class="chk on"><svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="#0f1012" stroke-width="2" aria-hidden="true"><path d="M1.5 5l2.5 2.5 4.5-5"/></svg></span>User uncaught exceptions</div>
+    <div class="menu" style="left:130px;top:170px;width:250px">
+      <div class="mi on">Set Value<span class="kbd">F2</span></div>
+      <div class="mi">Add to Watch</div>
+      <div class="mi" style="color:#5f626b">Stop When It Changes<span class="d" style="color:#5f626b">not in debugpy</span></div>
+    </div>
+  </div>
+  <div class="note" style="left:444px;top:692px">Each debugger says what it can do when it starts, and merlin offers only that: <b>Stop on comes from the debugger</b>, and Set Value, Stop When It Changes, Pause and Restart show when it has them. So Python's exceptions, Go's goroutines and Rust's panics each look right with no code in merlin for them.</div>
+
+  <!-- 6. A debugger that isn't DAP -->
+  <span class="label" style="left:864px;top:400px">A plugin that drives it itself</span>
+  <div class="island" style="left:864px;top:422px;width:392px;height:262px">
+    <div class="h" style="height:32px">Call Stack<span class="a"><span class="chip">love2d</span></span></div>
+    <div class="row"><span class="m">▾</span><span class="dot" style="background:#e3b341;width:7px;height:7px"></span>main coroutine<span class="at y">Paused on breakpoint</span></div>
+    <div class="row on" style="padding-left:34px">player.update<span class="at">player.lua:42</span></div>
+    <div class="row" style="padding-left:34px">love.update<span class="at">main.lua:18</span></div>
+    <div class="h">Variables</div>
+    <div class="row" style="font-family:'JetBrains Mono',monospace;font-size:12px;padding-left:20px"><span class="k">dt</span>= <span class="n">0.016</span><span class="at" style="font-family:Inter,sans-serif">number</span></div>
+    <div class="row" style="font-family:'JetBrains Mono',monospace;font-size:12px;padding-left:20px"><span class="m">▸</span><span class="k">self</span>= {x=12, y=40, …}<span class="at" style="font-family:Inter,sans-serif">table</span></div>
+    <div class="status dbg"><span>● Debugging game · love2d</span><span style="margin-left:auto">Paused at player.lua:42</span></div>
+  </div>
+  <div class="note" style="left:864px;top:692px">A plugin whose debugger doesn't speak DAP, such as a game engine's, can make the same calls itself and <b>gets the same toolbar, Variables, Call Stack, breakpoints and console</b>. It says it does with <span class="key">debugger = true</span> in its permissions, which Settings › Plugins shows as Drive the debugger.</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":2400}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
