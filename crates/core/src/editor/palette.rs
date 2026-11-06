@@ -131,6 +131,7 @@ impl Editor {
                         })
                     }
                     (Some((id, _)), Source::Tasks) => self.task_picked(&id, fx),
+                    (Some((id, _)), Source::Restored) => self.restored_picked(&id, fx),
                     (Some((theme, _)), Source::Themes { kind, .. }) => {
                         self.theme[kind as usize] = theme.clone();
                         fx.push(Effect::SetTheme(kind, theme));

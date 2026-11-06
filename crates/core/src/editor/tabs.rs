@@ -49,6 +49,9 @@ pub struct GroupView {
     pub merge_inline: bool,
     /// Two files compared: each side's name and its note, over its half.
     pub compare: Option<[(String, String); 2]>,
+    /// Its file changed on disk while merlin was closed: the file's id and
+    /// name, for the bar over its text.
+    pub away: Option<(u64, String)>,
 }
 
 impl Editor {
@@ -89,6 +92,7 @@ impl Editor {
                     merging: self.merging().is_some(),
                     merge_inline: self.merging().is_some() && self.merge_inline(),
                     compare: self.compare_titles().map(|(l, r)| [l, r]),
+                    away: self.away_bar(),
                 })
             })
             .collect()

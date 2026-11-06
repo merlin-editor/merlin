@@ -42,6 +42,4 @@ the user approved them on 2026-11-05 too, as they did `GitSync.dc.html`,
 `Compare.dc.html`, `GitFiles.dc.html` and `MergeFlow.dc.html`.
 They aren't on the live canvas, which no longer opens.
 
-Hot exit has no mock-up: it changes only whether quitting asks. Unsaved
-changes are kept and come back next time, through `disk::Backups`, which
-already exists for crash recovery.
+`HotExit.dc.html` was approved on 2026-11-06 and is built.

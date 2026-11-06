@@ -2,7 +2,7 @@
 //! Several pin down bug classes reported against ttt.
 
 use merlin_core::script::Session;
-use merlin_core::{Button, Effect, Event, Focus, Node, Panel, PickItem};
+use merlin_core::{Button, Effect, Event, Focus, Node, Panel, PickItem, Settings};
 
 fn session(text: &str) -> Session {
     Session::new(text, Some("notes.txt"), 40, 6)
@@ -113,6 +113,10 @@ fn find_uses_fresh_matches_after_edits() {
 #[test]
 fn quitting_with_unsaved_changes_asks_first() {
     let mut s = session("");
+    s.send(Event::Settings(Settings {
+        hot_exit: false,
+        ..Settings::default()
+    }));
     s.run("type a; key ctrl+q");
     assert!(!s.quit);
     assert!(s.editor.window_view().dialog.is_some());

@@ -142,8 +142,13 @@ tabs stay first, show only their icon, and Close Others, Close Saved and
 Close All leave them open.
 
 Drag the edge between two groups to resize them. Closing a file with
-unsaved changes, or quitting with some, asks first: Save, Don't Save or
-Cancel. File › Open File… (`Ctrl+O`), Save As… and Open Folder…
+unsaved changes asks first: Save, Don't Save or Cancel. Quitting doesn't:
+unsaved files are kept, and the next start brings back the same tabs with
+their changes, untitled files too, under a notice whose Show lists what
+changed. After a crash the same notice offers Discard Them. A file that
+changed on disk while merlin was closed says so over its text, with
+Compare, Use the Disk's and Keep Mine. `[files] hot_exit = false` asks on
+quit instead. File › Open File… (`Ctrl+O`), Save As… and Open Folder…
 (`Ctrl+K Ctrl+O`) use the desktop's own file dialogs; opening a folder
 starts merlin there. In the Explorer, New File, New Folder and Rename name
 the file in its row, and Delete asks before moving it to the trash.

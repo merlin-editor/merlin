@@ -282,6 +282,8 @@ pub struct ToastView {
     pub error: bool,
     /// Good news: a green dot.
     pub done: bool,
+    /// Put right: an amber dot.
+    pub warning: bool,
     pub buttons: Vec<String>,
 }
 
@@ -447,6 +449,14 @@ impl Editor {
                         },
                     })
                     .collect()
+            } else if matches!(p.source, Source::Restored) {
+                shown
+                    .iter()
+                    .map(|(id, _)| PaletteExtra {
+                        detail: self.restored_detail(id),
+                        ..Default::default()
+                    })
+                    .collect()
             } else {
                 Vec::new()
             };
@@ -463,6 +473,7 @@ impl Editor {
                 Source::Picker { .. } => "Pick",
                 Source::Themes { .. } => "Themes",
                 Source::Tasks => "Tasks",
+                Source::Restored => "Files",
             },
             items: shown
                 .into_iter()
@@ -486,6 +497,7 @@ impl Editor {
             text: m.text.clone(),
             error: m.error,
             done: m.done,
+            warning: m.warning,
             buttons: m.actions.iter().map(|(label, _)| label.clone()).collect(),
         });
         WindowView {
@@ -656,6 +668,7 @@ impl Editor {
             UiEvent::BlameButton(b) => self.blame_card_button(&b, fx),
             UiEvent::Press(id) if id.starts_with("merge:") => self.merge_press(&id),
             UiEvent::Press(id) if id.starts_with("test:") => self.test_press(&id, fx),
+            UiEvent::Press(id) if id.starts_with("away:") => self.away_press(&id, fx),
             UiEvent::Press(id) => self.view_click(&id, fx),
             UiEvent::PeekRow { index, clicks } => self.peek_clicked(index, clicks, fx),
             UiEvent::PeekClose => self.peek = None,

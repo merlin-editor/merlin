@@ -2,7 +2,7 @@
 //! character widths and the mouse.
 
 use merlin_core::script::Session;
-use merlin_core::{Button, Effect, Event, Focus, Node, Panel};
+use merlin_core::{Button, Effect, Event, Focus, Node, Panel, Settings};
 
 fn session(text: &str) -> Session {
     Session::new(text, Some("notes.txt"), 40, 6)
@@ -189,6 +189,10 @@ fn closing_an_unsaved_file_asks_to_save_it() {
 #[test]
 fn quitting_counts_unsaved_files_across_tabs() {
     let mut s = project();
+    s.send(Event::Settings(Settings {
+        hot_exit: false,
+        ..Settings::default()
+    }));
     s.run("key ctrl+p; type main; key enter; type a; key ctrl+p; type readme; key enter; type b");
     s.run("key ctrl+q");
     assert!(!s.quit);

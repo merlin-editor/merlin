@@ -194,6 +194,9 @@ impl Editor {
         if id.starts_with("merge.") {
             return self.merge_command(id, fx);
         }
+        if id.starts_with("files.") && self.hot_exit_command(id) {
+            return;
+        }
         match id {
             "file.save" => match self.doc().buffer.path {
                 Some(_) => self.save_formatted(fx),
@@ -392,14 +395,7 @@ impl Editor {
             "icons.pick" => self.pick_theme(ThemeKind::Icons),
             // Show and focus, then step through the panels, then hide.
             "panel.toggle" => self.toggle_plugin_panels(),
-            "app.quit" => {
-                let dirty = self.docs.iter().filter(|d| d.buffer.is_dirty()).count();
-                if dirty > 0 {
-                    self.ask(super::dialog::Ask::Quit);
-                } else {
-                    self.quit(fx);
-                }
-            }
+            "app.quit" => self.quit_asked(fx),
             other => {
                 let found = self.plugins.iter().find_map(|p| {
                     let local = other.strip_prefix(&p.name)?.strip_prefix('.')?;

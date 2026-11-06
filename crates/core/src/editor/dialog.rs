@@ -25,6 +25,8 @@ pub(crate) enum Ask {
     /// Completing the merge of the document with this id, which has
     /// conflicts left.
     MergeLeft(u64),
+    /// Dropping the unsaved changes that came back after a crash.
+    DiscardRestored,
 }
 
 pub(crate) struct Dialog {
@@ -122,6 +124,10 @@ impl Editor {
                 };
                 (title, detail.into(), &["Complete Anyway", "Keep Resolving"])
             }
+            Ask::DiscardRestored => {
+                let (title, detail) = self.discard_restored_ask();
+                (title, detail, &["Discard Them", "Cancel"])
+            }
             Ask::Trash(path) => {
                 let name = path
                     .file_name()
@@ -189,6 +195,7 @@ impl Editor {
                 self.save_all_then_quit(fx);
             }
             (Ask::Quit, 1) => self.quit(fx),
+            (Ask::DiscardRestored, 0) => self.discard_restored(),
             (Ask::Trash(path), 0) => fx.push(Effect::File(FileOp::Trash(path))),
             (Ask::MergeLeft(id), 0) => {
                 if let Some(i) = self.index_of(id) {

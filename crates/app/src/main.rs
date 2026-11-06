@@ -999,7 +999,12 @@ impl App {
         }
         if self.backups.due.is_some_and(|at| at <= now) {
             let editor = &self.editor;
-            if let Some(plan) = self.backups.plan(editor.unsaved(), |id| editor.text_of(id)) {
+            let disk = &self.disk;
+            let seen = |path: &Path| disk.get(path).copied().flatten();
+            if let Some(plan) = self
+                .backups
+                .plan(editor.unsaved(), |id| editor.text_of(id), seen)
+            {
                 self.jobs.run(Lane::Disk, move || {
                     disk::write_backups(&plan);
                     jobs::events(Vec::new())
@@ -2345,10 +2350,10 @@ fn main() -> Result<()> {
         }
         app.dispatch(Event::Restore(ws));
     }
-    // Unsaved changes a crash left behind open again, unsaved.
-    let kept = app.backups.left_over();
+    // Unsaved changes the last run kept, with a hot exit or a crash, open
+    // again, unsaved.
+    let (kept, hot) = app.backups.left_over();
     if !kept.is_empty() {
-        let count = kept.len();
         for kept in kept {
             if let Some(path) = &kept.path
                 && !app.editor.open_files().contains(&Some(path.clone()))
@@ -2357,15 +2362,18 @@ fn main() -> Result<()> {
                     app.dispatch(event);
                 }
             }
+            // Changed on disk since the changes were made to it.
+            let moved = kept.path.as_ref().is_some_and(|path| {
+                let now = modified(&app.root.join(path));
+                kept.seen.is_some() && now.is_some() && now != kept.seen
+            });
             app.dispatch(Event::Recovered {
                 path: kept.path,
                 text: kept.text,
+                moved,
             });
         }
-        let files = if count == 1 { "file" } else { "files" };
-        app.dispatch(Event::Notify(format!(
-            "Restored unsaved changes to {count} {files}"
-        )));
+        app.dispatch(Event::RecoveredAll { crashed: !hot });
         // The file asked for stays in front of the ones restored.
         if let Some(first) = args.files.first() {
             for event in app.open(first) {
@@ -2408,7 +2416,14 @@ fn main() -> Result<()> {
 
     let result = gui::run(&mut app);
     app.finish_all();
-    if result.is_ok() {
+    if result.is_ok() && app.editor.keeps_unsaved() {
+        let (editor, disk) = (&app.editor, &app.disk);
+        let seen = |path: &Path| disk.get(path).copied().flatten();
+        let plan = app
+            .backups
+            .plan(editor.unsaved(), |id| editor.text_of(id), seen);
+        app.backups.keep(plan);
+    } else if result.is_ok() {
         app.backups.clear();
     }
     let _ = fs::create_dir_all(workspace_path.parent().unwrap_or(Path::new(".")))

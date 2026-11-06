@@ -7,7 +7,7 @@ use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, channel};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use notify::{EventKind, RecursiveMode, Watcher as _};
 
@@ -130,7 +130,8 @@ pub(crate) const SETTLE: Duration = Duration::from_millis(80);
 const BACKUP_AFTER: Duration = Duration::from_millis(1000);
 
 /// Unsaved changes, kept on disk while the editor runs, so a crash loses
-/// none of them. A clean exit clears them.
+/// none of them. A clean exit clears them, unless it's a hot exit, which
+/// keeps them for the next start.
 pub(crate) struct Backups {
     dir: Option<PathBuf>,
     /// The buffer version kept of each file, by backup name.
@@ -147,11 +148,18 @@ pub(crate) struct Plan {
     pub(crate) remove: Vec<String>,
 }
 
-/// One file's kept changes: where it is, if it's not untitled, and its text.
+/// One file's kept changes: where it is, if it's not untitled, and its
+/// text. `seen`: when the file on disk was last changed, as the changes
+/// were made to it.
 pub(crate) struct Kept {
     pub(crate) path: Option<PathBuf>,
     pub(crate) text: String,
+    pub(crate) seen: Option<SystemTime>,
 }
+
+/// The file a hot exit leaves beside the backups, so the next start knows
+/// they were kept on purpose.
+const HOT: &str = ".hot-exit";
 
 impl Backups {
     pub(crate) fn new(dir: Option<PathBuf>) -> Self {
@@ -162,32 +170,46 @@ impl Backups {
         }
     }
 
-    /// What a run that didn't exit cleanly left behind. Those backups stay
-    /// until the files are kept again or the editor exits cleanly.
-    pub(crate) fn left_over(&mut self) -> Vec<Kept> {
+    /// What the last run left behind, and whether it quit with a hot exit
+    /// rather than crashing. Those backups stay until the files are kept
+    /// again or the editor exits cleanly.
+    pub(crate) fn left_over(&mut self) -> (Vec<Kept>, bool) {
         let Some(dir) = &self.dir else {
-            return Vec::new();
+            return (Vec::new(), false);
         };
+        let hot = fs::remove_file(dir.join(HOT)).is_ok();
         let Ok(entries) = fs::read_dir(dir) else {
-            return Vec::new();
+            return (Vec::new(), hot);
         };
         let mut found = Vec::new();
         for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with('.') {
+                continue;
+            }
             let Ok(saved) = fs::read_to_string(entry.path()) else {
                 continue;
             };
-            let Some((path, text)) = saved.split_once('\n') else {
+            let Some((head, text)) = saved.split_once('\n') else {
                 continue;
             };
-            self.kept
-                .insert(entry.file_name().to_string_lossy().into_owned(), u64::MAX);
+            // Older backups have the path alone.
+            let (path, seen) = match head
+                .rsplit_once('\t')
+                .and_then(|(path, nanos)| Some((path, nanos.parse::<u64>().ok()?)))
+            {
+                Some((path, nanos)) => (path, Some(UNIX_EPOCH + Duration::from_nanos(nanos))),
+                None => (head, None),
+            };
+            self.kept.insert(name, u64::MAX);
             found.push(Kept {
                 path: (!path.is_empty()).then(|| PathBuf::from(path)),
                 text: text.to_string(),
+                seen,
             });
         }
         found.sort_by(|a, b| a.path.cmp(&b.path));
-        found
+        (found, hot)
     }
 
     /// The editor's unsaved files changed: keep them a moment from now.
@@ -209,6 +231,7 @@ impl Backups {
         &mut self,
         unsaved: Vec<(u64, Option<PathBuf>, u64)>,
         text_of: impl Fn(u64) -> Option<String>,
+        seen: impl Fn(&Path) -> Option<SystemTime>,
     ) -> Option<Plan> {
         self.due = None;
         let dir = self.dir.clone()?;
@@ -219,7 +242,14 @@ impl Backups {
             if self.kept.get(&name) != Some(&version)
                 && let Some(text) = text_of(id)
             {
-                let head = path.map(|p| p.display().to_string()).unwrap_or_default();
+                let head = match path {
+                    Some(path) => match seen(&path).and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                    {
+                        Some(at) => format!("{}\t{}", path.display(), at.as_nanos()),
+                        None => path.display().to_string(),
+                    },
+                    None => String::new(),
+                };
                 write.push((name.clone(), format!("{head}\n{text}")));
             }
             keep.insert(name, version);
@@ -232,6 +262,15 @@ impl Backups {
             .collect();
         self.kept = keep;
         Some(Plan { dir, write, remove })
+    }
+
+    /// A hot exit: the backups, written now, are for the next start.
+    pub(crate) fn keep(&self, plan: Option<Plan>) {
+        if let Some(plan) = plan {
+            write_backups(&plan);
+            let _ = fs::create_dir_all(&plan.dir);
+            let _ = fs::write(plan.dir.join(HOT), "");
+        }
     }
 
     /// The editor exited cleanly: nothing to keep.

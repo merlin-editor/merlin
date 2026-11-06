@@ -36,7 +36,8 @@ mock-ups. Nothing is pushed. The last commit when this was written was
 | 2. Language servers, finished | Built. See below |
 | 3. Git | Built. See below |
 | 4. Tasks and tests | Built. See below |
-| 5 to 10 | Not started; next is 5, Hot exit |
+| 5. Hot exit | Built. See below |
+| 6 to 10 | Not started; next is 6, Settings editor |
 
 ### Language features (`Language.dc.html`)
 
@@ -639,6 +640,37 @@ Built, each checked in the window on a small cargo project:
   python or jest plugin giving tests (the API is ready for one), and
   buttons on a plugin's notice.
 
+### Hot exit (`HotExit.dc.html`)
+
+Built on the crash backups (`disk::Backups`), checked in the window:
+
+- **Quitting** (`app.quit` → `quit_asked`, `crates/core/src/editor/hot_exit.rs`).
+  With `files.hot_exit` on (the default) and unsaved files, it quits
+  without asking and `Editor::keeps_unsaved` says so. `main` then writes
+  the backups at once (`Backups::plan`, then `Backups::keep`) with a
+  `.hot-exit` file beside them; otherwise a clean exit clears them as
+  before. With the setting off, `Ask::Quit` asks as it did.
+- **Backups** now head each file with its path, a tab and the file's
+  modified time on disk in nanoseconds, as the app last saw it
+  (`App.disk`). Older backups, with the path alone, still read.
+- **The next start.** `Backups::left_over` returns the files and whether
+  `.hot-exit` was there. The workspace's tabs open first, then each
+  backup is `Event::Recovered { moved }`, `moved` when the file's time on
+  disk isn't the one kept; then `Event::RecoveredAll { crashed }` gives
+  the notice: "N files with unsaved changes are back, as you left them."
+  [Show], or after a crash, with an amber dot (`ToastView.warning`),
+  [Discard Them] [Show]. `recovered` keeps the tab in front unless it's
+  the blank scratch file; `Editor.restored` keeps each file's disk text.
+- **Show** is a palette (`Source::Restored`): files first, each with
+  "+N −M" lines changed; picking one opens Compare with Saved.
+  **Discard Them** asks (`Ask::DiscardRestored`), then puts each file back
+  as on disk and closes untitled ones.
+- **Changed on disk while closed.** `GroupView.away` gives the bar over
+  the code (`GroupArea::under_away`, `Frame::away_bar`), with Compare,
+  Use the Disk's and Keep Mine (`UiEvent::Press("away:…:<id>")`).
+- Test: `crates/core/tests/hot_exit.rs`. Not kept: undo history, and an
+  untitled file's place among the tabs (it comes back at the end).
+
 Saved for later, by the user's choice:
 
 - **Scrolling a long hover** with the keyboard (↑ ↓ once it's
@@ -729,7 +761,7 @@ These are suggestions; nothing of them is written yet.
   straight into core `Event`s. The Rust SDK's re-exports are in
   `sdk/rust/src/lib.rs`; add new types to both lists there.
 - Checks before each commit:
-  - `cargo test --workspace`: 381 tests passed with tasks and tests
+  - `cargo test --workspace`: 386 tests passed with hot exit
   - `cargo clippy --workspace --all-targets`
   - in `plugins/lsp`: `cargo clippy --release --target wasm32-wasip2`
   - `cargo fmt --all`

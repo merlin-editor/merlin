@@ -16,6 +16,7 @@ mod find;
 pub(crate) mod fold;
 mod format;
 mod groups;
+mod hot_exit;
 mod inline_change;
 pub use actions::{FORMAT_FILE, FORMAT_SELECTION};
 pub use format::{FORMAT_WAIT_MS, FormatOnSave};
@@ -369,12 +370,18 @@ pub enum Event {
         plugin: String,
         id: String,
     },
-    /// Unsaved changes kept from a run that didn't close cleanly: the
-    /// file's text as it was, or an untitled file's with no path. The file
-    /// opens with them, unsaved.
+    /// Unsaved changes kept from the last run: the file's text as it was,
+    /// or an untitled file's with no path. The file opens with them,
+    /// unsaved. `moved`: the file on disk changed since.
     Recovered {
         path: Option<PathBuf>,
         text: String,
+        moved: bool,
+    },
+    /// Every kept file is back. `crashed`: the last run didn't quit, so
+    /// they're offered to be dropped.
+    RecoveredAll {
+        crashed: bool,
     },
     /// An open file changed on disk. It reloads unless it has unsaved
     /// changes.
@@ -843,6 +850,8 @@ enum Source {
     },
     /// Run Task's list.
     Tasks,
+    /// The files whose unsaved changes came back.
+    Restored,
 }
 
 enum Popup {
@@ -896,6 +905,8 @@ struct Message {
     error: bool,
     /// Good news, as no conflicts left: a green dot.
     done: bool,
+    /// Something went wrong that's put right, as a crash: an amber dot.
+    warning: bool,
     /// Buttons: label and the command each runs.
     actions: Vec<(String, String)>,
 }
@@ -930,6 +941,12 @@ pub struct Editor {
     closing: Vec<u64>,
     /// Quitting once every file is saved.
     quitting: bool,
+    /// Quitting keeps unsaved files for the next start, rather than asking.
+    hot_exit: bool,
+    /// Quit with unsaved files kept.
+    keep_unsaved: bool,
+    /// Files whose unsaved changes came back from the last run.
+    restored: Vec<hot_exit::Restored>,
     /// A folder to open in a new window when this one quits.
     open_folder: Option<PathBuf>,
     /// What was last copied, for when the system clipboard can't be read.
@@ -1160,6 +1177,9 @@ impl Editor {
             selection_shared: None,
             closing: Vec::new(),
             quitting: false,
+            hot_exit: true,
+            keep_unsaved: false,
+            restored: Vec::new(),
             open_folder: None,
             clipboard: String::new(),
             dragging: false,
@@ -1771,7 +1791,8 @@ impl Editor {
             } => self.show_review(plugin, id, path, &old, &new),
             Event::CloseReview { plugin, id } => self.close_review(&plugin, &id),
             Event::FileChanged { path, text } => self.file_changed(&path, &text),
-            Event::Recovered { path, text } => self.recovered(path, &text),
+            Event::Recovered { path, text, moved } => self.recovered(path, &text, moved),
+            Event::RecoveredAll { crashed } => self.recovered_all(crashed),
             Event::GitBase { path, text } => {
                 for doc in &mut self.docs {
                     if doc.buffer.path.as_ref() == Some(&path) {
@@ -2410,31 +2431,6 @@ impl Editor {
 
     // Files on disk ------------------------------------------------------------
 
-    /// Reloads a file that changed on disk, as one step that can be undone.
-    fn recovered(&mut self, path: Option<PathBuf>, text: &str) {
-        let at = path.as_ref().and_then(|p| {
-            self.docs
-                .iter()
-                .position(|d| d.buffer.path.as_ref() == Some(p))
-        });
-        let i = match at {
-            Some(i) => i,
-            // An untitled file, or one that's gone from disk.
-            None => {
-                let id = self.new_id();
-                self.docs.push(Doc::new(id, "", path));
-                self.docs.len() - 1
-            }
-        };
-        let doc = &mut self.docs[i];
-        let old = doc.buffer.text();
-        if old != text {
-            replace_text(doc, &old, text);
-        }
-        self.current = i;
-        self.sync_groups();
-    }
-
     fn file_changed(&mut self, path: &PathBuf, text: &str) {
         let Some(i) = self
             .docs
@@ -2642,6 +2638,7 @@ impl Editor {
             text,
             error: false,
             done: false,
+            warning: false,
             actions: Vec::new(),
         });
     }
@@ -2660,8 +2657,17 @@ impl Editor {
             text,
             error: true,
             done: false,
+            warning: false,
             actions: Vec::new(),
         });
+    }
+
+    /// A notice of something gone wrong and put right, with an amber dot.
+    fn notify_warning(&mut self, text: String) {
+        self.notify(text);
+        if let Some(m) = &mut self.message {
+            m.warning = true;
+        }
     }
 
     /// Adds a button to the notice showing.

@@ -168,8 +168,6 @@ are mostly in the VS Code half.
 - **Colour:** no rainbow brackets and no colour swatches.
 - **UI font size:** no setting. The README notes one font list shared by
   the frame and the code is still to do.
-- **Hot exit:** unsaved changes aren't kept across restarts. Killing merlin
-  counts as a crash.
 - **Language servers:** completions don't add imports. (Inlay hints,
   signature help, errors inline, problems in the hover, code actions,
   format, rename and find references are now built.)
@@ -258,8 +256,9 @@ These are ordered by votes against effort.
    `Cargo.toml`, with output in the terminal, and a test runner with
    gutter buttons (`Tasks.dc.html`, `TaskPlugins.dc.html`). Problems from
    a task's output are not built yet.
-5. **Hot exit**: keep unsaved buffers across quitting and crashes. This
-   is mostly not UI; it decides only whether to ask on quit.
+5. **Hot exit** (**built**): keep unsaved buffers across quitting and
+   crashes, with a notice at the next start and a bar over a file changed
+   on disk meanwhile (`HotExit.dc.html`).
 6. **Settings editor**: the Settings window already planned in
    `ROADMAP.md`, with themes chosen there.
 7. **Debugging (DAP)**, as a plugin like `lsp`: breakpoints, a call stack

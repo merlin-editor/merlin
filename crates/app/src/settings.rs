@@ -48,6 +48,7 @@ const USER_TEMPLATE: &str = r#"# merlin settings. Saving this file applies them.
 # insert_final_newline = false
 # auto_save = "off"   # after_delay, on_focus_change, on_window_change
 # auto_save_delay = 1000   # milliseconds, with after_delay
+# hot_exit = true     # quit without asking; unsaved files come back next time
 # A project's .editorconfig wins over these and the indentation settings.
 
 [keys]
@@ -280,6 +281,7 @@ pub fn editor(table: &toml::Table) -> Settings {
             Some("on_window_change") => AutoSave::OnWindowChange,
             _ => defaults.auto_save,
         },
+        hot_exit: files_flag("hot_exit", defaults.hot_exit),
         auto_save_delay: files
             .and_then(|f| f.get("auto_save_delay"))
             .and_then(|v| v.as_integer().or_else(|| v.as_str()?.parse().ok()))

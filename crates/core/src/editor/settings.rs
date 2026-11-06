@@ -44,6 +44,9 @@ pub struct Settings {
     pub auto_save: AutoSave,
     /// Milliseconds after the last change, with [`AutoSave::AfterDelay`].
     pub auto_save_delay: u64,
+    /// Quitting keeps unsaved files for the next start, rather than
+    /// asking to save them.
+    pub hot_exit: bool,
     /// Keys and the commands they run, such as `ctrl+k ctrl+m` and
     /// `view.minimap`, maybe only when a condition holds. An empty command
     /// unbinds the keys.
@@ -72,6 +75,7 @@ impl Default for Settings {
             insert_final_newline: false,
             auto_save: AutoSave::Off,
             auto_save_delay: 1000,
+            hot_exit: true,
             keys: Vec::new(),
         }
     }
@@ -108,6 +112,7 @@ impl Editor {
         self.saving.insert_final_newline = settings.insert_final_newline;
         self.saving.auto = settings.auto_save;
         self.saving.delay_ms = settings.auto_save_delay.max(10);
+        self.hot_exit = settings.hot_exit;
         if !self.preview_tabs {
             self.preview = None;
         }

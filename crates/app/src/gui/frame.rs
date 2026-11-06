@@ -93,6 +93,9 @@ pub struct GroupArea {
     /// In the merge editor: Incoming's and Current's panes, and the
     /// Result's around the code.
     pub merge: Option<[Rect; 3]>,
+    /// Over the code: the bar saying the file changed on disk while merlin
+    /// was closed.
+    pub away: Option<Rect>,
 }
 
 /// The line between groups, and the room a sash takes on either side.
@@ -306,6 +309,8 @@ pub fn group_areas(
                 area.split_for_merge(sizes, inline);
             } else if groups.get(g).is_some_and(|v| v.compare.is_some()) {
                 area.under_titles();
+            } else if groups.get(g).is_some_and(|v| v.away.is_some()) {
+                area.under_away();
             }
             areas.push(area);
             if g + 1 < end {
@@ -354,6 +359,7 @@ impl GroupArea {
             minimap,
             bar,
             merge: None,
+            away: None,
         }
     }
 
@@ -393,6 +399,25 @@ impl GroupArea {
 
 impl GroupArea {
     /// Room over the code for each compared file's title.
+    /// Room over the code for the bar saying it changed on disk.
+    fn under_away(&mut self) {
+        let h = AWAY_H.min(self.text.h);
+        self.away = Some(Rect::new(
+            self.text.x,
+            self.text.y - 4.0,
+            self.bar.right() - self.text.x,
+            h,
+        ));
+        for r in [&mut self.text, &mut self.bar] {
+            r.y += h;
+            r.h -= h;
+        }
+        if let Some(m) = &mut self.minimap {
+            m.y += h;
+            m.h -= h;
+        }
+    }
+
     fn under_titles(&mut self) {
         let h = MERGE_HEAD_H.min(self.text.h);
         for r in [&mut self.text, &mut self.bar] {
@@ -408,6 +433,9 @@ impl GroupArea {
 
 /// A merge editor pane's title row.
 const MERGE_HEAD_H: f32 = 30.0;
+
+/// The bar over a file that changed on disk while merlin was closed.
+const AWAY_H: f32 = 38.0;
 
 impl Frame<'_> {
     fn hit(&mut self, r: Rect, hit: Hit) {
@@ -4366,6 +4394,68 @@ impl Frame<'_> {
     /// Revert File. Returns its width.
     /// The merge editor's bar: what's left, the arrows, Accept All
     /// Incoming and Complete Merge, ending at `right`. Its width.
+    /// Over a file that changed on disk while merlin was closed: what
+    /// happened, and Compare, Use the Disk's and Keep Mine.
+    fn away_bar(&mut self, id: u64, name: &str, r: Rect) {
+        let p = self.p;
+        let face = Face::ui(12.5);
+        self.canvas.fill(r, mix(p.warning, p.island, 0.12));
+        self.canvas.fill(
+            Rect::new(r.x, r.bottom() - 1.0, r.w, 1.0),
+            mix(p.warning, p.island, 0.22),
+        );
+        let (h, y) = (26.0, r.y + (r.h - 26.0) / 2.0);
+        let mut x = r.right() - 12.0;
+        for (label, what, primary) in [
+            ("Keep Mine", "keep", true),
+            ("Use the Disk's", "disk", false),
+            ("Compare", "compare", false),
+        ] {
+            let face = if primary { face.medium() } else { face };
+            let w = self.text.width(label, face) + 20.0;
+            x -= w;
+            let b = Rect::new(x, y, w, h);
+            let hovered = self.hovered(b);
+            let (bg, fg) = match (primary, hovered) {
+                (true, false) => (p.accent, p.on_accent),
+                (true, true) => (mix(p.accent, 0xffffff, 0.88), p.on_accent),
+                (false, false) => (p.chip, p.bright),
+                (false, true) => (p.border, p.bright),
+            };
+            self.canvas.round(b, 6.0, bg);
+            self.text
+                .draw_in_row(&mut self.canvas, label, face, b.x + 10.0, y, h, fg, b);
+            self.hit(b, Hit::Ui(UiEvent::Press(format!("away:{what}:{id}"))));
+            x -= 8.0;
+        }
+        let text_r = Rect::new(r.x + 12.0, r.y, (x - r.x - 12.0).max(0.0), r.h);
+        self.text.draw_in_row(
+            &mut self.canvas,
+            "⚠",
+            face,
+            text_r.x,
+            r.y,
+            r.h,
+            p.warning,
+            text_r,
+        );
+        let bold = face.medium();
+        let tx = text_r.x + 22.0;
+        self.text
+            .draw_in_row(&mut self.canvas, name, bold, tx, r.y, r.h, p.bright, text_r);
+        let tx = tx + self.text.width(name, bold);
+        self.text.draw_in_row(
+            &mut self.canvas,
+            " changed on disk since you left it. Your unsaved changes are kept.",
+            face,
+            tx,
+            r.y,
+            r.h,
+            p.text,
+            text_r,
+        );
+    }
+
     fn merge_bar(&mut self, bar: &MergeBarView, row: Rect, right: f32) -> f32 {
         let p = self.p;
         let face = Face::ui(12.0);
@@ -5185,6 +5275,9 @@ impl Frame<'_> {
             if let Some(row) = area.crumbs {
                 self.crumb_row(&group.crumbs, row, Some(g));
             }
+            if let (Some((id, name)), Some(r)) = (&group.away, area.away) {
+                self.away_bar(*id, name, r);
+            }
         }
         // Where a dragged tab or file would land: a side of a group, or
         // all of it.
@@ -5316,6 +5409,8 @@ impl Frame<'_> {
             p.error
         } else if toast.done {
             p.success
+        } else if toast.warning {
+            p.warning
         } else {
             p.accent
         };
