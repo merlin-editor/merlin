@@ -431,6 +431,26 @@ side clicked is the one edited. ⇄ Swap changes sides. The Explorer's menu has 
 then Compare with it on another file. Compare with Clipboard and Compare
 with Saved (a file's unsaved edits against the disk) work the same way.
 
+Tasks: Run Task… lists what `Cargo.toml`, `package.json` and
+`.merlin/tasks.toml` offer, and what plugins add, grouped as Test, Build
+and run, and Other. Each runs in a terminal tab named after it, and shows
+in the status bar while it runs. Ctrl+Shift+B runs the build task and
+Ctrl+; A the test task; Configure tasks… opens `.merlin/tasks.toml`:
+
+```toml
+[tasks]
+lint = "cargo clippy --all-targets"
+
+[tasks.watch]
+command = "cargo watch -x check"
+group = "build"
+```
+
+The Tests view lists the project's tests by crate and file, with Run
+All, Run Failed and On Save. In a Rust file each test has ▶ Run Test and
+Debug over it, a ✓ or ✕ in the gutter, and a failure's message under the
+line that failed. With rust-analyzer, its tests and binaries are used.
+
 A deleted
 file is struck through, opens as what it had, and its menu restores it. A
 new file opens as one column, and its menu adds it to `.gitignore`. A

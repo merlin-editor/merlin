@@ -35,7 +35,8 @@ mock-ups. Nothing is pushed. The last commit when this was written was
 | 1. Integrated terminal | Done (`493d5f0`, `7ee4884`) |
 | 2. Language servers, finished | Built. See below |
 | 3. Git | Built. See below |
-| 4 to 10 | Not started; next is 4, Tasks and tests (`Tasks.dc.html`) |
+| 4. Tasks and tests | Built. See below |
+| 5 to 10 | Not started; next is 5, Hot exit |
 
 ### Language features (`Language.dc.html`)
 
@@ -581,6 +582,63 @@ committed:
     Clipboard.
 - Git's mock-ups are all built, but for what's listed as not built above.
 
+### Tasks and tests (`Tasks.dc.html`, `TaskPlugins.dc.html`)
+
+Built, each checked in the window on a small cargo project:
+
+- **Run Task** (`e2c7ad8`, `crates/core/src/editor/tasks.rs`). `task.run`
+  reads `Cargo.toml`, `package.json` and `.merlin/tasks.toml` with
+  `Effect::ReadFiles` each time (`tasks_read`; the parsers `from_cargo`,
+  `from_package`, `from_tasks_file` are small and hand-written: core has
+  no TOML or JSON crate). The palette's `Source::Tasks` shows
+  `PaletteView.extras`: where each is from, a plugin's chip, group
+  headings, Configure tasks… dimmed. A task runs with `start_command`,
+  in a terminal of its own named after it (`TermOp::Spawn.command`,
+  `TermSession.task`), replacing its last run; the host runs it under
+  `/bin/sh -c` after a dimmed `❯ command` line, and on exit sends
+  `Event::TaskOutput` with all the terminal printed (`text_of`), read
+  after alacritty drains the pty (its `Exit` event, not `ChildExit`).
+  Keys: Ctrl+Shift+B the build task, Ctrl+; A the test task. The mock-up
+  had Ctrl+Shift+T, which is Reopen Closed Tab. Test:
+  `crates/core/tests/tasks.rs`.
+- **Busy terminals** (`ff78769`). alacritty wakes the window only after
+  it has read all a pty has, so output that never pauses showed in
+  half-second jumps. `Terminals::poll_busy` looks at each screen's damage
+  every frame while output comes (`Terminals::due`).
+- **Tests** (`04d6dd3`, `crates/core/src/editor/testing.rs`). The Tests
+  view (`TESTS`, a rail item) finds tests once: the file list
+  (`self.tree` or `Effect::ListTree`), then every `Cargo.toml` and Rust
+  file in a `src/` or `tests/` folder read, scanned by `rust_tests`
+  (`#[test]` and `#[…::test]`). Roots are crates, then files, then
+  tests; results are keyed `path::fn`. Runs go through `run_tests`
+  (`Scope`): one terminal, "cargo test", with `-p`, `--test` and names
+  as filters. `tests_output` reads cargo's output (`parse_report`:
+  targets, `test … ok/FAILED`, failures captured or not, times) and
+  `match_test` maps each to a file. A test task from Run Task is read the
+  same way. In the editor, `doc_tests` (cached by doc, version and
+  `Tests.version`) gives each test a lens row before its `fn` and a
+  failure row under the line that failed; they're gap rows like the peek
+  views (`test_gap` in `peek_gap`, `has_test_rows` in `row_based`, and
+  `Tests.version` in the row cache's key). `Frame::test_rows` draws them
+  and the gutter's ✓ ✕. Debug runs the test under rust-gdb, as cargo's
+  runner, in a terminal of its own: there's no debugger UI yet. The
+  status bar says how many failed; Ctrl+; E, F, C rerun failed, the file,
+  the test at the cursor. `Node::Tools` is a row of small buttons.
+- **From plugins** (`1127a31`). New imports `set-tasks`, `set-tests`,
+  `set-test-results`, `run-task`; no new exports, API still 0.8. A test
+  with a `command` runs in the test terminal and is read as cargo's; one
+  without is `run-command` with `run-test:<id>`/`debug-test:<id>`, and a
+  task without one is `task:<name>`. A plugin's tests in a Rust file
+  replace `rust_tests` there; elsewhere they're a root named after the
+  plugin. The Plugins view adds "Tests N · Tasks M" (`plugin_gives`).
+- **rust-analyzer** (`80ba934`). The lsp plugin asks
+  `experimental/runnables` with the rest of `describe`, sending tests
+  with rust-analyzer's cargo command (less `--nocapture` and
+  `--show-output`) and binaries and benches as tasks.
+- Not built: problems from a task's output (a problem matcher), a
+  python or jest plugin giving tests (the API is ready for one), and
+  buttons on a plugin's notice.
+
 Saved for later, by the user's choice:
 
 - **Scrolling a long hover** with the keyboard (↑ ↓ once it's
@@ -671,7 +729,7 @@ These are suggestions; nothing of them is written yet.
   straight into core `Event`s. The Rust SDK's re-exports are in
   `sdk/rust/src/lib.rs`; add new types to both lists there.
 - Checks before each commit:
-  - `cargo test --workspace`: 369 tests passed with new, deleted and moved files
+  - `cargo test --workspace`: 381 tests passed with tasks and tests
   - `cargo clippy --workspace --all-targets`
   - in `plugins/lsp`: `cargo clippy --release --target wasm32-wasip2`
   - `cargo fmt --all`

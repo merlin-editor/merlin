@@ -109,10 +109,10 @@ are mostly in the VS Code half.
 
 | Votes | Request | merlin |
 |---:|---|---|
-| 2137 | Build and debug support | **Missing.** Tasks first, then DAP. |
+| 2137 | Build and debug support | Tasks are built; a debugger (DAP) is missing. |
 | 1123 | Rainbow brackets | **Missing.** Quick win. |
 | 898 | Smooth scrolling | Has it. |
-| 893 | Test runner | Missing. |
+| 893 | Test runner | Built: the Tests view and ▶ Run Test. |
 | 889 | Telescope-style search box | Partly: the palette and Go to File. |
 | 795 | Diff between two files | Missing. |
 | 771 | Dev containers | Missing. Out of scope for now. |
@@ -175,8 +175,8 @@ are mostly in the VS Code half.
   format, rename and find references are now built.)
 - **Git:** no staging or discarding of parts of a file, no blame, no push,
   no diff of two files, and no merge editor.
-- **Running code:** no tasks, no test runner and no debugger. (The
-  terminal is now built.)
+- **Running code:** no debugger. (The terminal, tasks and the test
+  runner are now built.)
 - **Keys:** no Vim or Helix mode, no which-key, no macros.
 - **Windows:** one folder per window. There are no floating or second
   windows.
@@ -254,9 +254,10 @@ These are ordered by votes against effort.
    - new, deleted, moved and binary files (`GitFiles.dc.html`, **built**)
    - a diff of any two files (`MergeFlow.dc.html`, **built**)
    - a 3-way merge editor (`MergeFlow.dc.html`, **built**)
-4. **Tasks and tests**: run a task from `tasks.toml` or `Cargo.toml`, with
-   output in the terminal, problems from it, and a test runner with
-   gutter buttons.
+4. **Tasks and tests** (**built**): run a task from `tasks.toml` or
+   `Cargo.toml`, with output in the terminal, and a test runner with
+   gutter buttons (`Tasks.dc.html`, `TaskPlugins.dc.html`). Problems from
+   a task's output are not built yet.
 5. **Hot exit**: keep unsaved buffers across quitting and crashes. This
    is mostly not UI; it decides only whether to ask on quit.
 6. **Settings editor**: the Settings window already planned in
