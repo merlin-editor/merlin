@@ -394,7 +394,11 @@ impl Editor {
             nodes.push(Node::Entry(crate::panel::Entry {
                 id: format!("plugin:{}", p.name),
                 label: p.title.clone(),
-                detail: p.what.clone(),
+                detail: match self.plugin_gives(&p.name) {
+                    gives if gives.is_empty() => p.what.clone(),
+                    gives if p.what.is_empty() => gives,
+                    gives => format!("{} · {gives}", p.what),
+                },
                 icon: Some((icon(Icon::Plugin, self.nerd), crate::style::Hue::Blue)),
                 badge: p.tag.clone(),
                 badge_tone: p.tone,

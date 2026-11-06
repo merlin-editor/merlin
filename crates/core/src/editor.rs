@@ -77,7 +77,9 @@ pub use settings::Settings;
 pub use tabs::GroupView;
 pub use tasks::{Task, TaskGroup, from_cargo, from_package, from_tasks_file};
 pub use terminal::{TermOp, TermSession, TerminalView};
-pub use testing::{Outcome, TestFailureView, TestLensView, rust_tests};
+pub use testing::{
+    Outcome, PluginTest, PluginTestResult, TestFailureView, TestLensView, rust_tests,
+};
 pub use text_view::{CaretView, InlayView, LineView, OVERSCAN, TextView};
 pub use workspace::{GroupState, Tab, Workspace};
 pub use wrap::Row as WrapRow;
@@ -302,6 +304,24 @@ pub enum Event {
         path: PathBuf,
         ranges: Vec<(u32, u32)>,
     },
+    /// A plugin's tasks for Run Task, replacing its earlier ones.
+    SetTasks {
+        plugin: String,
+        tasks: Vec<Task>,
+    },
+    /// A plugin's tests in a file, replacing its earlier ones there.
+    SetTests {
+        plugin: String,
+        path: PathBuf,
+        tests: Vec<PluginTest>,
+    },
+    /// How a plugin's tests went.
+    SetTestResults {
+        plugin: String,
+        results: Vec<PluginTestResult>,
+    },
+    /// Runs a task by name, as a plugin asks.
+    RunTask(String),
     /// A file's inlay hints from a plugin, replacing its earlier ones.
     SetInlayHints {
         path: PathBuf,
@@ -1650,6 +1670,23 @@ impl Editor {
                     self.outline_for = None;
                 }
             }
+            Event::SetTasks { plugin, mut tasks } => {
+                for task in &mut tasks {
+                    task.plugin = Some(plugin.clone());
+                }
+                self.tasks.plugins.retain(|(p, _)| *p != plugin);
+                if !tasks.is_empty() {
+                    self.tasks.plugins.push((plugin, tasks));
+                }
+                self.build_views();
+            }
+            Event::SetTests {
+                plugin,
+                path,
+                tests,
+            } => self.set_plugin_tests(plugin, &path, tests),
+            Event::SetTestResults { plugin, results } => self.set_plugin_results(&plugin, results),
+            Event::RunTask(name) => self.run_task_named(&name, &mut fx),
             Event::SetFolds { path, ranges } => {
                 if let Some(doc) = self.doc_at(&path) {
                     let folds = ranges

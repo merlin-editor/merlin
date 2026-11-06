@@ -82,6 +82,37 @@ pub(crate) struct Tests {
     run: Option<(u64, Option<String>)>,
     /// Goes up whenever a test or result changes, for what's drawn.
     pub version: u64,
+    /// Plugins' tests, by file.
+    pub plugin_files: Vec<PluginFile>,
+}
+
+/// A plugin's test in a file.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PluginTest {
+    pub id: String,
+    pub label: String,
+    /// Its line, from 0.
+    pub line: u32,
+    /// The command line that runs it in the test terminal; none for one
+    /// the plugin runs.
+    pub command: Option<String>,
+}
+
+/// How a plugin's test went; no outcome while it runs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PluginTestResult {
+    pub id: String,
+    pub outcome: Option<Outcome>,
+    pub message: String,
+    pub line: Option<u32>,
+}
+
+/// A plugin's tests in one file.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PluginFile {
+    pub plugin: String,
+    pub path: String,
+    pub tests: Vec<PluginTest>,
 }
 
 /// What a click or a command runs.
@@ -320,7 +351,16 @@ impl Editor {
         let mut out = DocTests::default();
         let path = doc.buffer.path.as_ref().map(|p| p.display().to_string());
         if let Some(path) = path.filter(|_| doc.review.is_none()) {
-            let found = if path.ends_with(".rs") {
+            let from_plugin: Vec<(String, usize)> = self
+                .tests
+                .plugin_files
+                .iter()
+                .filter(|f| f.path == path)
+                .flat_map(|f| f.tests.iter().map(|t| (t.label.clone(), t.line as usize)))
+                .collect();
+            let found = if !from_plugin.is_empty() {
+                from_plugin
+            } else if path.ends_with(".rs") {
                 rust_tests(&doc.buffer.text())
             } else {
                 Vec::new()
@@ -571,6 +611,12 @@ impl Editor {
         for root in roots.iter().skip(1) {
             self.tests.folded.insert(format!("r:{}", root.name));
         }
+        // Plugins' tests stay, after cargo's.
+        let plugins: Vec<TestRoot> = std::mem::take(&mut self.tests.roots)
+            .into_iter()
+            .filter(|r| r.kind != "cargo")
+            .collect();
+        roots.extend(plugins);
         self.tests.roots = roots;
         self.tests.version += 1;
         self.build_views();
@@ -597,6 +643,30 @@ impl Editor {
     /// Runs some tests in the test terminal, or one under the debugger in
     /// a terminal of its own.
     pub(crate) fn run_tests(&mut self, scope: Scope, debug: bool, fx: &mut Vec<Effect>) {
+        if let Scope::Test(key) = &scope
+            && let Some((plugin, test)) = self.plugin_test(key)
+        {
+            return self.run_plugin_test(&plugin, &test, debug, fx);
+        }
+        if let Scope::Root(name) = &scope
+            && let Some(root) = self
+                .tests
+                .roots
+                .iter()
+                .find(|r| r.name == *name && r.kind != "cargo")
+        {
+            let keys: Vec<String> = root
+                .files
+                .iter()
+                .flat_map(|f| f.tests.iter().map(|t| test_key(&f.path, &t.name)))
+                .collect();
+            for key in keys {
+                if let Some((plugin, test)) = self.plugin_test(&key) {
+                    self.run_plugin_test(&plugin, &test, false, fx);
+                }
+            }
+            return;
+        }
         // The crate's target for a file: an integration test's own, or
         // the crate's unit tests with the file's tests named.
         let target = |file: &TestFile, names: &[&str]| -> String {
@@ -835,6 +905,149 @@ impl Editor {
         }
     }
 
+    /// A plugin's test by its key, with its plugin.
+    fn plugin_test(&self, key: &str) -> Option<(String, PluginTest)> {
+        let (path, label) = key.rsplit_once("::")?;
+        self.tests.plugin_files.iter().find_map(|f| {
+            let test = f
+                .tests
+                .iter()
+                .find(|t| t.label == label)
+                .filter(|_| f.path == path)?;
+            Some((f.plugin.clone(), test.clone()))
+        })
+    }
+
+    /// Runs a plugin's test: its command line in the test terminal, or
+    /// in the plugin.
+    fn run_plugin_test(
+        &mut self,
+        plugin: &str,
+        test: &PluginTest,
+        debug: bool,
+        fx: &mut Vec<Effect>,
+    ) {
+        match (&test.command, debug) {
+            (Some(command), false) => {
+                let term = self.start_command(RUN, command, fx);
+                self.tests.run = Some((term, None));
+            }
+            _ => {
+                let what = if debug { "debug-test" } else { "run-test" };
+                fx.push(Effect::PluginCommand {
+                    plugin: plugin.to_string(),
+                    command: format!("{what}:{}", test.id),
+                });
+            }
+        }
+    }
+
+    /// A plugin's tests in a file: shown in the file, and in the view
+    /// under the plugin unless cargo's tree has them.
+    pub(crate) fn set_plugin_tests(&mut self, plugin: String, path: &Path, tests: Vec<PluginTest>) {
+        let path = path.display().to_string();
+        let t = &mut self.tests;
+        t.plugin_files
+            .retain(|f| !(f.plugin == plugin && f.path == path));
+        for root in t.roots.iter_mut().filter(|r| r.kind == plugin) {
+            root.files.retain(|f| f.path != path);
+        }
+        if !tests.is_empty() && !path.ends_with(".rs") {
+            let file = TestFile {
+                label: path.clone(),
+                path: path.clone(),
+                tests: tests
+                    .iter()
+                    .map(|t| TestCase {
+                        name: t.label.clone(),
+                        line: t.line as usize,
+                    })
+                    .collect(),
+            };
+            match t.roots.iter_mut().find(|r| r.kind == plugin) {
+                Some(root) => {
+                    root.files.push(file);
+                    root.files.sort_by(|a, b| a.label.cmp(&b.label));
+                }
+                None => t.roots.push(TestRoot {
+                    name: plugin.clone(),
+                    kind: plugin.clone(),
+                    files: vec![file],
+                    ..TestRoot::default()
+                }),
+            }
+        }
+        t.roots.retain(|r| r.kind == "cargo" || !r.files.is_empty());
+        if !tests.is_empty() {
+            t.plugin_files.push(PluginFile {
+                plugin,
+                path,
+                tests,
+            });
+        }
+        t.version += 1;
+        self.build_views();
+    }
+
+    /// How a plugin's tests went.
+    pub(crate) fn set_plugin_results(&mut self, plugin: &str, results: Vec<PluginTestResult>) {
+        let now = self.now;
+        let t = &mut self.tests;
+        for r in results {
+            let Some((path, label)) = t.plugin_files.iter().find_map(|f| {
+                let test = f
+                    .tests
+                    .iter()
+                    .find(|x| x.id == r.id)
+                    .filter(|_| f.plugin == plugin)?;
+                Some((f.path.clone(), test.label.clone()))
+            }) else {
+                continue;
+            };
+            let running = r.outcome.is_none();
+            for root in t.roots.iter_mut().filter(|x| x.kind == plugin) {
+                root.running = running;
+            }
+            let Some(outcome) = r.outcome else { continue };
+            t.results.insert(
+                test_key(&path, &label),
+                TestResult {
+                    outcome,
+                    message: r.message,
+                    at: r.line.map(|l| (path.clone(), l as usize)),
+                    when: now,
+                },
+            );
+        }
+        t.version += 1;
+        self.build_views();
+    }
+
+    /// What a plugin gives, for the Plugins view: its tests and tasks.
+    pub(crate) fn plugin_gives(&self, plugin: &str) -> String {
+        let tests: usize = self
+            .tests
+            .plugin_files
+            .iter()
+            .filter(|f| f.plugin == plugin)
+            .map(|f| f.tests.len())
+            .sum();
+        let tasks = self
+            .tasks
+            .plugins
+            .iter()
+            .find(|(p, _)| p == plugin)
+            .map_or(0, |(_, t)| t.len());
+        let mut out = Vec::new();
+        if tests > 0 {
+            out.push(format!("Tests {tests}"));
+        }
+        if tasks > 0 {
+            out.push(format!("Tasks {tasks}"));
+        }
+        out.join(" · ")
+    }
+
     /// The counts the view's title shows: passed and failed.
     pub(crate) fn test_counts(&self) -> (usize, usize) {
         let count = |o| {
@@ -916,11 +1129,14 @@ impl Editor {
             nodes.push(Node::Entry(Entry {
                 label: root.name.clone(),
                 icon: Some(mark(outcome, root.running)),
-                detail: if several {
+                // Each source is named once there are several: cargo dimmed,
+                // a plugin in its chip.
+                detail: if several && root.kind == "cargo" {
                     root.kind.clone()
                 } else {
                     String::new()
                 },
+                chip: (root.kind != "cargo").then(|| root.kind.clone()),
                 badge: match (root.running, outcome, root.time) {
                     (true, _, _) => "running".into(),
                     (_, None, _) => "not run".into(),

@@ -256,3 +256,78 @@ fn the_tests_view_finds_tests_by_crate_and_file_and_runs_them() {
         "cargo test --workspace -- trims_on_save"
     );
 }
+
+#[test]
+fn plugins_add_tasks_and_tests_that_they_run_and_report() {
+    let mut s = Session::new(
+        "def test_empty_input():\n    assert parse(\"\") == []\n\ndef test_unicode():\n    pass\n",
+        Some("tests/test_parse.py"),
+        100,
+        30,
+    );
+    s.files.insert("tests/test_parse.py".into(), s.text());
+    s.send(Event::SetTasks {
+        plugin: "netlify".into(),
+        tasks: vec![merlin_core::Task {
+            name: "Deploy preview".into(),
+            command: None,
+            group: TaskGroup::Build,
+            source: "in the plugin".into(),
+            plugin: None,
+        }],
+    });
+    s.run("cmd task.run");
+    let palette = s.editor.window_view().palette.unwrap();
+    let at = palette
+        .items
+        .iter()
+        .position(|(l, _)| l == "Deploy preview")
+        .unwrap();
+    assert_eq!(palette.extras[at].chip.as_deref(), Some("netlify"));
+    assert_eq!(palette.extras[at].detail, "in the plugin");
+    s.run("type deploy");
+    s.run("key enter");
+    assert!(s.effects.contains(&Effect::PluginCommand {
+        plugin: "netlify".into(),
+        command: "task:Deploy preview".into(),
+    }));
+
+    let test = |id: &str, label: &str, line| merlin_core::PluginTest {
+        id: id.into(),
+        label: label.into(),
+        line,
+        command: None,
+    };
+    s.send(Event::SetTests {
+        plugin: "python".into(),
+        path: "tests/test_parse.py".into(),
+        tests: vec![
+            test("p1", "test_empty_input", 0),
+            test("p2", "test_unicode", 3),
+        ],
+    });
+    // The first test is on line 0: no row over it, but the second has one.
+    let view = s.editor.text_views().remove(0);
+    assert_eq!(view.tests.len(), 1);
+    s.send(Event::Ui(merlin_core::UiEvent::Press(
+        view.tests[0].links[0].1.clone(),
+    )));
+    assert!(s.effects.contains(&Effect::PluginCommand {
+        plugin: "python".into(),
+        command: "run-test:p2".into(),
+    }));
+    s.send(Event::SetTestResults {
+        plugin: "python".into(),
+        results: vec![merlin_core::PluginTestResult {
+            id: "p1".into(),
+            outcome: Some(merlin_core::Outcome::Failed),
+            message: "AssertionError: assert None == []".into(),
+            line: Some(1),
+        }],
+    });
+    let view = s.editor.text_views().remove(0);
+    assert_eq!(view.failures[0].text, "AssertionError: assert None == []");
+    assert_eq!(view.lines[0].test, Some(false));
+    s.run("cmd view.tests");
+    assert_eq!(labels(&s)[0], "python ");
+}

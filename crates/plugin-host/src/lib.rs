@@ -567,6 +567,66 @@ impl host::Host for State {
         self.snapshot.root.display().to_string()
     }
 
+    fn set_tasks(&mut self, tasks: Vec<types::Task>) {
+        self.events.push(Event::SetTasks {
+            plugin: self.name.clone(),
+            tasks: tasks
+                .into_iter()
+                .map(|t| merlin_core::Task {
+                    name: t.name,
+                    command: t.command,
+                    group: match t.group {
+                        types::TaskGroup::Test => merlin_core::TaskGroup::Test,
+                        types::TaskGroup::Build => merlin_core::TaskGroup::Build,
+                        types::TaskGroup::Other => merlin_core::TaskGroup::Other,
+                    },
+                    source: t.detail,
+                    plugin: None,
+                })
+                .collect(),
+        });
+    }
+
+    fn set_tests(&mut self, path: String, tests: Vec<types::TestItem>) {
+        self.events.push(Event::SetTests {
+            plugin: self.name.clone(),
+            path: self.snapshot.local(&path),
+            tests: tests
+                .into_iter()
+                .map(|t| merlin_core::PluginTest {
+                    id: t.id,
+                    label: t.label,
+                    line: t.line,
+                    command: t.command,
+                })
+                .collect(),
+        });
+    }
+
+    fn set_test_results(&mut self, results: Vec<types::TestResult>) {
+        self.events.push(Event::SetTestResults {
+            plugin: self.name.clone(),
+            results: results
+                .into_iter()
+                .map(|r| merlin_core::PluginTestResult {
+                    id: r.id,
+                    outcome: match r.outcome {
+                        types::TestOutcome::Passed => Some(merlin_core::Outcome::Passed),
+                        types::TestOutcome::Failed => Some(merlin_core::Outcome::Failed),
+                        types::TestOutcome::Skipped => Some(merlin_core::Outcome::Skipped),
+                        types::TestOutcome::Running => None,
+                    },
+                    message: r.message,
+                    line: r.line,
+                })
+                .collect(),
+        });
+    }
+
+    fn run_task(&mut self, name: String) {
+        self.events.push(Event::RunTask(name));
+    }
+
     fn notify(&mut self, message: String) {
         self.events.push(Event::Notify(message));
     }

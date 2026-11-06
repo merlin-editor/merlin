@@ -283,6 +283,52 @@ interface types {
     kind: inlay-kind,
   }
 
+  /// What a task is for: the group Run Task lists it in.
+  enum task-group {
+    test,
+    build,
+    other,
+  }
+
+  /// A task for Run Task. One with a command line runs in a terminal tab
+  /// of its own; one without runs in the plugin, as `run-command` with
+  /// `task:<name>`.
+  record task {
+    name: string,
+    command: option<string>,
+    group: task-group,
+    /// Shown dimmed beside it, such as `bin`.
+    detail: string,
+  }
+
+  /// A test in a file, for the Tests view and ▶ Run Test over its line,
+  /// from 0. One with a command line runs in the editor's test terminal,
+  /// which reads cargo's results; one without runs in the plugin, as
+  /// `run-command` with `run-test:<id>` or `debug-test:<id>`, and the
+  /// plugin sends its results.
+  record test-item {
+    id: string,
+    label: string,
+    line: u32,
+    command: option<string>,
+  }
+
+  enum test-outcome {
+    passed,
+    failed,
+    skipped,
+    running,
+  }
+
+  record test-result {
+    id: string,
+    outcome: test-outcome,
+    /// Why it failed, on one line.
+    message: string,
+    /// The line in its file it failed on, from 0.
+    line: option<u32>,
+  }
+
   /// Something that happened to the open files.
   variant buffer-event {
     /// Another file became the active one.
@@ -297,7 +343,7 @@ interface types {
 /// What the editor offers a plugin. Calls that need a permission check the
 /// plugin's manifest and return an error naming the permission if denied.
 interface host {
-  use types.{framing, pick-item, position, selection, text-change, diagnostic, detailed-diagnostic, code-action, file-edit, rename-info, location, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint, signature};
+  use types.{framing, pick-item, position, selection, text-change, diagnostic, detailed-diagnostic, code-action, file-edit, rename-info, location, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint, signature, task, test-item, test-result};
 
   /// Text of the active buffer. Needs `editor-read`.
   active-text: func() -> result<string, string>;
@@ -408,6 +454,21 @@ interface host {
 
   /// Closes a diff that was answered some other way.
   close-diff: func(id: string);
+
+  /// Replaces this plugin's tasks in Run Task.
+  set-tasks: func(tasks: list<task>);
+
+  /// Replaces this plugin's tests in a file, which the Tests view lists
+  /// and the file shows ▶ Run Test over. In a Rust file they take the
+  /// place of the editor's own search for `#[test]`.
+  set-tests: func(path: string, tests: list<test-item>);
+
+  /// How this plugin's tests went, by id.
+  set-test-results: func(results: list<test-result>);
+
+  /// Runs a task by name, as Run Task does: the editor's own, or any
+  /// plugin's.
+  run-task: func(name: string);
 
   /// Lets the user pick one item. The choice arrives at `on-pick`.
   show-picker: func(id: string, title: string, items: list<pick-item>);
