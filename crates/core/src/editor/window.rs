@@ -148,6 +148,8 @@ pub enum UiEvent {
     Action(usize),
     /// A button of the debug toolbar.
     Debug(super::DebugButton),
+    /// The exception card's Copy.
+    CopyException,
 }
 
 /// What the window draws around the text.
@@ -551,6 +553,12 @@ impl Editor {
             UiEvent::Hover(button) => self.hover_button(button, fx),
             UiEvent::Action(i) => self.action_clicked(i, fx),
             UiEvent::Debug(button) => self.debug_command(button.command(), fx),
+            UiEvent::CopyException => {
+                if let Some((message, _)) = self.exception_card() {
+                    fx.push(Effect::Copy(message));
+                    self.notify_done("Copied".into());
+                }
+            }
             UiEvent::CloseContext => self.close_context(),
             UiEvent::MenuTitle(i) => self.menu_title(i),
             UiEvent::MenuItem(i) => self.menu_item(i, fx),

@@ -4,8 +4,8 @@
 
 use merlin_core::script::Session;
 use merlin_core::{
-    DebugState, DebugTarget, DebugUpdate, Debugger, Effect, Event, Key, KeyCode, OutputKind,
-    StackFrame,
+    DebugState, DebugTarget, DebugUpdate, Debugger, Effect, Event, FunctionStop, Key, KeyCode,
+    OutputKind, StackFrame,
 };
 
 fn project() -> Session {
@@ -36,6 +36,12 @@ fn project() -> Session {
             install: "sudo apt install gdb".into(),
             launch: "{}".into(),
             driver: "dap".into(),
+            stops: vec![FunctionStop {
+                id: "rust-panic".into(),
+                label: "Rust panics".into(),
+                functions: vec!["rust_panic".into(), "__rustc::rust_panic".into()],
+                on: true,
+            }],
         }],
     });
     s.send(Event::DebuggersLocated(vec![("gdb".into(), true)]));
@@ -330,4 +336,58 @@ fn the_gutter_menu_sets_a_condition_in_the_box_under_the_line() {
     let menu = s.editor.window_view().context.expect("the menu again");
     assert_eq!(menu.items[0].label, "Edit Breakpoint…");
     assert_eq!(menu.items[1].label, "Disable Breakpoint");
+}
+
+#[test]
+fn a_panic_stops_with_its_message_under_the_line() {
+    use merlin_core::PopupKind;
+    let mut s = project();
+    s.send(Event::Command("debug.pick".into()));
+    key(&mut s, KeyCode::Enter, false);
+    let start = s.effects.iter().find_map(|e| match e {
+        Effect::Debug { start: Some(start), .. } => Some(start.clone()),
+        _ => None,
+    });
+    let stops = &start.expect("started").function_stops;
+    assert_eq!((stops[0].functions[0].as_str(), stops[0].on), ("rust_panic", true));
+    report(
+        &mut s,
+        DebugUpdate::State(DebugState::Paused {
+            reason: "exception".into(),
+            description: "called `Option::unwrap()` on a `None` value".into(),
+            thread: 1,
+        }),
+    );
+    report(
+        &mut s,
+        DebugUpdate::Stack {
+            thread: 1,
+            frames: vec![
+                StackFrame {
+                    id: 1,
+                    name: "std::panicking::begin_panic".into(),
+                    path: None,
+                    line: 0,
+                    column: 0,
+                    library: true,
+                },
+                StackFrame {
+                    id: 2,
+                    name: "demo::main".into(),
+                    path: Some("src/main.rs".into()),
+                    line: 2,
+                    column: 4,
+                    library: false,
+                },
+            ],
+        },
+    );
+    let popup = s.editor.window_view().popup.expect("the panic's card");
+    let PopupKind::Exception { title, message } = popup.kind else {
+        panic!("not the exception card");
+    };
+    assert_eq!(title, "Paused on a panic");
+    assert!(message.contains("unwrap()"), "{message}");
+    let line = s.editor.text_views()[0].lines.iter().find(|l| l.line == 2).unwrap().paused;
+    assert_eq!(line, Some(true), "the line takes the error colour");
 }

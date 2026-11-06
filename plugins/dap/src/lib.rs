@@ -20,6 +20,7 @@ enum Asked {
     Initialize,
     Launch,
     Breakpoints { ids: Vec<u32> },
+    FunctionBreakpoints,
     Threads,
     Stack { thread: u32 },
     Scopes,
@@ -46,6 +47,20 @@ struct Run {
     files: Vec<String>,
     /// The debugger's id for each breakpoint, to ours.
     ids: HashMap<i64, u32>,
+    /// What the manifest adds to stop on, as functions: id, label,
+    /// function and whether on; and the debugger's ids for them.
+    functions: Vec<(String, String, Vec<String>, bool)>,
+    function_ids: Vec<i64>,
+    /// The end of what the program printed, for a panic's message.
+    printed: String,
+    /// A step's stop, waiting to see if it landed in library code, and
+    /// how many times in a row it has: such steps go on by themselves.
+    stepped: Option<DebugPause>,
+    skips: u32,
+    /// The project frame shown, by name and line, and where the step
+    /// began: a step that comes back out to it finishes the line.
+    shown: Option<(String, u32)>,
+    step_from: Option<(String, u32)>,
     exit: Option<i32>,
     ended: bool,
 }
@@ -128,6 +143,19 @@ impl Run {
     }
 
     fn send_filters(&mut self) {
+        if !self.functions.is_empty() {
+            let names: Vec<Value> = self
+                .functions
+                .iter()
+                .filter(|f| f.3)
+                .flat_map(|f| f.2.iter().map(|name| json!({ "name": name })))
+                .collect();
+            self.send(
+                "setFunctionBreakpoints",
+                json!({ "breakpoints": names }),
+                Asked::FunctionBreakpoints,
+            );
+        }
         let on: Vec<&str> = self
             .filters
             .iter()
@@ -141,8 +169,10 @@ impl Run {
             Asked::Other,
         );
         let list: Vec<StopFilter> = self
-            .filters
+            .functions
             .iter()
+            .map(|(id, label, _, on)| (id, label, on))
+            .chain(self.filters.iter().map(|(id, label, on)| (id, label, on)))
             .map(|(id, label, on)| StopFilter {
                 id: id.clone(),
                 label: label.clone(),
@@ -158,6 +188,26 @@ impl Run {
         }
         self.ended = true;
         let _ = host::set_debug_state(&DebugState::Ended(self.exit));
+    }
+}
+
+/// What a panic said, from the end of what the program printed: Rust's
+/// `thread 'main' panicked at src/main.rs:9:21:` and the message under it.
+fn panic_message(printed: &str) -> String {
+    let lines: Vec<&str> = printed.lines().collect();
+    let Some(at) = lines.iter().rposition(|l| l.contains("panicked at")) else {
+        return "A panic".into();
+    };
+    let head = lines[at].trim();
+    // Older Rust puts the message on the same line, in quotes.
+    let message = lines[at + 1..]
+        .iter()
+        .map(|l| l.trim())
+        .find(|l| !l.is_empty() && !l.starts_with("note:"))
+        .unwrap_or_default();
+    match message.is_empty() {
+        true => head.to_string(),
+        false => format!("{message}\n{head}"),
     }
 }
 
@@ -231,6 +281,11 @@ impl Debugger {
             }),
             Asked::Initialize,
         );
+        run.functions = start
+            .function_stops
+            .iter()
+            .map(|f| (f.id.clone(), f.label.clone(), f.functions.clone(), f.on))
+            .collect();
         run.start = Some(start);
         self.run = Some(run);
     }
@@ -332,6 +387,12 @@ impl Debugger {
                 }
                 let _ = host::set_breakpoint_states(&states);
             }
+            Asked::FunctionBreakpoints => {
+                run.function_ids = body["breakpoints"]
+                    .as_array()
+                    .map(|l| l.iter().filter_map(|b| b["id"].as_i64()).collect())
+                    .unwrap_or_default();
+            }
             Asked::Threads => {
                 let stopped = run.stopped;
                 let all = run.caps["allThreadsStopped"].as_bool().unwrap_or(true);
@@ -371,6 +432,27 @@ impl Debugger {
                 // The frame shown is the first in the project, as the
                 // editor shows it.
                 let shown = frames.iter().find(|f| !f.library).or(frames.first()).map(|f| f.id);
+                if let Some(pause) = run.stepped.take() {
+                    let in_library = frames.first().is_some_and(|f| f.library);
+                    let project_below = frames.iter().any(|f| !f.library);
+                    if in_library && project_below && run.skips < 30 {
+                        run.skips += 1;
+                        run.send("stepOut", json!({ "threadId": thread }), Asked::Other);
+                        return;
+                    }
+                    let here = frames.iter().find(|f| !f.library).map(|f| (f.name.clone(), f.line));
+                    if run.skips > 0 && here.is_some() && here == run.step_from && run.skips < 30 {
+                        run.skips += 1;
+                        run.stepped = None;
+                        run.send("next", json!({ "threadId": thread }), Asked::Other);
+                        return;
+                    }
+                    run.skips = 0;
+                    let _ = host::set_debug_state(&DebugState::Paused(pause));
+                }
+                if run.stopped == Some(thread) {
+                    run.shown = frames.iter().find(|f| !f.library).map(|f| (f.name.clone(), f.line));
+                }
                 let _ = host::set_stack(thread, &frames);
                 if run.stopped == Some(thread)
                     && let Some(frame) = shown
@@ -449,7 +531,7 @@ impl Debugger {
         match message["event"].as_str().unwrap_or_default() {
             "initialized" => {
                 run.send_breakpoints();
-                if !run.filters.is_empty() {
+                if !run.filters.is_empty() || !run.functions.is_empty() {
                     run.send_filters();
                 }
                 if run.caps["supportsConfigurationDoneRequest"].as_bool() == Some(true) {
@@ -460,17 +542,35 @@ impl Debugger {
                 let thread = body["threadId"].as_u64().map_or(run.thread(), |t| t as u32);
                 run.stopped = Some(thread);
                 run.frame = None;
-                let reason = body["reason"].as_str().unwrap_or("pause").to_string();
-                let description = body["text"]
+                let mut reason = body["reason"].as_str().unwrap_or("pause").to_string();
+                let mut description = body["text"]
                     .as_str()
                     .or(body["description"].as_str())
                     .unwrap_or_default()
                     .to_string();
-                let _ = host::set_debug_state(&DebugState::Paused(DebugPause {
+                // A stop in a manifest's function, such as `rust_panic`, is
+                // an exception, with what the program printed about it.
+                let hit: Vec<i64> = body["hitBreakpointIds"]
+                    .as_array()
+                    .map(|l| l.iter().filter_map(Value::as_i64).collect())
+                    .unwrap_or_default();
+                if hit.iter().any(|h| run.function_ids.contains(h)) {
+                    reason = "exception".into();
+                    description = panic_message(&run.printed);
+                }
+                let pause = DebugPause {
                     reason,
                     description,
                     thread,
-                }));
+                };
+                // A step shows once it's known to be in the project's code;
+                // one that lands in a library steps out of it again.
+                if pause.reason == "step" {
+                    run.stepped = Some(pause);
+                } else {
+                    run.skips = 0;
+                    let _ = host::set_debug_state(&DebugState::Paused(pause));
+                }
                 run.send("threads", json!({}), Asked::Threads);
                 run.send(
                     "stackTrace",
@@ -499,6 +599,16 @@ impl Debugger {
                     "telemetry" => return,
                     _ => OutputKind::Console,
                 };
+                if matches!(kind, OutputKind::Stdout | OutputKind::Stderr) {
+                    run.printed.push_str(text);
+                    if run.printed.len() > 4096 {
+                        let cut = run.printed.len() - 2048;
+                        let cut = (cut..run.printed.len())
+                            .find(|&i| run.printed.is_char_boundary(i))
+                            .unwrap_or(0);
+                        run.printed.drain(..cut);
+                    }
+                }
                 let _ = host::debug_output(kind, text);
             }
             "thread" => {
@@ -523,6 +633,8 @@ impl Debugger {
             return;
         };
         let thread = run.thread();
+        run.step_from = run.shown.clone();
+        run.skips = 0;
         run.send(command, json!({ "threadId": thread }), Asked::Other);
         if command != "pause" {
             // The debugger says `continued` only sometimes.
@@ -568,6 +680,9 @@ impl Plugin for Debugger {
                 } else if let Some(f) = id.strip_prefix("debug.stop-on:") {
                     if let Some(filter) = run.filters.iter_mut().find(|x| x.0 == f) {
                         filter.2 = !filter.2;
+                    }
+                    if let Some(stop) = run.functions.iter_mut().find(|x| x.0 == f) {
+                        stop.3 = !stop.3;
                     }
                     run.send_filters();
                 } else if let Some(t) = id.strip_prefix("debug.pause-thread:").and_then(|t| t.parse::<u32>().ok()) {

@@ -81,6 +81,9 @@ impl Editor {
                         PopupKind::Rename(r) => {
                             let _ = writeln!(o, "rename: [{}] {}", r.text, r.note);
                         }
+                        PopupKind::Exception { title, message } => {
+                            let _ = writeln!(o, "{title}: {message}");
+                        }
                         PopupKind::Breakpoint(b) => {
                             let _ = writeln!(o, "breakpoint {}: [{}]", b.field, b.text);
                         }

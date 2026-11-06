@@ -362,6 +362,21 @@ interface types {
     launch: string,
     /// The ids of the stop filters the user turned on.
     stop-on: list<string>,
+    /// What else the manifest says this debugger can stop on, as functions
+    /// to break in: Rust's panics in `rust_panic`. Each is on or
+    /// off as the user has it.
+    function-stops: list<function-stop>,
+  }
+
+  /// A stop filter a manifest adds: a function breakpoint, offered with
+  /// the debugger's own filters. A stop there is shown as an exception.
+  record function-stop {
+    id: string,
+    label: string,
+    /// Each name it may have, as versions differ: the ones not found are
+    /// left out.
+    functions: list<string>,
+    on: bool,
   }
 
   /// A breakpoint the user set. The line is from 0. An empty condition,
@@ -463,7 +478,7 @@ interface types {
 /// What the editor offers a plugin. Calls that need a permission check the
 /// plugin's manifest and return an error naming the permission if denied.
 interface host {
-  use types.{framing, pick-item, position, selection, text-change, diagnostic, detailed-diagnostic, code-action, file-edit, rename-info, location, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint, signature, task, test-item, test-result, debug-target, debug-launch, breakpoint, debug-state, debug-thread, stack-frame, debug-variable, breakpoint-state, stop-filter, inline-value, output-kind};
+  use types.{framing, pick-item, position, selection, text-change, diagnostic, detailed-diagnostic, code-action, file-edit, rename-info, location, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint, signature, task, test-item, test-result, debug-target, debug-launch, function-stop, breakpoint, debug-state, debug-thread, stack-frame, debug-variable, breakpoint-state, stop-filter, inline-value, output-kind};
 
   /// Text of the active buffer. Needs `editor-read`.
   active-text: func() -> result<string, string>;

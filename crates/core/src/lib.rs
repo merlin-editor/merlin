@@ -36,7 +36,7 @@ pub use editor::{
 };
 pub use editor::{
     BreakBoxView, BreakField, BreakMark, Breakpoint, BreakpointState, DAP, DebugBarView, DebugButton, DebugStart, DebugState,
-    DebugTarget, DebugThread, DebugUpdate, DebugVariable, Debugger, OutputKind, StackFrame,
+    DebugTarget, DebugThread, DebugUpdate, DebugVariable, Debugger, FunctionStop, OutputKind, StackFrame,
     StopFilter,
 };
 pub use key::{Key, KeyCode};

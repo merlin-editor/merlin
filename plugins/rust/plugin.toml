@@ -20,6 +20,9 @@ name = "lldb-dap"
 languages = ["rust"]
 command = ["lldb-dap"]
 install = "sudo apt install lldb"
+# Every panic goes through rust_panic, named __rustc::rust_panic in
+# newer versions of Rust.
+stop-on = [{ id = "rust-panic", label = "Rust panics", functions = ["rust_panic", "__rustc::rust_panic"], default = true }]
 
 [[debuggers]]
 id = "gdb"
@@ -27,3 +30,4 @@ name = "gdb"
 languages = ["rust"]
 command = ["gdb", "--interpreter=dap", "-q"]
 install = "sudo apt install gdb"
+stop-on = [{ id = "rust-panic", label = "Rust panics", functions = ["rust_panic", "__rustc::rust_panic"], default = true }]

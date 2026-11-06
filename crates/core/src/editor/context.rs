@@ -104,6 +104,12 @@ pub enum PopupKind {
     Rename(super::RenameView),
     /// The breakpoint box, under its line.
     Breakpoint(super::BreakBoxView),
+    /// What went wrong, under the line a run stopped on with a panic or an
+    /// exception: its first line, and the rest.
+    Exception {
+        title: String,
+        message: String,
+    },
     /// The problems at the spot, worst first, then the language server's
     /// hover as Markdown, a line each. Either may be empty.
     Hover {
@@ -656,7 +662,25 @@ impl Editor {
                 kind: PopupKind::Rename(view),
             });
         }
-        let popup = self.popup.as_ref()?;
+        // Paused on a panic, its card sits under the line until a hover
+        // takes its place.
+        let Some(popup) = self.popup.as_ref() else {
+            let (message, at) = self.exception_card()?;
+            let (x, y) = anchor_at(at)?;
+            let gutter = self.gutter() as u16;
+            return Some(PopupView {
+                anchor: (x.max(gutter), y),
+                kind: PopupKind::Exception {
+                    // Rust's are panics.
+                    title: match self.plugin_language().map(|l| l.id.as_str()) {
+                        Some("rust") => "Paused on a panic",
+                        _ => "Paused on an exception",
+                    }
+                    .into(),
+                    message,
+                },
+            });
+        };
         let at = self.hover_anchor.unwrap_or(self.doc().cursor);
         let anchor = anchor_at(at)?;
         let kind = match popup {

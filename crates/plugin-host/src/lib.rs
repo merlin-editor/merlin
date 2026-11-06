@@ -104,6 +104,22 @@ pub struct ManifestDebugger {
     /// The plugin that speaks to it: `dap` unless it says.
     #[serde(default)]
     pub driver: Option<String>,
+    /// More to stop on, as functions to break in.
+    #[serde(default)]
+    pub stop_on: Vec<ManifestStop>,
+}
+
+/// Something more a debugger can stop on: a function to break in, such as
+/// `rust_panic` for Rust's panics.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct ManifestStop {
+    pub id: String,
+    pub label: String,
+    /// Every name it may have, as versions of the language differ.
+    pub functions: Vec<String>,
+    #[serde(default)]
+    pub default: bool,
 }
 
 impl ManifestDebugger {
@@ -116,6 +132,16 @@ impl ManifestDebugger {
             command: self.command.clone(),
             install: self.install.clone(),
             launch: serde_json::to_string(&self.launch).unwrap_or_else(|_| "{}".into()),
+            stops: self
+                .stop_on
+                .iter()
+                .map(|s| merlin_core::FunctionStop {
+                    id: s.id.clone(),
+                    label: s.label.clone(),
+                    functions: s.functions.clone(),
+                    on: s.default,
+                })
+                .collect(),
             driver: self.driver.clone().unwrap_or_else(|| {
                 if self.command.is_empty() {
                     plugin.to_string()
@@ -749,6 +775,16 @@ impl host::Host for State {
             env: s.env,
             launch: s.launch,
             stop_on: s.stop_on,
+            function_stops: s
+                .function_stops
+                .into_iter()
+                .map(|f| types::FunctionStop {
+                    id: f.id,
+                    label: f.label,
+                    functions: f.functions,
+                    on: f.on,
+                })
+                .collect(),
         }))
     }
 

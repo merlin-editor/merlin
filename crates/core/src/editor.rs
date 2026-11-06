@@ -38,7 +38,7 @@ mod peek;
 pub use blame::{BlameCardView, BlameCell, CommitInfo};
 pub use debug::{
     BreakBoxView, BreakField, BreakMark, Breakpoint, BreakpointState, DAP, DebugBarView, DebugButton, DebugStart, DebugState,
-    DebugTarget, DebugThread, DebugUpdate, DebugVariable, Debugger, OutputKind, StackFrame,
+    DebugTarget, DebugThread, DebugUpdate, DebugVariable, Debugger, FunctionStop, OutputKind, StackFrame,
     StopFilter,
 };
 pub use compare::{DiffBarView, DiffMark, DiffMarks};

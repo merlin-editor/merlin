@@ -808,9 +808,24 @@ declaring a debugger, with no code in merlin for its language.
 - The Debugger plugin maps the debugger's breakpoint ids to merlin's, so a
   `breakpoint` event updates that one; sending all again reset gdb's hit
   counts. A `pending` breakpoint counts as set.
-- **Left:** attaching by picking a process, the panic card,
-  Add to Watch and Set Value, Debug the
-  Last Build, Debug on a Rust test, a Rust panic stop filter.
+- **Panics.** A manifest's debugger may list `stop-on` entries, each
+  functions to break in (`FunctionStop`): Rust's is "Rust panics" on
+  `rust_panic` and `__rustc::rust_panic`, as newer Rust names it, on by
+  default. The Debugger plugin sends them with `setFunctionBreakpoints`
+  and lists them with the debugger's own filters; a stop in one is
+  reported as an exception, its message taken from the last
+  `panicked at` the program printed (`panic_message`). Paused on an
+  exception in the shown file, `PopupKind::Exception` is the card under
+  the line (`exception_card`), with Continue and Copy, until a hover
+  takes its place.
+- **Steps skip library code.** A step's stop is held until its stack
+  comes: if the top frame is a library one and project code is below,
+  the plugin sends `stepOut`, and if that lands back on the line the step
+  began on, `next`; up to 30 times. So each F10 or F11 lands on a project
+  line.
+- **Left:** attaching by picking a process, Add to Watch and Set Value,
+  Debug the Last Build, Debug on a Rust test, threads' Pause, the
+  toolbar dragged.
 
 ### Memory and CPU (2026-11-06)
 

@@ -998,6 +998,9 @@ impl Frame<'_> {
         match &popup.kind {
             PopupKind::Rename(view) => self.rename_box(view, anchor, a, (cw, ch)),
             PopupKind::Breakpoint(view) => self.break_box(view, anchor, a, ch),
+            PopupKind::Exception { title, message } => {
+                self.exception_card(title, message, anchor, a, ch)
+            }
             PopupKind::Hover {
                 problems,
                 lines,
@@ -1732,6 +1735,51 @@ impl Frame<'_> {
             p.muted,
             r,
         );
+    }
+
+    /// What went wrong, under the line a run stopped on with a panic: a
+    /// red-edged card with its title, the message in the code's font, and
+    /// Continue and Copy.
+    fn exception_card(&mut self, title: &str, message: &str, anchor: (f32, f32), a: &Areas, ch: f32) {
+        let p = self.p;
+        let mono = Face::mono(12.5);
+        let title_face = Face::ui(13.0).bold();
+        let lines: Vec<&str> = message.lines().take(6).collect();
+        let title_w = self.text.width(title, title_face) + 40.0;
+        let widest = lines
+            .iter()
+            .map(|l| self.text.width(l, mono))
+            .fold(title_w, f32::max);
+        let w = (widest + 32.0).clamp(340.0, 640.0);
+        let line_h = 18.0;
+        let h = 10.0 + 22.0 + 4.0 + lines.len() as f32 * line_h + 10.0 + 30.0 + 10.0;
+        let r = self.card_place((anchor.0 - 7.0, anchor.1), w, h, a, ch);
+        self.canvas.shadow(r, 8.0, theme::is_light(&p));
+        self.canvas
+            .outline(r, 8.0, 1.0, theme::mix(p.error, p.widget, 0.5), theme::mix(p.error, p.widget, 0.1));
+        self.hit(r, Hit::Block);
+        let x = r.x + 12.0;
+        let mut y = r.y + 10.0;
+        self.text
+            .draw_in_row(&mut self.canvas, "⊗", Face::ui(14.0), x, y, 22.0, p.error, r);
+        self.text
+            .draw_in_row(&mut self.canvas, title, title_face, x + 22.0, y, 22.0, p.bright, r);
+        y += 26.0;
+        for line in &lines {
+            let shown = self.text.fit(line, mono, r.w - 24.0);
+            self.text
+                .draw_in_row(&mut self.canvas, &shown, mono, x, y, line_h, p.text, r);
+            y += line_h;
+        }
+        y += 10.0;
+        let bw = self.button("Continue  F5", x, y, false, true);
+        self.hit(
+            Rect::new(x, y, bw, 30.0),
+            Hit::Ui(UiEvent::Debug(merlin_core::DebugButton::Continue)),
+        );
+        let cx = x + bw + 8.0;
+        let cw = self.button("Copy", cx, y, false, false);
+        self.hit(Rect::new(cx, y, cw, 30.0), Hit::Ui(UiEvent::CopyException));
     }
 
     /// The box that edits a breakpoint, under its line: the kind it sets

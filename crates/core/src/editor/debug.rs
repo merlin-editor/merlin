@@ -58,6 +58,18 @@ pub struct Debugger {
     /// The plugin that speaks to it: [`DAP`], or the declaring plugin for
     /// one that isn't DAP.
     pub driver: String,
+    /// More it can stop on, as functions: `on` is the default.
+    pub stops: Vec<FunctionStop>,
+}
+
+/// Something a debugger can stop on that's a function to break in, such
+/// as `rust_panic`.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct FunctionStop {
+    pub id: String,
+    pub label: String,
+    pub functions: Vec<String>,
+    pub on: bool,
 }
 
 /// Something that can be debugged.
@@ -99,6 +111,7 @@ pub struct DebugStart {
     pub env: Vec<(String, String)>,
     pub launch: String,
     pub stop_on: Vec<String>,
+    pub function_stops: Vec<FunctionStop>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -325,8 +338,9 @@ pub(crate) struct Debugging {
     pub last: Option<(String, DebugStart)>,
     pub console: Vec<(OutputKind, String)>,
     pub filters: Vec<StopFilter>,
-    /// Stop filters the user turned on, by id, kept across runs.
+    /// Stop filters the user turned on, and off, by id, kept across runs.
     pub stop_on: HashSet<String>,
+    pub stop_off: HashSet<String>,
     pub expanded: HashSet<u32>,
     /// The line the breakpoint menu was opened on.
     pub menu_line: Option<u32>,
@@ -833,6 +847,15 @@ impl Editor {
             env: Vec::new(),
             launch: merge_json(&[&base, &debugger.launch, &target.launch]),
             stop_on: self.debug.stop_on.iter().cloned().collect(),
+            function_stops: debugger
+                .stops
+                .iter()
+                .map(|f| FunctionStop {
+                    on: !self.debug.stop_off.contains(&f.id)
+                        && (f.on || self.debug.stop_on.contains(&f.id)),
+                    ..f.clone()
+                })
+                .collect(),
         };
         self.debug.console.clear();
         self.debug.states.clear();
@@ -1301,6 +1324,29 @@ impl Editor {
             .unwrap_or(top)
     }
 
+    /// While paused on an exception in the shown file: what it says, and
+    /// the start of its line, for the card under it.
+    pub(crate) fn exception_card(&self) -> Option<(String, usize)> {
+        let session = self.debug.session.as_ref()?;
+        let DebugState::Paused { reason, description, .. } = &session.state else {
+            return None;
+        };
+        if reason != "exception" {
+            return None;
+        }
+        let frame = self.debug.current_frame()?;
+        let path = self.doc().buffer.path.as_ref()?;
+        if !frame.path.as_ref().is_some_and(|p| self.same_file(p, path)) {
+            return None;
+        }
+        let line = (frame.line as usize).min(self.doc().last_line());
+        let message = match description.is_empty() {
+            true => "An exception".to_string(),
+            false => description.clone(),
+        };
+        Some((message, self.doc().line_start(line)))
+    }
+
     fn paused_on_exception(&self) -> bool {
         matches!(
             self.debug.session.as_ref().map(|s| &s.state),
@@ -1438,8 +1484,10 @@ impl Editor {
                 for f in &self.debug.filters {
                     if f.on {
                         self.debug.stop_on.insert(f.id.clone());
+                        self.debug.stop_off.remove(&f.id);
                     } else {
                         self.debug.stop_on.remove(&f.id);
+                        self.debug.stop_off.insert(f.id.clone());
                     }
                 }
             }
@@ -1593,18 +1641,23 @@ impl Editor {
                             "pause" => "Paused".into(),
                             other => format!("Paused: {other}"),
                         };
-                        let why = match description.is_empty() || reason != "exception" {
-                            true => why,
-                            false => format!("{why}: {description}"),
-                        };
-                        (why, Tone::Warning)
+                        // The card under the line says what went wrong.
+                        let _ = description;
+                        (why, if reason == "exception" { Tone::Error } else { Tone::Warning })
                     }
                     DebugState::Ended(_) => ("Ended".into(), Tone::Muted),
                 };
                 nodes.push(Node::Entry(Entry {
                     id: "dbg:session".into(),
                     label: session.start.name.clone(),
-                    icon: Some(('●', if state.1 == Tone::Warning { Hue::Yellow } else { Hue::Green })),
+                    icon: Some((
+                        '●',
+                        match state.1 {
+                            Tone::Error => Hue::Red,
+                            Tone::Warning => Hue::Yellow,
+                            _ => Hue::Green,
+                        },
+                    )),
                     detail: session.start.debugger.clone(),
                     badge: state.0,
                     badge_tone: state.1,
@@ -1915,11 +1968,13 @@ impl Editor {
             return self.breakpoints_changed(fx);
         }
         if let Some(f) = rest.strip_prefix("f:") {
-            let on = !self.debug.stop_on.contains(f);
+            let on = !self.debug.filters.iter().any(|x| x.id == f && x.on);
             if on {
                 self.debug.stop_on.insert(f.to_string());
+                self.debug.stop_off.remove(f);
             } else {
                 self.debug.stop_on.remove(f);
+                self.debug.stop_off.insert(f.to_string());
             }
             if let Some(filter) = self.debug.filters.iter_mut().find(|x| x.id == f) {
                 filter.on = on;
