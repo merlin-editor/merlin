@@ -191,3 +191,70 @@ fn a_missing_debugger_says_how_to_install_it() {
     assert!(toast.text.contains("sudo apt install gdb"), "{}", toast.text);
     assert!(commands(&s).is_empty());
 }
+
+#[test]
+fn hovering_a_variable_while_paused_shows_its_value() {
+    use merlin_core::{DebugVariable, MouseKind, Pointer, PopupKind};
+    let mut s = project();
+    s.send(Event::Command("debug.pick".into()));
+    key(&mut s, KeyCode::Enter, false);
+    report(
+        &mut s,
+        DebugUpdate::State(DebugState::Paused {
+            reason: "breakpoint".into(),
+            description: String::new(),
+            thread: 1,
+        }),
+    );
+    report(
+        &mut s,
+        DebugUpdate::Stack {
+            thread: 1,
+            frames: vec![StackFrame {
+                id: 7,
+                name: "demo::main".into(),
+                path: Some("src/main.rs".into()),
+                line: 2,
+                column: 4,
+                library: false,
+            }],
+        },
+    );
+    let var = |name: &str, value: &str, kind: &str, children| DebugVariable {
+        name: name.into(),
+        value: value.into(),
+        kind: kind.into(),
+        children,
+    };
+    report(
+        &mut s,
+        DebugUpdate::Variables {
+            parent: 0,
+            variables: vec![var("Locals", "", "", 5)],
+        },
+    );
+    report(
+        &mut s,
+        DebugUpdate::Variables {
+            parent: 5,
+            variables: vec![var("n", "1", "i32", 0)],
+        },
+    );
+    // `n` on line 2, `    let n = 1;`: the gutter, then 8 columns in.
+    let (x, y) = s.find("let n").expect("the line shows");
+    s.send(Event::Pointer(Pointer {
+        group: 0,
+        kind: MouseKind::Rest,
+        row: y as f32,
+        col: (x + 4) as f32,
+        shift: false,
+        alt: false,
+        ctrl: false,
+        clicks: 1,
+    }));
+    let popup = s.editor.window_view().popup.expect("a hover card");
+    let PopupKind::Hover { lines, .. } = popup.kind else {
+        panic!("not a hover");
+    };
+    assert_eq!(lines, ["```", "n: i32 = 1", "```"]);
+}

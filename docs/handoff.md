@@ -782,8 +782,11 @@ declaring a debugger, with no code in merlin for its language.
   `code.rs`.
 - Checked with gdb 17 on a small crate: build, pause on a breakpoint,
   step, continue, the console, stop.
+- **The hover card while paused** starts with the variable's value as a
+  code block in the file's language, with what's in it unfolded under it
+  (`hover_variable`, `hover_value_lines`), then the language server's part.
 - **Left:** launch.toml, attaching, the condition/log box, the panic card,
-  values in the hover card, breakpoints kept with the workspace, Debug the
+  Add to Watch and Set Value, breakpoints kept with the workspace, Debug the
   Last Build, Debug on a Rust test, a Rust panic stop filter.
 
 ### Memory and CPU (2026-11-06)

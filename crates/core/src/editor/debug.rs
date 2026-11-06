@@ -247,6 +247,8 @@ pub(crate) struct Debugging {
     /// Stop filters the user turned on, by id, kept across runs.
     pub stop_on: HashSet<String>,
     pub expanded: HashSet<u32>,
+    /// The variable the hover card is about, by name.
+    pub hover: Option<String>,
     /// Restart asked for: the run starts again once it ends.
     pub restart: bool,
     /// Library frames unfolded in Call Stack, by thread.
@@ -790,6 +792,84 @@ impl Editor {
 
     pub(crate) fn debug_paused(&self) -> bool {
         self.debug.paused().is_some()
+    }
+
+    /// While paused, whether the word from `start` to `end` is a variable
+    /// of the frame shown; it becomes the hover's, and what's in it is
+    /// asked for.
+    pub(crate) fn hover_variable(&mut self, start: usize, end: usize, fx: &mut Vec<Effect>) -> bool {
+        self.debug.hover = None;
+        if self.debug.paused().is_none() {
+            return false;
+        }
+        let name = self.doc().slice(start, end);
+        let Some(v) = self.frame_variable(&name).cloned() else {
+            return false;
+        };
+        let loaded = self
+            .debug
+            .session
+            .as_ref()
+            .is_some_and(|s| s.variables.contains_key(&v.children));
+        if v.children != 0 && !loaded {
+            self.send_debug(&format!("debug.expand:{}", v.children), fx);
+        }
+        self.debug.hover = Some(name);
+        true
+    }
+
+    pub(crate) fn clear_hover_variable(&mut self) {
+        self.debug.hover = None;
+    }
+
+    /// A variable of the frame shown by name, from its scopes as loaded.
+    fn frame_variable(&self, name: &str) -> Option<&DebugVariable> {
+        let session = self.debug.session.as_ref()?;
+        let scopes = session.variables.get(&0)?;
+        scopes
+            .iter()
+            .filter_map(|s| session.variables.get(&s.children))
+            .flatten()
+            .find(|v| v.name == name)
+    }
+
+    /// The hover's value, as a code block: the variable with its type and
+    /// value, then what's in it, a line each.
+    pub(crate) fn hover_value_lines(&self) -> Vec<String> {
+        let Some(name) = &self.debug.hover else {
+            return Vec::new();
+        };
+        let Some(v) = self.frame_variable(name) else {
+            return Vec::new();
+        };
+        let session = self.debug.session.as_ref().expect("a variable is in a run");
+        let typed = match v.kind.is_empty() {
+            true => v.name.clone(),
+            false => format!("{}: {}", v.name, short_type(&v.kind)),
+        };
+        let mut lines = vec!["```".to_string()];
+        let children = session.variables.get(&v.children).filter(|_| v.children != 0);
+        match (children, v.value.is_empty()) {
+            (Some(_), _) | (None, true) => lines.push(typed),
+            (None, false) => lines.push(format!("{typed} = {}", short_value(&v.value))),
+        }
+        if let Some(children) = children {
+            for c in children.iter().take(12) {
+                // Items of an array or a vector, as Rust indexes them.
+                let name = match c.name.chars().all(|d| d.is_ascii_digit()) {
+                    true => format!("[{}]", c.name),
+                    false => c.name.clone(),
+                };
+                lines.push(format!("    {name} = {}", short_value(&c.value)));
+            }
+            if children.len() > 12 {
+                lines.push(format!("    … {} more", children.len() - 12));
+            }
+        } else if v.children != 0 {
+            lines.push("    …".into());
+        }
+        lines.push("```".into());
+        lines
     }
 
     /// Whether the shown file can have breakpoints: a debugger is declared

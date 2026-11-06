@@ -318,6 +318,19 @@ impl Editor {
         // Past a line's end there's no word to ask about.
         let word = (start < end && (start..end).contains(&pos)).then_some((start, end));
         let (problems, span) = self.problems_at(pos);
+        // While paused, a variable's value shows at once, and the language
+        // server's part joins it when it comes.
+        let value = word.is_some_and(|(a, b)| self.hover_variable(a, b, fx));
+        if problems.is_empty() && value {
+            let word = word.expect("a variable is a word");
+            self.hover_anchor = Some(word.0);
+            self.popup = Some(Popup::Hover {
+                problems: Vec::new(),
+                lines: Vec::new(),
+                span: Some(word),
+                fixes: Vec::new(),
+            });
+        }
         if !problems.is_empty() {
             // The card shows the problems at once, and the language
             // server's part joins them when it comes.
@@ -349,6 +362,7 @@ impl Editor {
     /// it comes.
     pub(crate) fn hover_at_cursor(&mut self, fx: &mut Vec<Effect>) {
         self.probe = None;
+        self.clear_hover_variable();
         self.hover_anchor = None;
         let (problems, _) = self.problems_at(self.doc().cursor);
         self.popup = (!problems.is_empty()).then(|| Popup::Hover {
@@ -637,11 +651,18 @@ impl Editor {
                 ..
             } => {
                 let fix = Self::hover_fix(fixes);
+                // A variable's value while paused comes first, then what the
+                // language server says.
+                let mut shown = self.hover_value_lines();
+                if !shown.is_empty() && !lines.is_empty() {
+                    shown.push(String::new());
+                }
+                shown.extend(lines.iter().cloned());
                 PopupKind::Hover {
                     problems: problems.clone(),
-                    lines: lines.clone(),
                     definition: !lines.is_empty() && self.has_lsp("definition"),
-                    colours: self.hover_colours(lines),
+                    colours: self.hover_colours(&shown),
+                    lines: shown,
                     fix: fix.map(|f| f.title.clone()),
                     more_fixes: fixes.len() > fix.is_some() as usize,
                 }
