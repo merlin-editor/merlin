@@ -267,7 +267,11 @@ These are ordered by votes against effort.
    Debugger plugin speaks DAP. launch.toml, attaching, conditions and
    logpoints, panics, values in the hover and after lines, Watch, Set
    Value, and Debug on a test are in. Dragging the toolbar is left.
-8. **Vim or Helix mode, which-key and macros.**
+8. **Vim or Helix mode, which-key and macros** (`KeysFlow.dc.html`).
+   **Being built**: Vim's modes, motions, operators, text objects,
+   registers, counts, the dot and undo are in, with the mode chip, the
+   cursor's shapes and relative numbers. The `:` line, which-key, macros
+   and Helix are next.
 9. **Several folders in one window, and floating or second windows.**
 10. **Markdown preview**, with Mermaid.
 

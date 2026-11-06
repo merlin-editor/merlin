@@ -89,7 +89,11 @@ impl Editor {
             ));
         }
         if let Some(status) = self.debug_status() {
-            left.push((format!(" {status} "), Style::Status, Some(Action::View(super::debug::DEBUG))));
+            left.push((
+                format!(" {status} "),
+                Style::Status,
+                Some(Action::View(super::debug::DEBUG)),
+            ));
         }
         if let Some(branch) = &self.git.branch {
             left.push((
@@ -191,7 +195,9 @@ impl Editor {
             left.push((" Formatting… ".into(), Style::Status, None));
         }
 
-        let (line, col) = doc.line_col(doc.cursor);
+        // In Vim's Visual mode, its cursor rather than the selection's end.
+        let at = self.vim_visual_cursor().map_or(doc.cursor, |p| p.min(doc.buffer.len()));
+        let (line, col) = doc.line_col(at);
         let mut position = format!("Ln {}, Col {}", line + 1, col + 1);
         if !doc.extra.is_empty() {
             position.push_str(&format!(" ({} selections)", doc.extra.len() + 1));
@@ -206,6 +212,13 @@ impl Editor {
             (indent, None),
             ("UTF-8".into(), None),
             ((if crlf { "CRLF" } else { "LF" }).into(), None),
+            (
+                format!(
+                    "Keymap: {}",
+                    if self.vim.is_some() { "Vim" } else { "VS Code" }
+                ),
+                Some(Action::Run("vim.toggle")),
+            ),
             (self.language(), None),
         ];
         let left_w: usize = left.iter().map(|(t, ..)| str_width(t)).sum();

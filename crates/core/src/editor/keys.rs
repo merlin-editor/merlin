@@ -178,6 +178,10 @@ impl Editor {
         {
             return;
         }
+        // Vim's keys in the text, before merlin's bindings.
+        if self.chord.is_none() && self.vim_key(key, fx) {
+            return;
+        }
         if let Some(first) = self.chord.take() {
             self.message = None;
             return match self.binding_for(&[first, key]).cloned() {

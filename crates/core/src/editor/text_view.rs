@@ -50,6 +50,8 @@ pub struct TextView {
     pub overscan: u16,
     /// Every cursor, the primary one first.
     pub carets: Vec<CaretView>,
+    /// The cursor's shape in Vim's mode, over the setting's.
+    pub vim_cursor: Option<super::VimCursor>,
     /// Text an input method is composing at the primary cursor, and where
     /// its own cursor is in it.
     pub preedit: Option<(String, Option<usize>)>,
@@ -329,6 +331,7 @@ impl Editor {
                     top_frac: 0.0,
                     wrapping: false,
                     focused,
+                    vim_cursor: None,
                     lines,
                     carets,
                     preedit: None,
@@ -388,6 +391,10 @@ impl Editor {
         let visible = first..last_shown.max(v.scroll + 1);
         let spans = doc.spans(visible);
         let focused = self.focus == Focus::Editor && !self.drawing_other();
+        // Visual mode's cursor, which isn't the selection's end.
+        let vim_at = self.vim_visual_cursor().filter(|_| focused);
+        let relative = self.relative_numbers() && focused;
+        let number_line = vim_at.map_or(cur_line, |p| doc.line_col(p.min(doc.buffer.len())).0);
         let highlight_line = focused && selection.is_none();
         let guides = self.guides(visible_lines(first, last_shown - first, lines));
         // Fold arrows show for folded blocks, and for the others while the
@@ -414,6 +421,7 @@ impl Editor {
             focused,
             lines: Vec::new(),
             carets: Vec::new(),
+            vim_cursor: if focused { self.vim_cursor() } else { None },
             preedit: if focused { self.preedit.clone() } else { None },
             sticky: Vec::new(),
             scrollbar: self.scrollbar_view(),
@@ -514,6 +522,7 @@ impl Editor {
             let number = match review {
                 Some((LineKind::Gap, _)) => String::new(),
                 Some((_, n)) => (n + 1).to_string(),
+                None if relative && line != number_line => line.abs_diff(number_line).to_string(),
                 None => (line + 1).to_string(),
             };
             let number = format!("{number:>w$} ", w = gutter - 1 - signs as usize);
@@ -705,9 +714,14 @@ impl Editor {
         view.carets = self
             .carets()
             .iter()
-            .map(|c| {
-                let (line, col) = doc.line_col(c.cursor);
-                let cell = self.cell_of(c.cursor).and_then(|(x, y)| {
+            .enumerate()
+            .map(|(i, c)| {
+                let at = match vim_at {
+                    Some(p) if i == 0 => p.min(doc.buffer.len()),
+                    _ => c.cursor,
+                };
+                let (line, col) = doc.line_col(at);
+                let cell = self.cell_of(at).and_then(|(x, y)| {
                     Some((
                         x.checked_sub(area.x + gutter as u16)?,
                         y.checked_sub(area.y)?,

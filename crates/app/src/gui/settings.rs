@@ -164,7 +164,15 @@ impl<'a> Frame<'a> {
                         }
                     }
                 }
-                Category::Keys => self.keys_page(v, &mut c),
+                Category::Keys => {
+                    for s in &v.sections {
+                        self.s_heading(s.title, None, &mut c);
+                        for row in &s.rows {
+                            self.setting_row(row, v.ui.open_choice == Some(row.key), &mut c);
+                        }
+                    }
+                    self.keys_page(v, &mut c)
+                }
                 Category::Plugins => self.plugins_page(v, &mut c),
             }
         }

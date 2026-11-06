@@ -113,9 +113,7 @@ impl Workspace {
                 }
                 continue;
             }
-            if let Some((key, value)) = line
-                .strip_prefix("break-")
-                .and_then(|r| r.split_once(' '))
+            if let Some((key, value)) = line.strip_prefix("break-").and_then(|r| r.split_once(' '))
                 && let Some(b) = ws.breakpoints.last_mut()
             {
                 match key {

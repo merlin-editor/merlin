@@ -235,7 +235,9 @@ impl BreakField {
     fn hint(self) -> &'static str {
         match self {
             BreakField::Condition => "Stops when this is true",
-            BreakField::Hit => "A count of hits, as the debugger takes it: gdb stops after skipping that many",
+            BreakField::Hit => {
+                "A count of hits, as the debugger takes it: gdb stops after skipping that many"
+            }
             BreakField::Log => "Prints this, with {names} filled in, and doesn't stop",
         }
     }
@@ -729,10 +731,17 @@ impl Editor {
     }
 
     /// launch.toml read: Run and Debug lists it, and a waiting F5 goes on.
-    pub(crate) fn launch_configs(&mut self, configs: Result<Vec<DebugTarget>, String>, fx: &mut Vec<Effect>) {
+    pub(crate) fn launch_configs(
+        &mut self,
+        configs: Result<Vec<DebugTarget>, String>,
+        fx: &mut Vec<Effect>,
+    ) {
         match configs {
             Ok(mut list) => {
-                let language = self.plugin_language().map(|l| l.id.clone()).unwrap_or_default();
+                let language = self
+                    .plugin_language()
+                    .map(|l| l.id.clone())
+                    .unwrap_or_default();
                 for t in &mut list {
                     if t.language.is_empty() && t.debugger.is_empty() {
                         t.language = language.clone();
@@ -840,7 +849,12 @@ impl Editor {
         self.debug.ptrace_scope = ptrace_scope;
         let items = list
             .into_iter()
-            .map(|(pid, name, command)| (format!("p:{pid}:{name}"), format!("{name}  {pid}  {command}")))
+            .map(|(pid, name, command)| {
+                (
+                    format!("p:{pid}:{name}"),
+                    format!("{name}  {pid}  {command}"),
+                )
+            })
             .collect();
         self.palette = Some(Palette::new(
             Source::Picker {
@@ -868,7 +882,10 @@ impl Editor {
                 self.add_action("Start It from merlin", "debug.pick");
                 return;
             }
-            let language = self.plugin_language().map(|l| l.id.clone()).unwrap_or_default();
+            let language = self
+                .plugin_language()
+                .map(|l| l.id.clone())
+                .unwrap_or_default();
             let target = DebugTarget {
                 name: format!("{name} ({pid})"),
                 language,
@@ -885,8 +902,12 @@ impl Editor {
 
     /// Builds a target if it says to, then starts it.
     fn launch_target(&mut self, target: DebugTarget, fx: &mut Vec<Effect>) {
-        let debuggers: Vec<Debugger> =
-            self.debug.debuggers_for(&target).into_iter().cloned().collect();
+        let debuggers: Vec<Debugger> = self
+            .debug
+            .debuggers_for(&target)
+            .into_iter()
+            .cloned()
+            .collect();
         let Some(debugger) = debuggers.first().cloned() else {
             let what = match target.language.as_str() {
                 "" => target.name.clone(),
@@ -1090,7 +1111,12 @@ impl Editor {
     }
 
     /// A build run first ended: the run starts if it worked.
-    pub(crate) fn debug_build_exited(&mut self, term: u64, code: Option<i32>, fx: &mut Vec<Effect>) {
+    pub(crate) fn debug_build_exited(
+        &mut self,
+        term: u64,
+        code: Option<i32>,
+        fx: &mut Vec<Effect>,
+    ) {
         if self.debug_building() != Some(term) {
             return;
         }
@@ -1103,12 +1129,16 @@ impl Editor {
             if no_binary {
                 self.debug.session = None;
                 self.build_views();
-                return self.error("The test built, but cargo didn't say where its binary is".into());
+                return self
+                    .error("The test built, but cargo didn't say where its binary is".into());
             }
             return self.start_driver(fx);
         }
         let session = self.debug.session.take();
-        let name = session.as_ref().map(|s| s.start.name.clone()).unwrap_or_default();
+        let name = session
+            .as_ref()
+            .map(|s| s.start.name.clone())
+            .unwrap_or_default();
         self.build_views();
         self.error(format!("{name} didn't build, so debugging didn't start"));
         self.add_action("Show Problems", "view.problems");
@@ -1146,7 +1176,8 @@ impl Editor {
     }
 
     fn menu_breakpoint(&self) -> Option<&Breakpoint> {
-        self.menu_breakpoint_index().map(|i| &self.debug.breakpoints[i])
+        self.menu_breakpoint_index()
+            .map(|i| &self.debug.breakpoints[i])
     }
 
     /// The right-click menu on the breakpoint room of line `line`: add
@@ -1156,7 +1187,11 @@ impl Editor {
         let items: Vec<&'static str> = match self.menu_breakpoint() {
             Some(b) => vec![
                 "debug.bp_edit",
-                if b.enabled { "debug.bp_disable" } else { "debug.bp_enable" },
+                if b.enabled {
+                    "debug.bp_disable"
+                } else {
+                    "debug.bp_enable"
+                },
                 "debug.bp_remove",
             ],
             None => vec!["debug.bp_add", "debug.bp_condition", "debug.bp_log"],
@@ -1174,11 +1209,13 @@ impl Editor {
         let Some(line) = self.debug.menu_line else {
             return;
         };
-        let text = self.menu_breakpoint().map_or(String::new(), |b| match field {
-            BreakField::Condition => b.condition.clone(),
-            BreakField::Hit => b.hit.clone(),
-            BreakField::Log => b.log.clone(),
-        });
+        let text = self
+            .menu_breakpoint()
+            .map_or(String::new(), |b| match field {
+                BreakField::Condition => b.condition.clone(),
+                BreakField::Hit => b.hit.clone(),
+                BreakField::Log => b.log.clone(),
+            });
         self.debug.break_box = Some(BreakBox {
             doc: self.doc().id,
             line,
@@ -1191,14 +1228,21 @@ impl Editor {
 
     /// The box, to draw, and the position it's under.
     pub(crate) fn break_box_view(&self) -> Option<(BreakBoxView, usize)> {
-        let b = self.debug.break_box.as_ref().filter(|b| b.doc == self.doc().id)?;
+        let b = self
+            .debug
+            .break_box
+            .as_ref()
+            .filter(|b| b.doc == self.doc().id)?;
         let line = (b.line as usize).min(self.doc().last_line());
         Some((
             BreakBoxView {
                 field: b.field.label().into(),
                 text: b.text.clone(),
                 caret: b.caret,
-                hint: format!("{} · Tab for another kind · Enter sets it · Esc leaves it", b.field.hint()),
+                hint: format!(
+                    "{} · Tab for another kind · Enter sets it · Esc leaves it",
+                    b.field.hint()
+                ),
             },
             self.doc().line_start(line),
         ))
@@ -1281,7 +1325,11 @@ impl Editor {
     }
 
     /// Breakpoints and the chosen target, kept with the workspace.
-    pub(crate) fn restore_breakpoints(&mut self, mut list: Vec<Breakpoint>, target: Option<String>) {
+    pub(crate) fn restore_breakpoints(
+        &mut self,
+        mut list: Vec<Breakpoint>,
+        target: Option<String>,
+    ) {
         for b in &mut list {
             self.debug.next_id += 1;
             b.id = self.debug.next_id;
@@ -1307,7 +1355,12 @@ impl Editor {
     /// While paused, whether the word from `start` to `end` is a variable
     /// of the frame shown; it becomes the hover's, and what's in it is
     /// asked for.
-    pub(crate) fn hover_variable(&mut self, start: usize, end: usize, fx: &mut Vec<Effect>) -> bool {
+    pub(crate) fn hover_variable(
+        &mut self,
+        start: usize,
+        end: usize,
+        fx: &mut Vec<Effect>,
+    ) -> bool {
         self.debug.hover = None;
         if self.debug.paused().is_none() {
             return false;
@@ -1358,7 +1411,10 @@ impl Editor {
             false => format!("{}: {}", v.name, short_type(&v.kind)),
         };
         let mut lines = vec!["```".to_string()];
-        let children = session.variables.get(&v.children).filter(|_| v.children != 0);
+        let children = session
+            .variables
+            .get(&v.children)
+            .filter(|_| v.children != 0);
         match (children, v.value.is_empty()) {
             (Some(_), _) | (None, true) => lines.push(typed),
             (None, false) => lines.push(format!("{typed} = {}", short_value(&v.value))),
@@ -1477,7 +1533,8 @@ impl Editor {
             .find(|&l| {
                 let text: String = doc.line_chars(l).into_iter().collect();
                 let mut words = text.split_whitespace().skip_while(|w| {
-                    w.starts_with("pub") || matches!(*w, "async" | "const" | "unsafe" | "static" | "export")
+                    w.starts_with("pub")
+                        || matches!(*w, "async" | "const" | "unsafe" | "static" | "export")
                 });
                 matches!(words.next(), Some("fn" | "def" | "function" | "func"))
             })
@@ -1488,7 +1545,12 @@ impl Editor {
     /// the start of its line, for the card under it.
     pub(crate) fn exception_card(&self) -> Option<(String, usize)> {
         let session = self.debug.session.as_ref()?;
-        let DebugState::Paused { reason, description, .. } = &session.state else {
+        let DebugState::Paused {
+            reason,
+            description,
+            ..
+        } = &session.state
+        else {
             return None;
         };
         if reason != "exception" {
@@ -1678,7 +1740,10 @@ impl Editor {
             return;
         };
         if let Some(path) = frame.path {
-            let path = path.strip_prefix(&self.root).map(Path::to_path_buf).unwrap_or(path);
+            let path = path
+                .strip_prefix(&self.root)
+                .map(Path::to_path_buf)
+                .unwrap_or(path);
             self.open_at(path, frame.line, frame.column, fx);
         }
     }
@@ -1782,8 +1847,12 @@ impl Editor {
                     }
                 }
                 nodes.push(heading("Found in the project"));
-                let targets: Vec<&DebugTarget> =
-                    self.debug.targets.iter().flat_map(|(_, t)| t.iter()).collect();
+                let targets: Vec<&DebugTarget> = self
+                    .debug
+                    .targets
+                    .iter()
+                    .flat_map(|(_, t)| t.iter())
+                    .collect();
                 if targets.is_empty() {
                     nodes.push(Node::Styled(
                         "Nothing yet. Language plugins list what can be debugged when they see \
@@ -1811,7 +1880,11 @@ impl Editor {
                     _ if session.building.is_some() => ("Building".to_string(), Tone::Warning),
                     DebugState::Starting => ("Starting".into(), Tone::Muted),
                     DebugState::Running => ("Running".into(), Tone::Normal),
-                    DebugState::Paused { reason, description, .. } => {
+                    DebugState::Paused {
+                        reason,
+                        description,
+                        ..
+                    } => {
                         let why = match reason.as_str() {
                             "breakpoint" | "function breakpoint" => "Paused on breakpoint".into(),
                             "exception" => "Paused on an exception".into(),
@@ -1822,7 +1895,14 @@ impl Editor {
                         };
                         // The card under the line says what went wrong.
                         let _ = description;
-                        (why, if reason == "exception" { Tone::Error } else { Tone::Warning })
+                        (
+                            why,
+                            if reason == "exception" {
+                                Tone::Error
+                            } else {
+                                Tone::Warning
+                            },
+                        )
                     }
                     DebugState::Ended(_) => ("Ended".into(), Tone::Muted),
                 };
@@ -1861,9 +1941,9 @@ impl Editor {
                 }));
                 for (i, expr) in self.debug.watches.iter().enumerate() {
                     let value = session.watched.get(i).cloned().flatten();
-                    let open = value
-                        .as_ref()
-                        .is_some_and(|v| v.children != 0 && self.debug.expanded.contains(&v.children));
+                    let open = value.as_ref().is_some_and(|v| {
+                        v.children != 0 && self.debug.expanded.contains(&v.children)
+                    });
                     nodes.push(Node::Entry(Entry {
                         id: format!("dbg:w:{i}:{}", value.as_ref().map_or(0, |v| v.children)),
                         label: match &value {
@@ -1874,8 +1954,14 @@ impl Editor {
                             .as_ref()
                             .filter(|v| v.children != 0)
                             .map(|_| if open { '▾' } else { '▸' }),
-                        badge: value.as_ref().map_or(String::new(), |v| short_type(&v.kind)),
-                        tone: if value.is_some() { Tone::Normal } else { Tone::Muted },
+                        badge: value
+                            .as_ref()
+                            .map_or(String::new(), |v| short_type(&v.kind)),
+                        tone: if value.is_some() {
+                            Tone::Normal
+                        } else {
+                            Tone::Muted
+                        },
                         code: true,
                         action: Some(('✕', format!("dbg:rw:{i}"))),
                         ..Default::default()
@@ -1911,7 +1997,10 @@ impl Editor {
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_default();
             let detail = if unset {
-                state.map(|s| s.message.clone()).filter(|m| !m.is_empty()).unwrap_or("not set".into())
+                state
+                    .map(|s| s.message.clone())
+                    .filter(|m| !m.is_empty())
+                    .unwrap_or("not set".into())
             } else if !b.log.is_empty() {
                 format!("log \"{}\"", b.log)
             } else if !b.condition.is_empty() {
@@ -1929,11 +2018,19 @@ impl Editor {
                 }),
                 icon: Some((
                     if b.log.is_empty() { '●' } else { '◆' },
-                    if unset || !b.enabled { Hue::Grey } else { Hue::Red },
+                    if unset || !b.enabled {
+                        Hue::Grey
+                    } else {
+                        Hue::Red
+                    },
                 )),
                 detail,
                 badge: (b.line + 1).to_string(),
-                tone: if unset || !b.enabled { Tone::Muted } else { Tone::Normal },
+                tone: if unset || !b.enabled {
+                    Tone::Muted
+                } else {
+                    Tone::Normal
+                },
                 action: Some(('✕', format!("dbg:rb:{}", b.id))),
                 ..Default::default()
             }));
@@ -2029,7 +2126,11 @@ impl Editor {
                     id: format!("dbg:th:{}", t.id),
                     label: t.name.clone(),
                     icon: Some(('●', if t.paused { Hue::Yellow } else { Hue::Green })),
-                    badge: if t.paused { "Paused".into() } else { "Running".into() },
+                    badge: if t.paused {
+                        "Paused".into()
+                    } else {
+                        "Running".into()
+                    },
                     links: if t.paused {
                         Vec::new()
                     } else {
@@ -2143,12 +2244,19 @@ impl Editor {
         }
         if let Some(id) = rest.strip_prefix("b:").and_then(|i| i.parse::<u32>().ok()) {
             if let Some(b) = self.debug.breakpoints.iter().find(|b| b.id == id).cloned() {
-                let path = b.path.strip_prefix(&self.root).map(Path::to_path_buf).unwrap_or(b.path);
+                let path = b
+                    .path
+                    .strip_prefix(&self.root)
+                    .map(Path::to_path_buf)
+                    .unwrap_or(b.path);
                 self.open_at(path, b.line, 0, fx);
             }
             return;
         }
-        if let Some(r) = rest.strip_prefix("v:").and_then(|v| v.split(':').next()?.parse::<u32>().ok()) {
+        if let Some(r) = rest
+            .strip_prefix("v:")
+            .and_then(|v| v.split(':').next()?.parse::<u32>().ok())
+        {
             if r == 0 {
                 return;
             }
@@ -2165,7 +2273,10 @@ impl Editor {
             }
             return self.build_views();
         }
-        if let Some(i) = rest.strip_prefix("rw:").and_then(|i| i.parse::<usize>().ok()) {
+        if let Some(i) = rest
+            .strip_prefix("rw:")
+            .and_then(|i| i.parse::<usize>().ok())
+        {
             if i < self.debug.watches.len() {
                 self.debug.watches.remove(i);
                 if let Some(session) = &mut self.debug.session {
@@ -2185,7 +2296,10 @@ impl Editor {
             }
             return self.build_views();
         }
-        if let Some(t) = rest.strip_prefix("lib:").and_then(|t| t.parse::<u32>().ok()) {
+        if let Some(t) = rest
+            .strip_prefix("lib:")
+            .and_then(|t| t.parse::<u32>().ok())
+        {
             self.debug.unfolded.insert(t);
             return self.build_views();
         }
@@ -2348,12 +2462,14 @@ impl Editor {
 
     /// Enter in the Debug Console's box.
     pub(crate) fn console_submit(&mut self, text: &str, fx: &mut Vec<Effect>) {
-        self.inputs.remove(&(CONSOLE.to_string(), "console".to_string()));
+        self.inputs
+            .remove(&(CONSOLE.to_string(), "console".to_string()));
         let Some(session) = &self.debug.session else {
             return;
         };
         let plugin = session.driver.clone();
-        self.debug.push_console(OutputKind::Console, &format!("› {text}\n"));
+        self.debug
+            .push_console(OutputKind::Console, &format!("› {text}\n"));
         fx.push(Effect::PluginSubmit {
             plugin,
             input: "debug-console".into(),
@@ -2409,7 +2525,10 @@ fn executables(text: &str) -> Vec<(String, String)> {
     while let Some(at) = rest.find("Executable ") {
         rest = &rest[at + "Executable ".len()..];
         let Some(close) = rest.find(')') else { break };
-        let entry: String = rest[..close].chars().filter(|c| *c != '\n' && *c != '\r').collect();
+        let entry: String = rest[..close]
+            .chars()
+            .filter(|c| *c != '\n' && *c != '\r')
+            .collect();
         rest = &rest[close..];
         let entry = entry.strip_prefix("unittests ").unwrap_or(&entry);
         if let Some((src, bin)) = entry.split_once(" (") {
@@ -2524,12 +2643,22 @@ mod tests {
             code: Some(0),
         });
         let start = fx.iter().find_map(|f| match f {
-            Effect::Debug { start: Some(start), .. } => Some(start.clone()),
+            Effect::Debug {
+                start: Some(start), ..
+            } => Some(start.clone()),
             _ => None,
         });
         let start = start.expect("the run starts");
-        assert!(start.program.ends_with("target/debug/deps/demo-1a2b"), "{}", start.program);
-        assert!(start.launch.contains("\"args\":[\"parses\"]"), "{}", start.launch);
+        assert!(
+            start.program.ends_with("target/debug/deps/demo-1a2b"),
+            "{}",
+            start.program
+        );
+        assert!(
+            start.launch.contains("\"args\":[\"parses\"]"),
+            "{}",
+            start.launch
+        );
     }
 
     #[test]
@@ -2538,15 +2667,24 @@ mod tests {
         assert_eq!(
             executables(text),
             [
-                ("src/main.rs".to_string(), "target/debug/deps/dbgdemo-79f066730ab665f5".to_string()),
-                ("tests/find.rs".to_string(), "target/debug/deps/find-12".to_string()),
+                (
+                    "src/main.rs".to_string(),
+                    "target/debug/deps/dbgdemo-79f066730ab665f5".to_string()
+                ),
+                (
+                    "tests/find.rs".to_string(),
+                    "target/debug/deps/find-12".to_string()
+                ),
             ]
         );
     }
 
     #[test]
     fn types_drop_their_paths() {
-        assert_eq!(short_type("core::array::iter::IntoIter<&str, 3>"), "IntoIter<&str, 3>");
+        assert_eq!(
+            short_type("core::array::iter::IntoIter<&str, 3>"),
+            "IntoIter<&str, 3>"
+        );
         assert_eq!(short_type("usize"), "usize");
         assert_eq!(
             short_type("core::iter::adapters::enumerate::Enumerate<core::slice::iter::Iter<&str>>"),

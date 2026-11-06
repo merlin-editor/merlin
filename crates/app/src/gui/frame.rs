@@ -1740,7 +1740,14 @@ impl Frame<'_> {
     /// What went wrong, under the line a run stopped on with a panic: a
     /// red-edged card with its title, the message in the code's font, and
     /// Continue and Copy.
-    fn exception_card(&mut self, title: &str, message: &str, anchor: (f32, f32), a: &Areas, ch: f32) {
+    fn exception_card(
+        &mut self,
+        title: &str,
+        message: &str,
+        anchor: (f32, f32),
+        a: &Areas,
+        ch: f32,
+    ) {
         let p = self.p;
         let mono = Face::mono(12.5);
         let title_face = Face::ui(13.0).bold();
@@ -1755,15 +1762,36 @@ impl Frame<'_> {
         let h = 10.0 + 22.0 + 4.0 + lines.len() as f32 * line_h + 10.0 + 30.0 + 10.0;
         let r = self.card_place((anchor.0 - 7.0, anchor.1), w, h, a, ch);
         self.canvas.shadow(r, 8.0, theme::is_light(&p));
-        self.canvas
-            .outline(r, 8.0, 1.0, theme::mix(p.error, p.widget, 0.5), theme::mix(p.error, p.widget, 0.1));
+        self.canvas.outline(
+            r,
+            8.0,
+            1.0,
+            theme::mix(p.error, p.widget, 0.5),
+            theme::mix(p.error, p.widget, 0.1),
+        );
         self.hit(r, Hit::Block);
         let x = r.x + 12.0;
         let mut y = r.y + 10.0;
-        self.text
-            .draw_in_row(&mut self.canvas, "⊗", Face::ui(14.0), x, y, 22.0, p.error, r);
-        self.text
-            .draw_in_row(&mut self.canvas, title, title_face, x + 22.0, y, 22.0, p.bright, r);
+        self.text.draw_in_row(
+            &mut self.canvas,
+            "⊗",
+            Face::ui(14.0),
+            x,
+            y,
+            22.0,
+            p.error,
+            r,
+        );
+        self.text.draw_in_row(
+            &mut self.canvas,
+            title,
+            title_face,
+            x + 22.0,
+            y,
+            22.0,
+            p.bright,
+            r,
+        );
         y += 26.0;
         for line in &lines {
             let shown = self.text.fit(line, mono, r.w - 24.0);
@@ -1798,7 +1826,9 @@ impl Frame<'_> {
         let chip_w = self.text.width(&view.field, chip_face) + 20.0;
         let text_w = self.text.width(&view.text, mono);
         let note_w = self.text.width(&view.hint, note);
-        let w = (chip_w + text_w + 52.0).max(note_w + 16.0).clamp(360.0, 620.0);
+        let w = (chip_w + text_w + 52.0)
+            .max(note_w + 16.0)
+            .clamp(360.0, 620.0);
         let h = 6.0 + 26.0 + 6.0 + 16.0 + 6.0;
         let r = self.card_place((anchor.0 - 7.0, anchor.1), w, h, a, ch);
         self.canvas.shadow(r, 8.0, theme::is_light(&p));
@@ -1816,7 +1846,12 @@ impl Frame<'_> {
             p.text,
             chip,
         );
-        let field = Rect::new(chip.right() + 6.0, chip.y, r.right() - 6.0 - chip.right() - 6.0, 26.0);
+        let field = Rect::new(
+            chip.right() + 6.0,
+            chip.y,
+            r.right() - 6.0 - chip.right() - 6.0,
+            26.0,
+        );
         self.canvas.outline(field, 5.0, 1.0, p.accent, p.raised);
         let x = field.x + 8.0;
         self.text.draw_in_row(
@@ -5440,6 +5475,47 @@ impl Frame<'_> {
         }
         let face = Face::ui(12.0);
         let mut x = RAIL_W + 12.0;
+        // Vim's mode in its colour, then the keys typed so far.
+        if let Some(vim) = &view.vim {
+            use merlin_core::VimMode;
+            let fill = match vim.mode {
+                VimMode::Normal => p.accent,
+                VimMode::Insert => p.success,
+                VimMode::Visual | VimMode::VisualLine | VimMode::VisualBlock => p.keyword,
+                VimMode::Replace => p.error,
+            };
+            let chip_face = Face::ui(10.5).bold();
+            let label = vim.mode.label();
+            let tw = self.text.width(label, chip_face);
+            let r = Rect::new(x - 4.0, bar.y + 4.0, tw + 14.0, STATUS_H - 8.0);
+            self.canvas.round(r, 4.0, fill);
+            self.text.draw_in_row(
+                &mut self.canvas,
+                label,
+                chip_face,
+                r.x + 7.0,
+                r.y,
+                r.h,
+                p.ground,
+                r,
+            );
+            x = r.right() + 10.0;
+            if !vim.pending.is_empty() {
+                let mono = Face::mono(12.0);
+                let w = self.text.width(&vim.pending, mono);
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    &vim.pending,
+                    mono,
+                    x,
+                    bar.y,
+                    STATUS_H,
+                    p.text,
+                    bar,
+                );
+                x += w + 14.0;
+            }
+        }
         let mut left_end = x;
         let mut right_items = Vec::new();
         for (i, item) in view.status.iter().enumerate() {
@@ -5569,7 +5645,11 @@ impl Frame<'_> {
                 self.hit(b, Hit::Ui(UiEvent::Debug(button)));
             }
             self.tips.push((b, tip.to_string()));
-            let colour = if waiting { theme::mix(colour, p.widget, 0.65) } else { colour };
+            let colour = if waiting {
+                theme::mix(colour, p.widget, 0.65)
+            } else {
+                colour
+            };
             // A step is drawn as its arrow just over a dot, the line it
             // lands on, as VS Code draws them.
             if matches!(button, B::StepOver | B::StepInto | B::StepOut) {

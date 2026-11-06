@@ -2550,25 +2550,29 @@ fn on_path(program: &str) -> bool {
     if path.components().count() > 1 {
         return path.is_file();
     }
-    std::env::var_os("PATH").is_some_and(|dirs| {
-        std::env::split_paths(&dirs).any(|dir| dir.join(program).is_file())
-    })
+    std::env::var_os("PATH")
+        .is_some_and(|dirs| std::env::split_paths(&dirs).any(|dir| dir.join(program).is_file()))
 }
 
 /// `.merlin/launch.toml`'s `[[debug]]` tables as things to debug. The keys
 /// merlin knows are its own; the rest go to the debugger as they are, and
 /// `attach = <pid>` attaches.
 fn launch_configs(text: &str) -> Result<Vec<merlin_core::DebugTarget>, String> {
-    let table: toml::Table = text.parse().map_err(|e: toml::de::Error| {
-        e.message().to_string()
-    })?;
+    let table: toml::Table = text
+        .parse()
+        .map_err(|e: toml::de::Error| e.message().to_string())?;
     let Some(list) = table.get("debug").and_then(|d| d.as_array()) else {
         return Ok(Vec::new());
     };
     let mut out = Vec::new();
     for (i, item) in list.iter().enumerate() {
         let Some(t) = item.as_table() else { continue };
-        let text = |key: &str| t.get(key).and_then(|v| v.as_str()).unwrap_or_default().to_string();
+        let text = |key: &str| {
+            t.get(key)
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string()
+        };
         let mut launch = serde_json::Map::new();
         for (key, value) in t {
             match key.as_str() {
@@ -2597,7 +2601,11 @@ fn launch_configs(text: &str) -> Result<Vec<merlin_core::DebugTarget>, String> {
             args: t
                 .get("args")
                 .and_then(|a| a.as_array())
-                .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
                 .unwrap_or_default(),
             build: text("build"),
             detail: String::new(),
@@ -2629,7 +2637,9 @@ fn processes() -> (Vec<(u32, String, String)>, u8) {
     };
     for entry in dir.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
-        let Ok(pid) = name.parse::<u32>() else { continue };
+        let Ok(pid) = name.parse::<u32>() else {
+            continue;
+        };
         if pid == me || uid(&name) != mine {
             continue;
         }
@@ -2643,7 +2653,12 @@ fn processes() -> (Vec<(u32, String, String)>, u8) {
         let started = fields.get(19).and_then(|s| s.parse().ok()).unwrap_or(0);
         let comm = fs::read_to_string(format!("/proc/{pid}/comm")).unwrap_or_default();
         let command = fs::read(format!("/proc/{pid}/cmdline"))
-            .map(|b| String::from_utf8_lossy(&b).replace('\0', " ").trim().to_string())
+            .map(|b| {
+                String::from_utf8_lossy(&b)
+                    .replace('\0', " ")
+                    .trim()
+                    .to_string()
+            })
             .unwrap_or_default();
         if command.is_empty() {
             continue;
@@ -2652,7 +2667,9 @@ fn processes() -> (Vec<(u32, String, String)>, u8) {
     }
     list.sort_by_key(|p| std::cmp::Reverse(p.0));
     (
-        list.into_iter().map(|(_, pid, name, cmd)| (pid, name, cmd)).collect(),
+        list.into_iter()
+            .map(|(_, pid, name, cmd)| (pid, name, cmd))
+            .collect(),
         scope,
     )
 }

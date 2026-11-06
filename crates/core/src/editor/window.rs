@@ -197,6 +197,8 @@ pub struct WindowView {
     /// The debug toolbar, while a run is on; the status bar takes the
     /// debug colour then.
     pub debug: Option<super::DebugBarView>,
+    /// Vim's mode and the keys typed so far, for the status bar.
+    pub vim: Option<super::VimView>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -544,6 +546,7 @@ impl Editor {
             dialog: self.dialog_view(),
             terminal: self.terminal_view(),
             debug: self.debug_bar(),
+            vim: self.vim_view(),
         }
     }
 

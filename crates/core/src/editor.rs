@@ -36,12 +36,12 @@ mod palette;
 mod panels;
 mod peek;
 pub use blame::{BlameCardView, BlameCell, CommitInfo};
-pub use debug::{
-    BreakBoxView, BreakField, BreakMark, Breakpoint, BreakpointState, DAP, DebugBarView, DebugButton, DebugStart, DebugState,
-    DebugTarget, DebugThread, DebugUpdate, DebugVariable, Debugger, FunctionStop, OutputKind, StackFrame,
-    StopFilter,
-};
 pub use compare::{DiffBarView, DiffMark, DiffMarks};
+pub use debug::{
+    BreakBoxView, BreakField, BreakMark, Breakpoint, BreakpointState, DAP, DebugBarView,
+    DebugButton, DebugStart, DebugState, DebugTarget, DebugThread, DebugUpdate, DebugVariable,
+    Debugger, FunctionStop, OutputKind, StackFrame, StopFilter,
+};
 pub use inline_change::ChangeView;
 pub use merge_editor::{MergeBarView, MergeNote, MergePaneView, MergeRow, MergeSide, MergeView};
 pub use peek::{PeekItem, PeekView, PreviewLine};
@@ -61,6 +61,8 @@ mod terminal;
 mod testing;
 mod text_view;
 mod views;
+mod vim;
+pub use vim::{Keymap, VimCursor, VimMode, VimSettings, VimView};
 mod window;
 mod workspace;
 mod wrap;
@@ -1004,6 +1006,11 @@ pub struct Editor {
     quitting: bool,
     /// Quitting keeps unsaved files for the next start, rather than asking.
     hot_exit: bool,
+    /// Vim's state, while the keymap is Vim's.
+    vim: Option<vim::Vim>,
+    vim_settings: VimSettings,
+    /// Line numbers count from the cursor's line, in Vim's Normal mode.
+    relative_numbers: bool,
     /// Quit with unsaved files kept.
     keep_unsaved: bool,
     /// Files whose unsaved changes came back from the last run.
@@ -1240,6 +1247,9 @@ impl Editor {
             closing: Vec::new(),
             quitting: false,
             hot_exit: true,
+            vim: None,
+            vim_settings: VimSettings::default(),
+            relative_numbers: false,
             keep_unsaved: false,
             restored: Vec::new(),
             open_folder: None,
@@ -1650,7 +1660,8 @@ impl Editor {
             }
             Event::Clipboard(text) => {
                 let text = text.unwrap_or_else(|| self.clipboard.clone());
-                if self.compare_clipboard(&text, &mut fx)
+                if self.vim_clipboard_put(&text)
+                    || self.compare_clipboard(&text, &mut fx)
                     || text.is_empty()
                     || self.rename_paste(&text)
                     || self.terminal_paste(&text, &mut fx)

@@ -120,7 +120,12 @@ impl Editor {
         let text = self.layout().text;
         let from = text.x + self.blame_cols() as u16 + self.has_signs() as u16;
         let room = self.bulb_room() as u16;
-        if room == 0 || !text.contains(x, y) || x < from || x >= from + room || !self.can_break_here() {
+        if room == 0
+            || !text.contains(x, y)
+            || x < from
+            || x >= from + room
+            || !self.can_break_here()
+        {
             return None;
         }
         let pos = self.pos_at_screen(text.x + self.gutter() as u16, y);

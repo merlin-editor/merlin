@@ -177,7 +177,10 @@ fn the_end_says_how_it_went_and_the_toolbar_goes() {
     let mut s = project();
     s.send(Event::Command("debug.pick".into()));
     key(&mut s, KeyCode::Enter, false);
-    report(&mut s, DebugUpdate::Output(OutputKind::Stdout, "hello\n".into()));
+    report(
+        &mut s,
+        DebugUpdate::Output(OutputKind::Stdout, "hello\n".into()),
+    );
     report(&mut s, DebugUpdate::State(DebugState::Ended(Some(101))));
     assert!(s.editor.window_view().debug.is_none());
     s.send(Event::Command("view.debug_console".into()));
@@ -194,7 +197,11 @@ fn a_missing_debugger_says_how_to_install_it() {
     key(&mut s, KeyCode::Enter, false);
     let toast = s.editor.window_view().toast.expect("a notice");
     assert!(toast.text.contains("needs gdb"), "{}", toast.text);
-    assert!(toast.text.contains("sudo apt install gdb"), "{}", toast.text);
+    assert!(
+        toast.text.contains("sudo apt install gdb"),
+        "{}",
+        toast.text
+    );
     assert!(commands(&s).is_empty());
 }
 
@@ -275,7 +282,10 @@ fn breakpoints_and_the_target_are_kept_with_the_workspace() {
     let mut ws = s.editor.workspace();
     ws.breakpoints[0].condition = "n > 0".into();
     let text = ws.to_text();
-    assert!(text.contains("break 1 on src/main.rs\nbreak-if n > 0\n"), "{text}");
+    assert!(
+        text.contains("break 1 on src/main.rs\nbreak-if n > 0\n"),
+        "{text}"
+    );
     assert!(text.contains("debug demo\n"), "{text}");
     let back = merlin_core::Workspace::parse(&text);
     assert_eq!(back.breakpoints[0].line, 1);
@@ -312,7 +322,11 @@ fn the_gutter_menu_sets_a_condition_in_the_box_under_the_line() {
     let labels: Vec<&str> = menu.items.iter().map(|i| i.label.as_str()).collect();
     assert_eq!(
         labels,
-        ["Add Breakpoint", "Add Conditional Breakpoint…", "Add Logpoint…"]
+        [
+            "Add Breakpoint",
+            "Add Conditional Breakpoint…",
+            "Add Logpoint…"
+        ]
     );
     s.send(Event::Ui(merlin_core::UiEvent::ContextItem(1)));
     for c in "n > 0".chars() {
@@ -345,11 +359,16 @@ fn a_panic_stops_with_its_message_under_the_line() {
     s.send(Event::Command("debug.pick".into()));
     key(&mut s, KeyCode::Enter, false);
     let start = s.effects.iter().find_map(|e| match e {
-        Effect::Debug { start: Some(start), .. } => Some(start.clone()),
+        Effect::Debug {
+            start: Some(start), ..
+        } => Some(start.clone()),
         _ => None,
     });
     let stops = &start.expect("started").function_stops;
-    assert_eq!((stops[0].functions[0].as_str(), stops[0].on), ("rust_panic", true));
+    assert_eq!(
+        (stops[0].functions[0].as_str(), stops[0].on),
+        ("rust_panic", true)
+    );
     report(
         &mut s,
         DebugUpdate::State(DebugState::Paused {
@@ -388,10 +407,14 @@ fn a_panic_stops_with_its_message_under_the_line() {
     };
     assert_eq!(title, "Paused on a panic");
     assert!(message.contains("unwrap()"), "{message}");
-    let line = s.editor.text_views()[0].lines.iter().find(|l| l.line == 2).unwrap().paused;
+    let line = s.editor.text_views()[0]
+        .lines
+        .iter()
+        .find(|l| l.line == 2)
+        .unwrap()
+        .paused;
     assert_eq!(line, Some(true), "the line takes the error colour");
 }
-
 
 fn pause_with_locals(s: &mut Session) {
     use merlin_core::DebugVariable;
@@ -509,7 +532,9 @@ fn attaching_asks_linux_first() {
     });
     key(&mut s, KeyCode::Enter, false);
     let launch = s.effects.iter().find_map(|e| match e {
-        Effect::Debug { start: Some(start), .. } => Some(start.launch.clone()),
+        Effect::Debug {
+            start: Some(start), ..
+        } => Some(start.launch.clone()),
         _ => None,
     });
     assert!(launch.expect("attaches").contains("\"pid\":4242"));
@@ -531,7 +556,10 @@ fn a_failed_build_offers_the_last_one() {
     s.send(Event::Command("debug.pick".into()));
     key(&mut s, KeyCode::Enter, false);
     let term = s.effects.iter().rev().find_map(|e| match e {
-        Effect::Terminal(merlin_core::TermOp::Spawn { id, command: Some(c) }) if c == "cargo build" => Some(*id),
+        Effect::Terminal(merlin_core::TermOp::Spawn {
+            id,
+            command: Some(c),
+        }) if c == "cargo build" => Some(*id),
         _ => None,
     });
     s.send(Event::TermExited {
@@ -539,7 +567,11 @@ fn a_failed_build_offers_the_last_one() {
         code: Some(101),
     });
     let toast = s.editor.window_view().toast.expect("a notice");
-    assert!(toast.buttons.contains(&"Debug the Last Build".to_string()), "{:?}", toast.buttons);
+    assert!(
+        toast.buttons.contains(&"Debug the Last Build".to_string()),
+        "{:?}",
+        toast.buttons
+    );
     s.effects.clear();
     s.send(Event::Command("debug.last_build".into()));
     assert_eq!(commands(&s), ["debug.start"]);

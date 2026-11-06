@@ -94,6 +94,36 @@ impl History {
         self.undo.push(change);
     }
 
+    /// How many undo steps there are.
+    pub fn steps(&self) -> usize {
+        self.undo.len()
+    }
+
+    /// Makes the steps from `from` on one, as Vim's undo takes back a
+    /// whole change typed in Insert mode. Never across `saved`, or the
+    /// buffer would look clean while it differs from the file.
+    pub fn join_from(&mut self, from: usize, saved: Revision) {
+        let len = self.undo.len();
+        if self.depth > 0 || len <= from + 1 {
+            return;
+        }
+        let from = match self.undo[from..len - 1].iter().rposition(|c| c.id == saved) {
+            Some(i) => from + i + 1,
+            None => from,
+        };
+        if len <= from + 1 {
+            return;
+        }
+        let rest = self.undo.split_off(from + 1);
+        let first = self.undo.last_mut().expect("a step");
+        for mut change in rest {
+            first.edits.append(&mut change.edits);
+            first.cursors_after = change.cursors_after;
+            first.id = change.id;
+        }
+        first.kind = Kind::Other;
+    }
+
     /// Takes the newest change off the undo stack. The caller reverts it.
     pub fn undo(&mut self) -> Option<Change> {
         if self.in_transaction() {

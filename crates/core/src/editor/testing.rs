@@ -759,14 +759,22 @@ impl Editor {
         {
             // Under the debugger: built with `--no-run`, then its binary,
             // from what cargo printed, started with the test's name.
-            let only = match file.label.strip_prefix("tests/").and_then(|f| f.strip_suffix(".rs")) {
+            let only = match file
+                .label
+                .strip_prefix("tests/")
+                .and_then(|f| f.strip_suffix(".rs"))
+            {
                 Some(stem) if !stem.contains('/') => format!(" --test {stem}"),
                 _ => String::new(),
             };
             let target = super::DebugTarget {
                 name: format!("Test {name}"),
                 language: "rust".into(),
-                args: vec![name.clone(), "--nocapture".into(), "--test-threads=1".into()],
+                args: vec![
+                    name.clone(),
+                    "--nocapture".into(),
+                    "--test-threads=1".into(),
+                ],
                 build: format!("cargo test --no-run -p {}{only}", root.name),
                 ..Default::default()
             };

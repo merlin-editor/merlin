@@ -19,6 +19,7 @@ use super::grid::{Fonts, attrs};
 use super::scene::{BitmapId, Prim};
 use crate::settings::CursorStyle;
 use crate::theme::{self, Look, Palette};
+use merlin_core::VimCursor;
 
 /// Shaped lines kept, most for the lines on screen as they scroll.
 const SHAPED_LIMIT: usize = 4096;
@@ -198,7 +199,12 @@ impl Fonts {
                     border: 0,
                     border_w: 0.0,
                 });
-                quad(canvas, [text_x, y0, text_x + 3.0 * s, y0 + rows * ch], 0.0, colour);
+                quad(
+                    canvas,
+                    [text_x, y0, text_x + 3.0 * s, y0 + rows * ch],
+                    0.0,
+                    colour,
+                );
             }
 
             // Selections and matches: a rounded box for each run of one
@@ -698,10 +704,15 @@ impl Fonts {
             let thin = s.round().max(1.0);
             let beam = (2.0 * s).round().max(2.0);
             // An underline has no height to expand: it fades instead.
-            let underline = matches!(
-                caret.style,
-                CursorStyle::Underline | CursorStyle::UnderlineThin
-            );
+            // Vim's mode picks the shape, over the setting.
+            let (style, half_block) = match view.vim_cursor {
+                Some(VimCursor::Block) => (CursorStyle::Block, false),
+                Some(VimCursor::HalfBlock) => (CursorStyle::Block, true),
+                Some(VimCursor::Line) => (CursorStyle::Line, false),
+                Some(VimCursor::Underline) => (CursorStyle::Underline, false),
+                None => (caret.style, false),
+            };
+            let underline = matches!(style, CursorStyle::Underline | CursorStyle::UnderlineThin);
             let expand = caret.expand && !underline;
             let alpha = if expand {
                 255
@@ -729,9 +740,15 @@ impl Fonts {
                         border_w: 0.0,
                     })
                 };
-                match caret.style {
+                match style {
+                    // An operator waiting for its motion: the lower half.
+                    CursorStyle::Block if half_block => bar(
+                        [x, (y0 + y1) / 2.0, x + cw, y1],
+                        s,
+                        (alpha as f32 * 0.55) as u8,
+                    ),
                     CursorStyle::Line | CursorStyle::LineThin => {
-                        let w = if caret.style == CursorStyle::Line {
+                        let w = if style == CursorStyle::Line {
                             beam
                         } else {
                             thin
@@ -748,7 +765,7 @@ impl Fonts {
                         bar([x + cw - thin, y0, x + cw, y1], 0.0, alpha);
                     }
                     CursorStyle::Underline | CursorStyle::UnderlineThin => {
-                        let h = if caret.style == CursorStyle::Underline {
+                        let h = if style == CursorStyle::Underline {
                             beam
                         } else {
                             thin

@@ -852,7 +852,11 @@ impl host::Host for State {
         self.debug(merlin_core::DebugUpdate::Stack { thread, frames })
     }
 
-    fn set_variables(&mut self, parent: u32, variables: Vec<types::DebugVariable>) -> Result<(), String> {
+    fn set_variables(
+        &mut self,
+        parent: u32,
+        variables: Vec<types::DebugVariable>,
+    ) -> Result<(), String> {
         let variables = variables
             .into_iter()
             .map(|v| merlin_core::DebugVariable {
@@ -892,7 +896,11 @@ impl host::Host for State {
         ))
     }
 
-    fn set_inline_values(&mut self, path: String, values: Vec<types::InlineValue>) -> Result<(), String> {
+    fn set_inline_values(
+        &mut self,
+        path: String,
+        values: Vec<types::InlineValue>,
+    ) -> Result<(), String> {
         let path = PathBuf::from(path);
         let values = values.into_iter().map(|v| (v.line, v.text)).collect();
         self.debug(merlin_core::DebugUpdate::InlineValues { path, values })

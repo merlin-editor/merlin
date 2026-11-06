@@ -106,10 +106,7 @@ pub enum PopupKind {
     Breakpoint(super::BreakBoxView),
     /// What went wrong, under the line a run stopped on with a panic or an
     /// exception: its first line, and the rest.
-    Exception {
-        title: String,
-        message: String,
-    },
+    Exception { title: String, message: String },
     /// The problems at the spot, worst first, then the language server's
     /// hover as Markdown, a line each. Either may be empty.
     Hover {

@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Vim mode, filled in</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.w{width:1280px;height:800px;position:relative;background:#0f1012;font-family:Inter,sans-serif;color:#d4d5da;font-size:13px;overflow:hidden}
+.w+.w{margin-top:24px}
+.island{position:absolute;background:#17181b;border-radius:10px;overflow:hidden}
+.label{position:absolute;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#7c9cff}
+.note{position:absolute;font-size:11.5px;color:#8e9099;line-height:1.5}
+.note b{color:#d4d5da;font-weight:500}
+.mono{font-family:'JetBrains Mono',monospace}
+.code{font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:21px;white-space:pre;padding:4px 0}
+.ln{display:inline-block;width:44px;text-align:right;padding-right:14px;color:#5f626b}
+.ln.cur{color:#eef0f3}
+.k{color:#c4a7e7}.s{color:#a6d189}.f{color:#f0c674}.t{color:#9ccfd8}.c{color:#7f8794}.n{color:#f5a97f}
+.g{color:#6cc070}.r{color:#f0807a}.m{color:#8e9099}.b{color:#7c9cff}.y{color:#e3b341}
+.tabs{height:32px;display:flex;align-items:center;gap:3px;padding:0 6px}
+.tab{height:24px;padding:0 10px;border-radius:6px;display:flex;align-items:center;gap:6px;color:#8e9099;font-size:12.5px}
+.tab.on{background:#26272c;color:#eef0f3;box-shadow:inset 0 0 0 1px #2c2d33}
+.ic{width:14px;height:14px;border-radius:3px;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;background:#3a2a1e;color:#f5a97f}
+.h{height:28px;display:flex;align-items:center;gap:6px;padding:0 12px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#8e9099}
+.row{min-height:24px;display:flex;align-items:center;gap:8px;padding:0 12px;font-size:12.5px;white-space:nowrap}
+.btn{height:24px;border-radius:6px;padding:0 9px;font-size:12px;display:inline-flex;align-items:center;gap:6px;border:1px solid #2c2d33;background:#1f2024;color:#d4d5da;white-space:nowrap}
+.btn.p{background:#7c9cff;border-color:#7c9cff;color:#0f1012;font-weight:600}
+.kbd{font-size:10.5px;background:#26272c;border-radius:4px;padding:1px 5px;color:#b4b6bd}
+.chip{font-size:10.5px;border-radius:4px;padding:1px 6px;background:#1e2433;color:#7c9cff}
+.sep{height:1px;background:#2c2d33;margin:4px 6px}
+.card{position:absolute;background:#1c1d21;border:1px solid #2c2d33;border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.5)}
+.status{height:24px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px;color:#8e9099;background:#0f1012}
+.mode{height:18px;padding:0 8px;border-radius:4px;color:#0f1012;font-weight:700;font-size:10.5px;letter-spacing:.06em;display:inline-flex;align-items:center;white-space:nowrap}
+.mN{background:#7c9cff}.mI{background:#6cc070}.mV{background:#c4a7e7}.mR{background:#f0807a}.mC{background:#e3b341}
+.rec{display:flex;align-items:center;gap:6px;color:#f0807a}
+.rd{width:8px;height:8px;border-radius:50%;background:#f0807a}
+/* settings */
+.srow{display:flex;gap:12px;padding:7px 14px;border-top:1px solid #222328}
+.srow .t1{font-size:12.5px;color:#eef0f3}
+.srow .t2{font-size:11.5px;color:#8e9099;margin-top:2px;line-height:1.4}
+.srow .key{font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#5f626b;margin-top:3px}
+.seg{display:inline-flex;background:#0f1012;border-radius:6px;padding:2px;gap:2px;flex-shrink:0;align-self:center}
+.seg span{height:22px;padding:0 10px;border-radius:4px;font-size:12px;display:flex;align-items:center;color:#8e9099}
+.seg span.on{background:#26272c;color:#eef0f3;box-shadow:inset 0 0 0 1px #2c2d33}
+.sw{width:28px;height:16px;border-radius:8px;background:#7c9cff;position:relative;flex-shrink:0;align-self:center}
+.sw::after{content:"";position:absolute;right:2px;top:2px;width:12px;height:12px;border-radius:50%;background:#0f1012}
+.sw.off{background:#2c2d33}.sw.off::after{right:auto;left:2px;background:#8e9099}
+.txt{height:24px;border-radius:5px;background:#0f1012;box-shadow:inset 0 0 0 1px #2c2d33;display:flex;align-items:center;padding:0 8px;font-family:'JetBrains Mono',monospace;font-size:12px;flex-shrink:0;align-self:center}
+.kc{display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 6px;border-radius:4px;background:#1f2024;border:1px solid #2c2d33;font-size:11px;margin:0 4px 4px 0}
+/* modes strip */
+.mcell{flex:1;display:flex;flex-direction:column;gap:7px;padding:12px 12px 10px;border-left:1px solid #222328}
+.mcell:first-child{border-left:0}
+.sample{font-family:'JetBrains Mono',monospace;font-size:12.5px;height:20px;display:flex;align-items:center}
+.cb{background:#d4d5da;color:#17181b}
+.cl{border-left:2px solid #d4d5da;margin-left:-1px}
+.cu{box-shadow:inset 0 -2px 0 #f0807a}
+.ch{background:linear-gradient(transparent 50%,#d4d5da 50%);color:#17181b}
+.sel{background:#3a3150}
+.enter{font-size:11px;color:#8e9099}
+/* which-key */
+.wk{position:absolute;background:#1c1d21;border:1px solid #2c2d33;border-radius:10px;box-shadow:0 -6px 24px rgba(0,0,0,.4);padding:12px 16px}
+.wkh{display:flex;align-items:center;gap:8px;font-size:12.5px;margin-bottom:10px}
+.chord{font-family:'JetBrains Mono',monospace;font-size:12px;background:#26272c;border-radius:4px;padding:2px 7px;color:#eef0f3}
+.grid{display:grid;gap:2px 22px}
+.wi{height:24px;display:flex;align-items:center;gap:10px;font-size:12.5px;white-space:nowrap;min-width:0}
+.wi .kk{font-family:'JetBrains Mono',monospace;color:#f0c674;min-width:18px;text-align:center;font-weight:600}
+.wi .grp{color:#7c9cff}
+.wi .pv{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#8e9099;overflow:hidden;text-overflow:ellipsis}
+.wi.on{background:#262b3d;border-radius:5px;margin:0 -6px;padding:0 6px}
+/* palette */
+.pin{height:32px;border:1px solid #7c9cff;border-radius:6px;background:#1f2024;display:flex;align-items:center;padding:0 10px;font-size:13px;color:#eef0f3;margin-bottom:4px}
+.grpn{font-size:11px;color:#8e9099;padding:6px 10px 3px}
+.pi{height:30px;display:flex;align-items:center;gap:10px;padding:0 10px;border-radius:6px;font-size:13px;white-space:nowrap}
+.pi.on{background:#262b3d;color:#eef0f3}
+.pi .src{margin-left:auto;font-size:11.5px;color:#8e9099;display:flex;gap:8px;align-items:center}
+.toml{font-family:'JetBrains Mono',monospace;font-size:11.5px;line-height:18px;white-space:pre;padding:10px 14px;color:#d4d5da}
+.toast{position:absolute;box-sizing:border-box;background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.45);padding:11px 13px;font-size:12.5px;color:#d4d5da;line-height:1.45}
+.toast .bs{display:flex;gap:6px;margin-top:9px}
+</style>
+</helmet>
+
+<!-- Artboard 1: turning it on, the modes, and the command line -->
+<div class="w">
+
+  <span class="label" style="left:24px;top:16px">Turning it on · Settings › Keyboard Shortcuts</span>
+  <div class="island" style="left:24px;top:38px;width:400px;height:440px">
+    <div class="srow" style="border-top:0;padding-top:12px">
+      <div style="flex:1"><div class="t1">Keymap</div><div class="t2">How keys work in the text.</div><div class="key">keys.keymap</div></div>
+      <div class="seg"><span>VS Code</span><span class="on">Vim</span><span>Helix</span></div>
+    </div>
+    <div class="srow">
+      <div style="flex:1"><div class="t1">Leader key</div><div class="t2">Starts merlin's own commands, listed by which-key.</div><div class="key">vim.leader</div></div>
+      <div class="txt">Space</div>
+    </div>
+    <div class="srow">
+      <div style="flex:1"><div class="t1">Leave Insert mode with</div><div class="t2">Typed quickly, as well as Esc.</div><div class="key">vim.insert_escape</div></div>
+      <div class="txt" style="width:56px">jk</div>
+    </div>
+    <div class="srow">
+      <div style="flex:1"><div class="t1">Yank to the clipboard</div><div class="t2">y and p use the system clipboard.</div><div class="key">vim.clipboard</div></div>
+      <div class="sw"></div>
+    </div>
+    <div class="srow">
+      <div style="flex:1"><div class="t1">Relative line numbers</div><div class="t2">Counted from the cursor's line, in Normal mode.</div><div class="key">editor.line_numbers = "relative"</div></div>
+      <div class="sw"></div>
+    </div>
+    <div class="srow" style="display:block">
+      <div class="t1">Keys merlin keeps</div><div class="t2" style="margin-bottom:7px">These do merlin's thing in every mode. Untick one to give it to Vim.</div>
+      <span class="kc">✓ Ctrl P</span><span class="kc">✓ Ctrl Shift P</span><span class="kc">✓ Ctrl S</span><span class="kc">✓ Ctrl Tab</span><span class="kc">✓ Ctrl `</span><span class="kc">✓ Ctrl C</span><span class="kc m">Ctrl R <span>→ redo</span></span><span class="kc m">Ctrl V <span>→ block</span></span><span class="kc m">Ctrl D</span><span class="kc m">Ctrl O</span>
+    </div>
+  </div>
+  <div class="note" style="left:24px;top:486px;width:400px">The status bar's <b>Keymap</b> item switches too. Vim is built in, not a plugin, so every key answers at once. Plugins add leader keys.</div>
+
+  <span class="label" style="left:448px;top:16px">The modes · the status bar's chip and the cursor's shape</span>
+  <div class="island" style="left:448px;top:38px;width:808px;height:96px;display:flex">
+    <div class="mcell"><span class="mode mN" style="align-self:flex-start">NORMAL</span><span class="sample">pin<span class="cb">n</span>ed</span><span class="enter">Esc</span></div>
+    <div class="mcell"><span class="mode mI" style="align-self:flex-start">INSERT</span><span class="sample">pin<span class="cl">n</span>ed</span><span class="enter">i a o I A O</span></div>
+    <div class="mcell"><span class="mode mV" style="align-self:flex-start">VISUAL</span><span class="sample"><span class="sel">pinne</span><span class="cb">d</span></span><span class="enter">v</span></div>
+    <div class="mcell"><span class="mode mV" style="align-self:flex-start">V-LINE</span><span class="sample"><span class="sel" style="padding-right:30px">pinned</span></span><span class="enter">V</span></div>
+    <div class="mcell"><span class="mode mV" style="align-self:flex-start">V-BLOCK</span><span class="sample" style="flex-direction:column;align-items:flex-start;height:20px;justify-content:center;line-height:10px;font-size:10px"><span>ab<span class="sel">cd</span>e</span><span>ab<span class="sel">cd</span>e</span></span><span class="enter">Ctrl V · as box select</span></div>
+    <div class="mcell"><span class="mode mR" style="align-self:flex-start">REPLACE</span><span class="sample">pin<span class="cu">n</span>ed</span><span class="enter">R</span></div>
+    <div class="mcell"><span class="mode mN" style="align-self:flex-start">NORMAL <span style="font-weight:500;margin-left:5px">d2</span></span><span class="sample">pin<span class="ch">n</span>ed</span><span class="enter">waiting for a motion</span></div>
+  </div>
+
+  <span class="label" style="left:448px;top:152px">Visual mode, then :s with a live preview</span>
+  <div class="island" style="left:448px;top:174px;width:808px;height:372px">
+    <div class="tabs"><div class="tab on"><span class="ic">RS</span>groups.rs</div><div class="tab"><span class="ic">RS</span>tabs.rs</div></div>
+    <div class="code"><span class="ln">3</span><span class="k">impl</span> <span class="t">Group</span> {
+<span class="ln">2</span>    <span class="c">/// The tabs, pinned ones first.</span>
+<span class="ln">1</span>    <span class="k">pub fn</span> <span class="f">order_pinned</span>(&amp;<span class="k">mut</span> self) {
+<span class="ln cur">111</span><span class="sel">        <span class="k">let</span> <s class="m">pinned</s><span class="g">kept</span> = &amp;self.<s class="m">pinned</s><span class="g">kept</span>;</span>
+<span class="ln">1</span><span class="sel">        self.tabs.<span class="f">sort_by_key</span>(|t| !<s class="m">pinned</s><span class="g">kept</span>.<span class="f">contains</span>(t));</span>
+<span class="ln">2</span><span class="sel">        self.<span class="f">mark_dirty</span>(<s class="m">pinned</s><span class="g">kept</span>.<span class="f">len</span>())<span class="cb">;</span></span>
+<span class="ln">3</span>    }
+<span class="ln">4</span>
+<span class="ln">5</span>    <span class="c">/// Splits the group toward `edge`, moving the active tab.</span>
+<span class="ln">6</span>    <span class="k">pub fn</span> <span class="f">split</span>(&amp;<span class="k">mut</span> self, edge: <span class="t">Edge</span>) -&gt; <span class="t">usize</span> {</div>
+
+    <div class="card" style="left:12px;top:278px;width:430px;padding:5px;bottom:auto;transform:translateY(-100%)">
+      <div class="pi on" style="height:26px;font-size:12.5px"><span class="mono">:s</span>Replace in the selection<span class="src">:%s for the file</span></div>
+      <div class="pi" style="height:26px;font-size:12.5px"><span class="mono">:sort</span>Sort the lines</div>
+      <div class="pi" style="height:26px;font-size:12.5px"><span class="mono">:Search</span>Search the project<span class="src"><span class="chip">merlin</span></span></div>
+    </div>
+
+    <div style="position:absolute;left:0;right:0;bottom:24px;height:34px;border-top:1px solid #222328;display:flex;align-items:center;gap:8px;padding:0 12px;font-family:'JetBrains Mono',monospace;font-size:13px;background:#141518">
+      <span class="m">:'&lt;,'&gt;</span><span>s/pinned/kept/g</span><span style="width:1.5px;height:15px;background:#d4d5da"></span>
+      <span style="margin-left:auto;font-family:Inter,sans-serif;font-size:11.5px;color:#8e9099">5 in 3 lines · Enter replaces · Esc leaves · ↑ the last ones</span>
+    </div>
+    <div class="status" style="position:absolute;left:0;right:0;bottom:0"><span class="mode mC">COMMAND</span><span>3 lines selected</span><span style="margin-left:auto">Ln 113, Col 37</span><span>Keymap: Vim</span><span>Rust</span></div>
+  </div>
+
+  <div class="note" style="left:448px;top:556px;width:396px"><b>:</b> opens a line under the text, as Vim's does, with a completion card. Vim's own commands are there (<span class="mono">:w :q :s :g :sort :noh :e</span>), and so is every merlin command by its name, marked merlin. <b>:s</b> shows the change as you type, the way the rename preview does. <b>/</b> and <b>?</b> use merlin's find bar, so matches are tinted with a count, and <b>n</b> and <b>N</b> move.</div>
+  <div class="note" style="left:860px;top:556px;width:396px"><b>Counts, the dot and undo.</b> <span class="mono">3dw</span>, <span class="mono">.</span> repeats the last change, and <span class="mono">u</span> undoes a whole change, including what was typed in Insert mode, with merlin's undo. <b>Text objects</b> (<span class="mono">ciw ci( dap vit</span>) use the language's tree where a plugin gives one, so <span class="mono">af</span> and <span class="mono">ic</span> are a function and a class. <b>Several cursors</b> each follow the keys, and V-BLOCK is merlin's box select.</div>
+
+  <span class="label" style="left:24px;top:540px">Registers · after " and a pause</span>
+  <div class="wk" style="left:24px;top:562px;width:368px;padding:12px 16px">
+    <div class="wkh"><span class="chord">"</span><span class="m">then a register…</span><span style="margin-left:auto;font-size:11.5px;color:#8e9099">' and ` list marks the same way</span></div>
+    <div class="grid" style="grid-template-columns:minmax(0,1fr)">
+      <div class="wi on"><span class="kk">"</span><span style="width:96px">last delete</span><span class="pv">pinned.contains(t)</span></div>
+      <div class="wi"><span class="kk">0</span><span style="width:96px">last yank</span><span class="pv">self.tabs.sort_by_key(…</span></div>
+      <div class="wi"><span class="kk">+</span><span style="width:96px">clipboard</span><span class="pv">fn order_pinned(&amp;mut self)</span></div>
+      <div class="wi"><span class="kk">a</span><span style="width:96px"></span><span class="pv">Edge::Right</span></div>
+      <div class="wi"><span class="kk">q</span><span style="width:96px">macro</span><span class="pv">0wcwkept&lt;Esc&gt;j</span></div>
+      <div class="wi"><span class="kk">/</span><span style="width:96px">last search</span><span class="pv">pinned</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- Artboard 2: which-key, macros, plugins and Helix -->
+<div class="w">
+
+  <span class="label" style="left:24px;top:16px">Which-key, for Vim's own prefixes too</span>
+  <div class="island" style="left:24px;top:38px;width:760px;height:372px">
+    <div class="tabs"><div class="tab on"><span class="ic">RS</span>groups.rs</div></div>
+    <div class="code"><span class="ln">2</span>    <span class="k">pub fn</span> <span class="f">order_pinned</span>(&amp;<span class="k">mut</span> self) {
+<span class="ln">1</span>        <span class="k">let</span> pinned = &amp;self.pinned;
+<span class="ln cur">112</span>        self.tabs.<span class="cb">s</span><span class="f">ort_by_key</span>(|t| !pinned.<span class="f">contains</span>(t));
+<span class="ln">1</span>    }</div>
+    <div class="wk" style="left:12px;right:12px;bottom:36px">
+      <div class="wkh"><span class="chord">g</span><span class="m">then…</span><span style="margin-left:auto;font-size:11.5px;color:#8e9099">After 0.5 s · Backspace goes up · Esc cancels</span></div>
+      <div class="grid" style="grid-template-columns:repeat(3,minmax(0,1fr))">
+        <div class="wi"><span class="kk">d</span>Go to Definition</div>
+        <div class="wi"><span class="kk">r</span>Find References</div>
+        <div class="wi"><span class="kk">i</span>Go to Implementation</div>
+        <div class="wi"><span class="kk">c</span><span class="grp">+ comment</span></div>
+        <div class="wi"><span class="kk">u</span>Lower case <span class="m">· motion</span></div>
+        <div class="wi"><span class="kk">U</span>Upper case <span class="m">· motion</span></div>
+        <div class="wi"><span class="kk">g</span>First line</div>
+        <div class="wi"><span class="kk">v</span>Last selection</div>
+        <div class="wi"><span class="kk">t</span>Next tab</div>
+        <div class="wi"><span class="kk">h</span>Hover</div>
+        <div class="wi"><span class="kk">a</span>Code actions</div>
+        <div class="wi"><span class="kk">s</span>Stage this hunk <span class="chip">git</span></div>
+      </div>
+    </div>
+    <div class="status" style="position:absolute;left:0;right:0;bottom:0"><span class="mode mN">NORMAL <span style="font-weight:500;margin-left:5px">g</span></span><span style="margin-left:auto">Ln 112, Col 19</span><span>Keymap: Vim</span><span>Rust</span></div>
+  </div>
+  <div class="note" style="left:24px;top:420px;width:760px">Each prefix gets the card: <span class="mono">g z [ ] Ctrl-W</span> and the leader, and an operator waiting for its motion (<span class="mono">d</span> lists <span class="mono">w e $ i a</span>…). It waits half a second, so someone who knows the keys never sees it (<span class="mono">vim.which_key_delay</span>, 0 turns it off). Your own mappings show with their description. A plugin's keys carry its name as a chip.</div>
+
+  <span class="label" style="left:808px;top:16px">With the VS Code keymap, after Ctrl+K</span>
+  <div class="wk" style="left:808px;top:38px;width:448px;box-sizing:border-box">
+    <div class="wkh"><span class="chord">Ctrl K</span><span class="m">then…</span></div>
+    <div class="grid" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr)">
+      <div class="wi"><span class="kk" style="min-width:44px">Ctrl F</span>Format the selection</div>
+      <div class="wi"><span class="kk" style="min-width:44px">Ctrl I</span>Hover</div>
+      <div class="wi"><span class="kk" style="min-width:44px">S</span>Save, no format</div>
+      <div class="wi"><span class="kk" style="min-width:44px">V</span>Markdown preview</div>
+      <div class="wi"><span class="kk" style="min-width:44px">Ctrl S</span>Keyboard Shortcuts</div>
+      <div class="wi"><span class="kk" style="min-width:44px">Ctrl T</span>Colour Theme</div>
+    </div>
+  </div>
+
+  <span class="label" style="left:808px;top:228px">A plugin's leader keys · plugin.toml</span>
+  <div class="island" style="left:808px;top:250px;width:448px;height:170px">
+    <div class="toml"><span class="c"># the leader, then "x" for this plugin's group</span>
+<span class="k">[[keys]]</span>
+group = <span class="s">"x"</span>
+label = <span class="s">"+ todo"</span>
+<span class="k">[[keys]]</span>
+keys = <span class="s">"x n"</span>
+command = <span class="s">"todo.next"</span>
+label = <span class="s">"Next TODO"</span></div>
+  </div>
+
+  <span class="label" style="left:24px;top:510px">Macros, in Vim</span>
+  <div class="island" style="left:24px;top:532px;width:560px;height:110px;display:flex;flex-direction:column;justify-content:space-around;padding:6px 0">
+    <div class="status" style="background:transparent"><span class="mode mN">NORMAL</span><span class="rec"><span class="rd"></span>Recording @q</span><span class="mono" style="color:#d4d5da">0wcwkept<span class="m">⎋</span>j</span><span style="margin-left:auto">q stops</span></div>
+    <div class="status" style="background:transparent"><span class="mode mN">NORMAL</span><span style="color:#d4d5da">Playing @q · 3 of 20</span><span style="width:120px;height:4px;border-radius:2px;background:#26272c;overflow:hidden"><span style="display:block;width:15%;height:100%;background:#7c9cff"></span></span><span style="margin-left:auto">Esc stops</span></div>
+    <div class="status" style="background:transparent"><span class="mode mN">NORMAL</span><span>Ran @q 20 times · stopped early at line 140, where w had nowhere to go</span></div>
+  </div>
+  <div class="note" style="left:24px;top:652px;width:560px"><b>qq</b> records, <b>q</b> stops, <b>@q</b> plays, <b>20@q</b> plays it 20 times and <b>@@</b> plays the last again. The keys show as they're typed. A run stops at the first key that fails, as Vim's does, and says where. <b>u</b> undoes a whole run. A macro is a register, so <span class="mono">"qp</span> pastes it as text to edit, and <span class="mono">"qy</span> puts it back. With several cursors it plays at each.</div>
+
+  <span class="label" style="left:608px;top:510px">Macros for everyone, from the palette</span>
+  <div class="card" style="left:608px;top:532px;width:648px;padding:6px">
+    <div class="pin">macro<span style="width:1.5px;height:15px;background:#7c9cff;margin-left:2px"></span></div>
+    <div class="pi on">Record a Macro<span class="src"><span class="kbd">Ctrl Alt R</span></span></div>
+    <div class="pi">Play the Last Macro<span class="src"><span class="kbd">Ctrl Alt P</span></span></div>
+    <div class="pi">Save the Last Macro As…<span class="src">gives it a name, a palette entry and a key</span></div>
+    <div class="grpn">Saved</div>
+    <div class="pi">Macro: Quote the word<span class="src"><span class="m">Bind a key…</span><span class="kbd">Ctrl Alt 1</span></span></div>
+  </div>
+  <div class="note" style="left:608px;top:740px;width:648px">With the VS Code keymap, macros record what you type and the commands you run. Saved ones go in settings.toml as <span class="mono">[[macros]]</span> with a name and their keys, and Keyboard Shortcuts lists them.</div>
+
+  <div class="toast" style="left:808px;top:432px;width:448px;padding:9px 13px"><span class="mode mN" style="margin-right:8px">NOR</span><b style="font-weight:500">Helix</b> <span class="m">has the same views. Keys select first, then act (<span class="mono">wd</span>), and Space opens the which-key card.</span></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1624}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

@@ -42,6 +42,8 @@ const USER_TEMPLATE: &str = r#"# merlin settings. Saving this file applies them.
 # icons = "nerd"      # or "plain"
 # theme = "dark"
 # ui_font_size = 13   # the window's own text, apart from the code
+# keymap = "vscode"   # or "vim"
+# line_numbers = "on" # or "relative", counted from the cursor in Vim's Normal mode
 
 [files]
 # trim_trailing_whitespace = false
@@ -50,6 +52,11 @@ const USER_TEMPLATE: &str = r#"# merlin settings. Saving this file applies them.
 # auto_save_delay = 1000   # milliseconds, with after_delay
 # hot_exit = true     # quit without asking; unsaved files come back next time
 # A project's .editorconfig wins over these and the indentation settings.
+
+[vim]
+# insert_escape = "jk"   # typed quickly, leaves Insert mode as Esc does
+# clipboard = false      # y, d and p use the system clipboard
+# keep = ["ctrl+p", "ctrl+shift+p", "ctrl+s", "ctrl+tab", "ctrl+`", "ctrl+c"]   # do merlin's thing in every mode
 
 [keys]
 # "ctrl+k" = "view.minimap"
@@ -295,6 +302,40 @@ pub fn editor(table: &toml::Table) -> Settings {
             .and_then(|f| f.get("auto_save_delay"))
             .and_then(|v| v.as_integer().or_else(|| v.as_str()?.parse().ok()))
             .map_or(defaults.auto_save_delay, |n| n.clamp(10, 600_000) as u64),
+        keymap: match editor
+            .and_then(|e| e.get("keymap"))
+            .and_then(|v| v.as_str())
+        {
+            Some("vim") => merlin_core::Keymap::Vim,
+            _ => defaults.keymap,
+        },
+        vim: {
+            let vim = table.get("vim").and_then(|v| v.as_table());
+            let d = defaults.vim.clone();
+            merlin_core::VimSettings {
+                insert_escape: vim
+                    .and_then(|v| v.get("insert_escape"))
+                    .and_then(|v| v.as_str())
+                    .filter(|s| s.chars().count() == 2)
+                    .map_or(d.insert_escape, str::to_string),
+                clipboard: vim
+                    .and_then(|v| v.get("clipboard"))
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(d.clipboard),
+                keep: vim
+                    .and_then(|v| v.get("keep"))
+                    .and_then(|v| v.as_array())
+                    .map_or(d.keep, |keys| {
+                        keys.iter()
+                            .filter_map(|k| k.as_str().map(str::to_string))
+                            .collect()
+                    }),
+            }
+        },
+        relative_line_numbers: editor
+            .and_then(|e| e.get("line_numbers"))
+            .and_then(|v| v.as_str())
+            == Some("relative"),
         keys,
     }
 }

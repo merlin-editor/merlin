@@ -153,7 +153,10 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
     ("debug.configure", "Debug: Add Configuration…"),
     ("debug.attach", "Debug: Attach to Process…"),
     ("debug.toggle_breakpoint", "Debug: Toggle Breakpoint"),
-    ("debug.toggle_breakpoints", "Debug: Turn All Breakpoints On or Off"),
+    (
+        "debug.toggle_breakpoints",
+        "Debug: Turn All Breakpoints On or Off",
+    ),
     ("debug.remove_breakpoints", "Debug: Remove All Breakpoints"),
     ("view.debug", "View: Run and Debug"),
     ("view.debug_console", "View: Debug Console"),
@@ -168,6 +171,7 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
     ("go.prev_change", "Go: Previous Change"),
     ("review.next", "Go: Next Change to Review"),
     ("nav.back", "Go: Back"),
+    ("vim.toggle", "Preferences: Toggle Vim Mode"),
     ("app.about", "Help: About"),
     ("app.quit", "File: Exit"),
 ];
@@ -290,6 +294,23 @@ impl Editor {
             }
             "view.changes" => self.show_view(views::CHANGES, fx),
             "view.panel" => self.toggle_bottom(),
+            "vim.toggle" => {
+                let keymap = if self.vim.is_some() {
+                    super::Keymap::VsCode
+                } else {
+                    super::Keymap::Vim
+                };
+                self.set_keymap(keymap);
+                let name = if keymap == super::Keymap::Vim {
+                    "vim"
+                } else {
+                    "vscode"
+                };
+                fx.push(Effect::SetSetting {
+                    key: "editor.keymap".into(),
+                    value: format!("\"{name}\""),
+                });
+            }
             "view.minimap" => {
                 self.minimap = !self.minimap;
                 fx.push(set_flag("editor.minimap", self.minimap));

@@ -47,6 +47,11 @@ pub struct Settings {
     /// Quitting keeps unsaved files for the next start, rather than
     /// asking to save them.
     pub hot_exit: bool,
+    /// How keys work in the text: VS Code's, or Vim's.
+    pub keymap: super::Keymap,
+    pub vim: super::VimSettings,
+    /// Line numbers count from the cursor's line, in Vim's Normal mode.
+    pub relative_line_numbers: bool,
     /// Keys and the commands they run, such as `ctrl+k ctrl+m` and
     /// `view.minimap`, maybe only when a condition holds. An empty command
     /// unbinds the keys.
@@ -76,6 +81,9 @@ impl Default for Settings {
             auto_save: AutoSave::Off,
             auto_save_delay: 1000,
             hot_exit: true,
+            keymap: Default::default(),
+            vim: Default::default(),
+            relative_line_numbers: false,
             keys: Vec::new(),
         }
     }
@@ -113,6 +121,9 @@ impl Editor {
         self.saving.auto = settings.auto_save;
         self.saving.delay_ms = settings.auto_save_delay.max(10);
         self.hot_exit = settings.hot_exit;
+        self.set_keymap(settings.keymap);
+        self.vim_settings = settings.vim;
+        self.relative_numbers = settings.relative_line_numbers;
         if !self.preview_tabs {
             self.preview = None;
         }

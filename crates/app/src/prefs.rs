@@ -500,6 +500,16 @@ impl App {
                 ],
             },
             Section {
+                category: Category::Keys,
+                title: "Keymap",
+                rows: vec![
+                    row("Keymap", "How keys work in the text. The rest of the window keeps its shortcuts, and the status bar's Keymap item switches.", "editor.keymap", pick(vec!["vscode", "vim"], "vscode")),
+                    row("Leave Insert mode with", "Two letters typed quickly, as well as Esc.", "vim.insert_escape", pick(vec!["off", "jk", "jj", "kj"], "off")),
+                    row("Yank to the clipboard", "y, d and p use the system clipboard, as clipboard=unnamedplus.", "vim.clipboard", on(false)),
+                    row("Relative line numbers", "Counted from the cursor's line, in Normal mode.", "editor.line_numbers", pick(vec!["on", "relative"], "on")),
+                ],
+            },
+            Section {
                 category: Category::Files,
                 title: "Tabs",
                 rows: vec![
@@ -537,7 +547,7 @@ impl App {
         .iter()
         .filter(|k| get(scope, k).is_some())
         .count();
-        changed[Category::Keys.index()] = scope
+        changed[Category::Keys.index()] += scope
             .get("keys")
             .and_then(|t| t.as_table())
             .map_or(0, |t| t.len());

@@ -253,6 +253,16 @@ impl Buffer {
         edit.apply(&mut self.rope);
     }
 
+    /// How many undo steps there are, for [`Buffer::join_undo`].
+    pub fn undo_steps(&self) -> usize {
+        self.history.steps()
+    }
+
+    /// Makes the undo steps from `from` on one.
+    pub fn join_undo(&mut self, from: usize) {
+        self.history.join_from(from, self.saved);
+    }
+
     pub fn take_changes(&mut self) -> Vec<Change> {
         std::mem::take(&mut self.changes)
     }

@@ -777,7 +777,13 @@ impl Editor {
 
 /// From `from`, the bracket that balances: forward to a `close`, or back
 /// to an `open`. Gives up after a long way, to stay quick.
-fn scan(rope: &ropey::Rope, from: usize, forward: bool, open: char, close: char) -> Option<usize> {
+pub(super) fn scan(
+    rope: &ropey::Rope,
+    from: usize,
+    forward: bool,
+    open: char,
+    close: char,
+) -> Option<usize> {
     const LIMIT: usize = 200_000;
     let mut depth = 0usize;
     if forward {
