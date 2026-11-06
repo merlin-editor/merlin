@@ -199,6 +199,8 @@ pub struct WindowView {
     pub debug: Option<super::DebugBarView>,
     /// Vim's mode and the keys typed so far, for the status bar.
     pub vim: Option<super::VimView>,
+    /// Vim's command line under the text, while it's open.
+    pub vim_line: Option<super::VimLineView>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -547,6 +549,7 @@ impl Editor {
             terminal: self.terminal_view(),
             debug: self.debug_bar(),
             vim: self.vim_view(),
+            vim_line: self.vim_line_view(),
         }
     }
 

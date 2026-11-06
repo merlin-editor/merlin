@@ -276,6 +276,7 @@ pub fn kind(p: &Palette, kind: Kind) -> Look {
         Kind::Muted => text(p.muted),
         Kind::Border => text(p.border),
         Kind::Match => look(p.text, p.find_match),
+        Kind::Replaced => look(p.muted, mix(p.error, p.island, 0.14)),
         Kind::MatchCurrent => look(p.bright, p.find_current),
         Kind::Selection => look(p.text, p.selection),
         Kind::CurrentLine => look(p.text, p.current_line),

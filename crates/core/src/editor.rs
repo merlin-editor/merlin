@@ -62,7 +62,7 @@ mod testing;
 mod text_view;
 mod views;
 mod vim;
-pub use vim::{Keymap, VimCursor, VimMode, VimSettings, VimView};
+pub use vim::{Keymap, VimCursor, VimLineItem, VimLineView, VimMode, VimSettings, VimView};
 mod window;
 mod workspace;
 mod wrap;

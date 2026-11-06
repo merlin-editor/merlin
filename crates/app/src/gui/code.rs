@@ -143,6 +143,7 @@ impl Fonts {
                             width: inlay.cols,
                         },
                         &inlay.label,
+                        inlay.kind == merlin_core::InlayKind::Replacement,
                     ));
                     d += inlay.cols;
                 }
@@ -315,6 +316,17 @@ impl Fonts {
                 });
             }
 
+            // What Vim's `:s` takes away, struck through.
+            for (i, style) in l.styles.iter().enumerate() {
+                if *style != Style::Replaced || spots[i].row >= l.shown as usize {
+                    continue;
+                }
+                let spot = &spots[i];
+                let (x0, x1) = (x_of(spot.col), x_of(spot.col + spot.width as isize));
+                let y = row_y(spot.row) + (ch / 2.0).round();
+                quad(canvas, [x0, y, x1, y + s.max(1.0)], 0.0, p.muted);
+            }
+
             // Problems: a wave under each run of marked characters.
             let mut i = 0;
             while i < l.chars.len() {
@@ -398,8 +410,24 @@ impl Fonts {
 
             // Inlay hints: quiet chips, half a column of room either side
             // of their text, which keeps to the code's columns.
-            for (spot, label) in &chips {
+            for (spot, label, replacement) in &chips {
                 if spot.row >= l.shown as usize {
+                    continue;
+                }
+                let y = row_y(spot.row);
+                // What Vim's `:s` puts in: green, in the text's own columns.
+                if *replacement {
+                    let (x0, x1) = (x_of(spot.col), x_of(spot.col + spot.width as isize));
+                    let tint = theme::mix(p.success, p.island, 0.16);
+                    clipped_quad(canvas, [x0, y, x1, y + ch], 2.0 * s, tint, text_x, right);
+                    let mut x = x0;
+                    for c in label.chars() {
+                        let w = merlin_core::style::char_width(c).max(1);
+                        if x >= text_x && x + w as f32 * cw <= right {
+                            self.wide_glyph(c, canvas, x, y, w, p.success);
+                        }
+                        x += w as f32 * cw;
+                    }
                     continue;
                 }
                 let x0 = x_of(spot.col) + cw * 0.2;
@@ -407,7 +435,6 @@ impl Fonts {
                 if x1 <= text_x || x0 >= right {
                     continue;
                 }
-                let y = row_y(spot.row);
                 let pad = (ch * 0.1).round();
                 clipped_quad(
                     canvas,

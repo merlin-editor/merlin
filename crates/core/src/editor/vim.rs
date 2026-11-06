@@ -9,6 +9,10 @@ use std::time::{Duration, Instant};
 use super::*;
 use crate::doc::Doc;
 
+mod line;
+pub use line::{VimLineItem, VimLineView};
+use line::{search_regex, vim_regex};
+
 /// How keys work in the text.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Keymap {
@@ -62,6 +66,8 @@ pub enum VimCursor {
 pub struct VimView {
     pub mode: VimMode,
     pub pending: String,
+    /// What the last command said, such as "3 of 12".
+    pub note: Option<String>,
 }
 
 /// The settings under `[vim]`.
@@ -192,8 +198,19 @@ pub(crate) struct Vim {
     change: Option<Vec<Key>>,
     replaying: bool,
     last_find: Option<(char, char)>,
-    /// The last search: what, forward, and whole words only.
-    search: Option<(String, bool, bool)>,
+    /// The last search, as Vim writes it, and whether it went forward.
+    search: Option<(String, bool)>,
+    /// The search's matches are tinted, until `:noh` or Esc.
+    highlight: bool,
+    /// The command line, while it's open.
+    line: Option<line::Line>,
+    /// The `:` lines and searches typed before, for ↑.
+    history: Vec<String>,
+    searches: Vec<String>,
+    /// What the last command said, such as "3 of 12", for the status bar.
+    note: Option<String>,
+    /// The last `:s`, for `:&` and `&`.
+    last_substitute: Option<(String, String)>,
     /// Where Visual mode began, and its cursor.
     anchor: usize,
     cursor: usize,
@@ -335,9 +352,9 @@ fn action(s: &[char], visual: bool) -> Result<Option<usize>, ()> {
         return Ok(None);
     };
     let one = if visual {
-        "xXsSCDYRpPJuUoOIA~vV:\x1b\x16"
+        "xXsSCDYRpPJuUoOIA~vV:/?\x1b\x16"
     } else {
-        "iaIAoOxXsSCDYpPJuR.vV~K&\x1b\x12\x16\x01\x18\x0f\x05\x19\x04\x15\x06\x02\t\u{e006}\u{e007}\u{e008}"
+        "iaIAoOxXsSCDYpPJuR.vV~K&:/?\x1b\x12\x16\x01\x18\x0f\x05\x19\x04\x15\x06\x02\t\u{e006}\u{e007}\u{e008}"
     };
     if one.contains(c) {
         return Ok(Some(1));
@@ -620,6 +637,7 @@ impl Editor {
         Some(VimView {
             mode: vim.mode(),
             pending,
+            note: vim.note.clone(),
         })
     }
 
@@ -665,6 +683,11 @@ impl Editor {
         };
         if self.focus != Focus::Editor || self.doc().page.is_some() || self.in_review() {
             return false;
+        }
+        // The command line takes every key while it's open.
+        if vim.line.is_some() {
+            self.vim_line_key(key, fx);
+            return true;
         }
         let mode = vim.mode();
         let kept = self.vim_settings.keep.iter().any(|k| *k == key.spec());
@@ -808,6 +831,9 @@ impl Editor {
             }
         }
         let vim = self.vim.as_mut().expect("vim");
+        if vim.pending.is_empty() {
+            vim.note = None;
+        }
         vim.pending.push(t);
         vim.pending_keys.push(key);
         let visual = vim.mode().visual();
@@ -898,6 +924,9 @@ impl Editor {
                         doc.anchor = None;
                     }
                 });
+                if matches!(m.as_str(), "n" | "N" | "*" | "#") {
+                    self.vim_count_note();
+                }
             }
             What::Op(op, count2, target) => {
                 let count = match (cmd.count, count2) {
@@ -1200,14 +1229,20 @@ impl Editor {
                 }
                 let word = doc.slice(s, e);
                 let forward = first == '*';
-                let to = search(doc, s, &word, forward, true, n)?;
-                self.vim.as_mut().expect("vim").search = Some((word, forward, true));
+                // The word is letters, digits and `_`, which need no escaping.
+                let pattern = format!(r"\<{word}\>");
+                let to = search_regex(doc, s, &vim_regex(&pattern).ok()?, forward, n)?;
+                let vim = self.vim.as_mut().expect("vim");
+                vim.search = Some((pattern, forward));
+                vim.highlight = true;
                 (to, EXCL)
             }
             ('n' | 'N', None) => {
-                let (text, forward, whole) = last_search?;
+                let (pattern, forward) = last_search?;
                 let forward = forward == (first == 'n');
-                (search(doc, p, &text, forward, whole, n)?, EXCL)
+                let to = search_regex(doc, p, &vim_regex(&pattern).ok()?, forward, n)?;
+                self.vim.as_mut().expect("vim").highlight = true;
+                (to, EXCL)
             }
             ('\'' | '`', Some(mark)) => {
                 let (doc_id, at) = *marks.get(&mark)?;
@@ -1699,7 +1734,17 @@ impl Editor {
                 if self.has_carets() {
                     self.clear_carets();
                 }
+                self.vim.as_mut().expect("vim").highlight = false;
             }
+            (':', None) => {
+                let range = match count {
+                    Some(n) if n > 1 => format!(".,.+{}", n - 1),
+                    _ => String::new(),
+                };
+                self.vim_open_line(':', &range);
+            }
+            ('/' | '?', None) => self.vim_open_line(first, ""),
+            ('&', None) => self.vim_ex("s", None, fx),
             ('i', None) => self.vim_enter(VimMode::Insert),
             ('a', None) => {
                 self.each_caret(Kind::Other, |e, _| {
@@ -1898,7 +1943,6 @@ impl Editor {
                 self.run("file.close", fx);
             }
             ('Z', Some('Q')) => self.run("file.close", fx),
-            ('&', None) => {}
             _ => {}
         }
     }
@@ -2266,8 +2310,11 @@ impl Editor {
         let vim = self.vim.as_mut().expect("vim");
         vim.last_visual = Some((vim.mode(), vim.anchor, vim.cursor));
         vim.mode = Some(VimMode::Normal);
+        let cursor = vim.cursor;
         self.clear_carets();
-        self.doc_mut().anchor = None;
+        let doc = self.doc_mut();
+        doc.anchor = None;
+        doc.cursor = cursor.min(doc.buffer.len());
     }
 
     fn vim_visual(&mut self, cmd: Cmd, fx: &mut Vec<Effect>) {
@@ -2448,7 +2495,17 @@ impl Editor {
                         self.set_cursor(at);
                         self.vim_enter(VimMode::Insert);
                     }
-                    (':', None) => {}
+                    (':', None) => {
+                        let span = self.vim_visual_span();
+                        let id = self.doc().id;
+                        let end = span.end.saturating_sub(1).max(span.start);
+                        let vim = self.vim.as_mut().expect("vim");
+                        vim.marks.insert('<', (id, span.start));
+                        vim.marks.insert('>', (id, end));
+                        self.vim_leave_visual();
+                        self.vim_open_line(':', "'<,'>");
+                    }
+                    ('/' | '?', None) => self.vim_open_line(first, ""),
                     _ => {}
                 }
             }
@@ -2589,36 +2646,4 @@ fn find_in_line(doc: &Doc, p: usize, kind: char, target: char, n: usize) -> Opti
                 _ => at,
             },
     )
-}
-
-/// The `n`th match of `text` from `p`, going round the end.
-fn search(doc: &Doc, p: usize, text: &str, forward: bool, whole: bool, n: usize) -> Option<usize> {
-    let all = doc.buffer.text();
-    let rope = doc.buffer.rope();
-    let is_word = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
-    let hits: Vec<usize> = all
-        .match_indices(text)
-        .map(|(b, _)| rope.byte_to_char(b))
-        .filter(|&at| {
-            !whole
-                || (!is_word(at.checked_sub(1).and_then(|q| rope.get_char(q)))
-                    && !is_word(rope.get_char(at + text.chars().count())))
-        })
-        .collect();
-    if hits.is_empty() {
-        return None;
-    }
-    let mut at = p;
-    for _ in 0..n {
-        at = if forward {
-            hits.iter().copied().find(|&h| h > at).unwrap_or(hits[0])
-        } else {
-            hits.iter()
-                .rev()
-                .copied()
-                .find(|&h| h < at)
-                .unwrap_or(hits[hits.len() - 1])
-        };
-    }
-    Some(at)
 }

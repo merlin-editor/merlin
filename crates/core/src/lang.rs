@@ -101,6 +101,8 @@ pub enum InlayKind {
     Type,
     Parameter,
     Other,
+    /// What Vim's `:s` puts in, shown after what it replaces.
+    Replacement,
 }
 
 /// A hint a language server writes between the characters, such as a

@@ -605,6 +605,9 @@ impl Frame<'_> {
         if let Some(find) = &view.find {
             self.find(find, a);
         }
+        if let Some(line) = &view.vim_line {
+            self.vim_line(line, a);
+        }
         if let Some(popup) = &view.popup {
             self.popup(popup, a, cell);
         }
@@ -694,6 +697,107 @@ impl Frame<'_> {
 
     /// The find box at the top right of the code, as VS Code has it: the
     /// query with its count and arrows, and the replacement below it.
+    /// Vim's command line along the bottom of the text, with what it
+    /// suggests in a card over it.
+    fn vim_line(&mut self, line: &merlin_core::VimLineView, a: &Areas) {
+        let p = self.p;
+        let h = 34.0;
+        // The group's whole width, over the minimap and scrollbar too.
+        let right = a
+            .groups
+            .iter()
+            .find(|g| g.text == a.text)
+            .map_or(a.text.right(), |g| g.bar.right());
+        let r = Rect::new(a.text.x, a.text.bottom() - h, right - a.text.x, h);
+        // Square at the top, and round below as the island's corners are.
+        let fill = theme::mix(p.ground, p.island, 0.5);
+        self.canvas.round(r, 10.0, fill);
+        self.canvas.fill(Rect::new(r.x, r.y, r.w, h / 2.0), fill);
+        self.canvas.fill(Rect::new(r.x, r.y, r.w, 1.0), p.border);
+        self.hit(r, Hit::Block);
+        let mono = Face::mono(13.0);
+        let ui = Face::ui(11.5);
+        let x = r.x + 12.0;
+        let pw = self.text.width(&line.prefix, mono);
+        self.text
+            .draw_in_row(&mut self.canvas, &line.prefix, mono, x, r.y, h, p.muted, r);
+        let tx = x + pw + 2.0;
+        // The hint first, so the text knows where it must stop.
+        let hw = self.text.width(&line.hint, ui);
+        let hx = (r.right() - 12.0 - hw).max(tx + 120.0);
+        let hint_colour = if line.error { p.error } else { p.muted };
+        self.text
+            .draw_in_row(&mut self.canvas, &line.hint, ui, hx, r.y, h, hint_colour, r);
+        let clip = Rect::new(tx, r.y, (hx - 16.0 - tx).max(0.0), h);
+        self.text.draw_in_row(
+            &mut self.canvas,
+            &line.text,
+            mono,
+            tx,
+            r.y,
+            h,
+            p.bright,
+            clip,
+        );
+        let before: String = line.text.chars().take(line.cursor).collect();
+        let cx = tx + self.text.width(&before, mono);
+        if cx < clip.right() {
+            self.canvas
+                .fill(Rect::new(cx, r.y + 9.0, 1.5, h - 18.0), p.text);
+        }
+        if line.items.is_empty() {
+            return;
+        }
+        // The suggestions, over the line at its left.
+        let row = 26.0;
+        let w = 440.0_f32.min(r.w - 24.0);
+        let ch = line.items.len() as f32 * row + 10.0;
+        let card = Rect::new(r.x + 12.0, r.y - ch - 6.0, w, ch);
+        self.canvas.shadow(card, 8.0, theme::is_light(&p));
+        self.canvas.outline(card, 8.0, 1.0, p.border, p.widget);
+        let body = Face::ui(12.5);
+        for (i, item) in line.items.iter().enumerate() {
+            let rr = Rect::new(
+                card.x + 5.0,
+                card.y + 5.0 + i as f32 * row,
+                card.w - 10.0,
+                row,
+            );
+            if i == line.selected {
+                self.canvas.round(rr, 5.0, p.selected);
+            }
+            let face = if item.merlin { body } else { mono };
+            let nw = self.text.width(&item.name, face);
+            self.text.draw_in_row(
+                &mut self.canvas,
+                &item.name,
+                face,
+                rr.x + 10.0,
+                rr.y,
+                row,
+                p.bright,
+                rr,
+            );
+            let ax = rr.x + 10.0 + nw.max(if item.merlin { 0.0 } else { 44.0 }) + 12.0;
+            let chip = if item.merlin {
+                self.plugin_chip("merlin", rr.right() - 8.0, rr.y + 5.0) + 8.0
+            } else {
+                0.0
+            };
+            let about = Rect::new(ax, rr.y, (rr.right() - 12.0 - chip - ax).max(0.0), row);
+            self.text.draw_in_row(
+                &mut self.canvas,
+                &item.about,
+                body,
+                ax,
+                rr.y,
+                row,
+                p.muted,
+                about,
+            );
+        }
+    }
+
     fn find(&mut self, find: &FindView, a: &Areas) {
         let p = self.p;
         let rows = 1.0 + find.replace.is_some() as u8 as f32;
@@ -5478,14 +5582,16 @@ impl Frame<'_> {
         // Vim's mode in its colour, then the keys typed so far.
         if let Some(vim) = &view.vim {
             use merlin_core::VimMode;
+            let command = view.vim_line.is_some();
             let fill = match vim.mode {
+                _ if command => p.warning,
                 VimMode::Normal => p.accent,
                 VimMode::Insert => p.success,
                 VimMode::Visual | VimMode::VisualLine | VimMode::VisualBlock => p.keyword,
                 VimMode::Replace => p.error,
             };
             let chip_face = Face::ui(10.5).bold();
-            let label = vim.mode.label();
+            let label = if command { "COMMAND" } else { vim.mode.label() };
             let tw = self.text.width(label, chip_face);
             let r = Rect::new(x - 4.0, bar.y + 4.0, tw + 14.0, STATUS_H - 8.0);
             self.canvas.round(r, 4.0, fill);
@@ -5507,6 +5613,20 @@ impl Frame<'_> {
                     &mut self.canvas,
                     &vim.pending,
                     mono,
+                    x,
+                    bar.y,
+                    STATUS_H,
+                    p.text,
+                    bar,
+                );
+                x += w + 14.0;
+            }
+            if let Some(note) = &vim.note {
+                let w = self.text.width(note, face);
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    note,
+                    face,
                     x,
                     bar.y,
                     STATUS_H,

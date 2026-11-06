@@ -18,6 +18,8 @@ pub enum Style {
     GutterWarning,
     Muted,
     Match,
+    /// What Vim's `:s` takes away, struck through while it's typed.
+    Replaced,
     MatchCurrent,
     Selection,
     Border,

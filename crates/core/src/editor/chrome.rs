@@ -196,7 +196,9 @@ impl Editor {
         }
 
         // In Vim's Visual mode, its cursor rather than the selection's end.
-        let at = self.vim_visual_cursor().map_or(doc.cursor, |p| p.min(doc.buffer.len()));
+        let at = self
+            .vim_visual_cursor()
+            .map_or(doc.cursor, |p| p.min(doc.buffer.len()));
         let (line, col) = doc.line_col(at);
         let mut position = format!("Ln {}, Col {}", line + 1, col + 1);
         if !doc.extra.is_empty() {

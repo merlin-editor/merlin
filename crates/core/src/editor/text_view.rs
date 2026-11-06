@@ -394,6 +394,12 @@ impl Editor {
         // Visual mode's cursor, which isn't the selection's end.
         let vim_at = self.vim_visual_cursor().filter(|_| focused);
         let relative = self.relative_numbers() && focused;
+        // Vim's `:s` as it's typed, in the focused text.
+        let preview = if focused {
+            self.vim_preview()
+        } else {
+            Vec::new()
+        };
         let number_line = vim_at.map_or(cur_line, |p| doc.line_col(p.min(doc.buffer.len())).0);
         let highlight_line = focused && selection.is_none();
         let guides = self.guides(visible_lines(first, last_shown - first, lines));
@@ -618,7 +624,20 @@ impl Editor {
                 .collect();
             let eol_selected = selections.iter().any(|&(a, b)| (a..b).contains(&end));
             let first = doc.inlays.partition_point(|i| i.pos < start);
-            let inlays = doc.inlays[first..]
+            let mut replaced = Vec::new();
+            for edit in preview.iter().filter(|e| e.at >= start && e.at <= end) {
+                let col = edit.at - start;
+                let len = edit.removed.chars().count();
+                styles[col..(col + len).min(chars.len())].fill(Style::Replaced);
+                let label: String = edit.inserted.replace('\n', "⏎");
+                replaced.push(InlayView {
+                    col: col + len,
+                    cols: crate::style::str_width(&label),
+                    label,
+                    kind: crate::lang::InlayKind::Replacement,
+                });
+            }
+            let mut inlays: Vec<InlayView> = doc.inlays[first..]
                 .iter()
                 .take_while(|i| i.pos <= end)
                 .map(|i| InlayView {
@@ -628,6 +647,10 @@ impl Editor {
                     kind: i.kind,
                 })
                 .collect();
+            if !replaced.is_empty() {
+                inlays.extend(replaced);
+                inlays.sort_by_key(|i| i.col);
+            }
             let note = note.filter(|_| self.inline_notes).map(|m| {
                 let text = note_text(&m.message);
                 match notable.len().saturating_sub(1) {

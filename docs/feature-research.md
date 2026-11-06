@@ -270,8 +270,10 @@ These are ordered by votes against effort.
 8. **Vim or Helix mode, which-key and macros** (`KeysFlow.dc.html`).
    **Being built**: Vim's modes, motions, operators, text objects,
    registers, counts, the dot and undo are in, with the mode chip, the
-   cursor's shapes and relative numbers. The `:` line, which-key, macros
-   and Helix are next.
+   cursor's shapes and relative numbers. The `:` line is in, with Vim's
+   commands and ranges, merlin's commands by name, `:s` shown as it's
+   typed, and `/` and `?`. Which-key with the registers and marks cards,
+   macros and Helix are next.
 9. **Several folders in one window, and floating or second windows.**
 10. **Markdown preview**, with Mermaid.
 

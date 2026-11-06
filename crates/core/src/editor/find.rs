@@ -63,6 +63,15 @@ enum Pattern {
 }
 
 impl Matcher {
+    /// A regular expression's matches.
+    pub(crate) fn regex(re: regex::Regex) -> Self {
+        Self {
+            pattern: Pattern::Regex(re),
+            whole_word: false,
+            scope: None,
+        }
+    }
+
     /// Exactly `needle`, case and all.
     pub(crate) fn exact(needle: &[char]) -> Self {
         Self {
@@ -237,7 +246,11 @@ impl Editor {
     /// How the find box matches, if it has a query that can be used. Case
     /// is ignored unless Match Case is on or the query has capitals.
     pub(crate) fn query(&self) -> Option<Matcher> {
-        self.matcher().ok().flatten()
+        // With the find box closed, Vim's search, while it's tinted.
+        match &self.find {
+            Some(_) => self.matcher().ok().flatten(),
+            None => self.vim_matcher(),
+        }
     }
 
     /// The find box's matcher, `None` with no query, or an error for a

@@ -212,3 +212,114 @@ fn several_cursors_each_follow_the_keys() {
     s.run("key shift+alt+down; type dw");
     assert_eq!(s.text(), "two\ntwo");
 }
+
+#[test]
+fn colon_s_replaces_in_the_line_or_the_file() {
+    let mut s = vim("pinned pinned\npinned");
+    s.run("type :s/pinned/kept/");
+    let line = s.editor.window_view().vim_line.expect("the line is open");
+    assert!(line.hint.starts_with("1 in 1 line"), "{}", line.hint);
+    s.run("key enter");
+    assert_eq!(s.text(), "kept pinned\npinned");
+    s.run("type :%s/pinned/kept/g; key enter");
+    assert_eq!(s.text(), "kept kept\nkept");
+    s.run("type u");
+    assert_eq!(s.text(), "kept pinned\npinned", "one undo takes it back");
+}
+
+#[test]
+fn colon_s_in_visual_mode_takes_the_selection() {
+    let mut s = vim("a\na\na");
+    s.run("type Vj:");
+    assert_eq!(s.editor.window_view().vim_line.unwrap().text, "'<,'>");
+    s.run("type s/a/b/; key enter");
+    assert_eq!(s.text(), "b\nb\na");
+}
+
+#[test]
+fn the_preview_strikes_out_what_goes() {
+    let mut s = vim("let pinned = 1;");
+    s.run("type :s/pinned/kept/");
+    let view = &s.editor.text_views()[0];
+    let line = &view.lines[0];
+    assert_eq!(line.styles[4], merlin_core::style::Style::Replaced);
+    assert!(line.inlays.iter().any(|i| i.label == "kept" && i.col == 10));
+    s.run("key esc");
+    assert!(s.editor.window_view().vim_line.is_none());
+    assert_eq!(s.text(), "let pinned = 1;", "Esc leaves the text as it was");
+}
+
+#[test]
+fn search_moves_as_typed_and_n_goes_on() {
+    let mut s = vim("one two one two one");
+    s.run("type /two");
+    assert_eq!(s.editor.cursor(), 4, "the first match as it's typed");
+    s.run("key enter");
+    assert_eq!(
+        s.editor.window_view().vim.unwrap().note.as_deref(),
+        Some("1 of 2")
+    );
+    s.run("type n");
+    assert_eq!(s.editor.cursor(), 12);
+    s.run("type N");
+    assert_eq!(s.editor.cursor(), 4);
+    s.run("type /nothing; key esc");
+    assert_eq!(s.editor.cursor(), 4, "Esc goes back");
+    s.run("type ?one; key enter");
+    assert_eq!(s.editor.cursor(), 0);
+}
+
+#[test]
+fn line_commands_take_ranges() {
+    let mut s = vim("c\na\nb\na");
+    s.run("type :sort u; key enter");
+    assert_eq!(s.text(), "a\nb\nc");
+    s.run("type :2d; key enter");
+    assert_eq!(s.text(), "a\nc");
+    s.run("type :g/c/d; key enter");
+    assert_eq!(s.text(), "a");
+    let mut s = vim("x\ny\nz");
+    s.run("type :1m$; key enter");
+    assert_eq!(s.text(), "y\nz\nx");
+    s.run("type :%norm Ai; key enter");
+    assert_eq!(s.text(), "yi\nzi\nxi");
+    s.run("type :2; key enter");
+    assert_eq!(s.editor.cursor(), 3);
+}
+
+#[test]
+fn merlins_commands_are_there_by_name() {
+    let mut s = vim("text");
+    s.run("type :minimap");
+    let line = s.editor.window_view().vim_line.unwrap();
+    assert!(
+        line.items
+            .iter()
+            .any(|i| i.merlin && i.name.contains("Minimap")),
+        "{:?}",
+        line.items
+    );
+    s.run("key enter");
+    assert!(s.effects.iter().any(
+        |e| matches!(e, merlin_core::Effect::SetSetting { key, .. } if key == "editor.minimap")
+    ));
+}
+
+#[test]
+fn up_brings_back_the_last_lines() {
+    let mut s = vim("a a");
+    s.run("type :s/a/b/; key enter");
+    s.run("type :; key up");
+    assert_eq!(s.editor.window_view().vim_line.unwrap().text, "s/a/b/");
+}
+
+#[test]
+fn write_and_quit() {
+    let mut s = vim("text");
+    s.run("type x:w; key enter");
+    assert!(
+        s.effects
+            .iter()
+            .any(|e| matches!(e, merlin_core::Effect::Save { .. }))
+    );
+}
