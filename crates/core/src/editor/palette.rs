@@ -123,6 +123,11 @@ impl Editor {
                             self.go_to(n - 1, 0);
                         }
                     }
+                    (Some((item, _)), Source::Picker { plugin, .. })
+                        if plugin == super::debug::DEBUG =>
+                    {
+                        self.debug_picked(&item, fx)
+                    }
                     (Some((item, _)), Source::Picker { plugin, id }) => {
                         fx.push(Effect::PluginPick {
                             plugin,

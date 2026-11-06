@@ -11,3 +11,11 @@ id = "python"
 name = "Python"
 extensions = ["py", "pyi"]
 line-comment = "#"
+
+[[debuggers]]
+id = "debugpy"
+name = "debugpy"
+languages = ["python"]
+command = ["python3", "-m", "debugpy.adapter"]
+install = "pip install debugpy"
+launch = { justMyCode = true, console = "internalConsole" }

@@ -18,6 +18,23 @@ impl Default for Language {
 
 impl Plugin for Language {
     fn buffer(&mut self, event: BufferEvent) {
+        // The file in front can be debugged as it is.
+        if matches!(event, BufferEvent::Switched)
+            && let Ok(Some(path)) = host::active_path()
+            && path.ends_with(".py")
+        {
+            let name = path.rsplit('/').next().unwrap_or(&path).to_string();
+            host::set_debug_targets(&[DebugTarget {
+                name: format!("This file: {name}"),
+                debugger: String::new(),
+                language: "python".into(),
+                program: path.clone(),
+                args: Vec::new(),
+                build: String::new(),
+                detail: path,
+                launch: String::new(),
+            }]);
+        }
         self.0.buffer(event);
     }
 

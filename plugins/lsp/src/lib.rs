@@ -1545,6 +1545,7 @@ impl Lsp {
                             })
                             .collect();
                         host::set_tasks(&tasks);
+                        host::set_debug_targets(&debug_targets(&server.tasks));
                     }
                 }
             }
@@ -1880,6 +1881,32 @@ merlin_plugin::export!(Lsp);
 
 /// A binary or bench to run: its name, and its command line and kind.
 type RunTask = (String, (String, String));
+
+/// The binaries among a crate's tasks, to debug: each built first, then
+/// started from `target/debug`.
+fn debug_targets(tasks: &BTreeMap<String, (String, String)>) -> Vec<DebugTarget> {
+    tasks
+        .iter()
+        .filter(|(_, (command, detail))| detail == "bin" && command.starts_with("cargo run"))
+        .filter_map(|(name, (command, _))| {
+            let bin = name.strip_prefix("Run ")?;
+            let (cargo, args) = match command.split_once(" -- ") {
+                Some((c, a)) => (c, a.split_whitespace().map(String::from).collect()),
+                None => (command.as_str(), Vec::new()),
+            };
+            Some(DebugTarget {
+                name: bin.to_string(),
+                debugger: String::new(),
+                language: "rust".into(),
+                program: format!("target/debug/{bin}"),
+                args,
+                build: cargo.replacen("cargo run", "cargo build", 1),
+                detail: format!("--bin {bin}"),
+                launch: String::new(),
+            })
+        })
+        .collect()
+}
 
 /// rust-analyzer's runnables in a file: its tests, each with the cargo
 /// command line that runs it, and its binaries and benches, as tasks by

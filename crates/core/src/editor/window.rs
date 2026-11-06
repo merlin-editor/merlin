@@ -146,6 +146,8 @@ pub enum UiEvent {
     Hover(super::context::HoverButton),
     /// A row of the code action list, by its index.
     Action(usize),
+    /// A button of the debug toolbar.
+    Debug(super::DebugButton),
 }
 
 /// What the window draws around the text.
@@ -190,6 +192,9 @@ pub struct WindowView {
     pub dialog: Option<super::DialogView>,
     /// The terminal panel, when it shows.
     pub terminal: Option<super::TerminalView>,
+    /// The debug toolbar, while a run is on; the status bar takes the
+    /// debug colour then.
+    pub debug: Option<super::DebugBarView>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -312,6 +317,7 @@ impl Editor {
                 "source-control",
             ),
             (super::testing::TESTS, Icon::Testing, "Tests", "testing"),
+            (super::debug::DEBUG, Icon::Debug, "Run and Debug", "debug"),
             (OUTLINE, Icon::Outline, "Outline", "outline"),
             (PLUGINS, Icon::Plugin, "Plugins", "plugins"),
         ] {
@@ -535,6 +541,7 @@ impl Editor {
             minimap: self.minimap,
             dialog: self.dialog_view(),
             terminal: self.terminal_view(),
+            debug: self.debug_bar(),
         }
     }
 
@@ -543,6 +550,7 @@ impl Editor {
             UiEvent::ContextItem(i) => self.context_item(i, fx),
             UiEvent::Hover(button) => self.hover_button(button, fx),
             UiEvent::Action(i) => self.action_clicked(i, fx),
+            UiEvent::Debug(button) => self.debug_command(button.command(), fx),
             UiEvent::CloseContext => self.close_context(),
             UiEvent::MenuTitle(i) => self.menu_title(i),
             UiEvent::MenuItem(i) => self.menu_item(i, fx),
@@ -650,6 +658,13 @@ impl Editor {
             } => {
                 self.clicks = clicks.max(1);
                 self.click_target(side, index, fx)
+            }
+            UiEvent::Check { side, index }
+                if self.active_panel_name(side).as_deref() == Some(super::debug::DEBUG) =>
+            {
+                if let Some(Target::Button(id)) = self.panel_targets(side).into_iter().nth(index) {
+                    self.debug_check(&id, fx);
+                }
             }
             UiEvent::Check { side, index } => {
                 self.click_target(side, index, fx);

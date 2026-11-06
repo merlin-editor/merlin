@@ -55,6 +55,15 @@ impl Editor {
                 self.popup = None;
                 self.code_actions(fx);
             }
+            // Elsewhere in that room, a press sets or clears a breakpoint,
+            // as in VS Code's glyph margin.
+            MouseKind::Down if here && self.break_line(x, y).is_some() => {
+                if let (Some(line), Some(path)) =
+                    (self.break_line(x, y), self.doc().buffer.path.clone())
+                {
+                    self.toggle_breakpoint(&path, line as u32, fx);
+                }
+            }
             kind => {
                 // A drag goes on in the group it began in.
                 if !here && kind != MouseKind::Down {
@@ -103,6 +112,22 @@ impl Editor {
         }
         let pos = self.pos_at_screen(text.x + self.gutter() as u16, y);
         self.doc().line_col(pos).0 == line
+    }
+
+    /// The line whose breakpoint room cell (`x`, `y`) is in: the gutter's
+    /// cells left of the numbers, after the sign.
+    fn break_line(&self, x: u16, y: u16) -> Option<usize> {
+        let text = self.layout().text;
+        let from = text.x + self.blame_cols() as u16 + self.has_signs() as u16;
+        let room = self.bulb_room() as u16;
+        if room == 0 || !text.contains(x, y) || x < from || x >= from + room || !self.can_break_here() {
+            return None;
+        }
+        let pos = self.pos_at_screen(text.x + self.gutter() as u16, y);
+        let line = self.doc().line_col(pos).0;
+        // Past the last line is no line.
+        let rows = self.doc().buffer.rope().len_lines();
+        (line < rows).then_some(line)
     }
 
     /// Does `f` in group `g`, without focusing it.

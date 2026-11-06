@@ -513,6 +513,9 @@ impl Frame<'_> {
 
     /// What floats over the code: notices and the palette.
     pub fn overlays(&mut self, view: &WindowView, a: &Areas, w: f32, h: f32) {
+        if let Some(bar) = &view.debug {
+            self.debug_bar(bar, a.editor);
+        }
         if let Some(toast) = &view.toast {
             self.toast(toast, a.editor);
         }
@@ -5317,6 +5320,11 @@ impl Frame<'_> {
     fn status(&mut self, view: &WindowView, w: f32, h: f32) {
         let p = self.p;
         let bar = Rect::new(0.0, h - STATUS_H, w, STATUS_H);
+        // While debugging, the bar takes the debug colour, as VS Code's.
+        let debugging = view.debug.is_some();
+        if debugging {
+            self.canvas.fill(bar, theme::mix(p.warning, p.ground, 0.14));
+        }
         let face = Face::ui(12.0);
         let mut x = RAIL_W + 12.0;
         let mut left_end = x;
@@ -5335,6 +5343,8 @@ impl Frame<'_> {
                 p.error
             } else if item.accent {
                 p.accent
+            } else if debugging {
+                p.warning
             } else {
                 p.muted
             };
@@ -5396,6 +5406,117 @@ impl Frame<'_> {
                 );
             }
         }
+    }
+
+    /// The debug toolbar, floating at the top of the code: Continue or
+    /// Pause, the steps, Restart and Stop; only Stop while building.
+    fn debug_bar(&mut self, bar: &merlin_core::DebugBarView, editor: Rect) {
+        use merlin_core::DebugButton as B;
+        let p = self.p;
+        let buttons: Vec<(B, &str, &str, u32)> = if bar.building {
+            vec![(B::Stop, "■", "Stop (Shift+F5)", p.error)]
+        } else {
+            let first = if bar.paused {
+                (B::Continue, "▶", "Continue (F5)", p.success)
+            } else {
+                (B::Pause, "❚❚", "Pause (F6)", p.warning)
+            };
+            vec![
+                first,
+                (B::StepOver, "↷", "Step Over (F10)", p.accent),
+                (B::StepInto, "↓", "Step Into (F11)", p.accent),
+                (B::StepOut, "↑", "Step Out (Shift+F11)", p.accent),
+                (B::Restart, "↻", "Restart (Ctrl+Shift+F5)", p.success),
+                (B::Stop, "■", "Stop (Shift+F5)", p.error),
+            ]
+        };
+        let (bw, bh, pad) = (30.0, 26.0, 4.0);
+        let w = buttons.len() as f32 * (bw + 2.0) - 2.0 + pad * 2.0;
+        let r = Rect::new(
+            (editor.x + (editor.w - w) / 2.0).round(),
+            editor.y + 6.0,
+            w,
+            bh + pad * 2.0,
+        );
+        self.canvas.shadow(r, 9.0, theme::is_light(&p));
+        self.canvas.outline(r, 9.0, 1.0, p.border, p.widget);
+        self.hit(r, Hit::Block);
+        let face = Face::ui(14.0).bold();
+        let mut x = r.x + pad;
+        for (button, glyph, tip, colour) in buttons {
+            let b = Rect::new(x, r.y + pad, bw, bh);
+            // Steps wait while it runs.
+            let waiting = !bar.paused
+                && !bar.building
+                && matches!(button, B::StepOver | B::StepInto | B::StepOut);
+            if !waiting {
+                if self.hovered(b) {
+                    self.canvas.round(b, 6.0, p.hover);
+                }
+                self.hit(b, Hit::Ui(UiEvent::Debug(button)));
+            }
+            self.tips.push((b, tip.to_string()));
+            let colour = if waiting { theme::mix(colour, p.widget, 0.65) } else { colour };
+            // A step is drawn as its arrow just over a dot, the line it
+            // lands on, as VS Code draws them.
+            if matches!(button, B::StepOver | B::StepInto | B::StepOut) {
+                self.step_icon(button, b.x + bw / 2.0, b.y + bh / 2.0, colour);
+            } else {
+                let gw = self.text.width(glyph, face);
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    glyph,
+                    face,
+                    b.x + (bw - gw) / 2.0,
+                    b.y,
+                    bh,
+                    colour,
+                    b,
+                );
+            }
+            x += bw + 2.0;
+        }
+    }
+
+    /// A step button's icon, in a 16 px square centred at (`cx`, `cy`):
+    /// an arc over the line for Step Over, an arrow down into it or up out
+    /// of it, and the dot under each.
+    fn step_icon(&mut self, button: merlin_core::DebugButton, cx: f32, cy: f32, colour: u32) {
+        use merlin_core::DebugButton as B;
+        let w = 1.7;
+        let c = &mut self.canvas;
+        match button {
+            B::StepOver => {
+                // An arc over the top, from left to right, then its head.
+                let (ox, oy, r) = (cx, cy - 0.5, 5.5);
+                let steps = 10;
+                let at = |i: usize| {
+                    let t = std::f32::consts::PI * (1.0 + i as f32 / steps as f32);
+                    (ox + r * t.cos(), oy + r * t.sin())
+                };
+                for i in 0..steps {
+                    c.line(at(i), at(i + 1), w, colour);
+                }
+                let end = (ox + r, oy);
+                c.line(end, (end.0 - 3.6, end.1 - 1.2), w, colour);
+                c.line(end, (end.0 + 0.9, end.1 - 3.6), w, colour);
+            }
+            B::StepInto => {
+                let (top, tip) = (cy - 7.5, cy + 1.0);
+                c.line((cx, top), (cx, tip), w, colour);
+                c.line((cx - 3.5, tip - 3.5), (cx, tip), w, colour);
+                c.line((cx + 3.5, tip - 3.5), (cx, tip), w, colour);
+            }
+            _ => {
+                let (bottom, tip) = (cy + 1.0, cy - 7.5);
+                c.line((cx, bottom), (cx, tip), w, colour);
+                c.line((cx - 3.5, tip + 3.5), (cx, tip), w, colour);
+                c.line((cx + 3.5, tip + 3.5), (cx, tip), w, colour);
+            }
+        }
+        let r = 2.1;
+        let dy = cy + 5.2;
+        c.round(Rect::new(cx - r, dy - r, r * 2.0, r * 2.0), r, colour);
     }
 
     fn toast(&mut self, toast: &ToastView, editor: Rect) {

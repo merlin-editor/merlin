@@ -1,0 +1,19 @@
+[package]
+name = "dap"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+merlin-plugin = { path = "../../sdk/rust" }
+serde_json = "1"
+
+[profile.release]
+opt-level = "s"
+strip = true
+
+# Its own workspace: it builds for wasm32-wasip2, not the host.
+[workspace]

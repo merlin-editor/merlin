@@ -8,6 +8,7 @@ mod compare;
 mod compare_files;
 mod context;
 mod crumbs;
+mod debug;
 mod dialog;
 mod dump;
 mod editing;
@@ -35,6 +36,11 @@ mod palette;
 mod panels;
 mod peek;
 pub use blame::{BlameCardView, BlameCell, CommitInfo};
+pub use debug::{
+    BreakMark, Breakpoint, BreakpointState, DAP, DebugBarView, DebugButton, DebugStart, DebugState,
+    DebugTarget, DebugThread, DebugUpdate, DebugVariable, Debugger, OutputKind, StackFrame,
+    StopFilter,
+};
 pub use compare::{DiffBarView, DiffMark, DiffMarks};
 pub use inline_change::ChangeView;
 pub use merge_editor::{MergeBarView, MergeNote, MergePaneView, MergeRow, MergeSide, MergeView};
@@ -324,6 +330,24 @@ pub enum Event {
     },
     /// Runs a task by name, as a plugin asks.
     RunTask(String),
+    /// Debuggers a plugin's manifest declares.
+    RegisterDebuggers {
+        plugin: String,
+        debuggers: Vec<Debugger>,
+    },
+    /// Which debuggers' programs are installed, by name, asked for with
+    /// [`Effect::LocateDebuggers`].
+    DebuggersLocated(Vec<(String, bool)>),
+    /// A plugin's things to debug, replacing its earlier ones.
+    SetDebugTargets {
+        plugin: String,
+        targets: Vec<DebugTarget>,
+    },
+    /// How a run is going, from the plugin driving its debugger.
+    Debug {
+        plugin: String,
+        update: DebugUpdate,
+    },
     /// A file's inlay hints from a plugin, replacing its earlier ones.
     SetInlayHints {
         path: PathBuf,
@@ -598,6 +622,18 @@ pub enum Effect {
         plugin: String,
         command: String,
     },
+    /// A command for the plugin driving a debugger, such as `debug.start`
+    /// or `debug.step-over`, with what it reads: what to start, for
+    /// `debug.start`, and the breakpoints.
+    Debug {
+        plugin: String,
+        command: String,
+        start: Option<Box<DebugStart>>,
+        breakpoints: Vec<Breakpoint>,
+    },
+    /// Look for these programs on `PATH`, and answer with
+    /// [`Event::DebuggersLocated`].
+    LocateDebuggers(Vec<String>),
     PluginClick {
         plugin: String,
         button: String,
@@ -1131,6 +1167,7 @@ pub struct Editor {
     terminals: terminal::Terminals,
     tasks: tasks::Tasks,
     tests: testing::Tests,
+    debug: debug::Debugging,
     /// The shown document's tests, for its version and the results'.
     tests_cache: std::cell::RefCell<Option<testing::DocTestsCache>>,
     /// Brackets are coloured by how deep they are.
@@ -1269,6 +1306,7 @@ impl Editor {
             terminals: terminal::Terminals::default(),
             tasks: tasks::Tasks::default(),
             tests: testing::Tests::default(),
+            debug: debug::Debugging::default(),
             tests_cache: Default::default(),
             bracket_colours: true,
             colour_swatches: true,
@@ -1566,6 +1604,7 @@ impl Editor {
             Event::TermExited { id, code } => {
                 self.terminal_exited(id, code);
                 self.task_exited(id, code);
+                self.debug_build_exited(id, code, &mut fx);
             }
             Event::Restore(ws) => self.restore(ws),
             Event::Settings(settings) => self.apply_settings(settings),
@@ -1714,6 +1753,12 @@ impl Editor {
             } => self.set_plugin_tests(plugin, &path, tests),
             Event::SetTestResults { plugin, results } => self.set_plugin_results(&plugin, results),
             Event::RunTask(name) => self.run_task_named(&name, &mut fx),
+            Event::RegisterDebuggers { plugin, debuggers } => {
+                self.register_debuggers(plugin, debuggers, &mut fx)
+            }
+            Event::DebuggersLocated(found) => self.debug.installed.extend(found),
+            Event::SetDebugTargets { plugin, targets } => self.set_debug_targets(plugin, targets),
+            Event::Debug { plugin, update } => self.debug_update(&plugin, update, &mut fx),
             Event::SetFolds { path, ranges } => {
                 if let Some(doc) = self.doc_at(&path) {
                     let folds = ranges

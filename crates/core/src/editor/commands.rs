@@ -140,6 +140,21 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
     ("tests.run_file", "Test: Run Tests in Current File"),
     ("tests.run_at_cursor", "Test: Run Test at Cursor"),
     ("tests.on_save", "Test: Toggle Run on Save"),
+    ("debug.start", "Debug: Start Debugging"),
+    ("debug.run", "Debug: Run Without Debugging"),
+    ("debug.pick", "Debug: Select and Start Debugging…"),
+    ("debug.stop", "Debug: Stop"),
+    ("debug.restart", "Debug: Restart"),
+    ("debug.continue", "Debug: Continue"),
+    ("debug.pause", "Debug: Pause"),
+    ("debug.step_over", "Debug: Step Over"),
+    ("debug.step_into", "Debug: Step Into"),
+    ("debug.step_out", "Debug: Step Out"),
+    ("debug.toggle_breakpoint", "Debug: Toggle Breakpoint"),
+    ("debug.toggle_breakpoints", "Debug: Turn All Breakpoints On or Off"),
+    ("debug.remove_breakpoints", "Debug: Remove All Breakpoints"),
+    ("view.debug", "View: Run and Debug"),
+    ("view.debug_console", "View: Debug Console"),
     ("task.run", "Tasks: Run Task…"),
     ("task.test", "Tasks: Run Test Task"),
     ("task.build", "Tasks: Run Build Task"),
@@ -172,6 +187,13 @@ impl Editor {
         }
         if id.starts_with("task.") {
             return self.task_command(id, fx);
+        }
+        if let Some(command) = id.strip_prefix("debug.copy:") {
+            fx.push(Effect::Copy(command.to_string()));
+            return self.notify_done("Copied".into());
+        }
+        if id.starts_with("debug.") || id == "view.debug" || id == "view.debug_console" {
+            return self.debug_command(id, fx);
         }
         if id.starts_with("terminal.") {
             return self.terminal_command(id, fx);

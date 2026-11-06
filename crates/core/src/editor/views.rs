@@ -248,11 +248,13 @@ impl Editor {
             (SEARCH, "Search", Side::Left),
             (CHANGES, "Source Control", Side::Left),
             (super::testing::TESTS, "Tests", Side::Left),
+            (super::debug::DEBUG, "Run and Debug", Side::Left),
             (OUTLINE, "Outline", Side::Left),
             (PLUGINS, "Plugins", Side::Left),
             (PROBLEMS, "Problems", Side::Bottom),
             (OUTPUT, "Output", Side::Bottom),
             (super::terminal::TERMINAL, "Terminal", Side::Bottom),
+            (super::debug::CONSOLE, "Debug Console", Side::Bottom),
         ] {
             self.plugins.push(Plugin {
                 name: name.into(),
@@ -381,6 +383,10 @@ impl Editor {
         self.set_view(super::testing::TESTS, tests);
         let rename = self.rename_nodes();
         self.set_view(super::rename::RENAME, rename);
+        let debug = self.debug_nodes();
+        self.set_view(super::debug::DEBUG, debug);
+        let console = self.console_nodes();
+        self.set_view(super::debug::CONSOLE, console);
     }
 
     /// The Plugins view: each plugin, how it runs, and what it adds.
@@ -885,6 +891,9 @@ impl Editor {
         if id.starts_with("t:") {
             return self.tests_click(id, fx);
         }
+        if id.starts_with("dbg:") {
+            return self.debug_click(id, fx);
+        }
         if id.starts_with("rn:") || id.starts_with("rename:") {
             return self.rename_click(id, fx);
         }
@@ -1036,6 +1045,9 @@ impl Editor {
     pub(crate) fn view_submit(&mut self, view: &str, text: &str, fx: &mut Vec<Effect>) {
         if view == CHANGES {
             return self.commit(text, fx);
+        }
+        if view == super::debug::CONSOLE {
+            return self.console_submit(text, fx);
         }
         if view == SEARCH {
             self.search.query = text.to_string();

@@ -98,7 +98,7 @@ impl Editor {
     /// offer them. The numbers are right-aligned, so it's their padding.
     pub(crate) fn bulb_room(&self) -> usize {
         let code = self.doc().review.is_none() && self.plugin_language().is_some();
-        if code && self.has_lsp("code-actions") {
+        if code && (self.has_lsp("code-actions") || self.can_break_here()) {
             2
         } else {
             0

@@ -79,6 +79,81 @@ pub struct Manifest {
     /// of them, layered over a theme. A theme is a pack too.
     #[serde(default)]
     pub packs: Vec<ManifestTheme>,
+    /// Debuggers the plugin brings, for languages it adds or others.
+    #[serde(default)]
+    pub debuggers: Vec<ManifestDebugger>,
+}
+
+/// A debugger, as `[[debuggers]]` in a manifest declares it.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct ManifestDebugger {
+    pub id: String,
+    pub name: String,
+    pub languages: Vec<String>,
+    /// The program and its arguments. Empty for one the plugin drives
+    /// itself.
+    #[serde(default)]
+    pub command: Vec<String>,
+    /// How to install it, as a command to copy.
+    #[serde(default)]
+    pub install: String,
+    /// Launch settings sent with every start.
+    #[serde(default)]
+    pub launch: toml::Table,
+    /// The plugin that speaks to it: `dap` unless it says.
+    #[serde(default)]
+    pub driver: Option<String>,
+}
+
+impl ManifestDebugger {
+    fn to_core(&self, plugin: &str) -> merlin_core::Debugger {
+        merlin_core::Debugger {
+            id: self.id.clone(),
+            name: self.name.clone(),
+            plugin: plugin.to_string(),
+            languages: self.languages.clone(),
+            command: self.command.clone(),
+            install: self.install.clone(),
+            launch: serde_json::to_string(&self.launch).unwrap_or_else(|_| "{}".into()),
+            driver: self.driver.clone().unwrap_or_else(|| {
+                if self.command.is_empty() {
+                    plugin.to_string()
+                } else {
+                    merlin_core::DAP.to_string()
+                }
+            }),
+        }
+    }
+}
+
+/// The events that say what a manifest adds: its languages and its
+/// debuggers.
+fn manifest_events(manifest: &Manifest) -> Vec<Event> {
+    let mut events = Vec::new();
+    let plugin = manifest.name.clone();
+    let languages: Vec<_> = manifest
+        .languages
+        .iter()
+        .map(ManifestLanguage::to_core)
+        .collect();
+    if !languages.is_empty() {
+        events.push(Event::RegisterLanguages {
+            plugin: plugin.clone(),
+            languages,
+        });
+    }
+    if !manifest.debuggers.is_empty() {
+        events.push(Event::RegisterDebuggers {
+            debuggers: manifest
+                .debuggers
+                .iter()
+                .map(|d| d.to_core(&plugin))
+                .collect(),
+            plugin,
+        });
+    }
+    events
 }
 
 /// A theme or pack: its name in the pickers, and its file, relative to the
@@ -128,6 +203,10 @@ pub struct Permissions {
     /// Programs the plugin may start, by name as found on `PATH`.
     #[serde(default)]
     pub processes: Vec<String>,
+    /// Drives debuggers: starts the ones plugins declare when the user
+    /// starts a run, and reports the run.
+    #[serde(default)]
+    pub debugger: bool,
 }
 
 impl Permissions {
@@ -139,6 +218,7 @@ impl Permissions {
     fn covers(&self, wanted: &Permissions) -> bool {
         (self.editor_read || !wanted.editor_read)
             && (self.editor_write || !wanted.editor_write)
+            && (self.debugger || !wanted.debugger)
             && wanted.processes.iter().all(|p| self.processes.contains(p))
     }
 }
@@ -230,6 +310,10 @@ struct State {
     settings: toml::Table,
     /// How much memory the plugin's instance has, for its page.
     limits: Limits,
+    /// What the editor last asked this plugin to debug, and the
+    /// breakpoints, for `debug-start` and `breakpoints`.
+    debug_start: Option<merlin_core::DebugStart>,
+    breakpoints: Vec<merlin_core::Breakpoint>,
 }
 
 /// Counts the memory an instance grows to. It allows any growth: fuel and
@@ -261,6 +345,16 @@ impl wasmtime::ResourceLimiter for Limits {
 }
 
 impl State {
+    /// A report on a run, for a plugin that drives debuggers.
+    fn debug(&mut self, update: merlin_core::DebugUpdate) -> Result<(), String> {
+        self.need(self.permissions.debugger, "debugger")?;
+        self.events.push(Event::Debug {
+            plugin: self.name.clone(),
+            update,
+        });
+        Ok(())
+    }
+
     fn need(&self, granted: bool, permission: &str) -> Result<(), String> {
         if granted {
             Ok(())
@@ -623,6 +717,162 @@ impl host::Host for State {
         });
     }
 
+    fn set_debug_targets(&mut self, targets: Vec<types::DebugTarget>) {
+        self.events.push(Event::SetDebugTargets {
+            plugin: self.name.clone(),
+            targets: targets
+                .into_iter()
+                .map(|t| merlin_core::DebugTarget {
+                    name: t.name,
+                    debugger: t.debugger,
+                    language: t.language,
+                    program: t.program,
+                    args: t.args,
+                    build: t.build,
+                    detail: t.detail,
+                    launch: t.launch,
+                    plugin: None,
+                })
+                .collect(),
+        });
+    }
+
+    fn debug_start(&mut self) -> Result<Option<types::DebugLaunch>, String> {
+        self.need(self.permissions.debugger, "debugger")?;
+        Ok(self.debug_start.clone().map(|s| types::DebugLaunch {
+            name: s.name,
+            debugger: s.debugger,
+            command: s.command,
+            program: s.program,
+            args: s.args,
+            cwd: s.cwd,
+            env: s.env,
+            launch: s.launch,
+            stop_on: s.stop_on,
+        }))
+    }
+
+    fn breakpoints(&mut self) -> Result<Vec<types::Breakpoint>, String> {
+        self.need(self.permissions.debugger, "debugger")?;
+        let root = self.snapshot.root.clone();
+        Ok(self
+            .breakpoints
+            .iter()
+            .map(|b| types::Breakpoint {
+                id: b.id,
+                path: match b.path.is_absolute() {
+                    true => b.path.display().to_string(),
+                    false => root.join(&b.path).display().to_string(),
+                },
+                line: b.line,
+                condition: b.condition.clone(),
+                hit_condition: b.hit.clone(),
+                log_message: b.log.clone(),
+                enabled: b.enabled,
+            })
+            .collect())
+    }
+
+    fn set_debug_state(&mut self, state: types::DebugState) -> Result<(), String> {
+        use merlin_core::DebugState as S;
+        let state = match state {
+            types::DebugState::Starting => S::Starting,
+            types::DebugState::Running => S::Running,
+            types::DebugState::Paused(p) => S::Paused {
+                reason: p.reason,
+                description: p.description,
+                thread: p.thread,
+            },
+            types::DebugState::Ended(code) => S::Ended(code),
+        };
+        self.debug(merlin_core::DebugUpdate::State(state))
+    }
+
+    fn set_threads(&mut self, threads: Vec<types::DebugThread>) -> Result<(), String> {
+        self.debug(merlin_core::DebugUpdate::Threads(
+            threads
+                .into_iter()
+                .map(|t| merlin_core::DebugThread {
+                    id: t.id,
+                    name: t.name,
+                    paused: t.paused,
+                })
+                .collect(),
+        ))
+    }
+
+    fn set_stack(&mut self, thread: u32, frames: Vec<types::StackFrame>) -> Result<(), String> {
+        let frames = frames
+            .into_iter()
+            .map(|f| merlin_core::StackFrame {
+                id: f.id,
+                name: f.name,
+                path: (!f.path.is_empty()).then(|| PathBuf::from(f.path)),
+                line: f.line,
+                column: f.column,
+                library: f.library,
+            })
+            .collect();
+        self.debug(merlin_core::DebugUpdate::Stack { thread, frames })
+    }
+
+    fn set_variables(&mut self, parent: u32, variables: Vec<types::DebugVariable>) -> Result<(), String> {
+        let variables = variables
+            .into_iter()
+            .map(|v| merlin_core::DebugVariable {
+                name: v.name,
+                value: v.value,
+                kind: v.type_name,
+                children: v.children,
+            })
+            .collect();
+        self.debug(merlin_core::DebugUpdate::Variables { parent, variables })
+    }
+
+    fn set_breakpoint_states(&mut self, states: Vec<types::BreakpointState>) -> Result<(), String> {
+        self.debug(merlin_core::DebugUpdate::Breakpoints(
+            states
+                .into_iter()
+                .map(|s| merlin_core::BreakpointState {
+                    id: s.id,
+                    set: s.set,
+                    line: s.line,
+                    message: s.message,
+                })
+                .collect(),
+        ))
+    }
+
+    fn set_stop_filters(&mut self, filters: Vec<types::StopFilter>) -> Result<(), String> {
+        self.debug(merlin_core::DebugUpdate::StopFilters(
+            filters
+                .into_iter()
+                .map(|f| merlin_core::StopFilter {
+                    id: f.id,
+                    label: f.label,
+                    on: f.on,
+                })
+                .collect(),
+        ))
+    }
+
+    fn set_inline_values(&mut self, path: String, values: Vec<types::InlineValue>) -> Result<(), String> {
+        let path = PathBuf::from(path);
+        let values = values.into_iter().map(|v| (v.line, v.text)).collect();
+        self.debug(merlin_core::DebugUpdate::InlineValues { path, values })
+    }
+
+    fn debug_output(&mut self, kind: types::OutputKind, text: String) -> Result<(), String> {
+        use merlin_core::OutputKind as K;
+        let kind = match kind {
+            types::OutputKind::Console => K::Console,
+            types::OutputKind::Stdout => K::Stdout,
+            types::OutputKind::Stderr => K::Stderr,
+            types::OutputKind::Important => K::Important,
+        };
+        self.debug(merlin_core::DebugUpdate::Output(kind, text))
+    }
+
     fn run_task(&mut self, name: String) {
         self.events.push(Event::RunTask(name));
     }
@@ -657,7 +907,14 @@ impl host::Host for State {
         env: Vec<(String, String)>,
         framing: types::Framing,
     ) -> Result<u32, String> {
-        if !self.permissions.processes.contains(&program) {
+        // A debugger plugin may start the debugger it was asked to.
+        let debugger = self.permissions.debugger
+            && self
+                .debug_start
+                .as_ref()
+                .and_then(|s| s.command.first())
+                .is_some_and(|p| *p == program);
+        if !self.permissions.processes.contains(&program) && !debugger {
             return Err(format!("permission denied: processes ({program})"));
         }
         let root = self.snapshot.root.clone();
@@ -846,12 +1103,7 @@ impl PluginHost {
                     manifest.name
                 );
             }
-            let plugin = manifest.name.clone();
-            let languages: Vec<_> = manifest
-                .languages
-                .iter()
-                .map(ManifestLanguage::to_core)
-                .collect();
+            let events = manifest_events(&manifest);
             self.plugins.push(Loaded {
                 manifest,
                 dir,
@@ -863,10 +1115,7 @@ impl PluginHost {
                 disabled: false,
                 busy: Duration::ZERO,
             });
-            return Ok((!languages.is_empty())
-                .then_some(Event::RegisterLanguages { plugin, languages })
-                .into_iter()
-                .collect());
+            return Ok(events);
         };
         let wasm = folder.join(component);
         let ask = self.config.ask
@@ -1028,6 +1277,8 @@ impl PluginHost {
             secrets: self.secrets.clone(),
             settings: plugin_settings(manifest, &self.settings),
             limits: Limits::default(),
+            debug_start: None,
+            breakpoints: Vec::new(),
         };
         let mut store = Store::new(&self.engine, state);
         store.limiter(|s| &mut s.limits);
@@ -1058,20 +1309,11 @@ impl PluginHost {
                         .collect(),
                 },
             );
-            let languages: Vec<_> = self.plugins[index]
-                .manifest
-                .languages
-                .iter()
-                .map(ManifestLanguage::to_core)
-                .collect();
-            if !languages.is_empty() {
-                events.insert(
-                    1,
-                    Event::RegisterLanguages {
-                        plugin: self.plugins[index].manifest.name.clone(),
-                        languages,
-                    },
-                );
+            for (i, event) in manifest_events(&self.plugins[index].manifest)
+                .into_iter()
+                .enumerate()
+            {
+                events.insert(1 + i, event);
             }
         }
         events
@@ -1123,6 +1365,26 @@ impl PluginHost {
             if let Some(instance) = &mut plugin.instance {
                 instance.store.data_mut().settings = settings;
             }
+        }
+    }
+
+    /// Gives a debugger plugin what `debug-start` and `breakpoints` read,
+    /// before a debug command. `start` replaces what it had when given.
+    pub fn set_debug(
+        &mut self,
+        plugin: &str,
+        start: Option<merlin_core::DebugStart>,
+        breakpoints: Vec<merlin_core::Breakpoint>,
+    ) {
+        let Some(i) = self.index(plugin) else {
+            return;
+        };
+        if let Some(instance) = &mut self.plugins[i].instance {
+            let state = instance.store.data_mut();
+            if start.is_some() {
+                state.debug_start = start;
+            }
+            state.breakpoints = breakpoints;
         }
     }
 
@@ -1527,6 +1789,12 @@ fn permission_card(manifest: &Manifest) -> Panel {
             Tone::Warning,
         ));
     }
+    if p.debugger {
+        nodes.push(Node::Styled(
+            "• start the debuggers plugins name when you start a run, and drive them".into(),
+            Tone::Warning,
+        ));
+    }
     nodes.push(Node::Text(String::new()));
     nodes.push(Node::Styled(
         "You'll be asked again only if it wants more.".into(),
@@ -1645,6 +1913,9 @@ pub fn grant(config: &Config, dir: &Path) -> Result<(Manifest, Vec<String>)> {
     }
     for program in &p.processes {
         allowed.push(format!("run `{program}`, outside the sandbox"));
+    }
+    if p.debugger {
+        allowed.push("start the debuggers plugins name, and drive them".to_string());
     }
     Ok((manifest, allowed))
 }

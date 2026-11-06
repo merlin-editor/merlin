@@ -33,6 +33,7 @@ fn the_view_has_tabs_status_and_rail() {
             "Search",
             "Source Control",
             "Tests",
+            "Run and Debug",
             "Outline",
             "Plugins"
         ]
@@ -192,6 +193,7 @@ fn rail_items_say_what_they_show() {
             "search",
             "source-control",
             "testing",
+            "debug",
             "outline",
             "plugins"
         ]

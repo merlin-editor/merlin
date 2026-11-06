@@ -186,6 +186,21 @@ impl Fonts {
                 });
             }
 
+            // The line a run is paused on: amber, or red on an exception,
+            // with a bar at its left.
+            if let Some(exception) = l.paused {
+                let colour = if exception { p.error } else { p.warning };
+                canvas.scene.prims.push(Prim::Quad {
+                    rect: [text_x, y0, right, y0 + rows * ch],
+                    radius: 0.0,
+                    fill: colour,
+                    alpha: 34,
+                    border: 0,
+                    border_w: 0.0,
+                });
+                quad(canvas, [text_x, y0, text_x + 3.0 * s, y0 + rows * ch], 0.0, colour);
+            }
+
             // Selections and matches: a rounded box for each run of one
             // style on a row.
             let mut i = 0;
@@ -428,6 +443,37 @@ impl Fonts {
                 }
             }
 
+            // Values while paused, in a quiet chip a little after the end.
+            if let Some(values) = &l.values {
+                let x = x_of(end_col.max(0)) + cw * 3.0;
+                let y = row_y(l.rows.len() - 1);
+                if (l.rows.len() as u16) <= l.shown && x < right - cw * 6.0 {
+                    let ts = text.scale();
+                    let size = (ch / ts * 0.58).round();
+                    let face = Face::ui(size);
+                    let fitted = text.fit(values, face, (right - x) / ts - 16.0);
+                    let w = text.width(&fitted, face) * ts + 12.0 * s;
+                    let pad = (ch * 0.16).round();
+                    quad(
+                        canvas,
+                        [x, y + pad, (x + w).min(right), y + ch - pad],
+                        4.0 * s,
+                        theme::mix(p.info, p.island, 0.12),
+                    );
+                    let clip = Rect::new(x / ts, y / ts, (right - x) / ts, ch / ts);
+                    text.draw_in_row(
+                        canvas,
+                        &fitted,
+                        face,
+                        x / ts + 6.0,
+                        y / ts,
+                        ch / ts,
+                        p.info,
+                        clip,
+                    );
+                }
+            }
+
             // Who last changed the cursor's line, faint, a little after it.
             if let Some(blame) = &l.blame {
                 let x = x_of(end_col.max(0)) + cw * 4.0;
@@ -554,6 +600,53 @@ impl Fonts {
                     s * 0.5,
                     p.warning,
                 );
+            }
+            // A breakpoint's dot in the same room, and the arrow of the
+            // line a run is paused on over it.
+            if view.bulb != Some(l.line) && (l.breakpoint.is_some() || l.paused.is_some()) {
+                let x0 = gutter_x + view.signs as usize as f32 * cw;
+                let d = (ch * 0.5).min(cw * 1.6).round();
+                let (bx, by) = ((x0 + cw - d / 2.0).round(), (y0 + (ch - d) / 2.0).round());
+                use merlin_core::BreakMark as B;
+                if let Some(mark) = l.breakpoint {
+                    let (fill, border) = match mark {
+                        B::Set => (p.error, p.error),
+                        B::Conditional => (p.island, p.error),
+                        B::Log => (p.error, p.error),
+                        B::Unset => (p.island, p.muted),
+                        B::Disabled => (theme::mix(p.error, p.island, 0.55), 0),
+                    };
+                    let radius = if mark == B::Log { 2.0 * s } else { d / 2.0 };
+                    let inset = if mark == B::Log { d * 0.12 } else { 0.0 };
+                    canvas.scene.prims.push(Prim::Quad {
+                        rect: [bx + inset, by + inset, bx + d - inset, by + d - inset],
+                        radius,
+                        fill,
+                        alpha: 255,
+                        border,
+                        border_w: if border == 0 { 0.0 } else { 1.5 * s },
+                    });
+                }
+                if let Some(exception) = l.paused {
+                    let colour = if exception { p.error } else { p.warning };
+                    let (ax, ah) = (x0 + cw * 0.15, ch * 0.5);
+                    let ay = y0 + (ch - ah) / 2.0;
+                    let w = cw * 1.7;
+                    // The arrow's body, then its point as narrowing lines.
+                    quad(canvas, [ax, ay, ax + w * 0.5, ay + ah], 1.5 * s, colour);
+                    let steps = (w * 0.5 / s).ceil() as usize;
+                    for i in 0..steps {
+                        let t = i as f32 / steps as f32;
+                        let x = ax + w * 0.5 + t * w * 0.5;
+                        let half = ah / 2.0 * (1.0 - t);
+                        canvas.scene.prims.push(Prim::Line {
+                            a: [x, ay + ah / 2.0 - half],
+                            b: [x, ay + ah / 2.0 + half],
+                            width: 1.2 * s,
+                            colour,
+                        });
+                    }
+                }
             }
             if let Some(folded) = l.fold_arrow {
                 let cx = (text_x - cw * 0.5) / s;

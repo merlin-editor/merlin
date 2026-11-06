@@ -30,6 +30,7 @@ looking at [ttt](https://github.com/eugenioenko/ttt), and merlin keeps both:
 | `plugins/rust`, `python`, `javascript`, `json`, `toml` | Those languages and their tree-sitter colours. |
 | `plugins/word-count` | Small example plugin: commands, a key, a panel and a button. |
 | `plugins/lsp` | Language servers: diagnostics, hover, go-to-definition, completion, code actions, format, rename, references. |
+| `plugins/dap` | The Debugger: speaks the Debug Adapter Protocol to the debuggers language plugins declare. |
 | `plugins/cpp` | C and C++: the languages and their colours. |
 | `plugins/merlin-themes` | Eight colour themes, as data. |
 | `plugins/testbed` | Exercises the plugin API for the host's tests. |

@@ -329,6 +329,126 @@ interface types {
     line: option<u32>,
   }
 
+  /// Something to debug, for Run and Debug and F5. The debugger is a
+  /// manifest's `[[debuggers]]` id, or empty for the one for `language`.
+  record debug-target {
+    name: string,
+    debugger: string,
+    language: string,
+    /// The program to start, relative to the workspace root or absolute.
+    program: string,
+    args: list<string>,
+    /// A task's name or a command line, run first.
+    build: string,
+    /// Shown dimmed beside it, such as `--bin merlin`.
+    detail: string,
+    /// More of the debugger's own launch settings, as a JSON object.
+    launch: string,
+  }
+
+  /// What F5 asked a debugger plugin to start, read with `debug-start`.
+  record debug-launch {
+    name: string,
+    /// The debugger's id, and the command that starts it.
+    debugger: string,
+    command: list<string>,
+    program: string,
+    args: list<string>,
+    cwd: string,
+    env: list<tuple<string, string>>,
+    /// The launch settings, as a JSON object: the manifest's `launch`, the
+    /// target's and launch.toml's, merged. Keys the editor doesn't know
+    /// pass through, for the debugger.
+    launch: string,
+    /// The ids of the stop filters the user turned on.
+    stop-on: list<string>,
+  }
+
+  /// A breakpoint the user set. The line is from 0. An empty condition,
+  /// hit condition or log message is none.
+  record breakpoint {
+    id: u32,
+    path: string,
+    line: u32,
+    condition: string,
+    hit-condition: string,
+    log-message: string,
+    enabled: bool,
+  }
+
+  /// Why a program stopped.
+  record debug-pause {
+    /// As DAP has it: `breakpoint`, `step`, `exception`, `pause`, `entry`.
+    reason: string,
+    /// What went wrong, for an exception or a panic.
+    description: string,
+    thread: u32,
+  }
+
+  variant debug-state {
+    starting,
+    running,
+    paused(debug-pause),
+    /// How it ended: its exit code, if it had one.
+    ended(option<s32>),
+  }
+
+  record debug-thread {
+    id: u32,
+    name: string,
+    paused: bool,
+  }
+
+  /// A frame of a thread's stack. The path is empty when there's no source.
+  record stack-frame {
+    id: u32,
+    name: string,
+    path: string,
+    /// From 0.
+    line: u32,
+    column: u32,
+    /// In a library, not the project: folded in Call Stack.
+    library: bool,
+  }
+
+  /// A variable, or a scope such as Locals. `children` is the reference
+  /// that lists what's in it, or 0 for nothing.
+  record debug-variable {
+    name: string,
+    value: string,
+    type-name: string,
+    children: u32,
+  }
+
+  /// Whether the debugger could set a breakpoint, where (from 0), and if
+  /// not, why.
+  record breakpoint-state {
+    id: u32,
+    set: bool,
+    line: u32,
+    message: string,
+  }
+
+  /// What the debugger can stop on besides breakpoints, such as panics.
+  record stop-filter {
+    id: string,
+    label: string,
+    on: bool,
+  }
+
+  /// A value written after a line while paused, from 0.
+  record inline-value {
+    line: u32,
+    text: string,
+  }
+
+  enum output-kind {
+    console,
+    stdout,
+    stderr,
+    important,
+  }
+
   /// Something that happened to the open files.
   variant buffer-event {
     /// Another file became the active one.
@@ -343,7 +463,7 @@ interface types {
 /// What the editor offers a plugin. Calls that need a permission check the
 /// plugin's manifest and return an error naming the permission if denied.
 interface host {
-  use types.{framing, pick-item, position, selection, text-change, diagnostic, detailed-diagnostic, code-action, file-edit, rename-info, location, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint, signature, task, test-item, test-result};
+  use types.{framing, pick-item, position, selection, text-change, diagnostic, detailed-diagnostic, code-action, file-edit, rename-info, location, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint, signature, task, test-item, test-result, debug-target, debug-launch, breakpoint, debug-state, debug-thread, stack-frame, debug-variable, breakpoint-state, stop-filter, inline-value, output-kind};
 
   /// Text of the active buffer. Needs `editor-read`.
   active-text: func() -> result<string, string>;
@@ -470,12 +590,45 @@ interface host {
   /// plugin's.
   run-task: func(name: string);
 
+  /// Replaces this plugin's things to debug in Run and Debug.
+  set-debug-targets: func(targets: list<debug-target>);
+
+  /// What to start, after the editor runs `debug.start` in this plugin: a
+  /// debugger it drives, from a manifest's `[[debuggers]]`. The rest of a
+  /// run's commands come the same way: `debug.continue`, `debug.pause`,
+  /// `debug.step-over`, `debug.step-into`, `debug.step-out`,
+  /// `debug.restart`, `debug.stop`, `debug.breakpoints` when they change,
+  /// `debug.frame:<id>`, `debug.expand:<children>` and
+  /// `debug.stop-on:<id>`. The Debug Console's input arrives at
+  /// `on-submit` as `debug-console`. Needs `debugger`.
+  debug-start: func() -> result<option<debug-launch>, string>;
+
+  /// Every breakpoint the user set. Needs `debugger`.
+  breakpoints: func() -> result<list<breakpoint>, string>;
+
+  /// How the run is going: the toolbar, status bar and views follow it.
+  /// Needs `debugger`, as do the calls after it.
+  set-debug-state: func(state: debug-state) -> result<_, string>;
+  set-threads: func(threads: list<debug-thread>) -> result<_, string>;
+  set-stack: func(thread: u32, frames: list<stack-frame>) -> result<_, string>;
+  /// What's in a variable or scope, by its `children`; 0 is the scopes of
+  /// the frame shown.
+  set-variables: func(parent: u32, variables: list<debug-variable>) -> result<_, string>;
+  set-breakpoint-states: func(states: list<breakpoint-state>) -> result<_, string>;
+  set-stop-filters: func(filters: list<stop-filter>) -> result<_, string>;
+  /// Values to write after a file's lines while paused, in place of the
+  /// editor's own from the frame's variables.
+  set-inline-values: func(path: string, values: list<inline-value>) -> result<_, string>;
+  /// Text for the Debug Console.
+  debug-output: func(kind: output-kind, text: string) -> result<_, string>;
+
   /// Lets the user pick one item. The choice arrives at `on-pick`.
   show-picker: func(id: string, title: string, items: list<pick-item>);
 
   /// Starts a program in the workspace root, with `env` added to the
   /// editor's environment. It must be listed in the manifest's `processes`
-  /// permission, and runs with the user's rights. Its output arrives at
+  /// permission, or, with `debugger`, be a debugger a plugin's manifest
+  /// declares. It runs with the user's rights. Its output arrives at
   /// `on-process`.
   spawn: func(program: string, args: list<string>, env: list<tuple<string, string>>, framing: framing) -> result<u32, string>;
 

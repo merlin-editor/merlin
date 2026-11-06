@@ -130,6 +130,12 @@ pub struct LineView {
     pub blame_cell: Option<super::blame::BlameCell>,
     /// A test's `fn` line: whether it passed when it last ran.
     pub test: Option<bool>,
+    /// A breakpoint's dot in the gutter.
+    pub breakpoint: Option<super::BreakMark>,
+    /// The line a run is paused on: `Some(true)` on an exception.
+    pub paused: Option<bool>,
+    /// Values written after the line while paused.
+    pub values: Option<String>,
 }
 
 /// An inlay hint on a line: the character it's before, the columns it
@@ -630,6 +636,11 @@ impl Editor {
             } else {
                 Vec::new()
             };
+            // Only while paused, so it costs nothing otherwise.
+            let values = self
+                .debug_paused()
+                .then(|| self.inline_value(line, &chars.iter().collect::<String>()))
+                .flatten();
             view.lines.push(LineView {
                 line,
                 row,
@@ -654,6 +665,9 @@ impl Editor {
                 blame,
                 blame_cell: self.blame_cell(line),
                 test: self.test_mark(line),
+                breakpoint: self.break_mark(line),
+                paused: self.paused_line(line),
+                values,
             });
             if self.blame_card.is_some_and(|(l, _)| l == line) {
                 view.blame_card = self.blame_card_view(row + shown as i32 - 1);
@@ -749,6 +763,9 @@ impl Editor {
             blame: None,
             blame_cell: None,
             test: None,
+            breakpoint: None,
+            paused: None,
+            values: None,
         }
     }
 }

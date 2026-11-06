@@ -12,3 +12,18 @@ name = "Rust"
 extensions = ["rs"]
 line-comment = "//"
 block-comment = ["/*", "*/"]
+
+# Debuggers for Rust, best first; the first one installed is used.
+[[debuggers]]
+id = "lldb-dap"
+name = "lldb-dap"
+languages = ["rust"]
+command = ["lldb-dap"]
+install = "sudo apt install lldb"
+
+[[debuggers]]
+id = "gdb"
+name = "gdb"
+languages = ["rust"]
+command = ["gdb", "--interpreter=dap", "-q"]
+install = "sudo apt install gdb"

@@ -37,6 +37,9 @@ pub(super) const GLOBAL_KEYS: &[(&str, &str)] = &[
     ("ctrl+shift+s", "file.save_as"),
     ("ctrl+shift+t", "file.reopen"),
     ("ctrl+shift+b", "task.build"),
+    ("f5", "debug.start"),
+    ("ctrl+f5", "debug.run"),
+    ("ctrl+shift+d", "view.debug"),
     ("ctrl+tab", "file.next"),
     ("ctrl+backtab", "file.prev"),
     ("ctrl+=", "view.zoom_in"),
@@ -111,6 +114,7 @@ pub(super) const EDITOR_KEYS: &[(&str, &str)] = &[
     ("ctrl+.", "edit.quick_fix"),
     ("ctrl+shift+i", "edit.format"),
     ("f2", "edit.rename"),
+    ("f9", "debug.toggle_breakpoint"),
 ];
 
 /// Two keys in a row, as VS Code's Ctrl+K chords.
@@ -136,6 +140,12 @@ impl Editor {
         // A terminal with the keys takes nearly all of them.
         if self.terminal_key(key, fx) {
             return;
+        }
+        // While a run is on, F5, F6, F10, F11 and Shift+F5 drive it.
+        if self.chord.is_none()
+            && let Some(command) = self.debug_key(&key)
+        {
+            return self.run(command, fx);
         }
         // Typing in a file's changes since the last commit edits the file.
         if self.focus == Focus::Editor

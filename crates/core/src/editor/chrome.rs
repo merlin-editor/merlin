@@ -88,6 +88,9 @@ impl Editor {
                 Some(Action::Run("review.next")),
             ));
         }
+        if let Some(status) = self.debug_status() {
+            left.push((format!(" {status} "), Style::Status, Some(Action::View(super::debug::DEBUG))));
+        }
         if let Some(branch) = &self.git.branch {
             left.push((
                 format!(" {} {branch} ", icon(Icon::Branch, self.nerd)),

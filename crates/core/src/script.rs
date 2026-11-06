@@ -290,6 +290,8 @@ impl Session {
                 | Effect::OpenUrl(_)
                 | Effect::Terminal(_)
                 | Effect::PluginCommand { .. }
+                | Effect::Debug { .. }
+                | Effect::LocateDebuggers(_)
                 | Effect::PluginClick { .. }
                 | Effect::PluginSubmit { .. }
                 | Effect::PluginPick { .. }

@@ -549,6 +549,27 @@ impl App {
                             )));
                         }
                     }
+                    Effect::Debug {
+                        plugin,
+                        command,
+                        start,
+                        breakpoints,
+                    } => {
+                        self.host.set_debug(&plugin, start.map(|s| *s), breakpoints);
+                        let snapshot = self.snapshot();
+                        queue.extend(self.host.run_command(&plugin, &command, snapshot));
+                        self.panels_for = None;
+                    }
+                    Effect::LocateDebuggers(programs) => {
+                        let found = programs
+                            .into_iter()
+                            .map(|p| {
+                                let there = on_path(&p);
+                                (p, there)
+                            })
+                            .collect();
+                        queue.push_back(Event::DebuggersLocated(found));
+                    }
                     Effect::PluginCommand { plugin, command } => {
                         let snapshot = self.snapshot();
                         queue.extend(self.host.run_command(&plugin, &command, snapshot));
@@ -2505,4 +2526,16 @@ fn run_script(app: &mut App, script: &str) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Whether a program can be started by name: a path that exists, or a
+/// file of that name in a folder on `PATH`.
+fn on_path(program: &str) -> bool {
+    let path = Path::new(program);
+    if path.components().count() > 1 {
+        return path.is_file();
+    }
+    std::env::var_os("PATH").is_some_and(|dirs| {
+        std::env::split_paths(&dirs).any(|dir| dir.join(program).is_file())
+    })
 }

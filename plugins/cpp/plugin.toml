@@ -19,3 +19,17 @@ name = "C++"
 extensions = ["cpp", "cc", "cxx", "c++", "hpp", "hh", "hxx", "h++", "ipp", "inl", "tpp"]
 line-comment = "//"
 block-comment = ["/*", "*/"]
+
+[[debuggers]]
+id = "lldb-dap"
+name = "lldb-dap"
+languages = ["c", "cpp"]
+command = ["lldb-dap"]
+install = "sudo apt install lldb"
+
+[[debuggers]]
+id = "gdb"
+name = "gdb"
+languages = ["c", "cpp"]
+command = ["gdb", "--interpreter=dap", "-q"]
+install = "sudo apt install gdb"

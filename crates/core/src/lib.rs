@@ -34,6 +34,11 @@ pub use editor::{
     TerminalView, TextView, ThemeKind, ToastView, UiEvent, UserKey, When, WindowView, Workspace,
     from_cargo, from_package, from_tasks_file,
 };
+pub use editor::{
+    BreakMark, Breakpoint, BreakpointState, DAP, DebugBarView, DebugButton, DebugStart, DebugState,
+    DebugTarget, DebugThread, DebugUpdate, DebugVariable, Debugger, OutputKind, StackFrame,
+    StopFilter,
+};
 pub use key::{Key, KeyCode};
 pub use lang::{Completion, Diagnostic, InlayHint, InlayKind, Severity, Signature};
 pub use merlin_syntax::Syntax;

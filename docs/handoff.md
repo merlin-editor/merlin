@@ -38,7 +38,8 @@ mock-ups. Nothing is pushed. The last commit when this was written was
 | 4. Tasks and tests | Built. See below |
 | 5. Hot exit | Built. See below |
 | 6. Settings editor | Built. See below |
-| 7 to 10 | Not started; next is 7, Debugging (DAP) |
+| 7. Debugging | First slice built. See below |
+| 8 to 10 | Not started |
 
 ### Language features (`Language.dc.html`)
 
@@ -731,6 +732,59 @@ Built and checked in the window, with a copy of the user's config
   other than on and off can't be changed in the tab; the follow switch
   between light and dark wasn't seen happen, since the desktop wasn't
   changed.
+
+### Debugging (`Debug.dc.html`, `DebugFlow.dc.html`)
+
+All of it comes from plugins, so a language plugin gets debugging by
+declaring a debugger, with no code in merlin for its language.
+
+- **Plugin API.** Manifests declare `[[debuggers]]` (id, name, languages,
+  command, install, launch, driver). New host imports: `set-debug-targets`
+  for anyone; `debug-start`, `breakpoints`, `set-debug-state`,
+  `set-threads`, `set-stack`, `set-variables`, `set-breakpoint-states`,
+  `set-stop-filters`, `set-inline-values` and `debug-output` need the new
+  `debugger` permission. No new exports: the toolbar and keys arrive as
+  `run-command` (`debug.step-over`, `debug.expand:<ref>`,
+  `debug.frame:<id>`, `debug.stop-on:<id>`), the console as `on-submit`
+  `debug-console`. A `debugger` plugin may spawn only the command of the
+  run the user started (`State.debug_start`).
+- **Host.** `manifest_events` sends a manifest's languages and debuggers,
+  for data-only plugins and on activate. A plugin waiting for its
+  permission hasn't sent them yet, so its debuggers appear once allowed.
+  `PluginHost::set_debug` hands the driver what to start before each
+  `Effect::Debug`.
+- **Core** (`editor/debug.rs`). `Debugging` holds debuggers, which
+  programs are on `PATH` (`Effect::LocateDebuggers`), plugins' targets,
+  breakpoints, the `Session` and the console. F5 picks a target the first
+  time (a picker with plugin `merlin.debug`), runs its `build` as a task,
+  then sends `debug.start` to the debugger's driver (`dap` unless the
+  manifest says). The driver's reports come back as `Event::Debug`
+  (`DebugUpdate`). Keys while a run is on: F5, F6, F10, F11, Shift+F11,
+  Shift+F5, Ctrl+Shift+F5 (`debug_key`, before the keymap). Restart stops
+  and starts again in the core, so the build runs too. Breakpoints go in
+  the lightbulb's room, which shows wherever a debugger is declared for
+  the language (`can_break_here`); F9 too. `LineView` has `breakpoint`,
+  `paused` and `values` (the frame's locals the line names, only while
+  paused). Views: Run and Debug (`DEBUG`, left) and Debug Console
+  (`CONSOLE`, bottom). `WindowView.debug` is the toolbar.
+- **Debugger plugin** (`plugins/dap`). Initialize, launch (or attach with a
+  `pid`), breakpoints and exception filters on `initialized`, then
+  `configurationDone`. A stop asks threads and the stack; the first frame
+  in the project gets its scopes, and the first scope's variables. Frames
+  outside the workspace are library ones and fold in Call Stack.
+- **Language plugins.** Rust and C/C++ declare lldb-dap and gdb
+  (`gdb --interpreter=dap`, gdb 14 and later); Python declares debugpy and
+  offers the open file. The lsp plugin lists a crate's binaries from
+  rust-analyzer's runnables (`debug_targets`).
+- **Window.** The toolbar floats at the top of the code (`debug_bar`, with
+  drawn step icons in `step_icon`); the status bar takes the warning
+  colour; dots, the paused band and arrow, and value chips are in
+  `code.rs`.
+- Checked with gdb 17 on a small crate: build, pause on a breakpoint,
+  step, continue, the console, stop.
+- **Left:** launch.toml, attaching, the condition/log box, the panic card,
+  values in the hover card, breakpoints kept with the workspace, Debug the
+  Last Build, Debug on a Rust test, a Rust panic stop filter.
 
 ### Memory and CPU (2026-11-06)
 
