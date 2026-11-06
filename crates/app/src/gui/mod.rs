@@ -1315,6 +1315,25 @@ impl Gui<'_> {
             let gutter = text.gutter as f32 * grid.cell_w as f32 / s;
             f.merge_editor(merge, area, y0, row_h, gutter);
         }
+        // Tests: ▶ Run Test over each, failures under their lines, and
+        // how each went in the gutter.
+        for text in &texts {
+            let Some(area) = areas.groups.get(text.group) else {
+                continue;
+            };
+            if text.tests.is_empty() && text.failures.is_empty() {
+                continue;
+            }
+            let glide = match self.glide {
+                Some((g, ..)) if g == text.group => glide,
+                _ => 0.0,
+            };
+            let cell_w = grid.cell_w as f32 / s;
+            let y0 = area.text.y + (text.area.y as f32 - text.top_frac) * row_h + glide / s;
+            let x0 = area.text.x + text.area.x as f32 * cell_w;
+            let code = Rect::new(x0, area.text.y, text.area.w as f32 * cell_w, area.text.h);
+            f.test_rows(text, code, y0, row_h, cell_w);
+        }
         // A commit's card over the blame column.
         for text in &texts {
             let (Some(card), Some(area)) = (&text.blame_card, areas.groups.get(text.group)) else {

@@ -340,7 +340,7 @@ fn dump_side(o: &mut String, which: &str, side: &SideView) {
             Node::Text(t) | Node::Styled(t, _) => t.clone(),
             Node::Markdown(t) => t.clone(),
             Node::Button(b) => format!("[{}]", b.label),
-            Node::Buttons(bs) => bs
+            Node::Buttons(bs) | Node::Tools(bs) => bs
                 .iter()
                 .map(|b| format!("[{}]", b.label))
                 .collect::<Vec<_>>()

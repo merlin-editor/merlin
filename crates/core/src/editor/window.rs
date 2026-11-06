@@ -220,6 +220,8 @@ pub struct SideView {
     pub focused: bool,
     /// Text typed into each input, by input id.
     pub inputs: Vec<(String, String)>,
+    /// Tests passed and failed, at the title's right in the Tests view.
+    pub counts: Option<(usize, usize)>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -307,6 +309,7 @@ impl Editor {
                 "Source Control",
                 "source-control",
             ),
+            (super::testing::TESTS, Icon::Testing, "Tests", "testing"),
             (OUTLINE, Icon::Outline, "Outline", "outline"),
             (PLUGINS, Icon::Plugin, "Plugins", "plugins"),
         ] {
@@ -316,10 +319,10 @@ impl Editor {
                     glyph: icon(glyph, self.nerd),
                     label: label.into(),
                     active: left.as_deref() == Some(view),
-                    badge: if view == CHANGES {
-                        self.git.files.len()
-                    } else {
-                        0
+                    badge: match view {
+                        CHANGES => self.git.files.len(),
+                        super::testing::TESTS => self.test_counts().1,
+                        _ => 0,
                     },
                 },
                 Action::View(view),
@@ -391,6 +394,7 @@ impl Editor {
             selected: self.selected_index(side),
             focused: self.focused_side() == Some(side),
             inputs,
+            counts: (active == super::testing::TESTS).then(|| self.test_counts()),
         })
     }
 
@@ -651,6 +655,7 @@ impl Editor {
             UiEvent::ChangeClose => self.change_peek = None,
             UiEvent::BlameButton(b) => self.blame_card_button(&b, fx),
             UiEvent::Press(id) if id.starts_with("merge:") => self.merge_press(&id),
+            UiEvent::Press(id) if id.starts_with("test:") => self.test_press(&id, fx),
             UiEvent::Press(id) => self.view_click(&id, fx),
             UiEvent::PeekRow { index, clicks } => self.peek_clicked(index, clicks, fx),
             UiEvent::PeekClose => self.peek = None,
@@ -695,7 +700,7 @@ impl Editor {
 fn target_count(node: &Node) -> usize {
     match node {
         Node::Button(_) | Node::Item { .. } | Node::Input { .. } => 1,
-        Node::Buttons(bs) | Node::Banner { buttons: bs, .. } => bs.len(),
+        Node::Buttons(bs) | Node::Tools(bs) | Node::Banner { buttons: bs, .. } => bs.len(),
         Node::Wide { .. } => 1,
         Node::Entry(e) => 1 + e.action.is_some() as usize + e.links.len(),
         _ => 0,

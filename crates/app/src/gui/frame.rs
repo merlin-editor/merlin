@@ -2907,6 +2907,29 @@ impl Frame<'_> {
                 p.bright,
                 header,
             );
+            // The Tests view's passed and failed, at the right.
+            if let Some((passed, failed)) = sv.counts.filter(|(a, b)| a + b > 0) {
+                let face = Face::ui(12.0).medium();
+                let mut x = header.right() - 14.0;
+                for (text, colour) in [
+                    (format!("{failed} ✕"), p.error),
+                    (format!("{passed} ✓"), p.success),
+                ] {
+                    let w = self.text.width(&text, face);
+                    x -= w;
+                    self.text.draw_in_row(
+                        &mut self.canvas,
+                        &text,
+                        face,
+                        x,
+                        area.y,
+                        HEADER_H,
+                        colour,
+                        header,
+                    );
+                    x -= 8.0;
+                }
+            }
         }
         let body = Rect::new(
             area.x,
@@ -3144,6 +3167,7 @@ impl Frame<'_> {
             }
             Node::Markdown(t) => self.text.wrapped_height(&plain(t), Face::ui(12.5), inner) + 8.0,
             Node::Button(_) | Node::Buttons(_) => 38.0,
+            Node::Tools(_) => 32.0,
             Node::Item { .. } | Node::Entry(_) => {
                 if self.compact {
                     22.0
@@ -3340,6 +3364,46 @@ impl Frame<'_> {
                         );
                     }
                     x += bw + 8.0;
+                }
+            }
+            Node::Tools(bs) => {
+                let mut x = r.x + 12.0;
+                let face = Face::ui(12.0);
+                for (k, b) in bs.iter().enumerate() {
+                    let index = target.map(|t| t + k);
+                    let focused = sv.focused && index == Some(sv.selected);
+                    let tw = self.text.width(&b.label, face);
+                    let br = Rect::new(x, r.y + 4.0, tw + 16.0, 24.0);
+                    if x + br.w > r.right() - 8.0 {
+                        break;
+                    }
+                    let bg = if self.hovered(br) { p.border } else { p.chip };
+                    if focused {
+                        self.canvas
+                            .outline(br.inset(-2.0), 7.0, 1.5, p.accent, p.island);
+                    }
+                    self.canvas.round(br, 5.0, bg);
+                    self.text.draw_in_row(
+                        &mut self.canvas,
+                        &b.label,
+                        face,
+                        x + 8.0,
+                        br.y,
+                        br.h,
+                        p.text,
+                        br,
+                    );
+                    if let Some(index) = index {
+                        self.hit(
+                            br,
+                            Hit::Ui(UiEvent::Target {
+                                side,
+                                index,
+                                clicks: 1,
+                            }),
+                        );
+                    }
+                    x += br.w + 6.0;
                 }
             }
             Node::Input {
@@ -3781,7 +3845,10 @@ impl Frame<'_> {
                 }
             }
             None if e.icon.is_some() => {
-                x += self.file_icon(&e.label, e.icon, x, mid - 8.0, 16.0, clip);
+                // A test's mark stays a mark, whatever its file's icon.
+                let mark = matches!(e.icon, Some(('✓' | '✕' | '○' | '⟳' | '●', _)));
+                let name = if mark { "" } else { e.label.as_str() };
+                x += self.file_icon(name, e.icon, x, mid - 8.0, 16.0, clip);
             }
             None => {}
         }
@@ -4566,6 +4633,94 @@ impl Frame<'_> {
                     MergeRow::Accept(_) => {}
                 }
             }
+        }
+    }
+
+    /// A text view's test rows: each test's ▶ Run Test and Debug and how
+    /// it last went, in the row over its `fn`; a failure's message in a
+    /// red box under the line that failed; and ✓ or ✕ in the gutter.
+    pub fn test_rows(&mut self, text: &TextView, code: Rect, y0: f32, row_h: f32, cell_w: f32) {
+        let p = self.p;
+        let text_x = code.x + (text.gutter as f32 - text.hscroll as f32) * cell_w;
+        let clip = Rect::new(
+            code.x + text.gutter as f32 * cell_w,
+            code.y,
+            code.w - text.gutter as f32 * cell_w,
+            code.h,
+        );
+        let link = Face::ui(11.5);
+        for lens in &text.tests {
+            let y = y0 + lens.row as f32 * row_h;
+            if y + row_h <= code.y || y >= code.bottom() {
+                continue;
+            }
+            let mut x = text_x + lens.col as f32 * cell_w;
+            for (label, id) in &lens.links {
+                let w = self.text.width(label, link);
+                let r = Rect::new(x - 3.0, y + 2.0, w + 6.0, row_h - 4.0);
+                let hovered = self.hovered(r);
+                if hovered {
+                    self.canvas.round(r.intersect(clip), 4.0, p.hover);
+                }
+                let colour = if hovered { p.bright } else { p.muted };
+                self.text
+                    .draw_in_row(&mut self.canvas, label, link, x, y, row_h, colour, clip);
+                self.hit(r.intersect(clip), Hit::Ui(UiEvent::Press(id.clone())));
+                x += w + 14.0;
+            }
+            if let Some((status, failed)) = &lens.status {
+                let colour = if *failed { p.error } else { p.success };
+                self.text
+                    .draw_in_row(&mut self.canvas, status, link, x, y, row_h, colour, clip);
+            }
+        }
+        for failure in &text.failures {
+            let y = y0 + failure.row as f32 * row_h;
+            if y + row_h <= code.y || y >= code.bottom() {
+                continue;
+            }
+            let x = text_x + failure.col as f32 * cell_w;
+            let face = Face::mono(11.5);
+            let max = (clip.right() - x - 20.0).max(40.0);
+            let shown = self.text.fit(&failure.text, face, max);
+            let w = self.text.width(&shown, face);
+            let r = Rect::new(x - 2.0, y + 2.0, w + 16.0, row_h - 4.0);
+            self.canvas
+                .round(r.intersect(clip), 4.0, mix(p.error, p.island, 0.18));
+            self.text.draw_in_row(
+                &mut self.canvas,
+                &shown,
+                face,
+                x + 6.0,
+                y,
+                row_h,
+                mix(p.error, p.bright, 0.35),
+                clip,
+            );
+        }
+        // ✓ or ✕ at the gutter's left, on each test's line.
+        for line in text.lines.iter().filter(|l| l.test.is_some()) {
+            let y = y0 + line.row as f32 * row_h;
+            if y + row_h <= code.y || y >= code.bottom() {
+                continue;
+            }
+            let passed = line.test == Some(true);
+            let (glyph, colour) = if passed {
+                ("✓", p.success)
+            } else {
+                ("✕", p.error)
+            };
+            let x = code.x + text.blame_cols as f32 * cell_w + 4.0;
+            self.text.draw_in_row(
+                &mut self.canvas,
+                glyph,
+                Face::ui(10.5).bold(),
+                x,
+                y,
+                row_h,
+                colour,
+                code,
+            );
         }
     }
 

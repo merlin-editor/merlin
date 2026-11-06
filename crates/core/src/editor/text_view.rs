@@ -74,6 +74,10 @@ pub struct TextView {
     pub blame_card: Option<super::blame::BlameCardView>,
     /// The merge editor's panes and the Result's notes, when it's merging.
     pub merge: Option<super::merge_editor::MergeView>,
+    /// ▶ Run Test and Debug over each test, and failures under the lines
+    /// that failed, in rows of their own.
+    pub tests: Vec<super::TestLensView>,
+    pub failures: Vec<super::TestFailureView>,
 }
 
 /// A line of the file on screen.
@@ -124,6 +128,8 @@ pub struct LineView {
     pub blame: Option<String>,
     /// Its entry in the blame column, when that's shown.
     pub blame_cell: Option<super::blame::BlameCell>,
+    /// A test's `fn` line: whether it passed when it last ran.
+    pub test: Option<bool>,
 }
 
 /// An inlay hint on a line: the character it's before, the columns it
@@ -325,6 +331,8 @@ impl Editor {
                     blame_cols: 0,
                     blame_card: None,
                     merge: None,
+                    tests: Vec::new(),
+                    failures: Vec::new(),
                     diff: marks
                         .as_ref()
                         .map(|(o, n)| if old { o.clone() } else { n.clone() }),
@@ -407,6 +415,8 @@ impl Editor {
             blame_cols: self.blame_cols(),
             blame_card: None,
             merge: None,
+            tests: Vec::new(),
+            failures: Vec::new(),
         };
         let mut notes = Vec::new();
         let bottom = area.h as i32 + overscan as i32;
@@ -639,6 +649,7 @@ impl Editor {
                 eol_selected,
                 blame,
                 blame_cell: self.blame_cell(line),
+                test: self.test_mark(line),
             });
             if self.blame_card.is_some_and(|(l, _)| l == line) {
                 view.blame_card = self.blame_card_view(row + shown as i32 - 1);
@@ -663,6 +674,7 @@ impl Editor {
                 notes.extend(more);
                 row = next;
             }
+            row = self.test_rows(line, row, &mut view.tests, &mut view.failures);
             line += 1;
         }
         view.merge = self.merge_view(area.h as usize, notes);
@@ -732,6 +744,7 @@ impl Editor {
             eol_selected: false,
             blame: None,
             blame_cell: None,
+            test: None,
         }
     }
 }

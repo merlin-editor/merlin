@@ -57,6 +57,7 @@ pub struct Task {
 pub(crate) struct Run {
     pub name: String,
     pub term: u64,
+    pub command: String,
     /// Its exit code once it's done.
     pub exited: Option<i32>,
 }
@@ -364,6 +365,7 @@ impl Editor {
         self.tasks.runs.push(Run {
             name: name.to_string(),
             term,
+            command: command.to_string(),
             exited: None,
         });
         term
@@ -373,11 +375,14 @@ impl Editor {
     pub(crate) fn task_exited(&mut self, term: u64, code: Option<i32>) {
         if let Some(run) = self.tasks.runs.iter_mut().find(|r| r.term == term) {
             run.exited = Some(code.unwrap_or(-1));
+            self.build_views();
         }
     }
 
     /// What a task printed, once it ends.
-    pub(crate) fn task_output(&mut self, _term: u64, _text: &str) {}
+    pub(crate) fn task_output(&mut self, term: u64, text: &str) {
+        self.tests_output(term, text);
+    }
 
     /// The tasks still running, for the status bar.
     pub(crate) fn running_tasks(&self) -> Vec<&Run> {

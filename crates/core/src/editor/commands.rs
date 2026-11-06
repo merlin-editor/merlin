@@ -134,6 +134,12 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
     ("merge.accept_all_incoming", "Merge: Accept All Incoming"),
     ("merge.accept_all_current", "Merge: Accept All Current"),
     ("merge.complete", "Merge: Complete Merge"),
+    ("view.tests", "View: Tests"),
+    ("tests.run_all", "Test: Run All Tests"),
+    ("tests.run_failed", "Test: Rerun Failed Tests"),
+    ("tests.run_file", "Test: Run Tests in Current File"),
+    ("tests.run_at_cursor", "Test: Run Test at Cursor"),
+    ("tests.on_save", "Test: Toggle Run on Save"),
     ("task.run", "Tasks: Run Task…"),
     ("task.test", "Tasks: Run Test Task"),
     ("task.build", "Tasks: Run Build Task"),
@@ -160,6 +166,9 @@ impl Editor {
     pub(crate) fn run(&mut self, id: &str, fx: &mut Vec<Effect>) {
         if id.starts_with("explorer.") && self.explorer_command(id, fx) {
             return;
+        }
+        if id.starts_with("tests.") || id == "view.tests" {
+            return self.tests_command(id, fx);
         }
         if id.starts_with("task.") {
             return self.task_command(id, fx);

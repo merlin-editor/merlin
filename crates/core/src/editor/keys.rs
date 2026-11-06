@@ -117,6 +117,9 @@ pub(super) const EDITOR_KEYS: &[(&str, &str)] = &[
 pub(super) const CHORDS: &[(&str, &str, &str)] = &[
     ("ctrl+k", "ctrl+d", "edit.skip_next"),
     ("ctrl+;", "a", "task.test"),
+    ("ctrl+;", "e", "tests.run_failed"),
+    ("ctrl+;", "f", "tests.run_file"),
+    ("ctrl+;", "c", "tests.run_at_cursor"),
     ("ctrl+k", "ctrl+i", "view.hover"),
     ("ctrl+k", "ctrl+f", "edit.format_selection"),
     ("ctrl+k", "s", "file.save_without_formatting"),

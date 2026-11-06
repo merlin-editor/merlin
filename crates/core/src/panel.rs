@@ -31,6 +31,9 @@ pub enum Node {
     Styled(String, Tone),
     Button(Button),
     Buttons(Vec<Button>),
+    /// Small buttons side by side, as a view's tools: Run All, Run Failed.
+    /// The editor's own views have these; plugins don't.
+    Tools(Vec<Button>),
     /// A row that can be focused and clicked like a button, drawn as text:
     /// a file in a tree, a problem in a list.
     Item {
@@ -171,7 +174,7 @@ impl Panel {
             .iter()
             .flat_map(|node| match node {
                 Node::Button(b) => vec![button(b)],
-                Node::Buttons(bs) | Node::Banner { buttons: bs, .. } => {
+                Node::Buttons(bs) | Node::Tools(bs) | Node::Banner { buttons: bs, .. } => {
                     bs.iter().map(button).collect()
                 }
                 Node::Wide { button: b, .. } => vec![button(b)],

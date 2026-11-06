@@ -236,6 +236,7 @@ impl Editor {
 
     /// A file was saved: one waiting to close does, and quitting goes on.
     pub(crate) fn after_save(&mut self, doc: u64, fx: &mut Vec<Effect>) {
+        self.tests_saved(doc, fx);
         // A file completed in the merge editor is staged once it's on disk.
         if let Some(at) = self.merge_staging.iter().position(|(id, _)| *id == doc) {
             let (_, path) = self.merge_staging.remove(at);

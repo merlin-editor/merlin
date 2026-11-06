@@ -21,6 +21,7 @@ pub(crate) enum Icon {
     Branch,
     Diff,
     Outline,
+    Testing,
 }
 
 pub(crate) fn icon(icon: Icon, nerd: bool) -> char {
@@ -39,6 +40,7 @@ pub(crate) fn icon(icon: Icon, nerd: bool) -> char {
             Branch => '\u{e725}',
             Diff => '\u{eae1}',
             Outline => '\u{eb86}',
+            Testing => '\u{ea79}',
         }
     } else {
         match icon {
@@ -54,6 +56,7 @@ pub(crate) fn icon(icon: Icon, nerd: bool) -> char {
             Branch => '⎇',
             Diff => '⇆',
             Outline => '≣',
+            Testing => '⚗',
         }
     }
 }

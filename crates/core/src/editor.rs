@@ -50,6 +50,7 @@ mod swatches;
 mod tabs;
 mod tasks;
 mod terminal;
+mod testing;
 mod text_view;
 mod views;
 mod window;
@@ -76,6 +77,7 @@ pub use settings::Settings;
 pub use tabs::GroupView;
 pub use tasks::{Task, TaskGroup, from_cargo, from_package, from_tasks_file};
 pub use terminal::{TermOp, TermSession, TerminalView};
+pub use testing::{Outcome, TestFailureView, TestLensView, rust_tests};
 pub use text_view::{CaretView, InlayView, LineView, OVERSCAN, TextView};
 pub use workspace::{GroupState, Tab, Workspace};
 pub use wrap::Row as WrapRow;
@@ -1027,6 +1029,7 @@ pub struct Editor {
                 Option<(usize, usize)>,
                 Option<(usize, u64, bool)>,
                 Option<(u64, usize, bool)>,
+                u64,
             ),
             std::rc::Rc<Vec<usize>>,
         )>,
@@ -1083,6 +1086,9 @@ pub struct Editor {
     /// The integrated terminal's shells.
     terminals: terminal::Terminals,
     tasks: tasks::Tasks,
+    tests: testing::Tests,
+    /// The shown document's tests, for its version and the results'.
+    tests_cache: std::cell::RefCell<Option<testing::DocTestsCache>>,
     /// Brackets are coloured by how deep they are.
     bracket_colours: bool,
     /// Colours written in the code get a swatch.
@@ -1215,6 +1221,8 @@ impl Editor {
             saving: save::Saving::default(),
             terminals: terminal::Terminals::default(),
             tasks: tasks::Tasks::default(),
+            tests: testing::Tests::default(),
+            tests_cache: Default::default(),
             bracket_colours: true,
             colour_swatches: true,
             inline_notes: true,
@@ -1686,6 +1694,7 @@ impl Editor {
             Event::ShowReferences(places) => self.show_references(places, &mut fx),
             Event::FilesRead(files) => {
                 self.tasks_read(&files, &mut fx);
+                self.tests_read(&files);
                 self.compare_files_read(&files, &mut fx);
                 self.peek_files_read(&files);
                 self.files_read(files);
@@ -1748,6 +1757,7 @@ impl Editor {
             Event::Renamed { from, to } => self.renamed(from, to),
             Event::Trashed(path) => self.trashed(path),
             Event::Tree(files) => {
+                self.tests_listed(&files, &mut fx);
                 let tree = self.tree.get_or_insert_with(Default::default);
                 tree.files = files;
                 tree.built_for = None;

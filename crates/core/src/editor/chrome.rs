@@ -113,6 +113,15 @@ impl Editor {
                 ));
             }
         }
+        let (_, failed) = self.test_counts();
+        if failed > 0 {
+            let s = if failed == 1 { "" } else { "s" };
+            left.push((
+                format!(" ✕ {failed} test{s} failed "),
+                Style::StatusError,
+                Some(Action::Run("view.tests")),
+            ));
+        }
         // Tasks still running, a click away from their terminal.
         for run in self.running_tasks() {
             left.push((

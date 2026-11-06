@@ -28,7 +28,14 @@ fn the_view_has_tabs_status_and_rail() {
     let labels: Vec<_> = view.rail.iter().map(|r| r.label.as_str()).collect();
     assert_eq!(
         labels,
-        ["Explorer", "Search", "Source Control", "Outline", "Plugins"]
+        [
+            "Explorer",
+            "Search",
+            "Source Control",
+            "Tests",
+            "Outline",
+            "Plugins"
+        ]
     );
 }
 
@@ -180,7 +187,14 @@ fn rail_items_say_what_they_show() {
     let ids: Vec<_> = s.editor.window_view().rail.iter().map(|r| r.id).collect();
     assert_eq!(
         ids,
-        ["explorer", "search", "source-control", "outline", "plugins"]
+        [
+            "explorer",
+            "search",
+            "source-control",
+            "testing",
+            "outline",
+            "plugins"
+        ]
     );
 }
 

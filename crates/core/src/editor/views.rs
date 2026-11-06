@@ -247,6 +247,7 @@ impl Editor {
             (EXPLORER, "Explorer", Side::Left),
             (SEARCH, "Search", Side::Left),
             (CHANGES, "Source Control", Side::Left),
+            (super::testing::TESTS, "Tests", Side::Left),
             (OUTLINE, "Outline", Side::Left),
             (PLUGINS, "Plugins", Side::Left),
             (PROBLEMS, "Problems", Side::Bottom),
@@ -329,6 +330,7 @@ impl Editor {
                 self.tree.get_or_insert_with(Tree::default);
             }
             CHANGES => fx.push(Effect::GitStatus),
+            super::testing::TESTS => self.find_tests(fx),
             _ => {}
         }
     }
@@ -375,6 +377,8 @@ impl Editor {
         self.set_view(OUTPUT, output);
         let plugins = self.plugins_nodes();
         self.set_view(PLUGINS, plugins);
+        let tests = self.tests_nodes();
+        self.set_view(super::testing::TESTS, tests);
         let rename = self.rename_nodes();
         self.set_view(super::rename::RENAME, rename);
     }
@@ -874,6 +878,9 @@ impl Editor {
     }
 
     pub(crate) fn view_click(&mut self, id: &str, fx: &mut Vec<Effect>) {
+        if id.starts_with("t:") {
+            return self.tests_click(id, fx);
+        }
         if id.starts_with("rn:") || id.starts_with("rename:") {
             return self.rename_click(id, fx);
         }

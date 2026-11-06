@@ -440,7 +440,9 @@ impl Session {
                     crate::panel::Node::Entry(e) => vec![e.label.clone()],
                     crate::panel::Node::Item { label, .. } => vec![label.clone()],
                     crate::panel::Node::Button(b) => vec![b.label.clone()],
-                    crate::panel::Node::Buttons(bs) => bs.iter().map(|b| b.label.clone()).collect(),
+                    crate::panel::Node::Buttons(bs) | crate::panel::Node::Tools(bs) => {
+                        bs.iter().map(|b| b.label.clone()).collect()
+                    }
                     _ => continue,
                 };
                 let Some(k) = labels.iter().position(|l| l.contains(label)) else {

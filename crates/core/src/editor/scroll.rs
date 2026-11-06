@@ -96,6 +96,7 @@ impl Editor {
                 .map(|p| (p.index, p.version, self.change_peeking())),
             self.merging()
                 .map(|m| (m.version, m.left(), self.merge_inline())),
+            self.tests.version,
         );
         let mut cache = self.row_cache.borrow_mut();
         if let Some((k, index)) = cache.as_ref()
