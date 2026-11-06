@@ -137,6 +137,7 @@ pub(super) const CHORDS: &[(&str, &str, &str)] = &[
 
 impl Editor {
     pub(crate) fn key(&mut self, key: Key, fx: &mut Vec<Effect>) {
+        self.which_key_key();
         // A terminal with the keys takes nearly all of them.
         if self.terminal_key(key, fx) {
             return;

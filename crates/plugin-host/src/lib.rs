@@ -82,9 +82,54 @@ pub struct Manifest {
     /// Debuggers the plugin brings, for languages it adds or others.
     #[serde(default)]
     pub debuggers: Vec<ManifestDebugger>,
+    /// Keys under Vim's leader: a group with `group` and its label, or
+    /// `keys` (after the leader, such as `x n`) and the command they run.
+    #[serde(default)]
+    pub keys: Vec<ManifestKey>,
 }
 
 /// A debugger, as `[[debuggers]]` in a manifest declares it.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct ManifestKey {
+    #[serde(default)]
+    pub group: Option<String>,
+    #[serde(default)]
+    pub keys: Option<String>,
+    #[serde(default)]
+    pub command: Option<String>,
+    pub label: String,
+}
+
+impl ManifestKey {
+    fn to_core(&self, plugin: &str) -> Option<merlin_core::LeaderKey> {
+        let keys = self
+            .group
+            .as_ref()
+            .or(self.keys.as_ref())?
+            .trim()
+            .to_string();
+        if keys.is_empty() {
+            return None;
+        }
+        // The plugin's own command, with or without its name before it.
+        let command = match (&self.group, &self.command) {
+            (Some(_), _) => None,
+            (None, Some(c)) => Some(
+                c.strip_prefix(&format!("{plugin}."))
+                    .unwrap_or(c)
+                    .to_string(),
+            ),
+            (None, None) => return None,
+        };
+        Some(merlin_core::LeaderKey {
+            keys,
+            command,
+            label: self.label.clone(),
+        })
+    }
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct ManifestDebugger {
@@ -167,6 +212,17 @@ fn manifest_events(manifest: &Manifest) -> Vec<Event> {
         events.push(Event::RegisterLanguages {
             plugin: plugin.clone(),
             languages,
+        });
+    }
+    let keys: Vec<_> = manifest
+        .keys
+        .iter()
+        .filter_map(|k| k.to_core(&plugin))
+        .collect();
+    if !keys.is_empty() {
+        events.push(Event::RegisterKeys {
+            plugin: plugin.clone(),
+            keys,
         });
     }
     if !manifest.debuggers.is_empty() {

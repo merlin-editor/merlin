@@ -272,8 +272,9 @@ These are ordered by votes against effort.
    registers, counts, the dot and undo are in, with the mode chip, the
    cursor's shapes and relative numbers. The `:` line is in, with Vim's
    commands and ranges, merlin's commands by name, `:s` shown as it's
-   typed, and `/` and `?`. Which-key with the registers and marks cards,
-   macros and Helix are next.
+   typed, and `/` and `?`. Which-key is in, for Vim's prefixes, the
+   leader (with plugins' `[[keys]]`), registers, marks and Ctrl+K chords.
+   Macros and Helix are next.
 9. **Several folders in one window, and floating or second windows.**
 10. **Markdown preview**, with Mermaid.
 

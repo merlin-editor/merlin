@@ -26,14 +26,14 @@ pub mod symbols;
 pub use editor::{
     AutoSave, AutoSaveWhy, Command, ContextItem, ContextView, DialogView, Editor, Effect, Event,
     FORMAT_WAIT_MS, FileConfig, FileOp, FilePick, FindAction, FindView, Focus, FormatOnSave,
-    GitAction, GitMove, HoverButton, KeyBinding, Keymap, MenuView, MergeBarView, MergeKind,
-    MergeNote, MergePaneView, MergeRow, MergeSide, MergeState, MergeView, MouseKind, Outcome,
-    PaletteExtra, PaletteView, PluginSummary, PluginTest, PluginTestResult, Pointer, PopupKind,
-    PopupView, ProblemView, RailItem, SETTINGS_PAGE, SearchHit, Settings, Side, SideView,
-    SignatureView, StatusView, SyncKind, SyncOutcome, SyncState, TabView, Task, TaskGroup, TermOp,
-    TermSession, TerminalView, TextView, ThemeKind, ToastView, UiEvent, UserKey, VimCursor,
-    VimLineItem, VimLineView, VimMode, VimSettings, VimView, When, WindowView, Workspace,
-    from_cargo, from_package, from_tasks_file,
+    GitAction, GitMove, HoverButton, KeyBinding, Keymap, LeaderKey, MenuView, MergeBarView,
+    MergeKind, MergeNote, MergePaneView, MergeRow, MergeSide, MergeState, MergeView, MouseKind,
+    Outcome, PaletteExtra, PaletteView, PluginSummary, PluginTest, PluginTestResult, Pointer,
+    PopupKind, PopupView, ProblemView, RailItem, SETTINGS_PAGE, SearchHit, Settings, Side,
+    SideView, SignatureView, StatusView, SyncKind, SyncOutcome, SyncState, TabView, Task,
+    TaskGroup, TermOp, TermSession, TerminalView, TextView, ThemeKind, ToastView, UiEvent, UserKey,
+    VimCursor, VimLineItem, VimLineView, VimMode, VimSettings, VimView, When, WhichKeyItem,
+    WhichKeyView, WindowView, Workspace, from_cargo, from_package, from_tasks_file,
 };
 pub use editor::{
     BreakBoxView, BreakField, BreakMark, Breakpoint, BreakpointState, DAP, DebugBarView,

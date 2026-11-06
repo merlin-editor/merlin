@@ -219,6 +219,8 @@ struct App {
     /// When a save waiting for its formatting gives up and saves, and
     /// which document's it is.
     format_due: Option<(Instant, u64)>,
+    /// When which-key shows, for a pause on a prefix.
+    which_key_due: Option<(Instant, u64)>,
     quit: bool,
     /// The Settings tab's state.
     settings_ui: prefs::SettingsUi,
@@ -250,7 +252,19 @@ impl App {
         self.backups.touch(&self.editor.unsaved());
         self.touch_auto_save();
         self.touch_format();
+        self.touch_which_key();
         self.refresh_watch();
+    }
+
+    /// Times the pause before which-key shows.
+    fn touch_which_key(&mut self) {
+        self.which_key_due = match (self.editor.which_key_wait(), self.which_key_due) {
+            (None, _) => None,
+            (Some((tick, _)), Some((at, timed))) if timed == tick => Some((at, tick)),
+            (Some((tick, ms)), _) => {
+                Some((Instant::now() + std::time::Duration::from_millis(ms), tick))
+            }
+        };
     }
 
     /// Times a save that waits for its formatting.
@@ -1003,6 +1017,7 @@ impl App {
             self.backups.due,
             self.auto_save,
             self.format_due.map(|(at, _)| at),
+            self.which_key_due.map(|(at, _)| at),
             self.terminals.due(),
         ]
         .into_iter()
@@ -1031,6 +1046,12 @@ impl App {
             self.settle = None;
             let changes = std::mem::take(&mut self.changes);
             self.settled(changes);
+            changed = true;
+        }
+        if self.which_key_due.is_some_and(|(at, _)| at <= now)
+            && let Some((_, tick)) = self.which_key_due.take()
+        {
+            self.dispatch(Event::WhichKey(tick));
             changed = true;
         }
         if self.format_due.is_some_and(|(at, _)| at <= now) {
@@ -2352,6 +2373,7 @@ fn main() -> Result<()> {
         auto_save: None,
         auto_save_for: Vec::new(),
         format_due: None,
+        which_key_due: None,
         quit: false,
         settings_ui: prefs::SettingsUi::default(),
         loaded: prefs::Loaded::default(),

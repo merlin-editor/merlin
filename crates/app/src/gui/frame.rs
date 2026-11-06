@@ -608,6 +608,9 @@ impl Frame<'_> {
         if let Some(line) = &view.vim_line {
             self.vim_line(line, a);
         }
+        if let Some(card) = &view.which_key {
+            self.which_key(card, a);
+        }
         if let Some(popup) = &view.popup {
             self.popup(popup, a, cell);
         }
@@ -697,6 +700,120 @@ impl Frame<'_> {
 
     /// The find box at the top right of the code, as VS Code has it: the
     /// query with its count and arrows, and the replacement below it.
+    /// Which-key: what the next keys do, in a card along the bottom of
+    /// the text.
+    fn which_key(&mut self, card: &merlin_core::WhichKeyView, a: &Areas) {
+        let p = self.p;
+        let row = 24.0;
+        let cols = card.columns.max(1);
+        let rows = card.items.len().div_ceil(cols).max(1);
+        let right = a
+            .groups
+            .iter()
+            .find(|g| g.text == a.text)
+            .map_or(a.text.right(), |g| g.bar.right());
+        let w = (right - a.text.x - 24.0).max(200.0);
+        let h = 16.0 + 30.0 + rows as f32 * row + 8.0;
+        let r = Rect::new(a.text.x + 12.0, a.text.bottom() - h - 12.0, w, h);
+        self.canvas.shadow(r, 10.0, theme::is_light(&p));
+        self.canvas.outline(r, 10.0, 1.0, p.border, p.widget);
+        self.hit(r, Hit::Block);
+        let ui = Face::ui(12.5);
+        let mono = Face::mono(12.0);
+        let mut x = r.x + 16.0;
+        let top = r.y + 12.0;
+        // The keys so far, in a chip, then "then…" and the hint.
+        let cw = self.text.width(&card.chord, mono);
+        let chip = Rect::new(x, top + 3.0, cw + 14.0, 20.0);
+        self.canvas.round(chip, 4.0, p.chip);
+        self.text.draw_in_row(
+            &mut self.canvas,
+            &card.chord,
+            mono,
+            x + 7.0,
+            chip.y,
+            chip.h,
+            p.bright,
+            chip,
+        );
+        x = chip.right() + 10.0;
+        self.text
+            .draw_in_row(&mut self.canvas, "then…", ui, x, top, 26.0, p.muted, r);
+        let small = Face::ui(11.5);
+        let hw = self.text.width(&card.hint, small);
+        self.text.draw_in_row(
+            &mut self.canvas,
+            &card.hint,
+            small,
+            r.right() - 16.0 - hw,
+            top,
+            26.0,
+            p.muted,
+            r,
+        );
+        let y0 = top + 34.0;
+        let col_w = (r.w - 32.0 - (cols - 1) as f32 * 24.0) / cols as f32;
+        let key_w = card
+            .items
+            .iter()
+            .map(|i| self.text.width(&i.key, mono.bold()))
+            .fold(18.0_f32, f32::max);
+        for (i, item) in card.items.iter().enumerate() {
+            let (c, rr) = (i / rows, i % rows);
+            let cell = Rect::new(
+                r.x + 16.0 + c as f32 * (col_w + 24.0),
+                y0 + rr as f32 * row,
+                col_w,
+                row,
+            );
+            self.text.draw_in_row(
+                &mut self.canvas,
+                &item.key,
+                mono.bold(),
+                cell.x,
+                cell.y,
+                row,
+                p.function,
+                cell,
+            );
+            let lx = cell.x + key_w + 10.0;
+            let label = if item.group {
+                format!("+ {}", item.label)
+            } else {
+                item.label.clone()
+            };
+            let colour = if item.group { p.accent } else { p.text };
+            let lw = self.text.width(&label, ui);
+            let mut end = cell.right();
+            if let Some(plugin) = &item.plugin {
+                end -= self.plugin_chip(plugin, cell.right(), cell.y + 4.0) + 6.0;
+            }
+            self.text.draw_in_row(
+                &mut self.canvas,
+                &label,
+                ui,
+                lx,
+                cell.y,
+                row,
+                colour,
+                Rect::new(lx, cell.y, (end - lx).max(0.0), row),
+            );
+            if let Some(preview) = &item.preview {
+                let px = lx + lw.max(if label.is_empty() { 0.0 } else { 140.0 }) + 14.0;
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    preview,
+                    mono,
+                    px,
+                    cell.y,
+                    row,
+                    p.muted,
+                    Rect::new(px, cell.y, (end - px).max(0.0), row),
+                );
+            }
+        }
+    }
+
     /// Vim's command line along the bottom of the text, with what it
     /// suggests in a card over it.
     fn vim_line(&mut self, line: &merlin_core::VimLineView, a: &Areas) {

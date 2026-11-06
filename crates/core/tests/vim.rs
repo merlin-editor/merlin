@@ -323,3 +323,117 @@ fn write_and_quit() {
             .any(|e| matches!(e, merlin_core::Effect::Save { .. }))
     );
 }
+
+fn which(s: &mut Session) -> Option<merlin_core::WhichKeyView> {
+    // The window would wait the delay; the test sends the event at once.
+    if let Some((tick, _)) = s.editor.which_key_wait() {
+        s.send(Event::WhichKey(tick));
+    }
+    s.editor.window_view().which_key
+}
+
+#[test]
+fn which_key_lists_the_keys_after_a_prefix() {
+    let mut s = vim("text");
+    s.run("type g");
+    let card = which(&mut s).expect("a card after g");
+    assert_eq!(card.chord, "g");
+    assert!(
+        card.items
+            .iter()
+            .any(|i| i.key == "d" && i.label == "Go to Definition")
+    );
+    s.run("type g");
+    assert!(s.editor.window_view().which_key.is_none(), "a key hides it");
+}
+
+#[test]
+fn a_key_before_the_pause_ends_shows_nothing() {
+    let mut s = vim("text");
+    s.run("type g");
+    let (tick, _) = s.editor.which_key_wait().expect("waiting");
+    s.run("type g");
+    s.send(Event::WhichKey(tick));
+    assert!(s.editor.window_view().which_key.is_none());
+}
+
+#[test]
+fn the_leader_has_groups_and_runs_commands() {
+    let mut s = vim("text");
+    // The script trims a space, so the leader is sent.
+    s.send(Event::Key(Key::plain(KeyCode::Char(' '))));
+    let card = which(&mut s).expect("the leader's card");
+    assert!(card.items.iter().any(|i| i.key == "f" && i.group));
+    s.run("type f");
+    let card = which(&mut s).expect("the files group");
+    assert_eq!(card.chord, "Space f");
+    s.run("key backspace");
+    let card = which(&mut s).expect("back up a level");
+    assert_eq!(card.chord, "Space");
+    s.run("type w");
+    assert!(
+        s.effects
+            .iter()
+            .any(|e| matches!(e, merlin_core::Effect::Save { .. })),
+        "Space w saves"
+    );
+}
+
+#[test]
+fn plugins_add_leader_keys() {
+    let mut s = vim("text");
+    s.send(Event::RegisterKeys {
+        plugin: "todo".into(),
+        keys: vec![
+            merlin_core::LeaderKey {
+                keys: "x".into(),
+                command: None,
+                label: "+ todo".into(),
+            },
+            merlin_core::LeaderKey {
+                keys: "x n".into(),
+                command: Some("next".into()),
+                label: "Next TODO".into(),
+            },
+        ],
+    });
+    s.send(Event::Key(Key::plain(KeyCode::Char(' '))));
+    s.run("type x");
+    let card = which(&mut s).expect("the plugin's group");
+    assert_eq!(card.items[0].plugin.as_deref(), Some("todo"));
+    s.run("type n");
+    assert!(s.effects.contains(&merlin_core::Effect::PluginCommand {
+        plugin: "todo".into(),
+        command: "next".into()
+    }));
+}
+
+#[test]
+fn registers_and_operators_have_cards() {
+    let mut s = vim("keep this");
+    s.run("type yiw\"");
+    let card = which(&mut s).expect("registers");
+    let zero = card.items.iter().find(|i| i.key == "0").expect("the yank");
+    assert_eq!(zero.preview.as_deref(), Some("keep"));
+    s.run("key esc; type d");
+    let card = which(&mut s).expect("motions");
+    assert!(
+        card.items
+            .iter()
+            .any(|i| i.key == "d" && i.label == "The whole line")
+    );
+}
+
+#[test]
+fn ctrl_k_chords_have_a_card_too() {
+    let mut s = Session::new("text", Some("notes.rs"), 60, 12);
+    s.run("key ctrl+k");
+    let card = which(&mut s).expect("the chord's card");
+    assert!(
+        card.items
+            .iter()
+            .any(|i| i.label.contains("Format the Selection")),
+        "{:?}",
+        card.items
+    );
+}

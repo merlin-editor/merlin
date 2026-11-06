@@ -54,6 +54,8 @@ const USER_TEMPLATE: &str = r#"# merlin settings. Saving this file applies them.
 # A project's .editorconfig wins over these and the indentation settings.
 
 [vim]
+# leader = "space"       # merlin's own commands start with it
+# which_key_delay = 500  # milliseconds on a prefix before the next keys show; 0 never
 # insert_escape = "jk"   # typed quickly, leaves Insert mode as Esc does
 # clipboard = false      # y, d and p use the system clipboard
 # keep = ["ctrl+p", "ctrl+shift+p", "ctrl+s", "ctrl+tab", "ctrl+`", "ctrl+c"]   # do merlin's thing in every mode
@@ -322,6 +324,14 @@ pub fn editor(table: &toml::Table) -> Settings {
                     .and_then(|v| v.get("clipboard"))
                     .and_then(|v| v.as_bool())
                     .unwrap_or(d.clipboard),
+                leader: vim
+                    .and_then(|v| v.get("leader"))
+                    .and_then(|v| v.as_str())
+                    .map_or(d.leader, str::to_string),
+                which_key_delay: vim
+                    .and_then(|v| v.get("which_key_delay"))
+                    .and_then(|v| v.as_integer().or_else(|| v.as_str()?.parse().ok()))
+                    .map_or(d.which_key_delay, |n| n.clamp(0, 10_000) as u64),
                 keep: vim
                     .and_then(|v| v.get("keep"))
                     .and_then(|v| v.as_array())

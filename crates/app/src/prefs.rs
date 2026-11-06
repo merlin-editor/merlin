@@ -504,6 +504,8 @@ impl App {
                 title: "Keymap",
                 rows: vec![
                     row("Keymap", "How keys work in the text. The rest of the window keeps its shortcuts, and the status bar's Keymap item switches.", "editor.keymap", pick(vec!["vscode", "vim"], "vscode")),
+                    row("Leader key", "Starts merlin's own commands, listed by which-key.", "vim.leader", pick(vec!["space", ",", "\\"], "space")),
+                    row("Which-key delay", "Milliseconds on a prefix such as g, the leader or Ctrl+K before the next keys show. 0 never shows them.", "vim.which_key_delay", pick(vec!["0", "300", "500", "1000"], "500")),
                     row("Leave Insert mode with", "Two letters typed quickly, as well as Esc.", "vim.insert_escape", pick(vec!["off", "jk", "jj", "kj"], "off")),
                     row("Yank to the clipboard", "y, d and p use the system clipboard, as clipboard=unnamedplus.", "vim.clipboard", on(false)),
                     row("Relative line numbers", "Counted from the cursor's line, in Normal mode.", "editor.line_numbers", pick(vec!["on", "relative"], "on")),

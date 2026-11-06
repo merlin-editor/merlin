@@ -201,6 +201,8 @@ pub struct WindowView {
     pub vim: Option<super::VimView>,
     /// Vim's command line under the text, while it's open.
     pub vim_line: Option<super::VimLineView>,
+    /// What the next keys do, after a pause on a prefix.
+    pub which_key: Option<super::WhichKeyView>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -550,6 +552,7 @@ impl Editor {
             debug: self.debug_bar(),
             vim: self.vim_view(),
             vim_line: self.vim_line_view(),
+            which_key: self.which_key_view(),
         }
     }
 

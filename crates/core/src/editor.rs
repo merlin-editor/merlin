@@ -62,7 +62,10 @@ mod testing;
 mod text_view;
 mod views;
 mod vim;
-pub use vim::{Keymap, VimCursor, VimLineItem, VimLineView, VimMode, VimSettings, VimView};
+pub use vim::{
+    Keymap, LeaderKey, VimCursor, VimLineItem, VimLineView, VimMode, VimSettings, VimView,
+    WhichKeyItem, WhichKeyView,
+};
 mod window;
 mod workspace;
 mod wrap;
@@ -335,6 +338,14 @@ pub enum Event {
     },
     /// Runs a task by name, as a plugin asks.
     RunTask(String),
+    /// Keys under the leader a plugin's manifest declares.
+    RegisterKeys {
+        plugin: String,
+        keys: Vec<LeaderKey>,
+    },
+    /// A pause on a prefix went on as long as
+    /// [`Editor::which_key_wait`] asked: which-key shows.
+    WhichKey(u64),
     /// Debuggers a plugin's manifest declares.
     RegisterDebuggers {
         plugin: String,
@@ -1011,6 +1022,12 @@ pub struct Editor {
     vim_settings: VimSettings,
     /// Line numbers count from the cursor's line, in Vim's Normal mode.
     relative_numbers: bool,
+    /// Plugins' keys under the leader, by plugin.
+    plugin_keys: Vec<(String, Vec<LeaderKey>)>,
+    /// Each key counts, so a pause on a prefix shows which-key only if no
+    /// key came since.
+    which_key_tick: u64,
+    which_key_shown: bool,
     /// Quit with unsaved files kept.
     keep_unsaved: bool,
     /// Files whose unsaved changes came back from the last run.
@@ -1250,6 +1267,9 @@ impl Editor {
             vim: None,
             vim_settings: VimSettings::default(),
             relative_numbers: false,
+            plugin_keys: Vec::new(),
+            which_key_tick: 0,
+            which_key_shown: false,
             keep_unsaved: false,
             restored: Vec::new(),
             open_folder: None,
@@ -1790,6 +1810,8 @@ impl Editor {
             } => self.set_plugin_tests(plugin, &path, tests),
             Event::SetTestResults { plugin, results } => self.set_plugin_results(&plugin, results),
             Event::RunTask(name) => self.run_task_named(&name, &mut fx),
+            Event::RegisterKeys { plugin, keys } => self.register_keys(plugin, keys),
+            Event::WhichKey(tick) => self.which_key_due(tick),
             Event::RegisterDebuggers { plugin, debuggers } => {
                 self.register_debuggers(plugin, debuggers, &mut fx)
             }

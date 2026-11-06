@@ -10,8 +10,10 @@ use super::*;
 use crate::doc::Doc;
 
 mod line;
+mod which;
 pub use line::{VimLineItem, VimLineView};
 use line::{search_regex, vim_regex};
+pub use which::{LeaderKey, WhichKeyItem, WhichKeyView};
 
 /// How keys work in the text.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -79,6 +81,10 @@ pub struct VimSettings {
     pub clipboard: bool,
     /// Ctrl keys that do merlin's thing in every mode, such as `ctrl+p`.
     pub keep: Vec<String>,
+    /// The key merlin's own commands start with: `space`, or a letter.
+    pub leader: String,
+    /// Milliseconds on a prefix before which-key shows; 0 never.
+    pub which_key_delay: u64,
 }
 
 impl Default for VimSettings {
@@ -87,6 +93,8 @@ impl Default for VimSettings {
             insert_escape: String::new(),
             clipboard: false,
             keep: KEEP.iter().map(|k| k.to_string()).collect(),
+            leader: "space".into(),
+            which_key_delay: 500,
         }
     }
 }
@@ -102,7 +110,7 @@ pub const KEEP: &[&str] = &[
 ];
 
 /// The Ctrl keys Vim has a use for in Normal and Visual mode.
-const VIM_CTRL: &str = "rvduoeyfbax[";
+const VIM_CTRL: &str = "rvduoeyfbaxw[";
 
 /// How long the second letter of `jk` may take, as Vim's `timeoutlen`.
 const ESCAPE_WAIT: Duration = Duration::from_millis(1000);
@@ -363,7 +371,19 @@ fn action(s: &[char], visual: bool) -> Result<Option<usize>, ()> {
         'r' | 'm' => Ok(s.get(1).map(|_| 2)),
         'z' if !visual => match s.get(1) {
             None => Ok(None),
-            Some('z' | 't' | 'b' | '.' | '-' | '\r') => Ok(Some(2)),
+            Some('z' | 't' | 'b' | '.' | '-' | '\r' | 'o' | 'c' | 'a' | 'R' | 'M') => Ok(Some(2)),
+            Some(_) => Err(()),
+        },
+        '[' | ']' if !visual => match s.get(1) {
+            None => Ok(None),
+            Some('c' | 'd') => Ok(Some(2)),
+            Some(_) => Err(()),
+        },
+        '\x17' if !visual => match s.get(1) {
+            None => Ok(None),
+            Some('w' | 'W' | 'v' | 's' | 'c' | 'q' | 'o' | 'h' | 'l' | 'j' | 'k' | '\x17') => {
+                Ok(Some(2))
+            }
             Some(_) => Err(()),
         },
         'Z' if !visual => match s.get(1) {
@@ -833,9 +853,22 @@ impl Editor {
         let vim = self.vim.as_mut().expect("vim");
         if vim.pending.is_empty() {
             vim.note = None;
+        } else if t == BACKSPACE {
+            // Up a level, as which-key says.
+            vim.pending.pop();
+            vim.pending_keys.pop();
+            return;
+        } else if t == ESC {
+            vim.pending.clear();
+            vim.pending_keys.clear();
+            return;
         }
         vim.pending.push(t);
         vim.pending_keys.push(key);
+        if self.vim_leader(fx) {
+            return;
+        }
+        let vim = self.vim.as_mut().expect("vim");
         let visual = vim.mode().visual();
         match parse(&vim.pending, visual) {
             Parsed::Wait => {}
@@ -1871,6 +1904,36 @@ impl Editor {
                 };
                 self.each_caret(Kind::Other, |e, _| e.vim_add(by));
             }
+            ('z', Some('o')) => self.run("edit.unfold", fx),
+            ('z', Some('c')) => self.run("edit.fold", fx),
+            ('z', Some('a')) => {
+                let line = self.doc().line_col(self.doc().cursor).0;
+                self.toggle_fold(line);
+            }
+            ('z', Some('R')) => self.run("edit.unfold_all", fx),
+            ('z', Some('M')) => self.run("edit.fold_all", fx),
+            (']' | '[', Some('c')) => {
+                let id = if first == ']' {
+                    "go.next_change"
+                } else {
+                    "go.prev_change"
+                };
+                for _ in 0..n {
+                    self.run(id, fx);
+                }
+            }
+            (']' | '[', Some('d')) => self.vim_problem(first == ']', n),
+            ('\x17', Some(c)) => {
+                let groups = self.groups.len();
+                match c {
+                    'w' | 'l' | 'j' | '\x17' => self.focus_group((self.group + 1) % groups),
+                    'W' | 'h' | 'k' => self.focus_group((self.group + groups - 1) % groups),
+                    'v' => self.run("view.split", fx),
+                    's' => self.run("view.split_down", fx),
+                    'o' => self.run("file.close_others", fx),
+                    _ => self.run("file.close", fx),
+                }
+            }
             ('z', Some(c)) => {
                 let doc = self.doc_mut();
                 let line = doc.line_col(doc.cursor).0;
@@ -1945,6 +2008,35 @@ impl Editor {
             ('Z', Some('Q')) => self.run("file.close", fx),
             _ => {}
         }
+    }
+
+    /// `]d` and `[d`: to the next or previous problem.
+    fn vim_problem(&mut self, forward: bool, n: usize) {
+        let doc = self.doc();
+        let mut starts: Vec<usize> = doc.marks.iter().map(|m| m.start).collect();
+        starts.sort();
+        starts.dedup();
+        if starts.is_empty() {
+            return self.vim_note("No problems in this file".into());
+        }
+        let mut at = doc.cursor;
+        for _ in 0..n {
+            at = if forward {
+                starts
+                    .iter()
+                    .copied()
+                    .find(|&s| s > at)
+                    .unwrap_or(starts[0])
+            } else {
+                starts
+                    .iter()
+                    .rev()
+                    .copied()
+                    .find(|&s| s < at)
+                    .unwrap_or(starts[starts.len() - 1])
+            };
+        }
+        self.set_cursor(at);
     }
 
     /// The scroll stays inside the text.
