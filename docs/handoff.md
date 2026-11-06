@@ -38,7 +38,7 @@ mock-ups. Nothing is pushed. The last commit when this was written was
 | 4. Tasks and tests | Built. See below |
 | 5. Hot exit | Built. See below |
 | 6. Settings editor | Built. See below |
-| 7. Debugging | First slice built. See below |
+| 7. Debugging | Built. See below |
 | 8 to 10 | Not started |
 
 ### Language features (`Language.dc.html`)
@@ -823,9 +823,29 @@ declaring a debugger, with no code in merlin for its language.
   the plugin sends `stepOut`, and if that lands back on the line the step
   began on, `next`; up to 30 times. So each F10 or F11 lands on a project
   line.
-- **Left:** attaching by picking a process, Add to Watch and Set Value,
-  Debug the Last Build, Debug on a Rust test, threads' Pause, the
-  toolbar dragged.
+- **Debug on a Rust test.** merlin's own tests and rust-analyzer's cargo
+  tests both run under the debugger when one is declared for Rust: built
+  with `cargo test --no-run`, the binary taken from cargo's `Executable`
+  lines (`executables`, which joins a path the terminal wrapped), started
+  with what followed `--` and `--nocapture --test-threads=1`
+  (`debug_test`, `debug_build_output`). Without a debugger, the old
+  rust-gdb terminal.
+- **Attach to Process.** `Effect::ListProcesses`: the app lists the
+  user's processes newest first from `/proc`, leaving out merlin and its
+  children, with `ptrace_scope`. At 1 or more merlin says why it can't
+  and offers to start the program instead; at 0 it attaches with `pid`.
+- **Watch and Set Value.** Run and Debug's Watch has a box for
+  expressions, kept with the workspace (`watch` lines). At each pause, or
+  after a value is set, each is asked with `on-submit`
+  `debug-watch:<index>` and answered with the new `set-watch` import. A
+  right-click on a variable gives Set Value…, Copy Value and Add to
+  Watch; Set Value opens a box above the row and submits
+  `debug-set:<children>:<name>`. Inputs in Run and Debug go to
+  `debug_submit` by their id.
+- **Debug the Last Build** is offered when a build fails and the run had
+  a program.
+- **Left:** dragging the toolbar, and Copy as Expression and Stop When
+  It Changes in the variable menu.
 
 ### Memory and CPU (2026-11-06)
 

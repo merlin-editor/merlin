@@ -262,10 +262,11 @@ These are ordered by votes against effort.
 6. **Settings editor** (built): the Settings window already planned in
    `ROADMAP.md`, with themes chosen there.
 7. **Debugging (DAP)**, as a plugin like `lsp`: breakpoints, a call stack
-   and variables, and the debug toolbar (`DebugFlow.dc.html`). The first
-   slice is **built**: plugins declare debuggers and targets, the Debugger
-   plugin speaks DAP, and a run builds, stops, steps and ends. launch.toml,
-   attaching, conditions, the panic card and values in the hover are left.
+   and variables, and the debug toolbar (`DebugFlow.dc.html`). **Built**:
+   plugins declare debuggers, targets and what else to stop on; the
+   Debugger plugin speaks DAP. launch.toml, attaching, conditions and
+   logpoints, panics, values in the hover and after lines, Watch, Set
+   Value, and Debug on a test are in. Dragging the toolbar is left.
 8. **Vim or Helix mode, which-key and macros.**
 9. **Several folders in one window, and floating or second windows.**
 10. **Markdown preview**, with Mermaid.

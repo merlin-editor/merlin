@@ -26,6 +26,8 @@ enum Asked {
     Scopes,
     Variables { parent: u32 },
     Evaluate,
+    Watch { index: u32, expression: String },
+    SetVariable { parent: u32 },
     Disconnect,
     Other,
 }
@@ -515,6 +517,39 @@ impl Debugger {
                 let kind = if ok { OutputKind::Stdout } else { OutputKind::Stderr };
                 let _ = host::debug_output(kind, &format!("{text}\n"));
             }
+            Asked::Watch { index, expression } => {
+                let value = if ok {
+                    DebugVariable {
+                        name: expression,
+                        value: body["result"].as_str().unwrap_or_default().to_string(),
+                        type_name: body["type"].as_str().unwrap_or_default().to_string(),
+                        children: body["variablesReference"].as_u64().unwrap_or(0) as u32,
+                    }
+                } else {
+                    DebugVariable {
+                        name: expression,
+                        value: error(),
+                        type_name: "error".into(),
+                        children: 0,
+                    }
+                };
+                let _ = host::set_watch(index, &value);
+            }
+            Asked::SetVariable { parent } => {
+                if ok {
+                    // Read them again: others may depend on it.
+                    run.send(
+                        "variables",
+                        json!({ "variablesReference": parent }),
+                        Asked::Variables { parent },
+                    );
+                } else {
+                    let _ = host::debug_output(
+                        OutputKind::Stderr,
+                        &format!("The value wasn't set: {}\n", error()),
+                    );
+                }
+            }
             Asked::Disconnect => {
                 host::kill(run.process);
                 run.end();
@@ -693,12 +728,33 @@ impl Plugin for Debugger {
     }
 
     fn submit(&mut self, input: &str, text: &str) {
-        if input != "debug-console" {
-            return;
-        }
         let Some(run) = &mut self.run else {
             return;
         };
+        if let Some(index) = input.strip_prefix("debug-watch:").and_then(|i| i.parse::<u32>().ok()) {
+            let mut args = json!({ "expression": text, "context": "watch" });
+            if let Some(frame) = run.frame {
+                args["frameId"] = json!(frame);
+            }
+            let expression = text.to_string();
+            run.send("evaluate", args, Asked::Watch { index, expression });
+            return;
+        }
+        if let Some((parent, name)) = input
+            .strip_prefix("debug-set:")
+            .and_then(|r| r.split_once(':'))
+            .and_then(|(p, n)| Some((p.parse::<u32>().ok()?, n)))
+        {
+            run.send(
+                "setVariable",
+                json!({ "variablesReference": parent, "name": name, "value": text }),
+                Asked::SetVariable { parent },
+            );
+            return;
+        }
+        if input != "debug-console" {
+            return;
+        }
         let mut args = json!({ "expression": text, "context": "repl" });
         if let Some(frame) = run.frame {
             args["frameId"] = json!(frame);

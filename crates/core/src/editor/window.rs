@@ -616,6 +616,12 @@ impl Editor {
                         _ => None,
                     };
                     self.open_scm_menu(row);
+                } else if self.active_panel_name(side).as_deref() == Some(super::debug::DEBUG) {
+                    let row = match self.panel_targets(side).into_iter().nth(index) {
+                        Some(crate::panel::Target::Button(id)) => Some(id),
+                        _ => None,
+                    };
+                    self.debug_row_menu(row);
                 }
             }
             UiEvent::SideMenu(side) => {

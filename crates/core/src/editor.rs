@@ -341,6 +341,13 @@ pub enum Event {
     /// Which debuggers' programs are installed, by name, asked for with
     /// [`Effect::LocateDebuggers`].
     DebuggersLocated(Vec<(String, bool)>),
+    /// The user's processes, newest first, as pid, name and command line,
+    /// and Linux's `ptrace_scope`, asked for with
+    /// [`Effect::ListProcesses`].
+    Processes {
+        list: Vec<(u32, String, String)>,
+        ptrace_scope: u8,
+    },
     /// `.merlin/launch.toml`'s configurations, asked for with
     /// [`Effect::ReadLaunch`], or why it couldn't be read.
     LaunchConfigs(Result<Vec<DebugTarget>, String>),
@@ -642,6 +649,9 @@ pub enum Effect {
     LocateDebuggers(Vec<String>),
     /// Read `.merlin/launch.toml`, and answer with [`Event::LaunchConfigs`].
     ReadLaunch,
+    /// List the user's processes, to attach to, and answer with
+    /// [`Event::Processes`].
+    ListProcesses,
     PluginClick {
         plugin: String,
         button: String,
@@ -1609,14 +1619,20 @@ impl Editor {
             Event::FileConfig { path, config } => self.file_config(&path, config),
             Event::AutoSave(why) => self.auto_save(why, &mut fx),
             Event::TermTitle { id, title } => self.terminal_title(id, title),
-            Event::TaskOutput { id, text } => self.task_output(id, &text),
+            Event::TaskOutput { id, text } => {
+                self.debug_build_output(id, &text);
+                self.task_output(id, &text);
+            }
             Event::TermExited { id, code } => {
                 self.terminal_exited(id, code);
                 self.task_exited(id, code);
                 self.debug_build_exited(id, code, &mut fx);
             }
             Event::Restore(ws) => self.restore(ws),
-            Event::RestoreBreakpoints(ws) => self.restore_breakpoints(ws.breakpoints, ws.debug_target),
+            Event::RestoreBreakpoints(ws) => {
+                self.debug.watches = ws.watches;
+                self.restore_breakpoints(ws.breakpoints, ws.debug_target);
+            }
             Event::Settings(settings) => self.apply_settings(settings),
             Event::TextColours {
                 language,
@@ -1769,6 +1785,7 @@ impl Editor {
             Event::DebuggersLocated(found) => self.debug.installed.extend(found),
             Event::SetDebugTargets { plugin, targets } => self.set_debug_targets(plugin, targets),
             Event::LaunchConfigs(configs) => self.launch_configs(configs, &mut fx),
+            Event::Processes { list, ptrace_scope } => self.pick_process(list, ptrace_scope),
             Event::Debug { plugin, update } => self.debug_update(&plugin, update, &mut fx),
             Event::SetFolds { path, ranges } => {
                 if let Some(doc) = self.doc_at(&path) {

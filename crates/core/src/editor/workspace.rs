@@ -19,6 +19,8 @@ pub struct Workspace {
     /// Breakpoints, and what F5 starts, by name.
     pub breakpoints: Vec<super::Breakpoint>,
     pub debug_target: Option<String>,
+    /// Watch's expressions.
+    pub watches: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -86,6 +88,9 @@ impl Workspace {
         if let Some(target) = &self.debug_target {
             out += &format!("debug {target}\n");
         }
+        for w in &self.watches {
+            out += &format!("watch {}\n", w.replace('\n', " "));
+        }
         out
     }
 
@@ -123,6 +128,10 @@ impl Workspace {
             }
             if let Some(target) = line.strip_prefix("debug ") {
                 ws.debug_target = Some(target.to_string());
+                continue;
+            }
+            if let Some(expr) = line.strip_prefix("watch ") {
+                ws.watches.push(expr.to_string());
                 continue;
             }
             let mut words = line.splitn(4, ' ');
@@ -217,6 +226,7 @@ impl Editor {
             focused,
             breakpoints: self.debug.breakpoints.clone(),
             debug_target: self.debug.chosen.clone(),
+            watches: self.debug.watches.clone(),
         }
     }
 
@@ -224,6 +234,7 @@ impl Editor {
     /// are open by now.
     pub(crate) fn restore(&mut self, ws: Workspace) {
         self.restore_breakpoints(ws.breakpoints.clone(), ws.debug_target.clone());
+        self.debug.watches = ws.watches.clone();
         let mut groups: Vec<Group> = Vec::new();
         // Each group's view of each of its files.
         let mut views: Vec<Vec<(u64, View)>> = Vec::new();

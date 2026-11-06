@@ -391,3 +391,156 @@ fn a_panic_stops_with_its_message_under_the_line() {
     let line = s.editor.text_views()[0].lines.iter().find(|l| l.line == 2).unwrap().paused;
     assert_eq!(line, Some(true), "the line takes the error colour");
 }
+
+
+fn pause_with_locals(s: &mut Session) {
+    use merlin_core::DebugVariable;
+    report(
+        s,
+        DebugUpdate::State(DebugState::Paused {
+            reason: "breakpoint".into(),
+            description: String::new(),
+            thread: 1,
+        }),
+    );
+    report(
+        s,
+        DebugUpdate::Stack {
+            thread: 1,
+            frames: vec![StackFrame {
+                id: 7,
+                name: "demo::main".into(),
+                path: Some("src/main.rs".into()),
+                line: 2,
+                column: 4,
+                library: false,
+            }],
+        },
+    );
+    let var = |name: &str, value: &str, children| DebugVariable {
+        name: name.into(),
+        value: value.into(),
+        kind: "i32".into(),
+        children,
+    };
+    report(
+        s,
+        DebugUpdate::Variables {
+            parent: 5,
+            variables: vec![var("n", "1", 0)],
+        },
+    );
+    report(
+        s,
+        DebugUpdate::Variables {
+            parent: 0,
+            variables: vec![var("Locals", "", 5)],
+        },
+    );
+}
+
+#[test]
+fn watches_are_asked_at_each_pause_and_a_value_can_be_set() {
+    use merlin_core::{DebugVariable, Side};
+    let mut s = project();
+    s.send(Event::Command("debug.pick".into()));
+    key(&mut s, KeyCode::Enter, false);
+    pause_with_locals(&mut s);
+    // A right-click on `n` in Variables: Add to Watch.
+    let (side, index) = s.entry("n = 1").expect("n is listed");
+    assert_eq!(side, Side::Left);
+    s.send(Event::Ui(merlin_core::UiEvent::TargetMenu { side, index }));
+    let menu = s.editor.window_view().context.expect("the variable's menu");
+    let labels: Vec<&str> = menu.items.iter().map(|i| i.label.as_str()).collect();
+    assert_eq!(labels, ["Set Value…", "Copy Value", "Add to Watch"]);
+    s.effects.clear();
+    s.send(Event::Ui(merlin_core::UiEvent::ContextItem(2)));
+    let asked = s.effects.iter().any(|e| {
+        matches!(e, Effect::PluginSubmit { input, text, .. } if input == "debug-watch:0" && text == "n")
+    });
+    assert!(asked, "{:?}", s.effects);
+    report(
+        &mut s,
+        DebugUpdate::Watch {
+            index: 0,
+            value: DebugVariable {
+                name: "n".into(),
+                value: "1".into(),
+                kind: "i32".into(),
+                children: 0,
+            },
+        },
+    );
+    assert!(s.entry("n = 1").is_some());
+    // Set Value: the box takes the new value, and the driver sets it.
+    let (side, index) = s.entry("n = 1").unwrap();
+    s.send(Event::Ui(merlin_core::UiEvent::TargetMenu { side, index }));
+    s.send(Event::Ui(merlin_core::UiEvent::ContextItem(0)));
+    for c in "5".chars() {
+        key(&mut s, KeyCode::Char(c), false);
+    }
+    s.effects.clear();
+    key(&mut s, KeyCode::Enter, false);
+    let set = s.effects.iter().any(|e| {
+        matches!(e, Effect::PluginSubmit { input, text, .. } if input == "debug-set:5:n" && text == "5")
+    });
+    assert!(set, "{:?}", s.effects);
+    // Watches are kept with the workspace.
+    assert!(s.editor.workspace().to_text().contains("watch n\n"));
+}
+
+#[test]
+fn attaching_asks_linux_first() {
+    let mut s = project();
+    s.send(Event::Command("debug.attach".into()));
+    assert!(s.effects.contains(&Effect::ListProcesses));
+    let list = vec![(4242, "server".to_string(), "./server --port 80".to_string())];
+    s.send(Event::Processes {
+        list: list.clone(),
+        ptrace_scope: 1,
+    });
+    key(&mut s, KeyCode::Enter, false);
+    let toast = s.editor.window_view().toast.expect("Linux says no");
+    assert!(toast.text.contains("ptrace_scope is 1"), "{}", toast.text);
+    s.effects.clear();
+    s.send(Event::Processes {
+        list,
+        ptrace_scope: 0,
+    });
+    key(&mut s, KeyCode::Enter, false);
+    let launch = s.effects.iter().find_map(|e| match e {
+        Effect::Debug { start: Some(start), .. } => Some(start.launch.clone()),
+        _ => None,
+    });
+    assert!(launch.expect("attaches").contains("\"pid\":4242"));
+}
+
+#[test]
+fn a_failed_build_offers_the_last_one() {
+    let mut s = project();
+    s.send(Event::SetDebugTargets {
+        plugin: "lsp".into(),
+        targets: vec![DebugTarget {
+            name: "demo".into(),
+            language: "rust".into(),
+            program: "target/debug/demo".into(),
+            build: "cargo build".into(),
+            ..Default::default()
+        }],
+    });
+    s.send(Event::Command("debug.pick".into()));
+    key(&mut s, KeyCode::Enter, false);
+    let term = s.effects.iter().rev().find_map(|e| match e {
+        Effect::Terminal(merlin_core::TermOp::Spawn { id, command: Some(c) }) if c == "cargo build" => Some(*id),
+        _ => None,
+    });
+    s.send(Event::TermExited {
+        id: term.expect("builds first"),
+        code: Some(101),
+    });
+    let toast = s.editor.window_view().toast.expect("a notice");
+    assert!(toast.buttons.contains(&"Debug the Last Build".to_string()), "{:?}", toast.buttons);
+    s.effects.clear();
+    s.send(Event::Command("debug.last_build".into()));
+    assert_eq!(commands(&s), ["debug.start"]);
+}

@@ -560,6 +560,10 @@ impl App {
                         queue.extend(self.host.run_command(&plugin, &command, snapshot));
                         self.panels_for = None;
                     }
+                    Effect::ListProcesses => {
+                        let (list, ptrace_scope) = processes();
+                        queue.push_back(Event::Processes { list, ptrace_scope });
+                    }
                     Effect::ReadLaunch => {
                         let path = self.root.join(".merlin/launch.toml");
                         let configs = match fs::read_to_string(&path) {
@@ -2602,6 +2606,55 @@ fn launch_configs(text: &str) -> Result<Vec<merlin_core::DebugTarget>, String> {
         });
     }
     Ok(out)
+}
+
+/// The user's own processes, newest first, as pid, name and command line,
+/// leaving out merlin and what it started; and Linux's `ptrace_scope`, 0
+/// when there's none.
+fn processes() -> (Vec<(u32, String, String)>, u8) {
+    let scope = fs::read_to_string("/proc/sys/kernel/yama/ptrace_scope")
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or(0);
+    let me = std::process::id();
+    let uid = |pid: &str| -> Option<String> {
+        let status = fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
+        let line = status.lines().find(|l| l.starts_with("Uid:"))?;
+        line.split_whitespace().nth(1).map(String::from)
+    };
+    let mine = uid("self");
+    let mut list: Vec<(u64, u32, String, String)> = Vec::new();
+    let Ok(dir) = fs::read_dir("/proc") else {
+        return (Vec::new(), scope);
+    };
+    for entry in dir.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let Ok(pid) = name.parse::<u32>() else { continue };
+        if pid == me || uid(&name) != mine {
+            continue;
+        }
+        let stat = fs::read_to_string(format!("/proc/{pid}/stat")).unwrap_or_default();
+        // The parent, and when it started, are after the name's brackets.
+        let after = stat.rsplit_once(") ").map_or("", |(_, r)| r);
+        let fields: Vec<&str> = after.split_whitespace().collect();
+        if fields.get(1).and_then(|p| p.parse::<u32>().ok()) == Some(me) {
+            continue;
+        }
+        let started = fields.get(19).and_then(|s| s.parse().ok()).unwrap_or(0);
+        let comm = fs::read_to_string(format!("/proc/{pid}/comm")).unwrap_or_default();
+        let command = fs::read(format!("/proc/{pid}/cmdline"))
+            .map(|b| String::from_utf8_lossy(&b).replace('\0', " ").trim().to_string())
+            .unwrap_or_default();
+        if command.is_empty() {
+            continue;
+        }
+        list.push((started, pid, comm.trim().to_string(), command));
+    }
+    list.sort_by_key(|p| std::cmp::Reverse(p.0));
+    (
+        list.into_iter().map(|(_, pid, name, cmd)| (pid, name, cmd)).collect(),
+        scope,
+    )
 }
 
 #[cfg(test)]

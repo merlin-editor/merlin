@@ -898,6 +898,18 @@ impl host::Host for State {
         self.debug(merlin_core::DebugUpdate::InlineValues { path, values })
     }
 
+    fn set_watch(&mut self, index: u32, value: types::DebugVariable) -> Result<(), String> {
+        self.debug(merlin_core::DebugUpdate::Watch {
+            index,
+            value: merlin_core::DebugVariable {
+                name: value.name,
+                value: value.value,
+                kind: value.type_name,
+                children: value.children,
+            },
+        })
+    }
+
     fn debug_output(&mut self, kind: types::OutputKind, text: String) -> Result<(), String> {
         use merlin_core::OutputKind as K;
         let kind = match kind {

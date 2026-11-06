@@ -752,6 +752,27 @@ impl Editor {
                 (format!("cargo test{all} -- {}", failed.join(" ")), None)
             }
         };
+        if debug
+            && let Scope::Test(key) = &scope
+            && let Some((root, file, name)) = self.test_place(key)
+            && self.has_debugger_for("rust")
+        {
+            // Under the debugger: built with `--no-run`, then its binary,
+            // from what cargo printed, started with the test's name.
+            let only = match file.label.strip_prefix("tests/").and_then(|f| f.strip_suffix(".rs")) {
+                Some(stem) if !stem.contains('/') => format!(" --test {stem}"),
+                _ => String::new(),
+            };
+            let target = super::DebugTarget {
+                name: format!("Test {name}"),
+                language: "rust".into(),
+                args: vec![name.clone(), "--nocapture".into(), "--test-threads=1".into()],
+                build: format!("cargo test --no-run -p {}{only}", root.name),
+                ..Default::default()
+            };
+            let label = file.label.clone();
+            return self.debug_test(target, label, fx);
+        }
         if debug {
             // Under rust-gdb, in the terminal, as a runner cargo starts the
             // test with.
@@ -951,6 +972,23 @@ impl Editor {
         fx: &mut Vec<Effect>,
     ) {
         match (&test.command, debug) {
+            // A cargo test runs under the debugger: built with `--no-run`,
+            // then its binary given what followed `--`.
+            (Some(command), true)
+                if command.starts_with("cargo test") && self.has_debugger_for("rust") =>
+            {
+                let (cargo, rest) = command.split_once(" -- ").unwrap_or((command, ""));
+                let mut args: Vec<String> = rest.split_whitespace().map(String::from).collect();
+                args.extend(["--nocapture".into(), "--test-threads=1".into()]);
+                let target = super::DebugTarget {
+                    name: format!("Test {}", test.label),
+                    language: "rust".into(),
+                    args,
+                    build: cargo.replacen("cargo test", "cargo test --no-run", 1),
+                    ..Default::default()
+                };
+                self.debug_test(target, String::new(), fx);
+            }
             (Some(command), false) => {
                 let term = self.start_command(RUN, command, fx);
                 self.tests.run = Some((term, None));

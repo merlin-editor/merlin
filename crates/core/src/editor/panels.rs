@@ -265,7 +265,11 @@ impl Editor {
                     };
                     if !text.trim().is_empty() {
                         if side != Side::Right {
-                            self.view_submit(&key.0, &text, fx);
+                            if key.0 == super::debug::DEBUG {
+                                self.debug_submit(&key.1, &text, fx);
+                            } else {
+                                self.view_submit(&key.0, &text, fx);
+                            }
                         } else {
                             fx.push(Effect::PluginSubmit {
                                 plugin: key.0,

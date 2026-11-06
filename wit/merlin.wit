@@ -636,6 +636,11 @@ interface host {
   set-inline-values: func(path: string, values: list<inline-value>) -> result<_, string>;
   /// Text for the Debug Console.
   debug-output: func(kind: output-kind, text: string) -> result<_, string>;
+  /// A watch expression's value, by its place in Watch. The editor asks
+  /// with `on-submit` input `debug-watch:<index>`, the expression as the
+  /// text, while paused; `debug-set:<children>:<name>` sets a variable in
+  /// what `children` lists to the text.
+  set-watch: func(index: u32, value: debug-variable) -> result<_, string>;
 
   /// Lets the user pick one item. The choice arrives at `on-pick`.
   show-picker: func(id: string, title: string, items: list<pick-item>);

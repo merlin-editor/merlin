@@ -194,10 +194,18 @@ pub enum DebugUpdate {
         values: Vec<(u32, String)>,
     },
     Output(OutputKind, String),
+    /// A watch expression's value, by its place in Watch.
+    Watch {
+        index: u32,
+        value: DebugVariable,
+    },
 }
 
 /// The right-click menu on the breakpoint room.
 pub(crate) const BREAK_ITEMS: &[(&str, &str)] = &[
+    ("debug.var_set", "Set Value…"),
+    ("debug.var_copy", "Copy Value"),
+    ("debug.var_watch", "Add to Watch"),
     ("debug.bp_add", "Add Breakpoint"),
     ("debug.bp_condition", "Add Conditional Breakpoint…"),
     ("debug.bp_log", "Add Logpoint…"),
@@ -307,12 +315,16 @@ pub(crate) struct Session {
     pub state: DebugState,
     /// The build's terminal while it runs first.
     pub building: Option<u64>,
+    /// A test's file, when its binary is found in what the build printed.
+    pub binary_for: Option<String>,
     pub threads: Vec<DebugThread>,
     pub stacks: HashMap<u32, Vec<StackFrame>>,
     /// The frame shown, by thread and frame id.
     pub frame: Option<(u32, u32)>,
     pub variables: HashMap<u32, Vec<DebugVariable>>,
     pub inline: HashMap<PathBuf, Vec<(u32, String)>>,
+    /// Each watch's value at this pause, by its place in Watch.
+    pub watched: Vec<Option<DebugVariable>>,
 }
 
 #[derive(Debug, Default)]
@@ -345,8 +357,21 @@ pub(crate) struct Debugging {
     /// The line the breakpoint menu was opened on.
     pub menu_line: Option<u32>,
     pub break_box: Option<BreakBox>,
+    /// Watch's expressions, kept across runs.
+    pub watches: Vec<String>,
+    /// A value was set: the watches are asked again once it's read back.
+    pub rewatch: bool,
+    /// The variable whose value is being set: what lists it, and its name.
+    pub setting: Option<(u32, String)>,
+    /// The variable the menu was opened on: what lists it, its name and
+    /// its value.
+    pub menu_var: Option<(u32, String, String)>,
     /// The variable the hover card is about, by name.
     pub hover: Option<String>,
+    /// Linux's ptrace_scope, as last read.
+    pub ptrace_scope: u8,
+    /// A run whose build failed, for Debug the Last Build.
+    pub failed: Option<Session>,
     /// Ctrl+F5 is waiting for launch.toml.
     pub run_plain: bool,
     /// Restart asked for: the run starts again once it ends.
@@ -586,6 +611,19 @@ impl Editor {
         match id {
             "debug.start" => self.debug_read_then(false, fx),
             "debug.run" => self.debug_read_then(true, fx),
+            "debug.attach" => fx.push(Effect::ListProcesses),
+            "debug.last_build" => {
+                if let Some(session) = self.debug.failed.take()
+                    && !self.debug.running()
+                {
+                    self.message = None;
+                    self.debug.session = Some(session);
+                    self.start_driver(fx);
+                }
+            }
+            "debug.ptrace_help" => fx.push(Effect::OpenUrl(
+                "https://www.kernel.org/doc/html/latest/admin-guide/LSM/Yama.html".into(),
+            )),
             "debug.configure" => {
                 self.debug.example = true;
                 self.open(PathBuf::from(LAUNCH_FILE), fx);
@@ -637,6 +675,7 @@ impl Editor {
                     self.breakpoints_changed(fx);
                 }
             }
+            "debug.var_set" | "debug.var_copy" | "debug.var_watch" => self.var_command(id, fx),
             "view.debug" => self.show_view(DEBUG, fx),
             "view.debug_console" => self.show_bottom(CONSOLE),
             "debug.stop" if self.debug_building().is_some() => {
@@ -791,8 +830,53 @@ impl Editor {
         self.focus = Focus::Palette;
     }
 
+    /// The processes to attach to, in a picker. Linux allows it only to a
+    /// program's parent when `ptrace_scope` is 1 or more, and merlin isn't
+    /// one, so then it says so instead.
+    pub(crate) fn pick_process(&mut self, list: Vec<(u32, String, String)>, ptrace_scope: u8) {
+        if list.is_empty() {
+            return self.notify("No processes of yours to attach to".into());
+        }
+        self.debug.ptrace_scope = ptrace_scope;
+        let items = list
+            .into_iter()
+            .map(|(pid, name, command)| (format!("p:{pid}:{name}"), format!("{name}  {pid}  {command}")))
+            .collect();
+        self.palette = Some(Palette::new(
+            Source::Picker {
+                plugin: DEBUG.into(),
+                id: "attach".into(),
+            },
+            Some("Attach to which process?".into()),
+            items,
+        ));
+        self.focus = Focus::Palette;
+    }
+
     /// A target chosen from the picker or the view.
     pub(crate) fn debug_picked(&mut self, item: &str, fx: &mut Vec<Effect>) {
+        if let Some((pid, name)) = item.strip_prefix("p:").and_then(|p| p.split_once(':')) {
+            if self.debug.ptrace_scope >= 1 {
+                self.error(format!(
+                    "Linux won't let merlin attach to {pid}: ptrace_scope is {}, so only a \
+                     program's parent may debug it. Start it from merlin instead, or change \
+                     /proc/sys/kernel/yama/ptrace_scope.",
+                    self.debug.ptrace_scope
+                ));
+                // The last button is the main one.
+                self.add_action("What This Means", "debug.ptrace_help");
+                self.add_action("Start It from merlin", "debug.pick");
+                return;
+            }
+            let language = self.plugin_language().map(|l| l.id.clone()).unwrap_or_default();
+            let target = DebugTarget {
+                name: format!("{name} ({pid})"),
+                language,
+                launch: format!("{{\"pid\":{pid}}}"),
+                ..Default::default()
+            };
+            return self.launch_target(target, fx);
+        }
         if let Some(name) = item.strip_prefix("t:") {
             self.debug.chosen = Some(name.to_string());
             self.debug_start(false, fx);
@@ -834,8 +918,20 @@ impl Editor {
                 .join(","),
             json_string(&root),
         );
+        // Nothing to start yet, to attach or for a test's binary to come:
+        // no program, but the arguments all the same.
         if target.program.is_empty() {
-            base = format!("{{\"name\":{},\"cwd\":{}}}", json_string(&target.name), json_string(&root));
+            base = format!(
+                "{{\"name\":{},\"args\":[{}],\"cwd\":{}}}",
+                json_string(&target.name),
+                target
+                    .args
+                    .iter()
+                    .map(|a| json_string(a))
+                    .collect::<Vec<_>>()
+                    .join(","),
+                json_string(&root)
+            );
         }
         let start = DebugStart {
             name: target.name.clone(),
@@ -866,11 +962,13 @@ impl Editor {
             start,
             state: DebugState::Starting,
             building: None,
+            binary_for: None,
             threads: Vec::new(),
             stacks: HashMap::new(),
             frame: None,
             variables: HashMap::new(),
             inline: HashMap::new(),
+            watched: Vec::new(),
         };
         if !target.build.is_empty() {
             let term = self.start_command(&format!("Build {}", target.name), &target.build, fx);
@@ -940,23 +1038,85 @@ impl Editor {
         self.add_action("Choose the Path…", "settings.open");
     }
 
+    pub(crate) fn has_debugger_for(&self, language: &str) -> bool {
+        self.debug
+            .debuggers
+            .iter()
+            .any(|d| d.languages.iter().any(|l| l == language))
+    }
+
+    /// Debugs a test: its binary comes from what its build prints.
+    pub(crate) fn debug_test(&mut self, target: DebugTarget, file: String, fx: &mut Vec<Effect>) {
+        if self.debug.running() || self.debug_building().is_some() {
+            return self.notify("A run is on already: Shift+F5 stops it".into());
+        }
+        self.launch_target(target, fx);
+        if let Some(session) = &mut self.debug.session {
+            session.binary_for = Some(file);
+        }
+    }
+
+    /// All a build printed, when it ends: a test's binary is found in it,
+    /// from cargo's `Executable unittests src/lib.rs (target/debug/…)`.
+    pub(crate) fn debug_build_output(&mut self, term: u64, text: &str) {
+        if self.debug_building() != Some(term) {
+            return;
+        }
+        let root = self.root.clone();
+        let Some(session) = &mut self.debug.session else {
+            return;
+        };
+        let Some(file) = session.binary_for.clone() else {
+            return;
+        };
+        let binaries = executables(text);
+        // The file's own target, or the crate's library, then its binary.
+        let pick = binaries
+            .iter()
+            .find(|(src, _)| *src == file)
+            .or_else(|| match file.starts_with("tests/") {
+                true => None,
+                false => ["src/lib.rs", "src/main.rs"]
+                    .iter()
+                    .find_map(|want| binaries.iter().find(|(src, _)| src == want)),
+            })
+            .or(binaries.first());
+        if let Some((_, bin)) = pick {
+            let program = root.join(bin).display().to_string();
+            let launch = format!("{{\"program\":{}}}", json_string(&program));
+            session.start.launch = merge_json(&[&session.start.launch, &launch]);
+            session.start.program = program;
+        }
+    }
+
     /// A build run first ended: the run starts if it worked.
     pub(crate) fn debug_build_exited(&mut self, term: u64, code: Option<i32>, fx: &mut Vec<Effect>) {
         if self.debug_building() != Some(term) {
             return;
         }
         if code == Some(0) {
+            let no_binary = self
+                .debug
+                .session
+                .as_ref()
+                .is_some_and(|s| s.binary_for.is_some() && s.start.program.is_empty());
+            if no_binary {
+                self.debug.session = None;
+                self.build_views();
+                return self.error("The test built, but cargo didn't say where its binary is".into());
+            }
             return self.start_driver(fx);
         }
-        let name = self
-            .debug
-            .session
-            .take()
-            .map(|s| s.start.name)
-            .unwrap_or_default();
+        let session = self.debug.session.take();
+        let name = session.as_ref().map(|s| s.start.name.clone()).unwrap_or_default();
         self.build_views();
         self.error(format!("{name} didn't build, so debugging didn't start"));
         self.add_action("Show Problems", "view.problems");
+        // A program built before can still be debugged, as it was.
+        if let Some(session) = session.filter(|s| !s.start.program.is_empty()) {
+            self.debug.failed = Some(session);
+            self.add_action("Debug the Last Build", "debug.last_build");
+        }
     }
 
     pub(crate) fn toggle_breakpoint(&mut self, path: &Path, line: u32, fx: &mut Vec<Effect>) {
@@ -1416,6 +1576,7 @@ impl Editor {
             DebugUpdate::State(state) => {
                 let paused = matches!(state, DebugState::Paused { .. });
                 if !paused {
+                    session.watched.clear();
                     session.stacks.clear();
                     session.variables.clear();
                     session.inline.clear();
@@ -1458,7 +1619,12 @@ impl Editor {
                 }
             }
             DebugUpdate::Variables { parent, variables } => {
+                if std::mem::take(&mut self.debug.rewatch) {
+                    self.ask_watches(fx);
+                }
                 if parent == 0 {
+                    // The frame is ready: the watches are asked about it.
+                    self.ask_watches(fx);
                     // Locals open, to show what's in them at once.
                     if let Some(first) = variables.first() {
                         self.debug.expanded.insert(first.children);
@@ -1495,6 +1661,13 @@ impl Editor {
                 session.inline.insert(path, values);
             }
             DebugUpdate::Output(kind, text) => self.debug.push_console(kind, &text),
+            DebugUpdate::Watch { index, value } => {
+                let i = index as usize;
+                if session.watched.len() <= i {
+                    session.watched.resize(i + 1, None);
+                }
+                session.watched[i] = Some(value);
+            }
         }
         self.build_views();
     }
@@ -1622,10 +1795,16 @@ impl Editor {
                 for t in targets {
                     nodes.push(target_entry(t));
                 }
-                nodes.push(Node::Tools(vec![Button {
-                    id: "dbg:configure".into(),
-                    label: "Add a Configuration…".into(),
-                }]));
+                nodes.push(Node::Tools(vec![
+                    Button {
+                        id: "dbg:attach".into(),
+                        label: "Attach to Process…".into(),
+                    },
+                    Button {
+                        id: "dbg:configure".into(),
+                        label: "Add a Configuration…".into(),
+                    },
+                ]));
             }
             Some(session) => {
                 let state = match &session.state {
@@ -1665,7 +1844,7 @@ impl Editor {
                 }));
                 nodes.push(heading("Variables"));
                 match session.variables.get(&0) {
-                    Some(scopes) => self.variable_nodes(session, scopes, 0, &mut nodes),
+                    Some(scopes) => self.variable_nodes(session, scopes, 0, 0, &mut nodes),
                     None => nodes.push(Node::Styled(
                         match self.debug.paused() {
                             Some(_) => "Reading…".into(),
@@ -1674,6 +1853,44 @@ impl Editor {
                         Tone::Muted,
                     )),
                 }
+                nodes.push(Node::Entry(Entry {
+                    id: "dbg:h:watch".into(),
+                    label: "Watch".into(),
+                    heading: true,
+                    ..Default::default()
+                }));
+                for (i, expr) in self.debug.watches.iter().enumerate() {
+                    let value = session.watched.get(i).cloned().flatten();
+                    let open = value
+                        .as_ref()
+                        .is_some_and(|v| v.children != 0 && self.debug.expanded.contains(&v.children));
+                    nodes.push(Node::Entry(Entry {
+                        id: format!("dbg:w:{i}:{}", value.as_ref().map_or(0, |v| v.children)),
+                        label: match &value {
+                            Some(v) => format!("{expr} = {}", short_value(&v.value)),
+                            None => expr.clone(),
+                        },
+                        twisty: value
+                            .as_ref()
+                            .filter(|v| v.children != 0)
+                            .map(|_| if open { '▾' } else { '▸' }),
+                        badge: value.as_ref().map_or(String::new(), |v| short_type(&v.kind)),
+                        tone: if value.is_some() { Tone::Normal } else { Tone::Muted },
+                        code: true,
+                        action: Some(('✕', format!("dbg:rw:{i}"))),
+                        ..Default::default()
+                    }));
+                    if let Some(v) = value.filter(|_| open)
+                        && let Some(children) = session.variables.get(&v.children)
+                    {
+                        self.variable_nodes(session, children, v.children, 1, &mut nodes);
+                    }
+                }
+                nodes.push(Node::Input {
+                    id: "watch".into(),
+                    placeholder: "An expression to watch, then Enter".into(),
+                    secret: false,
+                });
                 nodes.push(heading("Call Stack"));
                 self.stack_nodes(session, &mut nodes);
             }
@@ -1743,14 +1960,22 @@ impl Editor {
         &self,
         session: &Session,
         list: &[DebugVariable],
+        parent: u32,
         depth: usize,
         nodes: &mut Vec<Node>,
     ) {
         for v in list {
             let open = v.children != 0 && self.debug.expanded.contains(&v.children);
             let scope = depth == 0;
+            if self.debug.setting.as_ref() == Some(&(parent, v.name.clone())) {
+                nodes.push(Node::Input {
+                    id: "set".into(),
+                    placeholder: format!("A new value for {}, then Enter", v.name),
+                    secret: false,
+                });
+            }
             nodes.push(Node::Entry(Entry {
-                id: format!("dbg:v:{}:{}", v.children, nodes.len()),
+                id: format!("dbg:v:{}:{}:{parent}:{}", v.children, nodes.len(), v.name),
                 label: if scope || v.value.is_empty() {
                     v.name.clone()
                 } else {
@@ -1764,7 +1989,9 @@ impl Editor {
             }));
             if open {
                 match session.variables.get(&v.children) {
-                    Some(children) => self.variable_nodes(session, children, depth + 1, nodes),
+                    Some(children) => {
+                        self.variable_nodes(session, children, v.children, depth + 1, nodes)
+                    }
                     None => nodes.push(Node::Entry(Entry {
                         id: format!("dbg:wait:{}", v.children),
                         label: "…".into(),
@@ -1896,6 +2123,9 @@ impl Editor {
         if rest == "start" {
             return self.debug_read_then(false, fx);
         }
+        if rest == "attach" {
+            return self.debug_command("debug.attach", fx);
+        }
         if rest == "configure" {
             return self.debug_command("debug.configure", fx);
         }
@@ -1932,6 +2162,26 @@ impl Editor {
                 if !asked {
                     self.send_debug(&format!("debug.expand:{r}"), fx);
                 }
+            }
+            return self.build_views();
+        }
+        if let Some(i) = rest.strip_prefix("rw:").and_then(|i| i.parse::<usize>().ok()) {
+            if i < self.debug.watches.len() {
+                self.debug.watches.remove(i);
+                if let Some(session) = &mut self.debug.session {
+                    session.watched.clear();
+                }
+                self.ask_watches(fx);
+            }
+            return self.build_views();
+        }
+        if let Some(r) = rest
+            .strip_prefix("w:")
+            .and_then(|w| w.split(':').nth(1)?.parse::<u32>().ok())
+        {
+            if r != 0 && !self.debug.expanded.remove(&r) {
+                self.debug.expanded.insert(r);
+                self.send_debug(&format!("debug.expand:{r}"), fx);
             }
             return self.build_views();
         }
@@ -1982,6 +2232,118 @@ impl Editor {
             self.send_debug(&format!("debug.stop-on:{f}"), fx);
             self.build_views();
         }
+    }
+
+    /// Asks the driver for each watch's value at the frame shown.
+    fn ask_watches(&mut self, fx: &mut Vec<Effect>) {
+        let Some(session) = &self.debug.session else {
+            return;
+        };
+        if self.debug.paused().is_none() {
+            return;
+        }
+        let plugin = session.driver.clone();
+        for (i, expr) in self.debug.watches.iter().enumerate() {
+            fx.push(Effect::PluginSubmit {
+                plugin: plugin.clone(),
+                input: format!("debug-watch:{i}"),
+                text: expr.clone(),
+            });
+        }
+    }
+
+    /// A right-click on a row of Run and Debug: a variable's menu.
+    pub(crate) fn debug_row_menu(&mut self, row: Option<String>) {
+        let Some(row) = row else {
+            return;
+        };
+        let Some(rest) = row.strip_prefix("dbg:v:") else {
+            return;
+        };
+        let mut parts = rest.splitn(4, ':');
+        let (_, _, parent, name) = (parts.next(), parts.next(), parts.next(), parts.next());
+        let (Some(parent), Some(name)) = (parent.and_then(|p| p.parse::<u32>().ok()), name) else {
+            return;
+        };
+        let value = self
+            .debug
+            .session
+            .as_ref()
+            .and_then(|s| s.variables.get(&parent))
+            .and_then(|l| l.iter().find(|v| v.name == name))
+            .map(|v| v.value.clone());
+        // A scope has no value to set or copy.
+        let Some(value) = value.filter(|_| parent != 0) else {
+            return;
+        };
+        self.debug.menu_var = Some((parent, name.to_string(), value));
+        self.context = Some(super::context::ContextMenu {
+            items: vec!["debug.var_set", "debug.var_copy", "debug.var_watch"],
+            selected: None,
+        });
+        self.focus = Focus::Menu;
+    }
+
+    /// The variable menu's items.
+    fn var_command(&mut self, id: &str, fx: &mut Vec<Effect>) {
+        let Some((parent, name, value)) = self.debug.menu_var.clone() else {
+            return;
+        };
+        match id {
+            "debug.var_copy" => {
+                fx.push(Effect::Copy(value));
+                self.notify_done("Copied".into());
+            }
+            "debug.var_watch" => {
+                self.debug.watches.push(name);
+                self.ask_watches(fx);
+                self.build_views();
+            }
+            _ => {
+                self.debug.setting = Some((parent, name));
+                self.build_views();
+                self.focus_input(Side::Left, "set");
+            }
+        }
+    }
+
+    /// Focuses a view's input by its id.
+    fn focus_input(&mut self, side: Side, id: &str) {
+        let at = self
+            .panel_targets(side)
+            .iter()
+            .position(|t| matches!(t, crate::panel::Target::Input(i) if i == id));
+        if let Some(at) = at {
+            self.focus = side.focus();
+            self.select(side, at);
+        }
+    }
+
+    /// Enter in one of Run and Debug's boxes: a watch to add, or a
+    /// variable's new value.
+    pub(crate) fn debug_submit(&mut self, input: &str, text: &str, fx: &mut Vec<Effect>) {
+        self.inputs.remove(&(DEBUG.to_string(), input.to_string()));
+        match input {
+            "watch" => {
+                self.debug.watches.push(text.trim().to_string());
+                self.ask_watches(fx);
+            }
+            "set" => {
+                if let (Some((parent, name)), Some(session)) =
+                    (self.debug.setting.take(), &self.debug.session)
+                {
+                    fx.push(Effect::PluginSubmit {
+                        plugin: session.driver.clone(),
+                        input: format!("debug-set:{parent}:{name}"),
+                        text: text.trim().to_string(),
+                    });
+                    self.debug.rewatch = true;
+                }
+                self.focus = Focus::Editor;
+            }
+            _ => {}
+        }
+        self.build_views();
     }
 
     /// Enter in the Debug Console's box.
@@ -2035,6 +2397,26 @@ impl Editor {
             })
             .collect()
     }
+}
+
+/// The test binaries cargo's `--no-run` printed, as source and binary:
+/// `Executable unittests src/lib.rs (target/debug/deps/x-1a2b)`. A
+/// terminal may have wrapped the line at its width, so the binary runs on
+/// to its closing bracket across lines.
+fn executables(text: &str) -> Vec<(String, String)> {
+    let mut found = Vec::new();
+    let mut rest = text;
+    while let Some(at) = rest.find("Executable ") {
+        rest = &rest[at + "Executable ".len()..];
+        let Some(close) = rest.find(')') else { break };
+        let entry: String = rest[..close].chars().filter(|c| *c != '\n' && *c != '\r').collect();
+        rest = &rest[close..];
+        let entry = entry.strip_prefix("unittests ").unwrap_or(&entry);
+        if let Some((src, bin)) = entry.split_once(" (") {
+            found.push((src.trim().to_string(), bin.trim().to_string()));
+        }
+    }
+    found
 }
 
 /// A type without its modules' paths, and shortened, to fit beside a
@@ -2101,6 +2483,65 @@ mod tests {
         d.push_console(OutputKind::Stderr, "boom\n");
         let lines: Vec<&str> = d.console.iter().map(|(_, l)| l.as_str()).collect();
         assert_eq!(lines, ["0: #a6e3a1", "1: #89b4fa", "boom"]);
+    }
+
+    #[test]
+    fn a_tests_binary_comes_from_what_its_build_printed() {
+        let mut e = Editor::new("fn main() {}\n", Some(PathBuf::from("src/main.rs")));
+        e.update(Event::RegisterDebuggers {
+            plugin: "rust".into(),
+            debuggers: vec![Debugger {
+                id: "gdb".into(),
+                name: "gdb".into(),
+                languages: vec!["rust".into()],
+                command: vec!["gdb".into()],
+                launch: "{}".into(),
+                driver: "dap".into(),
+                ..Default::default()
+            }],
+        });
+        e.update(Event::RegisterPlugin {
+            plugin: "dap".into(),
+            commands: Vec::new(),
+        });
+        let mut fx = Vec::new();
+        let target = DebugTarget {
+            name: "Test parses".into(),
+            language: "rust".into(),
+            args: vec!["parses".into()],
+            build: "cargo test --no-run -p demo".into(),
+            ..Default::default()
+        };
+        e.debug_test(target, "src/main.rs".into(), &mut fx);
+        let term = e.debug_building().expect("the build runs");
+        e.update(Event::TaskOutput {
+            id: term,
+            text: "   Compiling demo\n  Executable unittests src/main.rs (target/debug/deps/demo-1a2b)\n"
+                .into(),
+        });
+        let fx = e.update(Event::TermExited {
+            id: term,
+            code: Some(0),
+        });
+        let start = fx.iter().find_map(|f| match f {
+            Effect::Debug { start: Some(start), .. } => Some(start.clone()),
+            _ => None,
+        });
+        let start = start.expect("the run starts");
+        assert!(start.program.ends_with("target/debug/deps/demo-1a2b"), "{}", start.program);
+        assert!(start.launch.contains("\"args\":[\"parses\"]"), "{}", start.launch);
+    }
+
+    #[test]
+    fn a_binary_wrapped_by_the_terminal_is_joined() {
+        let text = "  Executable unittests src/main.rs (target/debug/deps/dbgdemo-79f066730ab665\nf5)\n  Executable tests/find.rs (target/debug/deps/find-12)\n";
+        assert_eq!(
+            executables(text),
+            [
+                ("src/main.rs".to_string(), "target/debug/deps/dbgdemo-79f066730ab665f5".to_string()),
+                ("tests/find.rs".to_string(), "target/debug/deps/find-12".to_string()),
+            ]
+        );
     }
 
     #[test]

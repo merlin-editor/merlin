@@ -294,6 +294,7 @@ impl Session {
                 | Effect::PluginCommand { .. }
                 | Effect::Debug { .. }
                 | Effect::LocateDebuggers(_)
+                | Effect::ListProcesses
                 | Effect::PluginClick { .. }
                 | Effect::PluginSubmit { .. }
                 | Effect::PluginPick { .. }
