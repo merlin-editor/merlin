@@ -26,11 +26,11 @@ pub use editor::{
     AutoSave, AutoSaveWhy, Command, ContextItem, ContextView, DialogView, Editor, Effect, Event,
     FORMAT_WAIT_MS, FileConfig, FileOp, FilePick, FindAction, FindView, Focus, FormatOnSave,
     GitAction, GitMove, HoverButton, KeyBinding, MenuView, MergeBarView, MergeKind, MergeNote,
-    MergePaneView, MergeRow, MergeSide, MergeState, MergeView, MouseKind, PaletteView,
-    PluginSummary, Pointer, PopupKind, PopupView, ProblemView, RailItem, SearchHit, Settings, Side,
-    SideView, SignatureView, StatusView, SyncKind, SyncOutcome, SyncState, TabView, TermOp,
-    TermSession, TerminalView, TextView, ThemeKind, ToastView, UiEvent, UserKey, When, WindowView,
-    Workspace,
+    MergePaneView, MergeRow, MergeSide, MergeState, MergeView, MouseKind, PaletteExtra,
+    PaletteView, PluginSummary, Pointer, PopupKind, PopupView, ProblemView, RailItem, SearchHit,
+    Settings, Side, SideView, SignatureView, StatusView, SyncKind, SyncOutcome, SyncState, TabView,
+    Task, TaskGroup, TermOp, TermSession, TerminalView, TextView, ThemeKind, ToastView, UiEvent,
+    UserKey, When, WindowView, Workspace, from_cargo, from_package, from_tasks_file,
 };
 pub use key::{Key, KeyCode};
 pub use lang::{Completion, Diagnostic, InlayHint, InlayKind, Severity, Signature};

@@ -134,6 +134,11 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
     ("merge.accept_all_incoming", "Merge: Accept All Incoming"),
     ("merge.accept_all_current", "Merge: Accept All Current"),
     ("merge.complete", "Merge: Complete Merge"),
+    ("task.run", "Tasks: Run Task…"),
+    ("task.test", "Tasks: Run Test Task"),
+    ("task.build", "Tasks: Run Build Task"),
+    ("task.restart", "Tasks: Restart Last Task"),
+    ("task.configure", "Tasks: Configure Tasks"),
     ("scm.push", "Git: Push"),
     ("scm.pull", "Git: Pull"),
     ("scm.sync_all", "Git: Sync"),
@@ -155,6 +160,9 @@ impl Editor {
     pub(crate) fn run(&mut self, id: &str, fx: &mut Vec<Effect>) {
         if id.starts_with("explorer.") && self.explorer_command(id, fx) {
             return;
+        }
+        if id.starts_with("task.") {
+            return self.task_command(id, fx);
         }
         if id.starts_with("terminal.") {
             return self.terminal_command(id, fx);

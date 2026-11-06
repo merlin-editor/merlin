@@ -2766,6 +2766,27 @@ impl Frame<'_> {
         r.w
     }
 
+    /// A plugin's name in a blue chip, ending at `right`: what a task or
+    /// test came from. Its width.
+    fn plugin_chip(&mut self, label: &str, right: f32, y: f32) -> f32 {
+        let p = self.p;
+        let face = Face::ui(11.0);
+        let tw = self.text.width(label, face);
+        let r = Rect::new(right - tw - 12.0, y, tw + 12.0, 16.0);
+        self.canvas.round(r, 4.0, mix(p.accent, p.widget, 0.82));
+        self.text.draw_in_row(
+            &mut self.canvas,
+            label,
+            face,
+            r.x + 6.0,
+            y,
+            16.0,
+            p.accent,
+            r,
+        );
+        r.w
+    }
+
     fn rail(&mut self, view: &WindowView, h: f32) {
         let p = self.p;
         let mut y = TITLE_H + 2.0;
@@ -3049,13 +3070,19 @@ impl Frame<'_> {
             }
             let inner = Rect::new(r.x + 12.0, r.y + 6.0, r.w - 20.0, r.h - 8.0);
             self.hit(r, Hit::Terminal(id));
-            if let Some(code) = tv
+            if let Some((code, task)) = tv
                 .sessions
                 .iter()
                 .find(|s| s.id == id)
-                .and_then(|s| s.exited)
+                .and_then(|s| Some((s.exited?, s.task)))
             {
-                let note = format!("The shell ended with code {code}. The bin closes it.");
+                let note = match (task, code) {
+                    (true, 0) => "The task is done. Run it again from Run Task.".to_string(),
+                    (true, code) => format!("The task failed with code {code}."),
+                    (false, code) => {
+                        format!("The shell ended with code {code}. The bin closes it.")
+                    }
+                };
                 let face = Face::ui(12.0);
                 let y = r.bottom() - 26.0;
                 self.text
@@ -5184,7 +5211,14 @@ impl Frame<'_> {
         self.hit(Rect::new(0.0, 0.0, w, h), Hit::Ui(UiEvent::ClosePalette));
         let pw = 640.0_f32.min(w - 32.0);
         let shown = pv.items.len().clamp(1, PALETTE_ROWS);
-        let list_h = shown as f32 * 34.0 + 12.0;
+        // The items scrolled to keep the selection in view, and the group
+        // headings over them, as Run Task has.
+        let first = pv.selected.saturating_sub(PALETTE_ROWS - 1);
+        let heading = |k: usize| pv.extras.get(k).and_then(|e| e.heading.as_deref());
+        let headings = (first..pv.items.len().min(first + PALETTE_ROWS))
+            .filter(|&k| heading(k).is_some())
+            .count();
+        let list_h = shown as f32 * 34.0 + headings as f32 * 26.0 + 12.0;
         let ph = 48.0 + list_h + 34.0;
         let r = Rect::new((w - pw) / 2.0, 56.0, pw, ph);
         self.canvas.shadow(r, 12.0, theme::is_light(&p));
@@ -5206,9 +5240,13 @@ impl Frame<'_> {
         let mut qx = r.x + 42.0;
         if let Some(title) = &pv.title {
             let face = Face::ui(14.0).medium();
+            let title = match title.ends_with('›') {
+                true => title.clone(),
+                false => format!("{title}:"),
+            };
             qx += self.text.draw_in_row(
                 &mut self.canvas,
-                &format!("{title}:"),
+                &title,
                 face,
                 qx,
                 r.y,
@@ -5236,8 +5274,6 @@ impl Frame<'_> {
         self.canvas
             .fill(Rect::new(r.x, r.y + 48.0, r.w, 1.0), p.chip);
 
-        // The items, scrolled to keep the selection in view.
-        let first = pv.selected.saturating_sub(PALETTE_ROWS - 1);
         let list = Rect::new(r.x, r.y + 49.0, r.w, list_h);
         if pv.items.is_empty() {
             self.text.draw_in_row(
@@ -5251,18 +5287,68 @@ impl Frame<'_> {
                 list,
             );
         }
+        let mut y = list.y + 6.0;
         for (k, (label, key)) in pv.items.iter().enumerate().skip(first).take(PALETTE_ROWS) {
-            let y = list.y + 6.0 + (k - first) as f32 * 34.0;
+            if let Some(heading) = heading(k) {
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    &heading.to_uppercase(),
+                    Face::ui(11.0).medium(),
+                    r.x + 18.0,
+                    y,
+                    26.0,
+                    p.muted,
+                    list,
+                );
+                y += 26.0;
+            }
             let row = Rect::new(r.x + 6.0, y, r.w - 12.0, 34.0);
+            y += 34.0;
             let on = k == pv.selected;
             if on {
                 self.canvas.round(row, 7.0, p.selected);
             } else if self.hovered(row) {
                 self.canvas.round(row, 7.0, p.hover);
             }
-            self.matched(label, &pv.query, row.x + 12.0, row, row.w - 140.0);
+            let extra = pv.extras.get(k);
+            // At the right: the key, then the plugin's chip, then where
+            // it's from.
+            let mut right = row.right() - 10.0;
             if let Some(key) = key {
-                self.chip(key, row.right() - 10.0, y + 9.0, true);
+                right -= self.chip(key, right, row.y + 9.0, true) + 8.0;
+            }
+            if let Some(chip) = extra.and_then(|e| e.chip.as_deref()) {
+                right -= self.plugin_chip(chip, right, row.y + 9.0) + 8.0;
+            }
+            if let Some(detail) = extra.map(|e| e.detail.as_str()).filter(|d| !d.is_empty()) {
+                let face = Face::ui(12.0);
+                let w = self.text.width(detail, face);
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    detail,
+                    face,
+                    right - w,
+                    row.y,
+                    row.h,
+                    p.muted,
+                    row,
+                );
+                right -= w + 12.0;
+            }
+            let max = (right - row.x - 12.0).min(row.w - 140.0);
+            if extra.is_some_and(|e| e.muted) {
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    label,
+                    Face::ui(13.5),
+                    row.x + 12.0,
+                    row.y,
+                    row.h,
+                    p.muted,
+                    row,
+                );
+            } else {
+                self.matched(label, &pv.query, row.x + 12.0, row, max);
             }
             self.hit(row, Hit::Ui(UiEvent::PaletteRow(k)));
         }

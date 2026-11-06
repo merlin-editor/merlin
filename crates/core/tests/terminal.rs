@@ -26,7 +26,13 @@ fn key(spec: &str) -> Key {
 fn ctrl_backtick_opens_a_shell_with_the_keys() {
     let mut s = session();
     s.run("key ctrl+`");
-    assert_eq!(ops(&s), vec![TermOp::Spawn { id: 1 }]);
+    assert_eq!(
+        ops(&s),
+        vec![TermOp::Spawn {
+            id: 1,
+            command: None
+        }]
+    );
     let view = s.editor.window_view();
     let term = view.terminal.expect("the terminal panel shows");
     assert_eq!(term.panes, vec![1]);
@@ -66,7 +72,10 @@ fn ctrl_backtick_again_shows_the_same_shell() {
     s.run("key ctrl+`; key ctrl+`; key ctrl+`");
     assert_eq!(
         ops(&s),
-        vec![TermOp::Spawn { id: 1 }],
+        vec![TermOp::Spawn {
+            id: 1,
+            command: None
+        }],
         "only one shell started"
     );
     assert!(s.editor.window_view().terminal.unwrap().focused);
@@ -134,5 +143,11 @@ fn the_panel_tab_opens_a_shell_when_there_is_none() {
         side: merlin_core::Side::Bottom,
         name: "merlin.terminal".into(),
     }));
-    assert_eq!(ops(&s), vec![TermOp::Spawn { id: 1 }]);
+    assert_eq!(
+        ops(&s),
+        vec![TermOp::Spawn {
+            id: 1,
+            command: None
+        }]
+    );
 }

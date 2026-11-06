@@ -47,9 +47,14 @@ const TERMINAL_KEYS: &[(&str, &str)] = &[
 /// What the host does with a terminal.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TermOp {
-    /// Starts a shell in `cwd`, the project's folder.
+    /// Starts a shell in the project's folder, or runs a task's command
+    /// line there: the host sends [`Event::TaskOutput`] with what it
+    /// printed when it ends.
+    ///
+    /// [`Event::TaskOutput`]: crate::Event::TaskOutput
     Spawn {
         id: u64,
+        command: Option<String>,
     },
     /// A key, for the host to encode as the shell's modes want it.
     Key {
@@ -87,6 +92,8 @@ pub struct TermSession {
     pub title: String,
     /// Its exit code once it's ended; it stays listed until killed.
     pub exited: Option<i32>,
+    /// A task's, named after it: the shell's title doesn't replace it.
+    pub task: bool,
 }
 
 /// The terminal panel, as the window draws it.
@@ -218,13 +225,38 @@ impl Editor {
 
     /// Starts a shell, beside the active one with `split`, and shows it.
     fn new_terminal(&mut self, split: bool, fx: &mut Vec<Effect>) {
+        self.spawn_terminal("shell", None, split, fx);
+    }
+
+    /// Runs a task's command line in a terminal of its own, and shows it
+    /// without taking the keys.
+    pub(crate) fn new_task_terminal(
+        &mut self,
+        name: &str,
+        command: &str,
+        fx: &mut Vec<Effect>,
+    ) -> u64 {
+        let focus = self.focus;
+        let id = self.spawn_terminal(name, Some(command.to_string()), false, fx);
+        self.focus = focus;
+        id
+    }
+
+    fn spawn_terminal(
+        &mut self,
+        title: &str,
+        command: Option<String>,
+        split: bool,
+        fx: &mut Vec<Effect>,
+    ) -> u64 {
         let t = &mut self.terminals;
         t.next += 1;
         let id = t.next;
         t.sessions.push(TermSession {
             id,
-            title: "shell".into(),
+            title: title.into(),
             exited: None,
+            task: command.is_some(),
         });
         match t.active.and_then(|a| t.split_of(a)) {
             Some(at) if split => {
@@ -238,8 +270,9 @@ impl Editor {
             _ => t.splits.push(vec![id]),
         }
         t.active = Some(id);
-        fx.push(Effect::Terminal(TermOp::Spawn { id }));
+        fx.push(Effect::Terminal(TermOp::Spawn { id, command }));
         self.show_terminal();
+        id
     }
 
     /// Shows the terminal panel and gives it the keys.
@@ -274,7 +307,12 @@ impl Editor {
 
     /// A shell's title changed, as shells set it for the running command.
     pub(crate) fn terminal_title(&mut self, id: u64, title: String) {
-        if let Some(s) = self.terminals.sessions.iter_mut().find(|s| s.id == id) {
+        if let Some(s) = self
+            .terminals
+            .sessions
+            .iter_mut()
+            .find(|s| s.id == id && !s.task)
+        {
             s.title = title;
         }
     }

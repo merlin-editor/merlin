@@ -48,6 +48,7 @@ mod select;
 mod settings;
 mod swatches;
 mod tabs;
+mod tasks;
 mod terminal;
 mod text_view;
 mod views;
@@ -56,7 +57,8 @@ mod workspace;
 mod wrap;
 
 pub use window::{
-    PaletteView, RailItem, SideView, StatusView, TabView, ToastView, UiEvent, WindowView,
+    PaletteExtra, PaletteView, RailItem, SideView, StatusView, TabView, ToastView, UiEvent,
+    WindowView,
 };
 
 pub use context::{
@@ -72,6 +74,7 @@ pub use overview::{MINIMAP_COLUMNS, MinimapLine, MinimapView, ScrollbarView};
 pub use save::{AutoSave, AutoSaveWhy, FileConfig};
 pub use settings::Settings;
 pub use tabs::GroupView;
+pub use tasks::{Task, TaskGroup, from_cargo, from_package, from_tasks_file};
 pub use terminal::{TermOp, TermSession, TerminalView};
 pub use text_view::{CaretView, InlayView, LineView, OVERSCAN, TextView};
 pub use workspace::{GroupState, Tab, Workspace};
@@ -215,6 +218,12 @@ pub enum Event {
     TermTitle {
         id: u64,
         title: String,
+    },
+    /// All a task's terminal printed, when it ends, before its
+    /// [`Event::TermExited`].
+    TaskOutput {
+        id: u64,
+        text: String,
     },
     /// A terminal's shell ended, with its exit code if it had one.
     TermExited {
@@ -810,6 +819,8 @@ enum Source {
         kind: ThemeKind,
         original: String,
     },
+    /// Run Task's list.
+    Tasks,
 }
 
 enum Popup {
@@ -1071,6 +1082,7 @@ pub struct Editor {
     saving: save::Saving,
     /// The integrated terminal's shells.
     terminals: terminal::Terminals,
+    tasks: tasks::Tasks,
     /// Brackets are coloured by how deep they are.
     bracket_colours: bool,
     /// Colours written in the code get a swatch.
@@ -1202,6 +1214,7 @@ impl Editor {
             scroll_beyond_last_line: true,
             saving: save::Saving::default(),
             terminals: terminal::Terminals::default(),
+            tasks: tasks::Tasks::default(),
             bracket_colours: true,
             colour_swatches: true,
             inline_notes: true,
@@ -1489,11 +1502,16 @@ impl Editor {
                 self.split_opened(&path);
                 self.opened_for_edits(&path);
                 self.start_merge();
+                self.tasks_opened(&path);
             }
             Event::FileConfig { path, config } => self.file_config(&path, config),
             Event::AutoSave(why) => self.auto_save(why, &mut fx),
             Event::TermTitle { id, title } => self.terminal_title(id, title),
-            Event::TermExited { id, code } => self.terminal_exited(id, code),
+            Event::TaskOutput { id, text } => self.task_output(id, &text),
+            Event::TermExited { id, code } => {
+                self.terminal_exited(id, code);
+                self.task_exited(id, code);
+            }
             Event::Restore(ws) => self.restore(ws),
             Event::Settings(settings) => self.apply_settings(settings),
             Event::TextColours {
@@ -1667,6 +1685,7 @@ impl Editor {
             Event::ShowRenameReview(edits) => self.show_rename_review(edits, &mut fx),
             Event::ShowReferences(places) => self.show_references(places, &mut fx),
             Event::FilesRead(files) => {
+                self.tasks_read(&files, &mut fx);
                 self.compare_files_read(&files, &mut fx);
                 self.peek_files_read(&files);
                 self.files_read(files);

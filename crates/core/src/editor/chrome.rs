@@ -113,6 +113,14 @@ impl Editor {
                 ));
             }
         }
+        // Tasks still running, a click away from their terminal.
+        for run in self.running_tasks() {
+            left.push((
+                format!(" ● {} ", run.name),
+                Style::Status,
+                Some(Action::Run("task.show")),
+            ));
+        }
         let (errors, warnings) = self.problem_counts();
         left.push((
             format!(

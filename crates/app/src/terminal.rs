@@ -64,6 +64,16 @@ struct Session {
     size: Size,
     /// A cell's size in pixels, for programs that ask.
     cell: (u16, u16),
+    /// A task's command line, which the editor wants the output of.
+    task: bool,
+    /// The task's exit code, kept until all it printed is read.
+    code: Option<i32>,
+}
+
+/// A shell or task waiting for its size to start.
+struct Pending {
+    root: PathBuf,
+    command: Option<String>,
 }
 
 /// One cell of a terminal's screen, as the window draws it.
@@ -165,7 +175,7 @@ pub struct Terminals {
     queue: Arc<Mutex<Vec<(u64, TermEvent)>>>,
     wake: Waker,
     /// Shells to start in a folder once their size is known.
-    pending: HashMap<u64, PathBuf>,
+    pending: HashMap<u64, Pending>,
     /// Shells that couldn't start, and why.
     failed: Vec<(u64, String)>,
     /// Goes up whenever a screen may have changed, for the window to know
@@ -189,11 +199,32 @@ impl Terminals {
     /// pane is first drawn: a shell started at a guessed size and then
     /// resized redraws its prompt over lines the terminal has rewrapped,
     /// which leaves bits of coloured prompts behind.
-    pub fn spawn(&mut self, id: u64, root: &Path) {
-        self.pending.insert(id, root.to_path_buf());
+    pub fn spawn(&mut self, id: u64, root: &Path, command: Option<String>) {
+        self.pending.insert(
+            id,
+            Pending {
+                root: root.to_path_buf(),
+                command,
+            },
+        );
     }
 
-    fn start(&mut self, id: u64, root: &Path, size: Size, cell: (u16, u16)) -> Result<(), String> {
+    fn start(
+        &mut self,
+        id: u64,
+        job: &Pending,
+        size: Size,
+        cell: (u16, u16),
+    ) -> Result<(), String> {
+        let root = &job.root;
+        // A task's command line, under the line that says what it is.
+        let shell = job.command.as_ref().map(|command| {
+            let script = "printf '\\033[2m❯ %s\\033[0m\\n' \"$1\"; eval \"$1\"";
+            tty::Shell::new(
+                "/bin/sh".into(),
+                vec!["-c".into(), script.into(), "merlin".into(), command.clone()],
+            )
+        });
         let env = [
             ("TERM", "xterm-256color"),
             ("COLORTERM", "truecolor"),
@@ -203,10 +234,10 @@ impl Terminals {
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect();
         let options = tty::Options {
+            shell,
             working_directory: Some(root.to_path_buf()),
             drain_on_exit: true,
             env,
-            ..tty::Options::default()
         };
         let pty = tty::new(&options, window_size(size, cell), id).map_err(|e| e.to_string())?;
         let proxy = Proxy {
@@ -230,6 +261,8 @@ impl Terminals {
                 tx,
                 size,
                 cell,
+                task: job.command.is_some(),
+                code: None,
             },
         );
         Ok(())
@@ -256,8 +289,23 @@ impl Terminals {
             cols: cols.max(2),
             lines: lines.max(1),
         };
-        if let Some(root) = self.pending.remove(&id) {
-            if let Err(err) = self.start(id, &root, size, cell) {
+        // Tasks started out of view start at this size too: a task runs
+        // whether its terminal shows or not.
+        let tasks: Vec<u64> = self
+            .pending
+            .iter()
+            .filter(|(i, p)| **i != id && p.command.is_some())
+            .map(|(&i, _)| i)
+            .collect();
+        for task in tasks {
+            if let Some(job) = self.pending.remove(&task)
+                && let Err(err) = self.start(task, &job, size, cell)
+            {
+                self.failed.push((task, err));
+            }
+        }
+        if let Some(job) = self.pending.remove(&id) {
+            if let Err(err) = self.start(id, &job, size, cell) {
                 self.failed.push((id, err));
             }
             self.version += 1;
@@ -411,11 +459,25 @@ impl Terminals {
                     id,
                     title: "shell".into(),
                 }),
-                TermEvent::ChildExit(status) => out.push(Event::TermExited {
-                    id,
-                    code: status.code(),
-                }),
-                TermEvent::Exit | TermEvent::Bell => {}
+                // A task's output is all read once the terminal exits,
+                // after its child.
+                TermEvent::ChildExit(status) => match self.sessions.get_mut(&id) {
+                    Some(s) if s.task => s.code = status.code(),
+                    _ => out.push(Event::TermExited {
+                        id,
+                        code: status.code(),
+                    }),
+                },
+                TermEvent::Exit => {
+                    if let Some(s) = self.sessions.get(&id).filter(|s| s.task) {
+                        out.push(Event::TaskOutput {
+                            id,
+                            text: text_of(&s.term.lock()),
+                        });
+                        out.push(Event::TermExited { id, code: s.code });
+                    }
+                }
+                TermEvent::Bell => {}
                 TermEvent::PtyWrite(text) => self.write(id, text.into_bytes()),
                 TermEvent::ClipboardStore(_, text) => {
                     clipboard(Some(text));
@@ -546,6 +608,31 @@ impl Terminals {
             scrolled: content.display_offset,
         })
     }
+}
+
+/// All a terminal shows and keeps above, as plain text: lines that wrap
+/// joined again.
+fn text_of(term: &Term<Proxy>) -> String {
+    let grid = term.grid();
+    let cols = grid.columns();
+    let mut out = String::new();
+    for i in grid.topmost_line().0..=grid.bottommost_line().0 {
+        let row = &grid[Line(i)];
+        let mut line = String::new();
+        for c in 0..cols {
+            let cell = &row[Column(c)];
+            if !cell.flags.contains(Flags::WIDE_CHAR_SPACER) {
+                line.push(cell.c);
+            }
+        }
+        if row[Column(cols - 1)].flags.contains(Flags::WRAPLINE) {
+            out.push_str(&line);
+        } else {
+            out.push_str(line.trim_end());
+            out.push('\n');
+        }
+    }
+    out.trim_end().to_string()
 }
 
 /// How the mouse acts on a selection.

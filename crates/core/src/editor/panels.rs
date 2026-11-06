@@ -294,12 +294,22 @@ impl Editor {
     /// A panel's title as its side shows it, and a count to show after it.
     /// The side bar and the bottom panel use capitals, as VS Code does.
     pub(crate) fn panel_title(&self, side: Side, name: &str) -> (String, Option<String>) {
-        let title = self
+        let mut title = self
             .plugins
             .iter()
             .find(|p| p.name == name)
             .and_then(|p| p.panel.as_ref())
             .map_or(name.to_string(), |p| p.title.clone());
+        // A task's terminal is named after it, as VS Code's are.
+        if name == super::terminal::TERMINAL
+            && let Some(task) = self
+                .terminals
+                .sessions
+                .iter()
+                .find(|s| s.task && Some(s.id) == self.terminals.active)
+        {
+            title = format!("{title}: {}", task.title);
+        }
         if side == Side::Right {
             return (title, None);
         }

@@ -257,6 +257,21 @@ pub struct PaletteView {
     /// Each item's label and its key, if it has one.
     pub items: Vec<(String, Option<String>)>,
     pub selected: usize,
+    /// More about each item, as Run Task has: empty for the rest.
+    pub extras: Vec<PaletteExtra>,
+}
+
+/// What Run Task shows of an item besides its label.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct PaletteExtra {
+    /// Dimmed at the right: where it's from.
+    pub detail: String,
+    /// The plugin it's from, in a chip after the detail.
+    pub chip: Option<String>,
+    /// A group's heading over it.
+    pub heading: Option<String>,
+    /// Dimmed, as Configure Tasks is.
+    pub muted: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -404,7 +419,36 @@ impl Editor {
                 m.severity == crate::lang::Severity::Error,
             )
         });
-        let palette = self.palette.as_ref().map(|p| PaletteView {
+        let palette = self.palette.as_ref().map(|p| {
+            let shown = self.palette_items();
+            let extras = if matches!(p.source, Source::Tasks) {
+                let ids: Vec<String> = shown.iter().map(|(id, _)| id.clone()).collect();
+                let headings = if p.query.is_empty() {
+                    self.task_headings(&ids)
+                } else {
+                    vec![None; ids.len()]
+                };
+                ids.iter()
+                    .zip(headings)
+                    .map(|(id, heading)| match self.task_detail(id) {
+                        Some((detail, chip, _)) => PaletteExtra {
+                            detail,
+                            chip,
+                            heading,
+                            muted: false,
+                        },
+                        None => PaletteExtra {
+                            muted: true,
+                            ..Default::default()
+                        },
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            (p, shown, extras)
+        });
+        let palette = palette.map(|(p, shown, extras)| PaletteView {
             title: p.title.clone(),
             query: p.query.clone(),
             kind: match p.source {
@@ -414,18 +458,25 @@ impl Editor {
                 Source::Symbols => "Symbols",
                 Source::Picker { .. } => "Pick",
                 Source::Themes { .. } => "Themes",
+                Source::Tasks => "Tasks",
             },
-            items: self
-                .palette_items()
+            items: shown
                 .into_iter()
                 .map(|(id, label)| {
-                    let key = matches!(p.source, Source::Commands)
-                        .then(|| self.key_hint(&id))
-                        .flatten();
+                    let key = match p.source {
+                        Source::Commands => self.key_hint(&id),
+                        // The test task's key on the one it runs.
+                        Source::Tasks => self
+                            .first_task(crate::editor::TaskGroup::Test)
+                            .filter(|t| super::tasks::task_id(t) == id)
+                            .and_then(|_| self.key_hint("task.test")),
+                        _ => None,
+                    };
                     (label, key)
                 })
                 .collect(),
             selected: p.selected,
+            extras,
         });
         let toast = self.message.as_ref().map(|m| ToastView {
             text: m.text.clone(),

@@ -908,7 +908,7 @@ impl App {
         use merlin_core::TermOp;
         let t = &mut self.terminals;
         match op {
-            TermOp::Spawn { id } => t.spawn(id, &self.root),
+            TermOp::Spawn { id, command } => t.spawn(id, &self.root, command),
             TermOp::Key { id, key } => t.key(id, key),
             TermOp::Paste { id, text } => t.paste(id, &text),
             TermOp::Scroll { id, lines } => t.scroll(id, lines),

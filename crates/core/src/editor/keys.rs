@@ -36,6 +36,7 @@ pub(super) const GLOBAL_KEYS: &[(&str, &str)] = &[
     ("ctrl+n", "file.new"),
     ("ctrl+shift+s", "file.save_as"),
     ("ctrl+shift+t", "file.reopen"),
+    ("ctrl+shift+b", "task.build"),
     ("ctrl+tab", "file.next"),
     ("ctrl+backtab", "file.prev"),
     ("ctrl+=", "view.zoom_in"),
@@ -115,6 +116,7 @@ pub(super) const EDITOR_KEYS: &[(&str, &str)] = &[
 /// Two keys in a row, as VS Code's Ctrl+K chords.
 pub(super) const CHORDS: &[(&str, &str, &str)] = &[
     ("ctrl+k", "ctrl+d", "edit.skip_next"),
+    ("ctrl+;", "a", "task.test"),
     ("ctrl+k", "ctrl+i", "view.hover"),
     ("ctrl+k", "ctrl+f", "edit.format_selection"),
     ("ctrl+k", "s", "file.save_without_formatting"),
