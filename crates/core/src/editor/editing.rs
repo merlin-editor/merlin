@@ -594,7 +594,9 @@ impl Editor {
         let (line, col) = doc.line_col(cursor);
         let unit = self.indent();
         let before = &doc.line_chars(line)[..col];
-        if !unit.tabs && before.iter().all(|c| *c == ' ') {
+        // In the indent, back to the last tab stop. At the line's start
+        // it's the line break that goes.
+        if !unit.tabs && col > 0 && before.iter().all(|c| *c == ' ') {
             let n = col - (col - 1) / unit.width * unit.width;
             return self.replace(cursor - n, cursor, "", Kind::Other);
         }

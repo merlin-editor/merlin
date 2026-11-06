@@ -508,3 +508,13 @@ fn ctrl_k_ctrl_w_closes_every_saved_file() {
         s.editor.open_files()
     );
 }
+
+#[test]
+fn backspace_on_an_empty_line_takes_only_the_line_break() {
+    let mut s = session("let x = 1;\n");
+    s.run("key ctrl+end backspace");
+    assert_eq!(s.text(), "let x = 1;");
+    let mut s = session("abcdef\n\n");
+    s.run("key ctrl+end backspace backspace");
+    assert_eq!(s.text(), "abcdef");
+}
