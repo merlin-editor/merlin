@@ -18,6 +18,7 @@ mod gpu;
 mod grid;
 mod overview;
 mod scene;
+mod settings;
 mod termview;
 
 use std::env;
@@ -45,6 +46,7 @@ use winit::window::{Window, WindowId};
 
 use crate::App;
 use crate::packs::{self, Look};
+use crate::prefs::{self, Category, SettingsAction, SettingsView};
 use crate::settings::Blinking;
 use crate::terminal;
 use canvas::{Canvas, Pictures, Rect, Text};
@@ -157,6 +159,9 @@ pub fn run(app: &mut App) -> Result<()> {
         bitmaps: Bitmaps::default(),
         scene: Scene::default(),
         fonts: None,
+        settings_drawn: None,
+        settings_due: None,
+        hover_card: None,
     };
     event_loop.run_app(&mut gui).context("running the window")?;
     Ok(())
@@ -284,6 +289,12 @@ struct Gui<'a> {
     /// height and ligatures, to set them up again when packs or settings
     /// change them.
     fonts: Option<(packs::Fonts, (Option<f32>, bool))>,
+    /// The Settings tab as last drawn.
+    settings_drawn: Option<SettingsView>,
+    /// When the Plugins page reads programs' memory again.
+    settings_due: Option<Instant>,
+    /// The theme card the pointer is on, which the window previews.
+    hover_card: Option<String>,
 }
 
 struct Shown {
@@ -728,6 +739,8 @@ impl Gui<'_> {
             Hit::Ui(event) => self.dispatch(Event::Ui(event)),
             Hit::Command(command) => self.dispatch(Event::Command(command.into())),
             Hit::Key(key) => self.dispatch(Event::Key(key)),
+            Hit::Settings(action) => self.settings_press(action, clicks, at),
+            Hit::SettingsBody => self.focus_page(at),
             Hit::Sash(side) => self.sash = Some(side),
             // A double click on a strip's empty end opens a new file there.
             Hit::TabStrip(group) if clicks >= 2 => {
@@ -917,6 +930,11 @@ impl Gui<'_> {
             return;
         };
         let over = self.hit_at(at).map(|(_, h)| h.clone());
+        if matches!(over, Some(Hit::Settings(_) | Hit::SettingsBody)) {
+            self.app.settings_scroll(-(lines as f32) * 60.0);
+            self.redraw();
+            return;
+        }
         // Over a terminal, it scrolls back through the history.
         if let Some(Hit::Terminal(id)) = over {
             let lines = (lines * 3.0).round() as i32;
@@ -1034,12 +1052,12 @@ impl Gui<'_> {
             && text.chars().all(|c| !c.is_control())
         {
             for c in text.chars() {
-                self.dispatch(Event::Key(Key {
+                self.send_key(Key {
                     code: KeyCode::Char(c),
                     ctrl: false,
                     alt: false,
                     shift: false,
-                }));
+                });
             }
             return;
         }
@@ -1084,12 +1102,84 @@ impl Gui<'_> {
         // with Ctrl+Shift+P.
         let shift = m.shift_key() && (ctrl || !matches!(code, KeyCode::Char(_)));
         let shift = shift && code != KeyCode::BackTab;
-        self.dispatch(Event::Key(Key {
+        self.send_key(Key {
             code,
             ctrl,
             alt,
             shift,
-        }));
+        });
+    }
+
+    /// A key to the Settings tab while it has the keyboard and wants it,
+    /// else to the editor.
+    fn send_key(&mut self, key: Key) {
+        if self.app.editor.page_focused() == Some(merlin_core::SETTINGS_PAGE)
+            && let Some(events) = self.app.settings_key(key)
+        {
+            self.blink_from = Instant::now();
+            for event in events {
+                self.app.dispatch(event);
+            }
+            self.fit_text();
+            self.redraw();
+            return;
+        }
+        self.dispatch(Event::Key(key));
+    }
+
+    /// A click on the Settings tab gives it the keyboard.
+    fn focus_page(&mut self, at: (f32, f32)) {
+        if self.app.editor.page_focused().is_some() {
+            return;
+        }
+        let Some(g) = self.group_at(at) else {
+            return;
+        };
+        let view = self.app.editor.window_view();
+        if let Some(index) = view
+            .groups
+            .get(g)
+            .and_then(|g| g.tabs.iter().position(|t| t.active))
+        {
+            self.dispatch(Event::Ui(UiEvent::GroupTab {
+                group: g,
+                index,
+                clicks: 1,
+            }));
+        }
+    }
+
+    fn settings_press(&mut self, action: SettingsAction, clicks: u8, at: (f32, f32)) {
+        self.focus_page(at);
+        let action = match action {
+            SettingsAction::KeyRow(i, _) => SettingsAction::KeyRow(i, clicks),
+            other => other,
+        };
+        if matches!(action, SettingsAction::Theme(_)) {
+            self.hover_card = None;
+        }
+        for event in self.app.settings_action(action) {
+            self.app.dispatch(event);
+        }
+        self.fit_text();
+        self.redraw();
+    }
+
+    /// The pointer on a theme card previews it on the window; off it,
+    /// the theme comes back.
+    fn hover_settings(&mut self, at: (f32, f32)) {
+        let card = match self.hit_at(at) {
+            Some((_, Hit::Settings(SettingsAction::Theme(name)))) => Some(name.clone()),
+            _ => None,
+        };
+        if card == self.hover_card || (card.is_none() && self.app.settings_ui.card.is_some()) {
+            return;
+        }
+        self.hover_card = card.clone();
+        for event in self.app.preview_card(card) {
+            self.app.dispatch(event);
+        }
+        self.redraw();
     }
 
     fn paint(&mut self) {
@@ -1164,6 +1254,19 @@ impl Gui<'_> {
                 .find(|(_, (r, _))| r.contains(p.0, p.1))
                 .map(|(i, _)| i)
         });
+        // The Settings tab, where a group shows it.
+        let pages: Vec<usize> = view
+            .groups
+            .iter()
+            .enumerate()
+            .filter(|(_, g)| g.page.as_deref() == Some(merlin_core::SETTINGS_PAGE))
+            .map(|(i, _)| i)
+            .collect();
+        let settings = (!pages.is_empty()).then(|| self.app.settings_view());
+        self.settings_due = settings
+            .as_ref()
+            .filter(|s| s.ui.category == Category::Plugins)
+            .map(|_| Instant::now() + prefs::MEMORY_EVERY);
         let drawn = Some((
             view.clone(),
             hovered,
@@ -1188,6 +1291,7 @@ impl Gui<'_> {
             && self.term_drawn == self.app.terminals.version
             && !gliding
             && !dragging
+            && self.settings_drawn == settings
         {
             return;
         }
@@ -1412,6 +1516,24 @@ impl Gui<'_> {
             }
             overview::draw_shadow(&mut f.canvas, area.text, v);
         }
+        let mut room = None;
+        if let Some(sv) = &settings {
+            for &g in &pages {
+                let Some(area) = areas.groups.get(g) else {
+                    continue;
+                };
+                let r = Rect::new(
+                    area.tabs.x,
+                    area.tabs.bottom(),
+                    area.tabs.w,
+                    (area.text.bottom() - area.tabs.bottom()).max(0.0),
+                );
+                let focused = view.groups[g].focused
+                    && view.focus == merlin_core::Focus::Editor
+                    && view.palette.is_none();
+                room = Some(f.settings_page(sv, r, focused));
+            }
+        }
         let cell = (grid.cell_w as f32 / s, grid.cell_h as f32 / s);
         f.floating(&view, &areas, cell, self.context_at, w, h);
         f.overlays(&view, &areas, w, h);
@@ -1419,6 +1541,12 @@ impl Gui<'_> {
         self.strips = std::mem::take(&mut f.strips);
         self.tips = std::mem::take(&mut f.tips);
         self.tip_drawn = tip;
+        if let Some(room) = room {
+            let ui = &mut self.app.settings_ui;
+            ui.room = room;
+            ui.scroll = ui.scroll.min(room);
+        }
+        self.settings_drawn = settings;
         let shown_ok = match &mut shown.backend {
             Backend::Gpu(gpu) => gpu.draw(&self.scene, &self.bitmaps, &shown.window),
             Backend::Cpu(surface) => match surface.buffer_mut() {
@@ -1635,6 +1763,10 @@ impl ApplicationHandler for Gui<'_> {
             if self.caret_level() != self.caret_drawn || self.app.terminals.poll_busy() {
                 self.redraw();
             }
+            if self.settings_due.is_some_and(|when| when <= Instant::now()) {
+                self.settings_due = None;
+                self.redraw();
+            }
             self.tick();
         }
     }
@@ -1671,6 +1803,10 @@ impl ApplicationHandler for Gui<'_> {
             WindowEvent::Focused(on) => {
                 self.focused = on;
                 self.app.window_focused = on;
+                // The desktop may have gone light or dark meanwhile.
+                if on {
+                    self.app.check_system_theme();
+                }
                 if !on {
                     self.dispatch(Event::AutoSave(merlin_core::AutoSaveWhy::Window));
                 }
@@ -1795,7 +1931,7 @@ impl ApplicationHandler for Gui<'_> {
                     cursor: None,
                 });
                 for c in text.chars() {
-                    self.dispatch(Event::Key(Key::plain(KeyCode::Char(c))));
+                    self.send_key(Key::plain(KeyCode::Char(c)));
                 }
             }
             WindowEvent::Ime(Ime::Disabled) => {
@@ -1844,6 +1980,7 @@ impl ApplicationHandler for Gui<'_> {
             tip,
             self.app.due(),
             self.bars_due(),
+            self.settings_due,
         ]
         .into_iter()
         .flatten()
@@ -1879,6 +2016,7 @@ impl Gui<'_> {
             return;
         }
         self.hover_bars(at);
+        self.hover_settings(at);
         if let Some((sash, from, areas)) = &self.group_drag {
             let sizes = group_sizes(*sash, &areas.clone(), (at.0 - from.0, at.1 - from.1));
             self.dispatch(Event::Ui(UiEvent::GroupSizes(sizes)));

@@ -37,7 +37,8 @@ mock-ups. Nothing is pushed. The last commit when this was written was
 | 3. Git | Built. See below |
 | 4. Tasks and tests | Built. See below |
 | 5. Hot exit | Built. See below |
-| 6 to 10 | Not started; next is 6, Settings editor |
+| 6. Settings editor | Built. See below |
+| 7 to 10 | Not started; next is 7, Debugging (DAP) |
 
 ### Language features (`Language.dc.html`)
 
@@ -671,6 +672,56 @@ Built on the crash backups (`disk::Backups`), checked in the window:
 - Test: `crates/core/tests/hot_exit.rs`. Not kept: undo history, and an
   untitled file's place among the tabs (it comes back at the end).
 
+### Settings editor (`Settings.dc.html`, `SettingsPages.dc.html`)
+
+Built and checked in the window, with a copy of the user's config
+(`XDG_CONFIG_HOME` pointed at the scratchpad) so nothing touched theirs:
+
+- **A page tab.** `settings.open` (Ctrl+,) opens `Doc::page` named
+  `SETTINGS_PAGE` and sends `Effect::OpenSettingsWindow { plugin }`; a
+  click in the Plugins view sends it with the plugin. `GroupView.page`
+  says which group shows it; page docs have no text views. The window
+  draws it with `Frame::settings_page` (`crates/app/src/gui/settings.rs`)
+  from `App::settings_view` (`crates/app/src/prefs.rs`), and clicks come
+  back as `Hit::Settings(SettingsAction)`. While the tab has the
+  keyboard, `Gui::send_key` gives keys to `App::settings_key` first;
+  Ctrl and Alt keys go on to the editor, except while catching keys.
+- **The model.** `prefs.rs` had been written in a WIP commit (`313e655`)
+  and never compiled; it's now `mod prefs`. `App.loaded` keeps the merged
+  table and each file's on its own, refreshed by `load_settings`, so
+  drawing reads no files. Every row is in `App::sections`; a row knows
+  whether the file being changed sets it (Modified, ↺), whether the
+  workspace's does (Workspace, and a note saying what the other file
+  says). Writes go through `Files::set_in` and `remove_in`.
+- **Appearance.** Theme cards drawn in each theme's palette
+  (`App.previews`); the pointer on one previews it (`Gui::hover_settings`
+  → `App::preview_card`), as do the arrow keys (`SettingsUi.card`), and
+  a click picks it. Follow the system writes
+  `editor.theme_follows_system`; a light card then goes to
+  `editor.theme_light`. `App::chosen_colours` picks by
+  `App.system_light`, which `check_system_theme` asks the desktop portal
+  for (`busctl … org.freedesktop.appearance color-scheme`, else
+  `gsettings`) when the window gets focus. Icon theme cards, and layouts
+  stacked as `editor.packs` with ↑, ↓, ✕ and Add a layout.
+- **Keyboard Shortcuts.** All, Changed, Plugins and Conflicts (keys two
+  commands have where the settings or a plugin gave one). Double-click or
+  Enter catches keys (`SettingsUi.capture`, a chord of two at most) and
+  says what has them now; Add writes `[keys]`, Replace also takes the
+  command's others off (`""` for merlin's own). Record Keys finds what a
+  key runs. ↺ (`reset_key`) takes the settings' lines for the command and
+  its default keys out.
+- **Plugins.** Each with its switch and memory (its own plus its
+  programs', read from `/proc` at most every 3 s, `prefs::Memory`; the
+  window redraws on that while the page shows). The page has what it's
+  allowed, what it costs, what it adds, its own settings (booleans
+  switch; other values are shown), Reload, Output and Uninstall.
+- **Search** covers every page's rows and the keys; **a broken file**
+  shows a banner with the file and line (`Files::load` now says the line).
+- Not done: the Theme Packs side view is still there; plugins' settings
+  other than on and off can't be changed in the tab; the follow switch
+  between light and dark wasn't seen happen, since the desktop wasn't
+  changed.
+
 Saved for later, by the user's choice:
 
 - **Scrolling a long hover** with the keyboard (↑ ↓ once it's
@@ -761,7 +812,7 @@ These are suggestions; nothing of them is written yet.
   straight into core `Event`s. The Rust SDK's re-exports are in
   `sdk/rust/src/lib.rs`; add new types to both lists there.
 - Checks before each commit:
-  - `cargo test --workspace`: 386 tests passed with hot exit
+  - `cargo test --workspace`: 393 tests passed with the Settings editor
   - `cargo clippy --workspace --all-targets`
   - in `plugins/lsp`: `cargo clippy --release --target wasm32-wasip2`
   - `cargo fmt --all`

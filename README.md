@@ -272,6 +272,15 @@ Settings and Open Workspace Settings (in the palette) open them, made from
 a commented template the first time; saving one applies it at once. View
 menu toggles save to your settings.
 
+Preferences: Open Settings (Ctrl+,) opens the Settings tab instead: its
+pages are Appearance (colour themes as cards that preview on the window
+while the pointer is on them, Follow the system for a dark and a light
+theme, icon themes and layouts), Text Editor, Files, Keyboard Shortcuts
+(press keys to give a command them, Record Keys to find what keys run,
+and Conflicts) and Plugins (each plugin's switch, what it may do, its
+memory and CPU, and its own settings). Search covers every page, and the
+Workspace tab writes to the folder's file.
+
 ```toml
 [editor]
 minimap = false
@@ -654,8 +663,8 @@ Other languages work too: anything that builds a WASI 0.2 component for
   a submodule's commits aren't listed, and there's no Show Ignored. The
   changes tab has its boxes only side by side, not inline, and stages
   only what's saved.
-- Settings have no editor of their own (they're a TOML file), and the
-  theme is VS Code's Dark Modern, with no others yet.
+- The Settings tab changes plugins' own settings only when they're on or
+  off; other values are set in the file.
 - Completions don't add imports, and renames don't create, move or delete
   files.
 - A review is all or nothing per edit; you can't accept some hunks and not

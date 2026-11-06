@@ -62,7 +62,7 @@ pub(crate) fn icon(icon: Icon, nerd: bool) -> char {
 }
 
 /// A file's icon and its colour, by name.
-pub(crate) fn file_icon(name: &str, nerd: bool) -> (char, Hue) {
+pub fn file_icon(name: &str, nerd: bool) -> (char, Hue) {
     let lower = name.to_ascii_lowercase();
     let ext = lower.rsplit_once('.').map_or("", |(_, e)| e);
     let (glyph, plain, hue) = match ext {

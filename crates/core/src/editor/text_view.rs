@@ -188,6 +188,10 @@ impl Editor {
 
     /// A group's text: one view, or two halves for a review side by side.
     fn group_views(&self, area: Rect) -> Vec<TextView> {
+        // A page has no text: the window draws it.
+        if self.doc().page.is_some() {
+            return Vec::new();
+        }
         match self.split_rows() {
             Some(rows) => self.split_views(area, &rows),
             None => vec![self.text_view(area)],

@@ -259,7 +259,7 @@ These are ordered by votes against effort.
 5. **Hot exit** (**built**): keep unsaved buffers across quitting and
    crashes, with a notice at the next start and a bar over a file changed
    on disk meanwhile (`HotExit.dc.html`).
-6. **Settings editor**: the Settings window already planned in
+6. **Settings editor** (built): the Settings window already planned in
    `ROADMAP.md`, with themes chosen there.
 7. **Debugging (DAP)**, as a plugin like `lsp`: breakpoints, a call stack
    and variables, and the debug toolbar.

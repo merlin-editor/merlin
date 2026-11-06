@@ -5,6 +5,7 @@ mod gui;
 mod jobs;
 mod looks;
 mod packs;
+mod prefs;
 mod settings;
 mod template;
 mod terminal;
@@ -219,6 +220,20 @@ struct App {
     /// which document's it is.
     format_due: Option<(Instant, u64)>,
     quit: bool,
+    /// The Settings tab's state.
+    settings_ui: prefs::SettingsUi,
+    /// The settings files as last read.
+    loaded: prefs::Loaded,
+    /// Each colour theme's palette, and each icon theme's icons and where
+    /// it's from, for the Settings tab's cards.
+    previews: Vec<(String, theme::Palette)>,
+    icon_previews: Vec<(String, packs::Icons, String)>,
+    /// The plugin whose Uninstall was pressed once.
+    uninstall_armed: Option<String>,
+    /// Programs' memory, for the Plugins page.
+    memory: prefs::Memory,
+    /// The desktop asks for light colours, for Follow the system.
+    system_light: bool,
 }
 
 impl App {
@@ -594,20 +609,13 @@ impl App {
                             queue.push_back(Event::Error(format!("Can't open settings: {err}")))
                         }
                     },
-                    // Until the window draws the Settings window, the
-                    // user's settings file stands in for it.
                     Effect::Zoom(step) => {
                         self.zoom = match step {
                             0 => 0.0,
                             n => (self.zoom + n as f32).clamp(-6.0, 18.0),
                         };
                     }
-                    Effect::OpenSettingsWindow => match self.settings.ensure(false) {
-                        Ok(path) => self.open_later(&path),
-                        Err(err) => {
-                            queue.push_back(Event::Error(format!("Can't open settings: {err}")))
-                        }
-                    },
+                    Effect::OpenSettingsWindow { plugin } => self.open_settings(plugin),
                 }
             }
         }
@@ -634,6 +642,17 @@ impl App {
         } else {
             self.settings.load()
         };
+        let (user, workspace) = if self.scripted {
+            Default::default()
+        } else {
+            self.settings.each()
+        };
+        self.loaded = prefs::Loaded {
+            merged: table.clone(),
+            user,
+            workspace,
+            errors: errors.clone(),
+        };
         let mut editor = settings::editor(&table);
         self.window = settings::window(&table);
         // MERLIN_MINIMAP=on or off still decides, for trying it out.
@@ -649,7 +668,7 @@ impl App {
         }
         self.host.set_settings(settings::plugins(&table));
         self.panels_for = None;
-        self.choice.colours = settings::editor_text(&table, "theme").map(str::to_string);
+        self.choice.colours = self.chosen_colours();
         self.choice.icons = settings::editor_text(&table, "icon_theme").map(str::to_string);
         self.choice.packs = settings::editor_list(&table, "packs");
         let mut events = vec![Event::Settings(editor)];
@@ -2307,6 +2326,13 @@ fn main() -> Result<()> {
         auto_save_for: Vec::new(),
         format_due: None,
         quit: false,
+        settings_ui: prefs::SettingsUi::default(),
+        loaded: prefs::Loaded::default(),
+        previews: Vec::new(),
+        icon_previews: Vec::new(),
+        uninstall_armed: None,
+        memory: prefs::Memory::default(),
+        system_light: false,
     };
     // Nerd Font icons, except in scripted runs, whose output should read
     // anywhere. MERLIN_ICONS=nerd or =plain decides either way.

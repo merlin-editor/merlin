@@ -889,12 +889,7 @@ impl Editor {
             return self.rename_click(id, fx);
         }
         if let Some(name) = id.strip_prefix("plugin:") {
-            let title = self
-                .plugin_list
-                .iter()
-                .find(|p| p.name == name)
-                .map_or_else(|| name.to_string(), |p| p.title.clone());
-            return self.open_page(name, &title);
+            return self.open_settings(Some(name.to_string()), fx);
         }
         if let Some(folder) = id.strip_prefix("d:") {
             if let Some(tree) = &mut self.tree {

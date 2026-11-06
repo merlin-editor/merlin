@@ -111,7 +111,15 @@ impl Files {
             };
             match text.parse::<toml::Table>() {
                 Ok(table) => merlin_plugins::merge(&mut merged, &table),
-                Err(err) => errors.push(format!("{}: {}", path.display(), err.message())),
+                Err(err) => {
+                    let line = err
+                        .span()
+                        .map(|s| text[..s.start.min(text.len())].lines().count().max(1));
+                    errors.push(match line {
+                        Some(n) => format!("{}, line {n}: {}", path.display(), err.message()),
+                        None => format!("{}: {}", path.display(), err.message()),
+                    })
+                }
             }
         }
         (merged, errors)
@@ -133,10 +141,6 @@ impl Files {
 
     /// Takes `key` out of the user's settings or the workspace's, so the
     /// default, or the user's under the workspace's, shows through.
-    #[expect(
-        dead_code,
-        reason = "for the Settings window in prefs.rs, not wired in yet"
-    )]
     pub fn remove_in(&self, workspace: bool, key: &str) -> Result<(), String> {
         self.edit(workspace, key, |table, last| {
             table.remove(last);
@@ -179,10 +183,6 @@ impl Files {
     }
 
     /// Each file's settings on their own: the user's, then the workspace's.
-    #[expect(
-        dead_code,
-        reason = "for the Settings window in prefs.rs, not wired in yet"
-    )]
     pub fn each(&self) -> (toml::Table, toml::Table) {
         let read = |p: &Path| {
             fs::read_to_string(p)
@@ -192,6 +192,15 @@ impl Files {
         };
         (read(&self.user), read(&self.workspace))
     }
+}
+
+/// Where `merlin plugin install` links plugins.
+pub fn plugins_dir() -> Option<PathBuf> {
+    let config = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
+    Some(config.join("merlin/plugins"))
 }
 
 /// The editor's settings in a merged table.
@@ -528,5 +537,29 @@ mod tests {
         fs::write(&f.user, "[editor\n").unwrap();
         let (_, errors) = f.load();
         assert_eq!(errors.len(), 1);
+    }
+
+    #[test]
+    fn a_broken_file_says_its_line() {
+        let f = files("line");
+        fs::create_dir_all(f.user.parent().unwrap()).unwrap();
+        fs::write(&f.user, "[editor]\nminimap = true\nbroken =\n").unwrap();
+        let (_, errors) = f.load();
+        assert!(errors[0].contains(", line 3: "), "{}", errors[0]);
+    }
+
+    #[test]
+    fn a_setting_comes_out_and_the_rest_stays() {
+        let f = files("remove");
+        fs::create_dir_all(f.user.parent().unwrap()).unwrap();
+        fs::write(&f.user, "[editor]\n# mine\nminimap = true\ntab_size = 2\n").unwrap();
+        f.remove_in(false, "editor.minimap").unwrap();
+        f.set_in(false, "keys.ctrl+.", "\"edit.rename\"").unwrap();
+        let text = fs::read_to_string(&f.user).unwrap();
+        assert!(!text.contains("minimap"));
+        assert!(text.contains("tab_size = 2"));
+        assert!(text.contains("\"ctrl+.\" = \"edit.rename\""), "{text}");
+        let (user, _) = f.each();
+        assert_eq!(user["editor"]["tab_size"].as_integer(), Some(2));
     }
 }

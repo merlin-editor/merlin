@@ -45,7 +45,6 @@ They aren't on the live canvas, which no longer opens.
 
 `HotExit.dc.html` was approved on 2026-11-06 and is built.
 
-`SettingsPages.dc.html` (2026-11-06) is waiting for the user's review. It
-fills in `Settings.dc.html`, which shows only the Text Editor page. Note
-that `crates/app/src/prefs.rs` is a model from a WIP commit that was never
-compiled (no `mod prefs`): Open Settings still opens settings.toml.
+`SettingsPages.dc.html` was approved on 2026-11-06. It fills in
+`Settings.dc.html`, which shows only the Text Editor page, and both are
+built.

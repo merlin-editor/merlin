@@ -12,6 +12,7 @@ mod fuzzy;
 pub mod git;
 pub mod history;
 mod icons;
+pub use icons::file_icon;
 pub mod indent;
 pub mod key;
 pub mod lang;
@@ -28,10 +29,10 @@ pub use editor::{
     GitAction, GitMove, HoverButton, KeyBinding, MenuView, MergeBarView, MergeKind, MergeNote,
     MergePaneView, MergeRow, MergeSide, MergeState, MergeView, MouseKind, Outcome, PaletteExtra,
     PaletteView, PluginSummary, PluginTest, PluginTestResult, Pointer, PopupKind, PopupView,
-    ProblemView, RailItem, SearchHit, Settings, Side, SideView, SignatureView, StatusView,
-    SyncKind, SyncOutcome, SyncState, TabView, Task, TaskGroup, TermOp, TermSession, TerminalView,
-    TextView, ThemeKind, ToastView, UiEvent, UserKey, When, WindowView, Workspace, from_cargo,
-    from_package, from_tasks_file,
+    ProblemView, RailItem, SETTINGS_PAGE, SearchHit, Settings, Side, SideView, SignatureView,
+    StatusView, SyncKind, SyncOutcome, SyncState, TabView, Task, TaskGroup, TermOp, TermSession,
+    TerminalView, TextView, ThemeKind, ToastView, UiEvent, UserKey, When, WindowView, Workspace,
+    from_cargo, from_package, from_tasks_file,
 };
 pub use key::{Key, KeyCode};
 pub use lang::{Completion, Diagnostic, InlayHint, InlayKind, Severity, Signature};

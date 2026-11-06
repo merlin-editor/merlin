@@ -52,6 +52,8 @@ pub struct GroupView {
     /// Its file changed on disk while merlin was closed: the file's id and
     /// name, for the bar over its text.
     pub away: Option<(u64, String)>,
+    /// The page its tab shows instead of text, such as Settings.
+    pub page: Option<String>,
 }
 
 impl Editor {
@@ -93,6 +95,10 @@ impl Editor {
                     merge_inline: self.merging().is_some() && self.merge_inline(),
                     compare: self.compare_titles().map(|(l, r)| [l, r]),
                     away: self.away_bar(),
+                    page: self.docs[self.pane_doc()]
+                        .page
+                        .as_ref()
+                        .map(|(n, _)| n.clone()),
                 })
             })
             .collect()

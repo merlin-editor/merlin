@@ -227,17 +227,27 @@ fn the_plugins_view_lists_plugins_and_opens_their_pages() {
         index: left.targets[row].unwrap(),
         clicks: 1,
     }));
+    // Settings opens at the plugin's page.
     let view = s.editor.window_view();
     assert_eq!(
         view.page.as_deref(),
-        Some("lsp"),
-        "its page is the active tab"
+        Some(merlin_core::SETTINGS_PAGE),
+        "Settings is the active tab"
     );
-    assert!(view.tabs.iter().any(|t| t.name == "Language" && t.active));
+    assert!(view.tabs.iter().any(|t| t.name == "Settings" && t.active));
+    assert!(
+        s.effects
+            .contains(&merlin_core::Effect::OpenSettingsWindow {
+                plugin: Some("lsp".into())
+            })
+    );
 
     // A page has no text to type into, and opening it again reuses its tab.
     s.run("type hello");
-    assert_eq!(s.editor.window_view().page.as_deref(), Some("lsp"));
+    assert_eq!(
+        s.editor.window_view().page.as_deref(),
+        Some(merlin_core::SETTINGS_PAGE)
+    );
     assert!(!s.editor.buffer().is_dirty());
     let tabs = s.editor.window_view().tabs.len();
     s.send(Event::Ui(UiEvent::Target {
@@ -254,7 +264,14 @@ fn ctrl_comma_opens_settings() {
     let mut s = windowed();
     s.effects.clear();
     s.run("key ctrl+,");
-    assert_eq!(s.effects, [Effect::OpenSettingsWindow]);
+    assert_eq!(s.effects, [Effect::OpenSettingsWindow { plugin: None }]);
+    let view = s.editor.window_view();
+    assert_eq!(view.page.as_deref(), Some(merlin_core::SETTINGS_PAGE));
+    assert!(view.tabs.iter().any(|t| t.active && t.name == "Settings"));
+    // Again goes back to the same tab.
+    s.run("key ctrl+,");
+    let tabs = s.editor.window_view().tabs;
+    assert_eq!(tabs.iter().filter(|t| t.name == "Settings").count(), 1);
 }
 
 #[test]

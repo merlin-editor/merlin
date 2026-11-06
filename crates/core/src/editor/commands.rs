@@ -389,7 +389,7 @@ impl Editor {
                 self.palette = Some(Palette::new(Source::Commands, None, Vec::new()));
                 self.focus = Focus::Palette;
             }
-            "settings.open" => fx.push(Effect::OpenSettingsWindow),
+            "settings.open" => self.open_settings(None, fx),
             "view.plugins" => self.show_view(views::PLUGINS, fx),
             "theme.pick" => self.pick_theme(ThemeKind::Colours),
             "icons.pick" => self.pick_theme(ThemeKind::Icons),

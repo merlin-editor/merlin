@@ -298,7 +298,7 @@ impl Session {
                 | Effect::OpenSettings { .. }
                 | Effect::PreviewTheme(..)
                 | Effect::SetTheme(..)
-                | Effect::OpenSettingsWindow
+                | Effect::OpenSettingsWindow { .. }
                 | Effect::Zoom(_)
                 | Effect::File(_)
                 | Effect::GitStatus

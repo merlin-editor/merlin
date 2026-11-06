@@ -499,6 +499,9 @@ pub enum Event {
     },
 }
 
+/// The Settings tab's page name.
+pub const SETTINGS_PAGE: &str = "merlin.settings";
+
 /// A plugin as the Plugins view lists it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PluginSummary {
@@ -552,8 +555,11 @@ pub enum Effect {
     PreviewTheme(ThemeKind, String),
     /// Use a theme from now on, and save it in the user's settings.
     SetTheme(ThemeKind, String),
-    /// Open the Settings window, which the window draws.
-    OpenSettingsWindow,
+    /// The Settings tab opened: the window draws it. `plugin` is the
+    /// plugin whose page to show, from the Plugins view.
+    OpenSettingsWindow {
+        plugin: Option<String>,
+    },
     /// Create, rename or trash a file or folder in the project, then send
     /// what changed and list the tree again.
     File(FileOp),
@@ -2213,6 +2219,21 @@ impl Editor {
         }
         self.focus = Focus::Editor;
         self.popup = None;
+        self.sync_groups();
+    }
+
+    /// Opens the Settings tab, at a plugin's page if one is named.
+    pub(crate) fn open_settings(&mut self, plugin: Option<String>, fx: &mut Vec<Effect>) {
+        self.open_page(SETTINGS_PAGE, "Settings");
+        fx.push(Effect::OpenSettingsWindow { plugin });
+    }
+
+    /// The page shown where keys go, if a page is: its name.
+    pub fn page_focused(&self) -> Option<&str> {
+        if self.focus != Focus::Editor || self.palette.is_some() {
+            return None;
+        }
+        self.doc().page.as_ref().map(|(name, _)| name.as_str())
     }
 
     /// A plugin's commands, by title, with their keys.

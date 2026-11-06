@@ -19,6 +19,7 @@ use merlin_core::{
 use super::canvas::{Canvas, Face, Pictures, Rect, Text};
 use super::scene::Prim;
 use crate::packs::{Fallback, Icon, Icons, Tint};
+use crate::prefs::SettingsAction;
 use crate::theme::{self, Palette, mix};
 
 const TITLE_H: f32 = 40.0;
@@ -70,6 +71,10 @@ pub enum Hit {
     Terminal(u64),
     /// Makes the panel as tall as it goes, or back.
     MaximizePanel,
+    /// A part of the Settings tab.
+    Settings(SettingsAction),
+    /// The Settings tab, where the wheel scrolls it.
+    SettingsBody,
 }
 
 /// An edge between editor groups: after column `n`, or under group `n` in
@@ -438,11 +443,11 @@ const MERGE_HEAD_H: f32 = 30.0;
 const AWAY_H: f32 = 38.0;
 
 impl Frame<'_> {
-    fn hit(&mut self, r: Rect, hit: Hit) {
+    pub(super) fn hit(&mut self, r: Rect, hit: Hit) {
         self.hits.push((r, hit));
     }
 
-    fn hovered(&self, r: Rect) -> bool {
+    pub(super) fn hovered(&self, r: Rect) -> bool {
         self.pointer.is_some_and(|(x, y)| r.contains(x, y))
     }
 
@@ -2617,7 +2622,7 @@ impl Frame<'_> {
     /// A file's icon from the icon theme, else as the theme's fallback has
     /// it. Returns the room it took.
     #[allow(clippy::too_many_arguments)]
-    fn file_icon(
+    pub(super) fn file_icon(
         &mut self,
         name: &str,
         core: Option<(char, merlin_core::style::Hue)>,
