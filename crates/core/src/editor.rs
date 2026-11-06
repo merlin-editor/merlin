@@ -244,6 +244,9 @@ pub enum Event {
     },
     /// Lays out the editor groups as last time, once their files are open.
     Restore(Workspace),
+    /// The breakpoints and what F5 starts, kept with the workspace, when
+    /// it isn't restored because files were named to open.
+    RestoreBreakpoints(Workspace),
     /// The user's settings, with the workspace's over them.
     Settings(Settings),
     /// Colours for text the editor asked for with
@@ -1607,6 +1610,7 @@ impl Editor {
                 self.debug_build_exited(id, code, &mut fx);
             }
             Event::Restore(ws) => self.restore(ws),
+            Event::RestoreBreakpoints(ws) => self.restore_breakpoints(ws.breakpoints, ws.debug_target),
             Event::Settings(settings) => self.apply_settings(settings),
             Event::TextColours {
                 language,

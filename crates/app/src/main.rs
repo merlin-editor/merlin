@@ -2390,6 +2390,9 @@ fn main() -> Result<()> {
             }
         }
         app.dispatch(Event::Restore(ws));
+    } else if args.exec.is_none() {
+        let ws = Workspace::parse(&fs::read_to_string(&workspace_path).unwrap_or_default());
+        app.dispatch(Event::RestoreBreakpoints(ws));
     }
     // Unsaved changes the last run kept, with a hot exit or a crash, open
     // again, unsaved.

@@ -258,3 +258,29 @@ fn hovering_a_variable_while_paused_shows_its_value() {
     };
     assert_eq!(lines, ["```", "n: i32 = 1", "```"]);
 }
+
+#[test]
+fn breakpoints_and_the_target_are_kept_with_the_workspace() {
+    let mut s = project();
+    key(&mut s, KeyCode::Down, false);
+    key(&mut s, KeyCode::F(9), false);
+    s.send(Event::Command("debug.pick".into()));
+    key(&mut s, KeyCode::Enter, false);
+    let mut ws = s.editor.workspace();
+    ws.breakpoints[0].condition = "n > 0".into();
+    let text = ws.to_text();
+    assert!(text.contains("break 1 on src/main.rs\nbreak-if n > 0\n"), "{text}");
+    assert!(text.contains("debug demo\n"), "{text}");
+    let back = merlin_core::Workspace::parse(&text);
+    assert_eq!(back.breakpoints[0].line, 1);
+    assert_eq!(back.breakpoints[0].condition, "n > 0");
+    assert_eq!(back.debug_target.as_deref(), Some("demo"));
+    let mut fresh = project();
+    fresh.send(Event::RestoreBreakpoints(back));
+    let line = fresh.editor.text_views()[0]
+        .lines
+        .iter()
+        .find(|l| l.line == 1)
+        .and_then(|l| l.breakpoint);
+    assert_eq!(line, Some(merlin_core::BreakMark::Conditional));
+}

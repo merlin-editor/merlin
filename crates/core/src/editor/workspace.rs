@@ -16,6 +16,9 @@ pub struct Workspace {
     pub groups: Vec<GroupState>,
     /// The focused group.
     pub focused: usize,
+    /// Breakpoints, and what F5 starts, by name.
+    pub breakpoints: Vec<super::Breakpoint>,
+    pub debug_target: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -48,7 +51,13 @@ impl Workspace {
     /// tab 12:4 3 src/main.rs
     /// pin 0:0 0 Cargo.toml
     /// group down 1
+    /// break 41 on src/main.rs
+    /// break-if i == 2
+    /// debug merlin
     /// ```
+    ///
+    /// A breakpoint's `break-if`, `break-hit` and `break-log` lines follow
+    /// it.
     pub fn to_text(&self) -> String {
         let mut out = format!("focus {}\n", self.focused);
         for group in &self.groups {
@@ -65,6 +74,18 @@ impl Workspace {
                 );
             }
         }
+        for b in &self.breakpoints {
+            let on = if b.enabled { "on" } else { "off" };
+            out += &format!("break {} {on} {}\n", b.line, b.path.display());
+            for (key, value) in [("if", &b.condition), ("hit", &b.hit), ("log", &b.log)] {
+                if !value.is_empty() {
+                    out += &format!("break-{key} {}\n", value.replace('\n', " "));
+                }
+            }
+        }
+        if let Some(target) = &self.debug_target {
+            out += &format!("debug {target}\n");
+        }
         out
     }
 
@@ -72,6 +93,38 @@ impl Workspace {
     pub fn parse(text: &str) -> Self {
         let mut ws = Workspace::default();
         for line in text.lines() {
+            if let Some(rest) = line.strip_prefix("break ") {
+                let mut words = rest.splitn(3, ' ');
+                if let (Some(n), Some(on), Some(path)) = (words.next(), words.next(), words.next())
+                    && let Ok(n) = n.parse()
+                {
+                    ws.breakpoints.push(super::Breakpoint {
+                        id: ws.breakpoints.len() as u32 + 1,
+                        path: PathBuf::from(path),
+                        line: n,
+                        enabled: on == "on",
+                        ..Default::default()
+                    });
+                }
+                continue;
+            }
+            if let Some((key, value)) = line
+                .strip_prefix("break-")
+                .and_then(|r| r.split_once(' '))
+                && let Some(b) = ws.breakpoints.last_mut()
+            {
+                match key {
+                    "if" => b.condition = value.to_string(),
+                    "hit" => b.hit = value.to_string(),
+                    "log" => b.log = value.to_string(),
+                    _ => {}
+                }
+                continue;
+            }
+            if let Some(target) = line.strip_prefix("debug ") {
+                ws.debug_target = Some(target.to_string());
+                continue;
+            }
             let mut words = line.splitn(4, ' ');
             match (words.next(), words.next(), words.next(), words.next()) {
                 (Some("focus"), Some(n), None, None) => ws.focused = n.parse().unwrap_or(0),
@@ -162,12 +215,15 @@ impl Editor {
         Workspace {
             groups: groups.into_iter().map(|(_, s)| s).collect(),
             focused,
+            breakpoints: self.debug.breakpoints.clone(),
+            debug_target: self.debug.chosen.clone(),
         }
     }
 
     /// Lays the groups out as `ws` has them, with the files it names that
     /// are open by now.
     pub(crate) fn restore(&mut self, ws: Workspace) {
+        self.restore_breakpoints(ws.breakpoints.clone(), ws.debug_target.clone());
         let mut groups: Vec<Group> = Vec::new();
         // Each group's view of each of its files.
         let mut views: Vec<Vec<(u64, View)>> = Vec::new();

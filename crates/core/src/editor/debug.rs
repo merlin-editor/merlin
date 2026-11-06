@@ -783,6 +783,19 @@ impl Editor {
         self.breakpoints_changed(fx);
     }
 
+    /// Breakpoints and the chosen target, kept with the workspace.
+    pub(crate) fn restore_breakpoints(&mut self, mut list: Vec<Breakpoint>, target: Option<String>) {
+        for b in &mut list {
+            self.debug.next_id += 1;
+            b.id = self.debug.next_id;
+        }
+        self.debug.breakpoints = list;
+        if target.is_some() {
+            self.debug.chosen = target;
+        }
+        self.build_views();
+    }
+
     fn breakpoints_changed(&mut self, fx: &mut Vec<Effect>) {
         if self.debug.running() {
             self.send_debug("debug.breakpoints", fx);
