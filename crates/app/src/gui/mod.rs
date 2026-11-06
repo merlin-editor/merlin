@@ -1613,7 +1613,7 @@ impl ApplicationHandler for Gui<'_> {
             {
                 self.redraw();
             }
-            if self.caret_level() != self.caret_drawn {
+            if self.caret_level() != self.caret_drawn || self.app.terminals.poll_busy() {
                 self.redraw();
             }
             self.tick();

@@ -957,6 +957,7 @@ impl App {
             self.backups.due,
             self.auto_save,
             self.format_due.map(|(at, _)| at),
+            self.terminals.due(),
         ]
         .into_iter()
         .flatten()

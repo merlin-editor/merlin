@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use alacritty_terminal::event::{Event as TermEvent, EventListener, WindowSize};
 use alacritty_terminal::event_loop::{EventLoop, EventLoopSender, Msg};
@@ -12,7 +13,7 @@ use alacritty_terminal::index::{Column, Line, Point, Side};
 use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::sync::FairMutex;
 use alacritty_terminal::term::cell::Flags;
-use alacritty_terminal::term::{Config, Term, TermMode};
+use alacritty_terminal::term::{Config, Term, TermDamage, TermMode};
 use alacritty_terminal::tty;
 use alacritty_terminal::vte::ansi::{Color, CursorShape, NamedColor, Rgb};
 use merlin_core::{Event, Key, KeyCode};
@@ -181,7 +182,18 @@ pub struct Terminals {
     /// Goes up whenever a screen may have changed, for the window to know
     /// to draw again.
     pub version: u64,
+    /// Until when to look for new output each frame. A shell printing
+    /// without a pause says nothing until it stops, as alacritty reads
+    /// all there is before it wakes the window, so the screen is looked
+    /// at a frame at a time while output comes.
+    busy: Option<Instant>,
 }
+
+/// How often a busy terminal is looked at: each frame, at 60 a second.
+const FRAME: Duration = Duration::from_millis(16);
+
+/// How long after its last output a terminal counts as busy.
+const BUSY: Duration = Duration::from_millis(250);
 
 impl Terminals {
     pub fn new(wake: Waker) -> Self {
@@ -192,6 +204,7 @@ impl Terminals {
             pending: HashMap::new(),
             failed: Vec::new(),
             version: 0,
+            busy: None,
         }
     }
 
@@ -451,9 +464,11 @@ impl Terminals {
         let mut changed = false;
         for (id, event) in events {
             match event {
-                TermEvent::Wakeup
-                | TermEvent::MouseCursorDirty
-                | TermEvent::CursorBlinkingChange => changed = true,
+                TermEvent::Wakeup => {
+                    changed = true;
+                    self.busy = Some(Instant::now() + BUSY);
+                }
+                TermEvent::MouseCursorDirty | TermEvent::CursorBlinkingChange => changed = true,
                 TermEvent::Title(title) => out.push(Event::TermTitle { id, title }),
                 TermEvent::ResetTitle => out.push(Event::TermTitle {
                     id,
@@ -511,6 +526,36 @@ impl Terminals {
             self.version += 1;
         }
         (out, changed)
+    }
+
+    /// When to look at the screens next, while output comes.
+    pub fn due(&self) -> Option<Instant> {
+        self.busy.map(|_| Instant::now() + FRAME)
+    }
+
+    /// Looks for output the shells printed without saying, while they're
+    /// busy. Returns whether a screen changed.
+    pub fn poll_busy(&mut self) -> bool {
+        let Some(until) = self.busy else {
+            return false;
+        };
+        let mut changed = false;
+        for s in self.sessions.values() {
+            let mut term = s.term.lock();
+            changed |= match term.damage() {
+                TermDamage::Full => true,
+                TermDamage::Partial(mut lines) => lines.next().is_some(),
+            };
+            term.reset_damage();
+        }
+        let now = Instant::now();
+        if changed {
+            self.version += 1;
+            self.busy = Some(now + BUSY);
+        } else if now >= until {
+            self.busy = None;
+        }
+        changed
     }
 
     /// A terminal's screen as it shows now.
