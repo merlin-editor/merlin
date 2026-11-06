@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>One search for everything</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.w{width:1280px;height:800px;position:relative;background:#0f1012;font-family:Inter,sans-serif;color:#d4d5da;font-size:13px;overflow:hidden}
+.w+.w{margin-top:24px}
+.label{position:absolute;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#7c9cff}
+.note{position:absolute;font-size:11.5px;color:#8e9099;line-height:1.55}
+.note b{color:#d4d5da;font-weight:500}
+.mono{font-family:'JetBrains Mono',monospace}
+.ghost{position:absolute;background:#17181b;border-radius:10px}
+.pal{position:absolute;width:632px;background:#1c1d21;border:1px solid #2c2d33;border-radius:12px;box-shadow:0 18px 48px rgba(0,0,0,.55);overflow:hidden}
+.q{height:50px;display:flex;align-items:center;gap:12px;padding:0 16px;font-size:15px;color:#eef0f3}
+.q .caret{width:1.5px;height:18px;background:#7c9cff;margin-left:-10px}
+.q .esc{margin-left:auto}
+.kbd{font-size:10.5px;background:#26272c;border-radius:4px;padding:2px 6px;color:#b4b6bd;white-space:nowrap}
+.scopes{display:flex;gap:6px;padding:4px 14px 12px}
+.sc{height:26px;border-radius:13px;padding:0 11px;display:flex;align-items:center;gap:7px;font-size:12.5px;background:#26272c;color:#d4d5da;font-weight:500}
+.sc .k{color:#8e9099;font-weight:400}
+.sc.on{background:#7c9cff;color:#0f1012}
+.sc.on .k{color:#0f1012;opacity:.7}
+.grp{font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#8e9099;padding:8px 16px 4px}
+.it{height:34px;display:flex;align-items:center;gap:10px;margin:0 8px;padding:0 10px;border-radius:7px;font-size:13px;white-space:nowrap;overflow:hidden}
+.it.on{background:#262b3d}
+.it .m{color:#7c9cff;font-weight:600}
+.it .d{color:#8e9099;font-size:12.5px;overflow:hidden;text-overflow:ellipsis}
+.it .r{margin-left:auto;display:flex;gap:6px;align-items:center}
+.chev{width:18px;height:18px;border-radius:4px;background:#26272c;color:#8e9099;font-size:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.sym{width:18px;height:18px;border-radius:4px;background:#2d2540;color:#c4a7e7;font-size:11px;font-style:italic;font-weight:600;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.sym.t{background:#1e2c30;color:#9ccfd8;font-style:normal}
+.ic{width:18px;height:18px;border-radius:4px;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;background:#3a2a1e;color:#f5a97f;flex-shrink:0}
+.ic.md{background:#1e2433;color:#7c9cff}
+.foot{height:38px;border-top:1px solid #26272c;display:flex;align-items:center;gap:20px;padding:0 16px;font-size:11.5px;color:#8e9099;margin-top:6px}
+.foot b{color:#d4d5da;font-weight:500}
+.code{font-family:'JetBrains Mono',monospace;font-size:12px}
+.hl{background:#3d3420;color:#f0c674;border-radius:2px}
+.k2{color:#c4a7e7}.f2{color:#f0c674}.s2{color:#a6d189}
+.more{font-size:12px;color:#7c9cff;padding:4px 18px 2px;margin-left:8px}
+</style>
+</helmet>
+
+<!-- Artboard 1: searching everything -->
+<div class="w">
+  <div class="ghost" style="left:56px;top:40px;width:1200px;height:740px;opacity:.55"></div>
+  <span class="label" style="left:24px;top:14px">Ctrl+P or Ctrl+Shift+P · one search, everything at once</span>
+  <div class="pal" style="left:56px;top:56px">
+    <div class="q"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#8e9099" stroke-width="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>fold<span class="caret"></span><span class="kbd esc">Esc</span></div>
+    <div class="scopes">
+      <span class="sc on">Everything</span>
+      <span class="sc">Files <span class="k">Ctrl P</span></span>
+      <span class="sc">Commands <span class="k mono">&gt;</span></span>
+      <span class="sc">Symbols <span class="k mono">@</span></span>
+      <span class="sc">Text <span class="k mono">/</span></span>
+    </div>
+    <div class="grp">Commands</div>
+    <div class="it on"><span class="chev">›</span><span><span class="m">Fold</span></span><span class="d">the block around the cursor</span><span class="r"><span class="kbd">Ctrl Shift [</span></span></div>
+    <div class="it"><span class="chev">›</span><span><span class="m">Unfold</span></span><span class="r"><span class="kbd">Ctrl Shift ]</span></span></div>
+    <div class="it"><span class="chev">›</span><span><span class="m">Fold</span> All</span><span class="r"><span class="kbd">Ctrl K Ctrl 0</span></span></div>
+    <div class="it"><span class="chev">›</span><span><span class="m">Unfold</span> All</span><span class="r"><span class="kbd">Ctrl K Ctrl J</span></span></div>
+    <div class="grp">Symbols</div>
+    <div class="it"><span class="sym">ƒ</span><span>fn <span class="m">fold</span></span><span class="d">impl Editor · fold.rs:92</span></div>
+    <div class="it"><span class="sym">ƒ</span><span>fn toggle_<span class="m">fold</span></span><span class="d">impl Editor · fold.rs:136</span></div>
+    <div class="it"><span class="sym">ƒ</span><span>fn <span class="m">fold</span>_all</span><span class="d">impl Editor · fold.rs:157</span></div>
+    <div class="grp">Files</div>
+    <div class="it"><span class="ic">RS</span><span><span class="m">fold</span>.rs</span><span class="d">crates/core/src/editor</span></div>
+    <div class="it"><span class="ic">RS</span><span><span class="m">fold</span>ing.rs</span><span class="d">crates/core/tests</span></div>
+    <div class="grp">Text</div>
+    <div class="it"><span class="ic">RS</span><span class="code">/// Each <span class="hl">fold</span> is the line it starts on.</span><span class="d">doc.rs:102</span></div>
+    <div class="more">17 more in 6 files · Tab to see them all</div>
+    <div class="foot"><span><b>↑ ↓</b> to move</span><span><b>Enter</b> to open</span><span><b>Ctrl Enter</b> to open to the side</span><span><b>Tab</b> for the next scope</span></div>
+  </div>
+
+  <div class="note" style="left:716px;top:58px;width:520px">
+    <b>One box finds everything.</b> Commands, the file's and the project's symbols, files and text, each in a section with its best few, as JetBrains' Search Everywhere and the screenshot have it. A scope chip narrows it to one, or its sign typed first does: <span class="mono">&gt;</span> commands, <span class="mono">@</span> symbols, <span class="mono">/</span> text. <span class="mono">:</span> goes to a line, as now.
+  </div>
+  <div class="note" style="left:716px;top:166px;width:520px">
+    <b>Ctrl+P</b> opens it on Files, as now, and <b>Ctrl+Shift+P</b> on Commands, each with the chip lit, so nothing anyone has learned changes. Clicking Everything, or Backspace on an empty box in a scope, widens it.
+  </div>
+  <div class="note" style="left:716px;top:258px;width:520px">
+    <b>Each row says what it is.</b> A command has its keys on the right, and a short line under its name where it has one. The letters that matched are in the accent colour. A symbol has its kind's letter in its colour, what it's in, its file and line. A file has its icon and folder. Text has the line, its match tinted, and where it is.
+  </div>
+  <div class="note" style="left:716px;top:366px;width:520px">
+    <b>The ›</b> on a command opens what it can take (Fold at a level, a theme's list) where there's more, as VS Code's settings gear does. <b>Ctrl+Enter</b> opens a file or symbol to the side. <b>Tab</b> moves through the scopes; Shift+Tab goes back.
+  </div>
+  <div class="note" style="left:716px;top:458px;width:520px">
+    <b>Light on memory and CPU.</b> Commands, open files' symbols and file names are in memory already, and come at once. The project's symbols come from the language plugin, and text from the search merlin already runs. Both are asked for a moment after typing stops, and fill their sections when they come; a section that's still searching says so.
+  </div>
+  <div class="note" style="left:716px;top:568px;width:520px">
+    <b>Sections take the room they need</b>: four commands, three symbols, two files and one text match at most with Everything, and a "more" link where there are more. A section with nothing doesn't show.
+  </div>
+</div>
+
+<!-- Artboard 2: before typing, and a scope -->
+<div class="w">
+  <div class="ghost" style="left:24px;top:40px;width:1232px;height:740px;opacity:.55"></div>
+  <span class="label" style="left:24px;top:14px">Before typing: what you used last</span>
+  <div class="pal" style="left:24px;top:56px;width:600px">
+    <div class="q"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#8e9099" stroke-width="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg><span style="color:#5f626b">Search files, commands, symbols and text</span><span class="caret" style="margin-left:-6px"></span><span class="kbd esc">Esc</span></div>
+    <div class="scopes">
+      <span class="sc on">Everything</span>
+      <span class="sc">Files <span class="k">Ctrl P</span></span>
+      <span class="sc">Commands <span class="k mono">&gt;</span></span>
+      <span class="sc">Symbols <span class="k mono">@</span></span>
+      <span class="sc">Text <span class="k mono">/</span></span>
+    </div>
+    <div class="grp">Recently opened</div>
+    <div class="it on"><span class="ic">RS</span><span>vim.rs</span><span class="d">crates/core/src/editor</span></div>
+    <div class="it"><span class="ic">RS</span><span>frame.rs</span><span class="d">crates/app/src/gui</span></div>
+    <div class="it"><span class="ic md">MD</span><span>README.md</span><span class="d">docs/mockups</span></div>
+    <div class="grp">Recently used</div>
+    <div class="it"><span class="chev">›</span><span>Toggle Vim Mode</span><span class="d">Preferences</span></div>
+    <div class="it"><span class="chev">›</span><span>Run Task…</span><span class="d">Tasks</span><span class="r"><span class="kbd">Ctrl Shift B</span></span></div>
+    <div class="it"><span class="chev">›</span><span>Format the File</span><span class="d">Edit</span><span class="r"><span class="kbd">Ctrl Shift I</span></span></div>
+    <div class="foot"><span><b>↑ ↓</b> to move</span><span><b>Enter</b> to open</span><span><b>Tab</b> for the next scope</span></div>
+  </div>
+  <div class="note" style="left:24px;top:486px;width:600px">Empty, it shows the files opened last and the commands used last, so the box is useful before a key is typed. Each scope shows its own: Commands lists what was used last, then all of them by category; Symbols lists the file's.</div>
+
+  <span class="label" style="left:656px;top:14px">The Text scope · / typed first, or Tab to it</span>
+  <div class="pal" style="left:656px;top:56px;width:600px">
+    <div class="q"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#8e9099" stroke-width="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg><span class="mono" style="color:#8e9099">/</span>is_folded<span class="caret"></span><span class="kbd esc">Esc</span></div>
+    <div class="scopes">
+      <span class="sc">Everything</span>
+      <span class="sc">Files <span class="k">Ctrl P</span></span>
+      <span class="sc">Commands <span class="k mono">&gt;</span></span>
+      <span class="sc">Symbols <span class="k mono">@</span></span>
+      <span class="sc on">Text <span class="k mono">/</span></span>
+    </div>
+    <div class="grp">4 in 3 files <span style="text-transform:none;letter-spacing:0;font-weight:400;margin-left:8px">Aa · W · .* as in Search</span></div>
+    <div class="it on"><span class="ic">RS</span><span class="code"><span class="k2">fn</span> <span class="hl">is_folded</span>(&amp;self, line: usize) -&gt; bool</span><span class="r"><span class="d">fold.rs:75</span></span></div>
+    <div class="it"><span class="ic">RS</span><span class="code"><span class="k2">if</span> self.<span class="hl">is_folded</span>(line) {</span><span class="r"><span class="d">vim.rs:1911</span></span></div>
+    <div class="it"><span class="ic">RS</span><span class="code">.filter(|l| e.<span class="hl">is_folded</span>(*l))</span><span class="r"><span class="d">text_view.rs:412</span></span></div>
+    <div class="it"><span class="ic">RS</span><span class="code">assert!(!s.editor.<span class="hl">is_folded</span>(3));</span><span class="r"><span class="d">folding.rs:88</span></span></div>
+    <div class="foot"><span><b>Enter</b> to go there</span><span><b>Ctrl Enter</b> to the side</span><span><b>Alt Enter</b> all in the Search view</span></div>
+  </div>
+  <div class="note" style="left:656px;top:378px;width:600px">Text is the Search view's search, in the box: the same match case, whole word and regular expression toggles, as letters after the count. <b>Alt+Enter</b> moves the results to the Search view, where Replace is.</div>
+  <div class="note" style="left:656px;top:450px;width:600px">Moving through the results shows each in the editor behind, without opening a tab, as Go to Symbol does now. Esc goes back to where you were.</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1624}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
