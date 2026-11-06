@@ -717,7 +717,8 @@ Built and checked in the window, with a copy of the user's config
   switch; other values are shown), Reload, Output and Uninstall.
 - **Search** covers every page's rows and the keys; **a broken file**
   shows a banner with the file and line (`Files::load` now says the line).
-- Not done: the Theme Packs side view is still there; plugins' settings
+- The Theme Packs panel is gone (`looks.rs`); its palette command too.
+- Not done: plugins' settings
   other than on and off can't be changed in the tab; the follow switch
   between light and dark wasn't seen happen, since the desktop wasn't
   changed.

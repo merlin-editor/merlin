@@ -549,12 +549,6 @@ impl App {
                             )));
                         }
                     }
-                    Effect::PluginCommand { plugin, command } if plugin == looks::PANEL => {
-                        queue.extend(self.packs_command(&command));
-                    }
-                    Effect::PluginClick { plugin, button } if plugin == looks::PANEL => {
-                        queue.extend(self.packs_click(&button));
-                    }
                     Effect::PluginCommand { plugin, command } => {
                         let snapshot = self.snapshot();
                         queue.extend(self.host.run_command(&plugin, &command, snapshot));

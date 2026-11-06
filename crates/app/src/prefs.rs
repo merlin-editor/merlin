@@ -626,9 +626,10 @@ impl App {
             .iter()
             .filter(|p| p.file.is_some() && !self.choice.packs.contains(&p.label))
             .filter(|p| {
-                // Colour and icon themes have their own cards.
+                // Colour and icon themes have their own cards; a pack of
+                // only the frame's icons stacks as layouts do.
                 let parts = p.parts();
-                (parts.layout || parts.fonts) && !parts.colours
+                (parts.layout || parts.fonts || is_ui_only(p)) && !parts.colours
             })
             .map(|p| (p.label.clone(), p.parts().describe()))
             .collect();

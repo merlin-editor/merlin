@@ -184,8 +184,8 @@ each layer changes only what it sets. From the bottom up:
 2. the colour theme (Preferences: Color Theme),
 3. the icon theme (Preferences: File Icon Theme),
 4. the packs in `[editor] packs`, the first of them on top
-   (Preferences: Theme Packs switches them on and off and puts them in
-   order).
+   (Settings › Appearance › Layouts adds them, takes them off and puts
+   them in order).
 
 The pickers show each choice as you move through them, Enter keeps it and
 Esc goes back. Packs come from plugins, as data: a pack plugin has no
@@ -211,7 +211,7 @@ api = "0.8"
 label = "My Theme"
 file = "my-theme.toml"
 
-[[packs]]           # a layer for the Theme Packs panel
+[[packs]]           # a layer for Settings › Appearance › Layouts
 label = "My Icons"
 file = "my-icons.toml"
 ```

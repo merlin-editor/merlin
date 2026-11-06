@@ -1,6 +1,5 @@
-//! The look in use: which packs are stacked, the pickers' lists, and the
-//! Theme Packs panel, where packs are switched on and off and put in order
-//! as resource packs are.
+//! The look in use: which packs are stacked, and the pickers' lists. The
+//! Settings tab's Appearance page chooses them (`prefs.rs`).
 //!
 //! From the bottom: merlin's own look, the colour theme, the icon theme,
 //! then the packs in the settings' `packs` list, the first of them on top.
@@ -8,14 +7,10 @@
 use std::path::PathBuf;
 use std::time::SystemTime;
 
-use merlin_core::panel::{Button, Entry, Node, Panel, Tone};
-use merlin_core::{Command, Event, ThemeKind};
+use merlin_core::{Event, ThemeKind};
 
 use crate::packs::{self, Look, Pack};
 use crate::{App, modified, theme};
-
-/// The packs panel, which the app shows as if it were a plugin's.
-pub const PANEL: &str = "merlin.packs";
 
 /// What the settings choose, and what a picker is showing for now.
 #[derive(Clone, Debug, Default)]
@@ -26,8 +21,6 @@ pub struct Choice {
     pub packs: Vec<String>,
     /// Shown while a picker is open, over the choice.
     pub preview: [Option<String>; 2],
-    /// The pack picked in the panel, by its place in `packs`.
-    pub selected: Option<usize>,
 }
 
 impl App {
@@ -124,14 +117,6 @@ impl App {
                 current: chosen.clone().unwrap_or_else(|| fallback.into()),
             });
         }
-        events.push(Event::RegisterPlugin {
-            plugin: PANEL.into(),
-            commands: vec![Command {
-                id: "open".into(),
-                title: "Preferences: Theme Packs".into(),
-                key: None,
-            }],
-        });
         events
     }
 
@@ -162,181 +147,6 @@ impl App {
                 events.push(Event::Error(format!("Can't save {key}: {err}")));
             }
         }
-        events.extend(self.packs_panel(true));
         events
-    }
-
-    fn save_packs(&mut self) -> Vec<Event> {
-        let mut events = Vec::new();
-        if let Err(err) = self.restack() {
-            events.push(Event::Error(err));
-        }
-        if !self.scripted {
-            let list = toml::Value::Array(
-                self.choice
-                    .packs
-                    .iter()
-                    .map(|p| toml::Value::String(p.clone()))
-                    .collect(),
-            );
-            if let Err(err) = self.settings.set("editor.packs", &list.to_string()) {
-                events.push(Event::Error(format!("Can't save the packs: {err}")));
-            }
-        }
-        events
-    }
-
-    /// A command from the packs panel's own palette entry.
-    pub(crate) fn packs_command(&mut self, command: &str) -> Vec<Event> {
-        if command != "open" {
-            return Vec::new();
-        }
-        let mut events = self.packs_panel(false);
-        events.push(Event::FocusPanel(PANEL.into()));
-        events
-    }
-
-    /// A click in the packs panel.
-    pub(crate) fn packs_click(&mut self, button: &str) -> Vec<Event> {
-        let (what, arg) = button.split_once(':').unwrap_or((button, ""));
-        let index = arg.parse::<usize>().ok();
-        let list = &mut self.choice.packs;
-        let mut events = Vec::new();
-        match (what, index) {
-            ("colours", _) => return vec![Event::Command("theme.pick".into())],
-            ("icons", _) => return vec![Event::Command("icons.pick".into())],
-            ("done", _) => {
-                self.choice.selected = None;
-                return vec![Event::SetPanel {
-                    plugin: PANEL.into(),
-                    panel: None,
-                }];
-            }
-            ("pick", Some(i)) => {
-                self.choice.selected = (self.choice.selected != Some(i)).then_some(i);
-            }
-            ("up", Some(i)) if i > 0 && i < list.len() => {
-                list.swap(i, i - 1);
-                self.choice.selected = Some(i - 1);
-                events = self.save_packs();
-            }
-            ("down", Some(i)) if i + 1 < list.len() => {
-                list.swap(i, i + 1);
-                self.choice.selected = Some(i + 1);
-                events = self.save_packs();
-            }
-            ("off", Some(i)) if i < list.len() => {
-                list.remove(i);
-                self.choice.selected = None;
-                events = self.save_packs();
-            }
-            ("on", _) if !arg.is_empty() && !list.iter().any(|p| p == arg) => {
-                // New packs go on top, as they do in a resource pack list.
-                list.insert(0, arg.to_string());
-                self.choice.selected = Some(0);
-                events = self.save_packs();
-            }
-            _ => {}
-        }
-        events.extend(self.packs_panel(true));
-        events
-    }
-
-    /// The packs panel's contents, if it's showing or `force`d.
-    pub(crate) fn packs_panel(&self, only_if_open: bool) -> Vec<Event> {
-        if only_if_open && !self.editor.has_panel(PANEL) {
-            return Vec::new();
-        }
-        let c = &self.choice;
-        let mut nodes = vec![Node::Heading("Colour theme".into())];
-        let colours = c
-            .colours
-            .clone()
-            .unwrap_or_else(|| theme::DEFAULT_NAME.into());
-        nodes.push(Node::Entry(Entry {
-            id: "colours".into(),
-            label: colours,
-            detail: "change".into(),
-            ..Entry::default()
-        }));
-        nodes.push(Node::Heading("Icon theme".into()));
-        let icons = c.icons.clone().unwrap_or_else(|| packs::LETTERS.into());
-        nodes.push(Node::Entry(Entry {
-            id: "icons".into(),
-            label: icons,
-            detail: "change".into(),
-            ..Entry::default()
-        }));
-        nodes.push(Node::Heading("Packs in use".into()));
-        if c.packs.is_empty() {
-            nodes.push(Node::Styled(
-                "None yet. Packs stack over the themes; the top one wins where they overlap."
-                    .into(),
-                Tone::Muted,
-            ));
-        } else {
-            nodes.push(Node::Styled(
-                "The top pack wins where packs overlap.".into(),
-                Tone::Muted,
-            ));
-        }
-        for (i, label) in c.packs.iter().enumerate() {
-            let parts = self.pack(label).map(|p| p.parts().describe());
-            nodes.push(Node::Entry(Entry {
-                id: format!("pick:{i}"),
-                label: label.clone(),
-                detail: parts.unwrap_or_else(|| "not installed".into()),
-                tone: if c.selected == Some(i) {
-                    Tone::Strong
-                } else {
-                    Tone::Normal
-                },
-                badge: (i + 1).to_string(),
-                badge_tone: Tone::Badge,
-                action: Some(('×', format!("off:{i}"))),
-                ..Entry::default()
-            }));
-            if c.selected == Some(i) {
-                nodes.push(Node::Buttons(vec![
-                    Button {
-                        id: format!("up:{i}"),
-                        label: "Move up".into(),
-                    },
-                    Button {
-                        id: format!("down:{i}"),
-                        label: "Move down".into(),
-                    },
-                ]));
-            }
-        }
-        let available: Vec<&Pack> = self
-            .packs
-            .iter()
-            .filter(|p| p.file.is_some() && !c.packs.contains(&p.label))
-            .collect();
-        if !available.is_empty() {
-            nodes.push(Node::Heading("Available".into()));
-            for p in available {
-                nodes.push(Node::Entry(Entry {
-                    id: format!("on:{}", p.label),
-                    label: p.label.clone(),
-                    detail: p.parts().describe(),
-                    action: Some(('+', format!("on:{}", p.label))),
-                    ..Entry::default()
-                }));
-            }
-        }
-        nodes.push(Node::Divider);
-        nodes.push(Node::Button(Button {
-            id: "done".into(),
-            label: "Done".into(),
-        }));
-        vec![Event::SetPanel {
-            plugin: PANEL.into(),
-            panel: Some(Panel {
-                title: "Theme Packs".into(),
-                nodes,
-            }),
-        }]
     }
 }

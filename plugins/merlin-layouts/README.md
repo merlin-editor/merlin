@@ -1,7 +1,7 @@
 # merlin Layouts
 
 Small packs that each change one thing, to stack over any theme in
-Preferences: Theme Packs, as resource packs stack:
+Settings › Appearance › Layouts, as resource packs stack:
 
 | Pack | Changes |
 |---|---|
