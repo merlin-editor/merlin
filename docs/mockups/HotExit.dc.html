@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Hot exit</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.w{width:1280px;height:800px;background:#0f1012;font-family:Inter,sans-serif;color:#d4d5da;font-size:13px;overflow:hidden;position:relative}
+.island{position:absolute;background:#17181b;border-radius:10px;overflow:hidden}
+.label{position:absolute;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#7c9cff}
+.note{position:absolute;font-size:11.5px;color:#8e9099;line-height:1.5}
+.code{font-family:'JetBrains Mono',monospace;font-size:13px;line-height:22px;white-space:pre;padding:6px 0}
+.ln{display:inline-block;width:48px;text-align:right;padding-right:16px;color:#7a7d86}
+.k{color:#c4a7e7}.s{color:#a6d189}.f{color:#f0c674}.t{color:#9ccfd8}.c{color:#7f8794}.n{color:#f5a97f}
+.g{color:#6cc070}.r{color:#f0807a}.m{color:#8e9099}.b{color:#7c9cff}
+.tabs{height:34px;display:flex;align-items:center;gap:3px;padding:0 6px}
+.tab{height:24px;padding:0 10px;border-radius:6px;display:flex;align-items:center;gap:6px;color:#8e9099;font-size:12.5px}
+.tab.on{background:#26272c;color:#eef0f3;box-shadow:inset 0 0 0 1px #2c2d33}
+.ic{width:14px;height:14px;border-radius:3px;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.dirty{width:7px;height:7px;border-radius:50%;background:#d4d5da;margin-left:2px}
+.toast{position:absolute;box-sizing:border-box;background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.45);display:flex;align-items:center;gap:12px;padding:12px 14px;font-size:13px;color:#d4d5da}
+.dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.btn{height:26px;border-radius:6px;padding:0 10px;font-size:12px;display:inline-flex;align-items:center;border:1px solid #2c2d33;background:#1f2024;color:#d4d5da;white-space:nowrap}
+.btn.p{background:#7c9cff;border-color:#7c9cff;color:#0f1012;font-weight:600}
+.menu{position:absolute;background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;box-shadow:0 12px 32px rgba(0,0,0,.5);padding:5px;width:250px}
+.mi{height:28px;display:flex;align-items:center;padding:0 10px;border-radius:5px;font-size:13px}
+.mi.on{background:#262b3d;color:#eef0f3}
+.mi .kbd{margin-left:auto}
+.kbd{font-size:11px;background:#26272c;border-radius:4px;padding:1px 6px;color:#b4b6bd}
+.sep{height:1px;background:#2c2d33;margin:4px 6px}
+.bar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:#2a2417;border-bottom:1px solid #3a3220;font-size:12.5px;color:#e8d9b0}
+.status{position:absolute;left:0;right:0;bottom:0;height:24px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px;color:#8e9099;background:#0f1012}
+</style>
+</helmet>
+<div class="w">
+
+  <span class="label" style="left:24px;top:18px">Quitting keeps your work</span>
+  <div class="island" style="left:24px;top:40px;width:340px;height:236px">
+    <div class="tabs"><div class="tab on"><span class="ic" style="background:#3a2a1e;color:#f5a97f">RS</span>main.rs<span class="dirty"></span></div><div class="tab"><span class="ic" style="background:#1e2a3a;color:#7fb0ff">MD</span>notes.md<span class="dirty"></span></div></div>
+    <div class="menu" style="left:12px;top:44px">
+      <div class="mi">Save All<span class="kbd">Ctrl K S</span></div>
+      <div class="mi">Close Window</div>
+      <div class="sep"></div>
+      <div class="mi on">Exit<span class="kbd">Ctrl Q</span></div>
+    </div>
+  </div>
+  <div class="note" style="left:24px;top:284px;width:340px">With unsaved files open, Exit quits at once, without asking. Each unsaved file is already backed up, a moment after its last edit, so nothing is lost. The files on disk aren't changed.</div>
+
+  <span class="label" style="left:24px;top:370px">With hot exit off, it asks as now</span>
+  <div class="island" style="left:24px;top:392px;width:340px;height:150px;padding:16px;box-sizing:border-box">
+    <div style="font-size:14px;font-weight:600;color:#eef0f3">Save changes to 2 files?</div>
+    <div style="font-size:12.5px;color:#8e9099;margin-top:6px;line-height:1.5">main.rs and notes.md have unsaved changes. They're lost if you don't save them.</div>
+    <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end"><span class="btn">Cancel</span><span class="btn">Don't Save</span><span class="btn p">Save All</span></div>
+  </div>
+
+  <span class="label" style="left:396px;top:18px">The next start: as you left it</span>
+  <div class="island" style="left:396px;top:40px;width:520px;height:330px">
+    <div class="tabs"><div class="tab on"><span class="ic" style="background:#3a2a1e;color:#f5a97f">RS</span>main.rs<span class="dirty"></span></div><div class="tab"><span class="ic" style="background:#1e2a3a;color:#7fb0ff">MD</span>notes.md<span class="dirty"></span></div><div class="tab"><span class="ic" style="background:#26272c;color:#b4b6bd">TX</span>Untitled-1<span class="dirty"></span></div></div>
+    <div class="code"><span class="ln">12</span><span class="k">fn</span> <span class="f">main</span>() {
+<span class="ln">13</span>    <span class="k">let</span> args = <span class="t">Args</span>::<span class="f">parse</span>();
+<span class="ln">14</span>    <span class="k">let</span> root = args.<span class="f">root</span>()<span style="border-left:2px solid #7c9cff"></span>
+<span class="ln">15</span>    <span class="f">run</span>(root, args.files);
+<span class="ln">16</span>}</div>
+    <div class="toast" style="left:16px;top:236px;width:456px;position:absolute"><span class="dot" style="background:#7c9cff"></span><span style="flex:1">3 files with unsaved changes are back, as you left them.</span><span class="btn">Show</span></div>
+  </div>
+  <div class="note" style="left:396px;top:378px;width:520px">The same tabs, in the same groups, scrolled and with the cursor where they were, each unsaved file with its dot and its changes. An untitled file comes back too. Show lists them in Source Control's way: each file, and what changed. Undo starts again from here: the history isn't kept.</div>
+
+  <span class="label" style="left:948px;top:18px">After a crash</span>
+  <div class="toast" style="left:948px;top:40px;width:308px;flex-wrap:wrap;gap:10px"><span class="dot" style="background:#e5b567"></span><span style="flex:1;line-height:1.45">merlin didn't close properly. 2 files with unsaved changes are back.</span><span style="display:flex;gap:8px;width:100%;justify-content:flex-end"><span class="btn">Discard Them</span><span class="btn">Show</span></span></div>
+  <div class="note" style="left:948px;top:150px;width:308px">The same backups bring them back after a crash or a power cut. Discard Them goes back to what's on disk, and asks first.</div>
+
+  <span class="label" style="left:948px;top:236px">The setting</span>
+  <div class="island" style="left:948px;top:258px;width:308px;height:112px;padding:10px 12px;box-sizing:border-box;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:20px;color:#b4b6bd;white-space:pre"><span class="b">[files]</span>
+<span class="c"># Quit without asking; unsaved</span>
+<span class="c"># files come back next time.</span>
+hot_exit = <span class="n">true</span></div>
+  <div class="note" style="left:948px;top:378px;width:308px">On by default, as in VS Code and Sublime. Closing one tab with unsaved changes still asks, as now: hot exit is only for quitting.</div>
+
+  <span class="label" style="left:396px;top:470px">A file changed on disk while merlin was closed</span>
+  <div class="island" style="left:396px;top:492px;width:860px;height:200px">
+    <div class="tabs"><div class="tab on"><span class="ic" style="background:#3a2a1e;color:#f5a97f">RS</span>main.rs<span class="dirty"></span></div><div class="tab"><span class="ic" style="background:#1e2a3a;color:#7fb0ff">MD</span>notes.md<span class="dirty"></span></div></div>
+    <div class="bar"><span style="color:#e5b567">⚠</span><span style="flex:1"><b style="color:#f3e6c4">main.rs</b> changed on disk since you left it. Your unsaved changes are kept.</span><span class="btn">Compare</span><span class="btn">Use the Disk's</span><span class="btn p">Keep Mine</span></div>
+    <div class="code"><span class="ln">13</span>    <span class="k">let</span> args = <span class="t">Args</span>::<span class="f">parse</span>();
+<span class="ln">14</span>    <span class="k">let</span> root = args.<span class="f">root</span>()
+<span class="ln">15</span>    <span class="f">run</span>(root, args.files);</div>
+  </div>
+  <div class="note" style="left:396px;top:700px;width:860px">When the file on disk isn't the one your changes were made to, the file says so over its text and waits. Compare opens your version beside the disk's, as Compare with Saved does. Keep Mine leaves your changes, to save over the disk's; Use the Disk's drops them.</div>
+
+  <span class="label" style="left:24px;top:574px">Where the backups are</span>
+  <div class="island" style="left:24px;top:596px;width:340px;height:96px;padding:12px 14px;box-sizing:border-box;font-size:12.5px;line-height:1.6;color:#b4b6bd">Per project, in <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#d4d5da">~/.local/share/merlin/backups/</span>. A backup is removed once its file is saved or closed without saving.</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
