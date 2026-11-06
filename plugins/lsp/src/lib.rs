@@ -125,6 +125,11 @@ enum Request {
         path: String,
         version: i32,
     },
+    /// rust-analyzer's tests and binaries in a document at a version.
+    Runnables {
+        path: String,
+        version: i32,
+    },
     Signature,
     /// Whether the name at the cursor can be renamed, and where it is.
     PrepareRename,
@@ -200,6 +205,9 @@ struct Server {
     /// only what changed since.
     #[serde(default)]
     synced: HashMap<String, u64>,
+    /// rust-analyzer's binaries and benches to run, as tasks, by name.
+    #[serde(default)]
+    tasks: BTreeMap<String, (String, String)>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -385,6 +393,14 @@ impl Server {
                 version,
             };
             self.request("textDocument/inlayHint", params, request);
+        }
+        // rust-analyzer's tests and binaries, as tests and tasks.
+        if self.program == "rust-analyzer" && path.ends_with(".rs") {
+            let request = Request::Runnables {
+                path: path.clone(),
+                version,
+            };
+            self.request("experimental/runnables", doc.clone(), request);
         }
         if self.folds {
             self.request(
@@ -813,6 +829,7 @@ impl Lsp {
                     last_lines: HashMap::new(),
                     incremental: false,
                     synced: HashMap::new(),
+                    tasks: BTreeMap::new(),
                 };
                 let i = match found {
                     Some(i) => {
@@ -1316,6 +1333,7 @@ impl Lsp {
                     | Request::Symbols { .. }
                     | Request::Folds { .. }
                     | Request::InlayHints { .. }
+                    | Request::Runnables { .. }
                     | Request::Signature
             );
             if !cancelled && !quiet {
@@ -1505,6 +1523,29 @@ impl Lsp {
                     let mut symbols = Vec::new();
                     flatten_symbols(list, 0, &mut symbols);
                     host::set_symbols(&path, &symbols);
+                }
+            }
+            Request::Runnables { path, version } => {
+                if server.opened.get(&path) == Some(&version)
+                    && let Some(list) = result.as_array()
+                {
+                    let (tests, tasks) = runnables(list);
+                    host::set_tests(&path, &tests);
+                    let before = server.tasks.len();
+                    server.tasks.extend(tasks);
+                    if server.tasks.len() != before {
+                        let tasks: Vec<Task> = server
+                            .tasks
+                            .iter()
+                            .map(|(name, (command, detail))| Task {
+                                name: name.clone(),
+                                command: Some(command.clone()),
+                                group: TaskGroup::Build,
+                                detail: detail.clone(),
+                            })
+                            .collect();
+                        host::set_tasks(&tasks);
+                    }
                 }
             }
             Request::Folds { path, version } => {
@@ -1836,3 +1877,56 @@ impl Plugin for Lsp {
 }
 
 merlin_plugin::export!(Lsp);
+
+/// A binary or bench to run: its name, and its command line and kind.
+type RunTask = (String, (String, String));
+
+/// rust-analyzer's runnables in a file: its tests, each with the cargo
+/// command line that runs it, and its binaries and benches, as tasks by
+/// name with their command line and kind.
+fn runnables(list: &[Value]) -> (Vec<TestItem>, Vec<RunTask>) {
+    let mut tests = Vec::new();
+    let mut tasks = Vec::new();
+    for r in list {
+        let args = &r["args"];
+        let strings = |v: &Value| -> Vec<String> {
+            v.as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|s| s.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        let cargo = strings(&args["cargoArgs"]);
+        let exec: Vec<String> = strings(&args["executableArgs"])
+            .into_iter()
+            .filter(|a| a != "--show-output" && a != "--nocapture")
+            .collect();
+        if r["kind"].as_str() != Some("cargo") || cargo.is_empty() {
+            continue;
+        }
+        let label = r["label"].as_str().unwrap_or_default();
+        let mut command = format!("cargo {}", cargo.join(" "));
+        if !exec.is_empty() {
+            command = format!("{command} -- {}", exec.join(" "));
+        }
+        if let Some(name) = label.strip_prefix("test ") {
+            let Some(line) = r["location"]["targetSelectionRange"]["start"]["line"].as_u64() else {
+                continue;
+            };
+            let short = name.rsplit("::").next().unwrap_or(name);
+            tests.push(TestItem {
+                id: name.to_string(),
+                label: short.to_string(),
+                line: line as u32,
+                command: Some(command),
+            });
+        } else if let Some(bin) = label.strip_prefix("run ") {
+            tasks.push((format!("Run {bin}"), (command, "bin".to_string())));
+        } else if let Some(bench) = label.strip_prefix("bench ") {
+            tasks.push((format!("Bench {bench}"), (command, "bench".to_string())));
+        }
+    }
+    (tests, tasks)
+}

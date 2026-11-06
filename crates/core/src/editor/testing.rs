@@ -274,13 +274,24 @@ pub(crate) fn parse_report(text: &str) -> Report {
             panicked = false;
             continue;
         }
+        // Without its output captured, a test's panic is printed as it
+        // happens, under no heading of its own.
+        if failing.is_none()
+            && line.contains("panicked at ")
+            && let Some(name) = line
+                .strip_prefix("thread '")
+                .and_then(|l| l.split_once('\''))
+                .map(|(name, _)| name)
+        {
+            failing = Some(name.to_string());
+        }
         if failing.is_none() {
             continue;
         }
+        // The message ends at the note about backtraces, or the list of
+        // failures.
         if line == "failures:" || line.starts_with("note: run with") {
-            if line == "failures:" {
-                finish(&mut report, &mut failing, &mut message, &mut at);
-            }
+            finish(&mut report, &mut failing, &mut message, &mut at);
             panicked = false;
             continue;
         }
@@ -378,6 +389,7 @@ impl Editor {
                 }) = self.tests.results.get(&key)
                     && *file == path
                     && *at <= doc.last_line()
+                    && !message.is_empty()
                 {
                     out.failures.insert(*at, message.clone());
                 }
@@ -643,6 +655,9 @@ impl Editor {
     /// Runs some tests in the test terminal, or one under the debugger in
     /// a terminal of its own.
     pub(crate) fn run_tests(&mut self, scope: Scope, debug: bool, fx: &mut Vec<Effect>) {
+        // The results are matched to the tree, which builds while cargo
+        // does.
+        self.find_tests(fx);
         if let Scope::Test(key) = &scope
             && let Some((plugin, test)) = self.plugin_test(key)
         {
@@ -863,6 +878,14 @@ impl Editor {
                     best = Some((score, test_key(&file.path, short), root.name.clone()));
                 }
             }
+        }
+        if best.is_none() && unit.is_none() {
+            // A plugin's test in the target's file.
+            let file =
+                self.tests.plugin_files.iter().find(|f| {
+                    f.path.ends_with(target) && f.tests.iter().any(|t| t.label == short)
+                })?;
+            return Some((test_key(&file.path, short), file.plugin.clone()));
         }
         best.map(|(_, key, root)| (key, root))
     }

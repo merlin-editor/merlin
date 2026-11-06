@@ -331,3 +331,30 @@ fn plugins_add_tasks_and_tests_that_they_run_and_report() {
     s.run("cmd view.tests");
     assert_eq!(labels(&s)[0], "python ");
 }
+
+#[test]
+fn a_test_run_without_capturing_says_why_it_failed_too() {
+    let mut s = tested();
+    s.run("cmd view.tests");
+    s.run("cmd tests.run_all");
+    let id = s.editor.window_view().terminal.unwrap().sessions[0].id;
+    let text = "\
+     Running tests/saving.rs (target/debug/deps/saving-17)
+
+running 1 test
+thread 'trims_on_save' (5) panicked at crates/demo/tests/saving.rs:6:5:
+assertion `left == right` failed
+  left: 1
+ right: 2
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test trims_on_save ... FAILED
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+";
+    s.send(Event::TaskOutput {
+        id,
+        text: text.into(),
+    });
+    let view = s.editor.text_views().remove(0);
+    assert_eq!(view.failures[0].text, "left: 1  right: 2");
+}

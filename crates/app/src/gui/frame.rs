@@ -2773,7 +2773,7 @@ impl Frame<'_> {
         let face = Face::ui(11.0);
         let tw = self.text.width(label, face);
         let r = Rect::new(right - tw - 12.0, y, tw + 12.0, 16.0);
-        self.canvas.round(r, 4.0, mix(p.accent, p.widget, 0.82));
+        self.canvas.round(r, 4.0, mix(p.accent, p.widget, 0.18));
         self.text.draw_in_row(
             &mut self.canvas,
             label,

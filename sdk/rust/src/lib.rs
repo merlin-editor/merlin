@@ -41,7 +41,7 @@ pub use bindings::merlin::plugin::host;
 pub use bindings::merlin::plugin::types::{
     ActionKind, BufferEvent, Button, CodeAction, Command, Completion, DetailedDiagnostic, Diagnostic, DocSymbol, FileEdit, FoldRange, Framing, InlayHint,
     InlayKind, Input, Item, LineRange, Location, Node, Panel, PickItem, Position, ProcessEvent, RenameInfo, Selection,
-    Setting, Severity, Signature, Styled, TextChange, Token, TokenKind, TokenLayer, Tone,
+    Setting, Severity, Signature, Styled, Task, TaskGroup, TestItem, TestOutcome, TestResult, TextChange, Token, TokenKind, TokenLayer, Tone,
 };
 
 /// UTF-16 columns, which positions count, as LSP does.
@@ -92,7 +92,7 @@ pub mod prelude {
     pub use crate::{
         ActionKind, BufferEvent, Button, CodeAction, Command, Completion, DetailedDiagnostic, Diagnostic, DocSymbol, FileEdit, FoldRange, Framing,
         InlayHint, InlayKind, LineRange, Location, Node, Panel, PickItem, Plugin, Position, ProcessEvent, RenameInfo,
-        Selection, Severity, Signature, TextChange, Token, TokenKind, TokenLayer, Tone, host,
+        Selection, Severity, Signature, Task, TaskGroup, TestItem, TestOutcome, TestResult, TextChange, Token, TokenKind, TokenLayer, Tone, host,
         settings,
     };
 }
