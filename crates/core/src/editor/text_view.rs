@@ -183,8 +183,8 @@ fn note_text(message: &str) -> String {
 pub const OVERSCAN: u16 = 8;
 
 impl Editor {
-    /// The text of every editor group, the active one last, as
-    /// [`Editor::render`] draws them.
+    /// The text of every editor group, the active one last, for the window
+    /// to draw.
     pub fn text_views(&self) -> Vec<TextView> {
         let mut views = Vec::new();
         for g in (0..self.groups.len()).filter(|&g| g != self.group) {

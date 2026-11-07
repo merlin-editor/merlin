@@ -33,7 +33,7 @@ pub struct ChangeView {
     pub count: usize,
     /// What the lines were, and what they are, with `+` and `-`.
     pub lines: Vec<(char, String)>,
-    /// Lines left out past [`SHOWN`].
+    /// Lines left out past the first `SHOWN`.
     pub more: usize,
     /// Whether all of it is staged, for Stage or Unstage.
     pub staged: bool,
