@@ -151,7 +151,7 @@ impl Editor {
     /// Shift+F12: asks where the name at the cursor is used.
     pub(crate) fn find_references(&mut self, fx: &mut Vec<Effect>) {
         if !self.has_lsp("references") {
-            return self.notify("No language server finds references in this file".into());
+            return;
         }
         let doc = self.doc();
         let at = doc.cursor;

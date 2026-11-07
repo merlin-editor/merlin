@@ -182,7 +182,7 @@ impl Editor {
             return;
         }
         if !self.has_lsp("rename") {
-            return self.notify("No language server renames in this file".into());
+            return;
         }
         let at = doc.cursor;
         let (start, end) = (doc.word_start_at(at), doc.word_end_at(at));
@@ -216,9 +216,13 @@ impl Editor {
     pub(crate) fn show_rename(&mut self, info: Result<RenameInfo, String>) {
         let info = match info {
             Ok(info) => info,
+            // Empty when there's nothing worth saying, as with no server.
             Err(why) => {
                 self.rename_box = None;
-                return self.notify(why);
+                if !why.is_empty() {
+                    self.notify(why);
+                }
+                return;
             }
         };
         let doc = self.doc();

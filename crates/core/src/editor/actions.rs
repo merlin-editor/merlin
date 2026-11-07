@@ -37,9 +37,7 @@ pub(crate) struct Actions {
 impl Editor {
     /// Ctrl+.: lists the code actions at the cursor.
     pub(crate) fn code_actions(&mut self, fx: &mut Vec<Effect>) {
-        if !self.ask_actions(ActionsFor::Menu, fx) {
-            self.notify("No language server offers code actions here".into());
-        }
+        self.ask_actions(ActionsFor::Menu, fx);
     }
 
     /// Asks the language server for the actions at the cursor, or at the

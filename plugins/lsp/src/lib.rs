@@ -1035,7 +1035,8 @@ impl Lsp {
     /// how far it reaches, for its rename box.
     fn prepare_rename(&mut self) {
         let Some((path, spec, language)) = self.active() else {
-            return host::show_rename(Err("No language server for this file"));
+            // Nothing to say: the box just closes.
+            return host::show_rename(Err(""));
         };
         let Ok(cursor) = host::active_cursor() else {
             return;

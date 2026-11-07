@@ -57,7 +57,7 @@ impl Editor {
 
     fn ask_format(&mut self, command: &str, fx: &mut Vec<Effect>) {
         if !self.has_lsp("format") {
-            return self.notify("No language server formats this file".into());
+            return;
         }
         fx.push(Effect::PluginCommand {
             plugin: "lsp".into(),
