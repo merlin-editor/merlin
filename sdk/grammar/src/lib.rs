@@ -38,9 +38,10 @@ use tree_sitter::{
     InputEdit, Language, Parser, Point, Query, QueryCursor, StreamingIterator, Tree,
 };
 
-/// Files bigger than this aren't coloured, so one call stays well within
-/// what the editor lets a plugin compute.
-const MAX_BYTES: usize = 2_000_000;
+/// Files bigger than this aren't coloured. Colouring a whole file takes 4
+/// to 7 million instructions per KB, so 512 KB stays well within the six
+/// billion the editor lets one call use, and within about half a second.
+const MAX_BYTES: usize = 512 * 1024;
 
 pub struct Grammar {
     parser: Parser,

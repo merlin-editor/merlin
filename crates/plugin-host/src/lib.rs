@@ -47,8 +47,11 @@ use bindings::merlin::plugin::{host, types};
 /// built for and loads only on an exact match while the API is 0.x.
 pub const API_VERSION: &str = "0.8";
 
-/// Roughly a few hundred million instructions per call.
-const FUEL_PER_CALL: u64 = 500_000_000;
+/// Roughly six billion instructions per call, about a second. It stops a
+/// plugin stuck in a loop, and leaves room for a language plugin to colour
+/// a whole 512 KB file the first time it opens, which takes up to 3.5
+/// billion (about half a second) for dense code.
+const FUEL_PER_CALL: u64 = 6_000_000_000;
 
 /// Process messages delivered per poll, so a chatty process can't starve
 /// the editor of input.
@@ -1488,9 +1491,19 @@ impl PluginHost {
             Err(err) => {
                 plugin.failed = true;
                 store.data_mut().processes.kill_all();
+                // Out of fuel says nothing a backtrace would add.
+                let message = if err.downcast_ref::<wasmtime::Trap>()
+                    == Some(&wasmtime::Trap::OutOfFuel)
+                {
+                    "it ran too long and was stopped. Turn it off and on in Settings › \
+                     Plugins to start it again."
+                        .to_string()
+                } else {
+                    format!("{err:#}")
+                };
                 events.push(Event::PluginFailed {
                     plugin: plugin.manifest.name.clone(),
-                    message: format!("{err:#}"),
+                    message,
                 });
                 (None, events)
             }
