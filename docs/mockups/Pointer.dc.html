@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Ctrl+click and pointers</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0f1012}
+.w{width:1280px;height:800px;position:relative;background:#0f1012;font-family:Inter,sans-serif;color:#d4d5da;font-size:13px;overflow:hidden}
+.w+.w{margin-top:24px}
+.bar{height:40px;display:flex;align-items:center;gap:10px;padding:0 12px}
+.logo{width:20px;height:20px;border-radius:5px;background:#7c9cff;color:#0f1012;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
+.search{margin:0 auto;width:400px;height:26px;border-radius:7px;background:#1c1d21;border:1px solid #2c2d33;color:#8e9099;display:flex;align-items:center;gap:8px;padding:0 10px;font-size:12.5px;box-sizing:border-box}
+.kbd{font-size:11px;background:#26272c;border-radius:4px;padding:1px 6px;color:#b4b6bd;font-family:Inter,sans-serif;white-space:nowrap}
+.island{position:absolute;background:#17181b;border-radius:10px;overflow:hidden}
+.tabs{height:32px;display:flex;align-items:center;gap:3px;padding:0 6px}
+.tab{height:24px;padding:0 10px;border-radius:6px;display:flex;align-items:center;gap:6px;color:#8e9099;font-size:12.5px}
+.tab.on{background:#26272c;color:#eef0f3;box-shadow:inset 0 0 0 1px #2c2d33}
+.ic{width:14px;height:14px;border-radius:3px;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;background:#3a2a1e;color:#f5a97f}
+.crumbs{height:22px;display:flex;align-items:center;gap:6px;padding:0 14px;font-size:12px;color:#8e9099}
+.code{font-family:'JetBrains Mono',monospace;font-size:13px;line-height:22px;white-space:pre;padding:4px 0}
+.ln{display:inline-block;width:40px;text-align:right;padding-right:20px;color:#7a7d86}
+.k{color:#c4a7e7}.f{color:#f0c674}.t{color:#9ccfd8}.c{color:#7f8794;font-style:italic}.n{color:#f5a97f}
+.hint{font-family:Inter,sans-serif;font-size:11px;background:#1f2024;color:#8e9099;border-radius:4px;padding:1px 5px;margin:0 2px}
+.lk{color:#7c9cff;text-decoration:underline;text-underline-offset:3px;text-decoration-thickness:1px}
+.card{position:absolute;background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.45);overflow:hidden}
+.chead{display:flex;align-items:center;gap:6px;padding:7px 12px;font-size:12px;color:#8e9099;border-bottom:1px solid #2c2d33}
+.cfoot{display:flex;gap:14px;padding:6px 12px 7px;font-size:11.5px;color:#8e9099;border-top:1px solid #2c2d33}
+.cfoot b{color:#b4b6bd;font-weight:500}
+.status{position:absolute;left:0;right:0;bottom:0;height:26px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px;color:#8e9099}
+.label{position:absolute;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#7c9cff}
+.note{position:absolute;font-size:12px;color:#8e9099;line-height:18px}
+.note b{color:#d4d5da;font-weight:600}
+.ptr{position:absolute}
+.mono{font-family:'JetBrains Mono',monospace;font-size:12px}
+/* Artboard 2 */
+.grid{position:absolute;left:24px;top:64px;right:24px;display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.cell{background:#17181b;border-radius:10px;padding:12px 14px 14px;height:342px;box-sizing:border-box;display:flex;flex-direction:column}
+.cell h3{margin:0;font-size:13px;font-weight:600;color:#eef0f3;display:flex;align-items:center;gap:8px}
+.cell .new{font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#7c9cff;background:#262b3d;border-radius:4px;padding:1px 6px}
+.cell .same{font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#8e9099;background:#26272c;border-radius:4px;padding:1px 6px}
+.stage{position:relative;height:118px;margin:10px 0;background:#0f1012;border-radius:7px;overflow:hidden}
+.cell ul{margin:0;padding-left:16px;font-size:12px;line-height:18px;color:#b4b6bd}
+.cell li{margin-bottom:2px}
+.cell .why{margin-top:auto;font-size:11.5px;color:#7f8794;line-height:16px}
+.mbtn{position:absolute;height:24px;display:flex;align-items:center;padding:0 9px;border-radius:5px;font-size:12px;background:#26272c;color:#d4d5da;white-space:nowrap}
+.mbtn.pri{background:#262b3d;color:#eef0f3;box-shadow:inset 0 0 0 1px #3a4466}
+.mbox{position:absolute;height:26px;border-radius:6px;background:#1c1d21;border:1px solid #3a4466;display:flex;align-items:center;padding:0 9px;font-size:12px;color:#d4d5da;box-sizing:border-box}
+.mtab{position:absolute;height:24px;padding:0 10px;border-radius:6px;display:flex;align-items:center;gap:6px;font-size:12.5px;color:#eef0f3;background:#26272c;box-shadow:inset 0 0 0 1px #2c2d33}
+</style>
+</helmet>
+
+<!-- Artboard 1: Ctrl over a name -->
+<div class="w">
+  <div class="bar">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#8e9099" stroke-width="1.5" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
+    <div class="logo">m</div><strong style="font-size:13px;color:#eef0f3;font-weight:600">merlin</strong>
+    <div class="search">Search files, commands, symbols and text<span class="kbd" style="margin-left:auto">Ctrl Shift P</span></div>
+  </div>
+  <div class="island" style="left:50px;top:40px;width:730px;height:708px">
+    <div class="tabs"><div class="tab on"><span class="ic">RS</span>fold.rs</div><div class="tab"><span class="ic">RS</span>guides.rs</div></div>
+    <div class="crumbs">crates › core › src › editor › fold.rs › <span style="color:#d4d5da">block_end</span></div>
+<div class="code"><div><span class="ln">14</span><span class="k">pub</span>(<span class="k">crate</span>) <span class="k">fn</span> <span class="f">block_end</span>(doc: &amp;<span class="t">Doc</span>, line: <span class="t">usize</span>) -&gt; <span class="t">Option</span>&lt;<span class="t">usize</span>&gt; {</div><div><span class="ln">15</span>    <span class="c">// A plugin's ranges, when it sent some, as VS Code's folding range</span></div><div><span class="ln">16</span>    <span class="c">// providers replace indentation.</span></div><div><span class="ln">17</span>    <span class="k">if let</span> <span class="t">Some</span>(folds) = &amp;doc.layers.folds {</div><div><span class="ln">18</span>        <span class="k">let</span> start<span class="hint">: usize</span> = doc.<span class="f">line_start</span>(line);</div><div><span class="ln">19</span>        <span class="k">return</span> folds.<span class="f">iter</span>().<span class="f">filter</span>(|(a, _)| *a == start).<span class="f">map</span>(|(_, b)| *b).<span class="f">max</span>();</div><div><span class="ln">20</span>    }</div><div><span class="ln">21</span>    <span class="k">let</span> base<span class="hint">: usize</span> = <span class="lk">indent</span>(doc, line)?;</div><div><span class="ln">22</span>    <span class="k">let mut</span> end<span class="hint">: Option&lt;usize&gt;</span> = <span class="t">None</span>;</div><div><span class="ln">23</span>    <span class="k">for</span> l <span class="k">in</span> line + <span class="n">1</span>..=doc.<span class="f">last_line</span>() {</div><div><span class="ln">24</span>        <span class="k">match</span> <span class="f">indent</span>(doc, l) {</div><div><span class="ln">25</span>            <span class="t">None</span> =&gt; <span class="k">continue</span>,</div><div><span class="ln">26</span>            <span class="t">Some</span>(i) <span class="k">if</span> i &gt; base =&gt; end = <span class="t">Some</span>(l),</div><div><span class="ln">27</span>            _ =&gt; <span class="k">break</span>,</div><div><span class="ln">28</span>        }</div><div><span class="ln">29</span>    }</div><div><span class="ln">30</span>    end</div><div><span class="ln">31</span>}</div><div><span class="ln">32</span></div><div><span class="ln">33</span><span class="c">/// The lines `folds` hide in a document, in order, without overlaps.</span></div><div><span class="ln">34</span><span class="k">pub</span>(<span class="k">crate</span>) <span class="k">fn</span> <span class="f">hidden</span>(doc: &amp;<span class="t">Doc</span>, folds: &amp;[<span class="t">usize</span>]) -&gt; <span class="t">Vec</span>&lt;<span class="t">Range</span>&lt;<span class="t">usize</span>&gt;&gt; {</div><div><span class="ln">35</span>    <span class="k">let mut</span> ranges = <span class="t">Vec</span>::<span class="f">new</span>();</div><div><span class="ln">36</span>    <span class="k">for</span> &amp;f <span class="k">in</span> folds {</div><div><span class="ln">37</span>        <span class="k">let</span> line = doc.<span class="f">line_col</span>(f).<span class="n">0</span>;</div><div><span class="ln">38</span>        <span class="k">let</span> <span class="t">Some</span>(end) = <span class="f">block_end</span>(doc, line) <span class="k">else</span> {</div><div><span class="ln">39</span>            <span class="k">continue</span>;</div><div><span class="ln">40</span>        };</div></div>
+    <!-- Hand over the linked name -->
+    <svg class="ptr" style="left:236px;top:215px" width="18" height="20" viewBox="0 0 18 20" aria-hidden="true"><path d="M6 1.5c.9 0 1.5.6 1.5 1.5v6h.3V7.6c0-.8.6-1.4 1.4-1.4s1.4.6 1.4 1.4V9h.3V8.4c0-.8.6-1.4 1.4-1.4s1.4.6 1.4 1.4V10h.2v-.4c0-.8.6-1.3 1.3-1.3s1.3.5 1.3 1.3V14c0 2.8-2.2 5-5 5H9.6c-1.6 0-3-.7-4-2L2.2 12.6c-.5-.6-.4-1.5.2-2 .6-.4 1.4-.3 1.9.2L4.5 11V3c0-.9.6-1.5 1.5-1.5z" fill="#eef0f3" stroke="#0f1012" stroke-width="1"/></svg>
+    <!-- Definition preview, after a rest with Ctrl held -->
+    <div class="card" style="left:190px;top:240px;width:470px">
+      <div class="chead"><span class="ic">RS</span><span style="color:#d4d5da">guides.rs</span> · line 48<span style="margin-left:auto" class="kbd">Ctrl</span></div>
+<div class="code" style="font-size:12.5px;line-height:20px;padding:6px 0"><div><span class="ln" style="width:30px;padding-right:12px">47</span><span class="c">/// A line's indent in display columns, or `None` if it's blank.</span></div><div><span class="ln" style="width:30px;padding-right:12px">48</span><span class="k">pub</span>(<span class="k">crate</span>) <span class="k">fn</span> <span class="f">indent</span>(doc: &amp;<span class="t">Doc</span>, line: <span class="t">usize</span>) -&gt; <span class="t">Option</span>&lt;<span class="t">usize</span>&gt; {</div><div><span class="ln" style="width:30px;padding-right:12px">49</span>    <span class="k">let</span> chars = doc.<span class="f">line_chars</span>(line);</div><div><span class="ln" style="width:30px;padding-right:12px">50</span>    <span class="k">let mut</span> d = <span class="n">0</span>;</div><div><span class="ln" style="width:30px;padding-right:12px">51</span>    <span class="k">for</span> &amp;c <span class="k">in</span> &amp;chars {</div><div><span class="ln" style="width:30px;padding-right:12px">52</span>        <span class="k">match</span> c {</div></div>
+      <div class="cfoot"><span><b>Click</b> to go there</span><span><b>Ctrl Alt click</b> to the side</span></div>
+    </div>
+  </div>
+  <div class="status"><span>editor-rework</span><span>⊗ 0 ⚠ 0</span><span style="margin-left:auto">Ln 21, Col 21</span><span>Spaces: 4</span><span>UTF-8</span><span>Rust</span></div>
+
+  <div class="label" style="left:810px;top:64px">Hold Ctrl over a name</div>
+  <div class="note" style="left:810px;top:88px;width:440px">With <b>Ctrl</b> held, the name under the pointer is underlined in the link colour and the pointer becomes a hand, so you see what a click does before you click. A name with no definition, such as a keyword or a number, stays as it is, and so does the arrow.</div>
+  <div class="note" style="left:810px;top:186px;width:440px">Asking costs one <span class="mono">textDocument/definition</span>, sent only when the pointer stops on a new name with Ctrl down and remembered for that name, so moving along a line asks nothing. Without a language server, Ctrl changes nothing.</div>
+
+  <div class="label" style="left:810px;top:282px">Rest there</div>
+  <div class="note" style="left:810px;top:306px;width:440px">After the hover's usual pause, a card shows the definition: its file, its line, and a few coloured lines from where it starts, with its doc comment. Letting go of Ctrl or moving off the name closes it.</div>
+
+  <div class="label" style="left:810px;top:400px">Click</div>
+  <div class="note" style="left:810px;top:424px;width:440px"><b>Ctrl+click</b> goes to the definition, as it does now. <b>Ctrl+Alt+click</b> opens it in the group to the side.</div>
+  <div class="note" style="left:810px;top:476px;width:440px">More than one definition (a trait method, say) opens them in the peek view, as <b>Shift+F12</b> does. Ctrl+click on a name where it's defined finds its references instead, as VS Code does.</div>
+  <div class="note" style="left:810px;top:548px;width:440px">In the Vim keymap, Ctrl+click works in every mode. Alt+click still adds a cursor, and Alt+Shift+drag a box.</div>
+</div>
+
+<!-- Artboard 2: which pointer where -->
+<div class="w">
+  <div class="label" style="left:24px;top:24px">Which pointer where</div>
+  <div class="note" style="left:200px;top:22px;width:1050px">Buttons and icons keep the arrow, as VS Code and Zed do on the desktop. The hand means "this goes somewhere", and the text bar means "you can type here".</div>
+  <div class="grid">
+
+    <div class="cell">
+      <h3>Arrow <span class="same">as now</span></h3>
+      <div class="stage">
+        <div class="mbtn" style="left:20px;top:22px">Stage File</div>
+        <div class="mbtn" style="left:110px;top:22px">Revert File</div>
+        <div class="mtab" style="left:20px;top:66px"><span class="ic">RS</span>fold.rs</div>
+        <svg class="ptr" style="left:70px;top:30px" width="14" height="20" viewBox="0 0 14 20" aria-hidden="true"><path d="M1 1v15l4-4 3 7 2-1-3-7h6z" fill="#eef0f3" stroke="#0f1012" stroke-width="1"/></svg>
+      </div>
+      <ul><li>Buttons, icons, chips and switches</li><li>Menus and list rows</li><li>The gutter, minimap and scrollbars</li><li>Everywhere else</li></ul>
+      <div class="why">A hand on every button makes a desktop window feel like a web page.</div>
+    </div>
+
+    <div class="cell">
+      <h3>Hand <span class="new">new</span></h3>
+      <div class="stage">
+        <div style="position:absolute;left:20px;top:24px;font-size:12px;color:#7c9cff">Go to definition <span class="kbd">F12</span></div>
+        <div style="position:absolute;left:20px;top:64px;font-size:12px;color:#7c9cff;text-decoration:underline;text-underline-offset:3px">12 more files</div>
+        <svg class="ptr" style="left:62px;top:28px" width="18" height="20" viewBox="0 0 18 20" aria-hidden="true"><path d="M6 1.5c.9 0 1.5.6 1.5 1.5v6h.3V7.6c0-.8.6-1.4 1.4-1.4s1.4.6 1.4 1.4V9h.3V8.4c0-.8.6-1.4 1.4-1.4s1.4.6 1.4 1.4V10h.2v-.4c0-.8.6-1.3 1.3-1.3s1.3.5 1.3 1.3V14c0 2.8-2.2 5-5 5H9.6c-1.6 0-3-.7-4-2L2.2 12.6c-.5-.6-.4-1.5.2-2 .6-.4 1.4-.3 1.9.2L4.5 11V3c0-.9.6-1.5 1.5-1.5z" fill="#eef0f3" stroke="#0f1012" stroke-width="1"/></svg>
+      </div>
+      <ul><li>Links: Go to definition, "more" in the palette, Accept in a merge, the rustc code in a hover</li><li>Links in Markdown and in comments</li><li>A name with Ctrl held</li></ul>
+      <div class="why">Anything drawn in the link colour gets the hand, and nothing else does.</div>
+    </div>
+
+    <div class="cell">
+      <h3>Text bar <span class="new">more places</span></h3>
+      <div class="stage">
+        <div class="mbox" style="left:20px;top:22px;width:230px">Rename to base_colour</div>
+        <div class="mbox" style="left:20px;top:64px;width:230px;border-color:#2c2d33;color:#8e9099">Message (Ctrl+Enter to commit)</div>
+        <svg class="ptr" style="left:150px;top:26px" width="10" height="20" viewBox="0 0 10 20" aria-hidden="true"><path d="M2 1.5h2.2L5 2.3l.8-.8H8M5 2.3v15.4M2 18.5h2.2l.8-.8.8.8H8M3 10h4" fill="none" stroke="#0f1012" stroke-width="3"/><path d="M2 1.5h2.2L5 2.3l.8-.8H8M5 2.3v15.4M2 18.5h2.2l.8-.8.8.8H8M3 10h4" fill="none" stroke="#eef0f3" stroke-width="1.3"/></svg>
+      </div>
+      <ul><li>Code and terminals, as now</li><li>Every box you type in: the palette, find and replace, rename, the commit message, Settings search and number fields, a breakpoint's condition</li><li>Text you can select in the Output and Debug Console</li></ul>
+      <div class="why">Today these boxes show the arrow, though a click puts the caret there.</div>
+    </div>
+
+    <div class="cell">
+      <h3>Open and closed hand <span class="new">new</span></h3>
+      <div class="stage">
+        <div class="mtab" style="left:20px;top:22px"><span class="ic">RS</span>guides.rs</div>
+        <svg class="ptr" style="left:72px;top:28px" width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M4.5 7V4.2c0-.7.5-1.2 1.2-1.2s1.2.5 1.2 1.2V7V2.7c0-.7.5-1.2 1.2-1.2s1.2.5 1.2 1.2V7V3.5c0-.7.5-1.2 1.2-1.2s1.2.5 1.2 1.2V8V5.5c0-.7.5-1.2 1.2-1.2s1.2.5 1.2 1.2V12c0 2.8-2.2 5-5 5H9c-1.5 0-2.9-.7-3.8-1.9L2.3 11.3c-.5-.6-.4-1.4.2-1.8.6-.4 1.3-.3 1.8.2L4.5 10z" fill="#eef0f3" stroke="#0f1012" stroke-width="1"/></svg>
+        <div class="mtab" style="left:120px;top:70px;opacity:.85;box-shadow:0 6px 18px rgba(0,0,0,.5),inset 0 0 0 1px #3a4466"><span class="ic">RS</span>guides.rs</div>
+        <svg class="ptr" style="left:170px;top:76px" width="18" height="16" viewBox="0 0 18 16" aria-hidden="true"><path d="M4.5 6.5c0-1 .6-1.5 1.3-1.5.6 0 1.1.4 1.2 1 0-1 .6-1.5 1.3-1.5.7 0 1.2.5 1.2 1.2 0-.9.6-1.4 1.3-1.4.7 0 1.2.5 1.2 1.3.1-.8.6-1.2 1.2-1.2.7 0 1.2.5 1.2 1.3V10c0 2.8-2.2 5-5 5H9c-1.5 0-2.9-.7-3.8-1.9L3.4 10.6c-.5-.6-.4-1.4.2-1.8.4-.3.9-.3 1.3-.1z" fill="#eef0f3" stroke="#0f1012" stroke-width="1"/></svg>
+      </div>
+      <ul><li>Open hand over a tab, a tab you can drag</li><li>Closed hand once it moves, as now</li><li>The same for a breakpoint dragged to another line, and a layout dragged in Settings</li></ul>
+      <div class="why">A tab is still clicked like a button; the hand shows only after a short rest, so the strip doesn't flicker.</div>
+    </div>
+
+    <div class="cell">
+      <h3>Resize <span class="same">as now</span></h3>
+      <div class="stage">
+        <div style="position:absolute;left:0;top:0;width:118px;height:118px;background:#17181b"></div>
+        <div style="position:absolute;left:122px;top:0;right:0;height:118px;background:#17181b"></div>
+        <div style="position:absolute;left:118px;top:0;width:4px;height:118px;background:#3a4466"></div>
+        <svg class="ptr" style="left:108px;top:50px" width="24" height="16" viewBox="0 0 24 16" aria-hidden="true"><path d="M10 1v14M14 1v14M10 8H2m0 0l3-3m-3 3l3 3M14 8h8m0 0l-3-3m3 3l-3 3" fill="none" stroke="#0f1012" stroke-width="3.2"/><path d="M10 1v14M14 1v14M10 8H2m0 0l3-3m-3 3l3 3M14 8h8m0 0l-3-3m3 3l-3 3" fill="none" stroke="#eef0f3" stroke-width="1.3"/></svg>
+      </div>
+      <ul><li>Side bars, the panel and editor groups, as now</li><li>Also the Settings window's columns, the peek view's edge and the merge editor's panes</li></ul>
+      <div class="why">It stays while dragging, even when the pointer runs past the edge.</div>
+    </div>
+
+    <div class="cell">
+      <h3>Not allowed <span class="new">new</span></h3>
+      <div class="stage">
+        <div class="mtab" style="left:70px;top:44px;opacity:.6"><span class="ic">RS</span>guides.rs</div>
+        <svg class="ptr" style="left:126px;top:52px" width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.5" fill="none" stroke="#0f1012" stroke-width="4"/><path d="M4.7 15.3L15.3 4.7" stroke="#0f1012" stroke-width="4"/><circle cx="10" cy="10" r="7.5" fill="none" stroke="#f0807a" stroke-width="2"/><path d="M4.7 15.3L15.3 4.7" stroke="#f0807a" stroke-width="2"/></svg>
+      </div>
+      <ul><li>A dragged tab over somewhere it can't go, such as the status bar or a side bar</li><li>A dragged breakpoint over a line that can't take one</li></ul>
+      <div class="why">Letting go there puts the tab back where it was, as now.</div>
+    </div>
+
+    <div class="cell">
+      <h3>Busy arrow <span class="new">new</span></h3>
+      <div class="stage">
+        <div style="position:absolute;left:20px;top:84px;font-size:11.5px;color:#8e9099">Formatting…</div>
+        <svg class="ptr" style="left:110px;top:28px" width="26" height="22" viewBox="0 0 26 22" aria-hidden="true"><path d="M1 1v15l4-4 3 7 2-1-3-7h6z" fill="#eef0f3" stroke="#0f1012" stroke-width="1"/><circle cx="20" cy="15" r="4.5" fill="none" stroke="#0f1012" stroke-width="3"/><path d="M20 10.5a4.5 4.5 0 0 1 4.5 4.5" fill="none" stroke="#7c9cff" stroke-width="1.6"/><circle cx="20" cy="15" r="4.5" fill="none" stroke="#3a4466" stroke-width="1.2" stroke-dasharray="20 9"/></svg>
+      </div>
+      <ul><li>While a save waits for formatting (at most 1.5 s)</li><li>While the debugger starts, or a build runs before it</li><li>While a plugin reloads</li></ul>
+      <div class="why">You can still click and type; it only says something is on its way. Never the full spinner, since nothing blocks.</div>
+    </div>
+
+    <div class="cell">
+      <h3>Ctrl over a name <span class="new">new</span></h3>
+      <div class="stage">
+        <div class="code" style="position:absolute;left:14px;top:40px;padding:0"><span class="k">let</span> base = <span class="lk">indent</span>(doc, line)?;</div>
+        <svg class="ptr" style="left:110px;top:50px" width="18" height="20" viewBox="0 0 18 20" aria-hidden="true"><path d="M6 1.5c.9 0 1.5.6 1.5 1.5v6h.3V7.6c0-.8.6-1.4 1.4-1.4s1.4.6 1.4 1.4V9h.3V8.4c0-.8.6-1.4 1.4-1.4s1.4.6 1.4 1.4V10h.2v-.4c0-.8.6-1.3 1.3-1.3s1.3.5 1.3 1.3V14c0 2.8-2.2 5-5 5H9.6c-1.6 0-3-.7-4-2L2.2 12.6c-.5-.6-.4-1.5.2-2 .6-.4 1.4-.3 1.9.2L4.5 11V3c0-.9.6-1.5 1.5-1.5z" fill="#eef0f3" stroke="#0f1012" stroke-width="1"/></svg>
+        <div style="position:absolute;left:14px;top:84px;font-size:11.5px;color:#8e9099">Pressing or letting go of Ctrl updates it at once, without moving the pointer.</div>
+      </div>
+      <ul><li>Hand and underline over a name that has a definition</li><li>The text bar again as soon as Ctrl comes up</li></ul>
+      <div class="why">The first artboard has the rest of it.</div>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1624}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

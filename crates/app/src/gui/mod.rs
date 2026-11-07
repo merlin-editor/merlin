@@ -92,6 +92,8 @@ const DRAG_START: f32 = 5.0;
 const HOVER_DELAY: Duration = Duration::from_millis(500);
 /// How long the mouse rests on an icon before its tooltip shows.
 const TIP_DELAY: Duration = Duration::from_millis(600);
+/// How long the pointer rests on a tab before the open hand shows.
+const GRAB_DELAY: Duration = Duration::from_millis(400);
 /// The caret's blink, each way, and how long after the last input it
 /// keeps blinking before it stays on and the window sleeps.
 const BLINK: Duration = Duration::from_millis(530);
@@ -125,6 +127,10 @@ pub fn run(app: &mut App) -> Result<()> {
         tip_drawn: None,
         tips: Vec::new(),
         tip: None,
+        marks: Vec::new(),
+        pointer_link: false,
+        busy: false,
+        grab: None,
         zoomed: (0.0, 1.0),
         sizes: frame::Sizes::default(),
         sash: None,
@@ -219,6 +225,15 @@ struct Gui<'a> {
     tip: Option<(Instant, (Rect, String))>,
     /// The tooltip last drawn.
     tip_drawn: Option<(Rect, String)>,
+    /// The hits the pointer shows differently, as last drawn.
+    marks: Vec<(usize, frame::Mark)>,
+    /// From the last view: whether the pointer is on a link, and whether
+    /// something is on its way.
+    pointer_link: bool,
+    busy: bool,
+    /// The tab the pointer rests on, by its hit, and when the open hand
+    /// shows over it.
+    grab: Option<(usize, Instant)>,
     /// The zoom the fonts were made for.
     zoomed: (f32, f32),
     /// How big the sides are, as last dragged.
@@ -915,6 +930,57 @@ impl Gui<'_> {
         self.dispatch(Event::Ui(event));
     }
 
+    /// Shapes the pointer for what it's over: the hand on links and on a
+    /// name with Ctrl down, the text bar on code and boxes to type in, the
+    /// open hand on a tab after a rest, the edges' arrows, and the busy
+    /// arrow while something is on its way. Everything else is the arrow.
+    fn update_pointer(&mut self) {
+        // A drag keeps the shape it has.
+        if self.tab_drag.as_ref().is_some_and(|d| d.moved)
+            || self.sash.is_some()
+            || self.group_drag.is_some()
+        {
+            return;
+        }
+        let Some(at) = self.pointer else {
+            return;
+        };
+        let over = self.hit_at(at).map(|(i, h)| (i, h.clone()));
+        let mark = over.as_ref().and_then(|(i, _)| {
+            self.marks
+                .iter()
+                .find(|(m, _)| m == i)
+                .map(|(_, mark)| *mark)
+        });
+        // The open hand shows once the pointer has rested on a tab.
+        match (mark, over.as_ref()) {
+            (Some(frame::Mark::Tab), Some((i, _))) => {
+                if self.grab.is_none_or(|(g, _)| g != *i) {
+                    self.grab = Some((*i, Instant::now() + GRAB_DELAY));
+                }
+            }
+            _ => self.grab = None,
+        }
+        let icon = match (over.map(|(_, h)| h), mark) {
+            (Some(Hit::Text), _) if self.pointer_link => CursorIcon::Pointer,
+            (Some(Hit::Text | Hit::Terminal(_)), _) => CursorIcon::Text,
+            (Some(Hit::Sash(Side::Bottom)), _) => CursorIcon::RowResize,
+            (Some(Hit::Sash(_)), _) => CursorIcon::ColResize,
+            (Some(Hit::GroupSash(frame::GroupSash::Column(_))), _) => CursorIcon::ColResize,
+            (Some(Hit::GroupSash(frame::GroupSash::Row(_))), _) => CursorIcon::RowResize,
+            (_, Some(frame::Mark::Link)) => CursorIcon::Pointer,
+            (_, Some(frame::Mark::Input)) => CursorIcon::Text,
+            (_, Some(frame::Mark::Tab))
+                if self.grab.is_some_and(|(_, when)| when <= Instant::now()) =>
+            {
+                CursorIcon::Grab
+            }
+            _ if self.busy => CursorIcon::Progress,
+            _ => CursorIcon::Default,
+        };
+        self.set_pointer(icon);
+    }
+
     /// The pointer's shape for what it's over: an I-beam over the code, a
     /// grabbing hand while dragging a tab.
     fn set_pointer(&mut self, icon: CursorIcon) {
@@ -1324,6 +1390,7 @@ impl Gui<'_> {
             compact: self.app.look.layout.compact,
             sash_hits: Vec::new(),
             tips: Vec::new(),
+            marks: Vec::new(),
             tip: tip.clone(),
             tab_drag: self
                 .tab_drag
@@ -1541,6 +1608,9 @@ impl Gui<'_> {
         self.hits = std::mem::take(&mut f.hits);
         self.strips = std::mem::take(&mut f.strips);
         self.tips = std::mem::take(&mut f.tips);
+        self.marks = std::mem::take(&mut f.marks);
+        self.pointer_link = view.pointer_link;
+        self.busy = view.busy;
         self.tip_drawn = tip;
         if let Some(room) = room {
             let ui = &mut self.app.settings_ui;
@@ -1761,6 +1831,9 @@ impl ApplicationHandler for Gui<'_> {
             {
                 self.redraw();
             }
+            if self.grab.is_some_and(|(_, when)| when <= Instant::now()) {
+                self.update_pointer();
+            }
             if self.caret_level() != self.caret_drawn || self.app.terminals.poll_busy() {
                 self.redraw();
             }
@@ -1794,7 +1867,11 @@ impl ApplicationHandler for Gui<'_> {
                     self.resized(size);
                 }
             }
-            WindowEvent::RedrawRequested => self.paint(),
+            WindowEvent::RedrawRequested => {
+                self.paint();
+                // What's under the pointer may have changed with the view.
+                self.update_pointer();
+            }
             // Files dropped from the desktop open, as in any editor.
             WindowEvent::DroppedFile(path) => {
                 self.app.open_dropped(&path);
@@ -1814,7 +1891,23 @@ impl ApplicationHandler for Gui<'_> {
                 self.blink_from = Instant::now();
                 self.redraw();
             }
-            WindowEvent::ModifiersChanged(m) => self.modifiers = m.state(),
+            WindowEvent::ModifiersChanged(m) => {
+                let ctrl = self.modifiers.control_key();
+                self.modifiers = m.state();
+                // Ctrl over a name makes it a link, without moving.
+                if ctrl != self.modifiers.control_key()
+                    && let Some(at) = self.pointer
+                    && let Some((_, Hit::Text)) = self.hit_at(at)
+                    && let Some(g) = self.group_at(at)
+                {
+                    self.pointer_event(g, MouseKind::Move, at, 1);
+                    // Pressed, a rest shows the definition; let go, the
+                    // link just goes.
+                    if self.modifiers.control_key() {
+                        self.rest = Some((Instant::now() + HOVER_DELAY, at));
+                    }
+                }
+            }
             WindowEvent::KeyboardInput { event, .. } => self.key(event),
             WindowEvent::CursorMoved { position, .. } => self.moved(position),
             WindowEvent::CursorLeft { .. } => {
@@ -1975,8 +2068,13 @@ impl ApplicationHandler for Gui<'_> {
             .map(|(when, _)| *when)
             .filter(|when| *when > Instant::now());
         // Nothing to wait for: sleep until something happens.
+        let grab = self
+            .grab
+            .map(|(_, when)| when)
+            .filter(|when| *when > Instant::now());
         let wake = [
             self.rest.map(|(when, _)| when),
+            grab,
             self.next_blink(),
             tip,
             self.app.due(),
@@ -2040,8 +2138,12 @@ impl Gui<'_> {
                 drag.moved = true;
             }
             if drag.moved {
-                self.set_pointer(CursorIcon::Grabbing);
                 self.drop = self.drop_at(at);
+                // Where it can't go, letting go puts it back.
+                self.set_pointer(match self.drop {
+                    Some(_) => CursorIcon::Grabbing,
+                    None => CursorIcon::NotAllowed,
+                });
                 self.redraw();
             }
             return;
@@ -2079,15 +2181,7 @@ impl Gui<'_> {
             }
             (None, None) => {}
         }
-        let icon = match over {
-            Some((_, Hit::Text | Hit::Terminal(_))) => CursorIcon::Text,
-            Some((_, Hit::Sash(Side::Bottom))) => CursorIcon::RowResize,
-            Some((_, Hit::Sash(_))) => CursorIcon::ColResize,
-            Some((_, Hit::GroupSash(frame::GroupSash::Column(_)))) => CursorIcon::ColResize,
-            Some((_, Hit::GroupSash(frame::GroupSash::Row(_)))) => CursorIcon::RowResize,
-            _ => CursorIcon::Default,
-        };
-        self.set_pointer(icon);
+        self.update_pointer();
         // Over a menu's title, its menu opens, as menus do.
         if let Some((_, Hit::Ui(UiEvent::MenuTitle(i)))) = over {
             self.dispatch(Event::Ui(UiEvent::MenuTitle(i)));

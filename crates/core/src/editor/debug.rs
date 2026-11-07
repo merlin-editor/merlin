@@ -707,6 +707,14 @@ impl Editor {
         self.debug.session.as_ref()?.building
     }
 
+    /// Whether a run is building or its debugger starting.
+    pub(crate) fn debug_busy(&self) -> bool {
+        self.debug
+            .session
+            .as_ref()
+            .is_some_and(|s| s.building.is_some() || s.state == DebugState::Starting)
+    }
+
     /// Sends a command to the driver of the run.
     fn send_debug(&mut self, command: &str, fx: &mut Vec<Effect>) {
         let Some(session) = &self.debug.session else {

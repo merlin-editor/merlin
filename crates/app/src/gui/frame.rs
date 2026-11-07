@@ -41,6 +41,17 @@ const HEADER_H: f32 = 38.0;
 const ROW_H: f32 = 26.0;
 const PALETTE_ROWS: usize = 12;
 
+/// What the pointer shows over a hit, when it isn't the arrow.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mark {
+    /// Drawn in the link colour: the hand.
+    Link,
+    /// A box to type in: the text bar.
+    Input,
+    /// A tab that can be dragged: the open hand, after a rest.
+    Tab,
+}
+
 /// What a click on part of the frame does.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Hit {
@@ -164,6 +175,8 @@ pub struct Frame<'a> {
     pub sash_hits: Vec<(Rect, Hit)>,
     /// What each icon is, for a tooltip when the mouse rests on it.
     pub tips: Vec<(Rect, String)>,
+    /// The hits, by their place in `hits`, the pointer shows differently.
+    pub marks: Vec<(usize, Mark)>,
     /// The tooltip showing, under the icon it's for.
     pub tip: Option<(Rect, String)>,
 }
@@ -445,6 +458,24 @@ const AWAY_H: f32 = 38.0;
 impl Frame<'_> {
     pub(super) fn hit(&mut self, r: Rect, hit: Hit) {
         self.hits.push((r, hit));
+    }
+
+    /// A hit, marked for the pointer's shape over it.
+    pub(super) fn marked_hit(&mut self, r: Rect, hit: Hit, mark: Mark) {
+        self.marks.push((self.hits.len(), mark));
+        self.hits.push((r, hit));
+    }
+
+    /// A box to type in, for the text bar over it. Clicks go to what's
+    /// under it, as before.
+    pub(super) fn input_box(&mut self, r: Rect) {
+        let under = self
+            .hits
+            .iter()
+            .rev()
+            .find(|(h, _)| h.contains(r.x + r.w / 2.0, r.y + r.h / 2.0))
+            .map_or(Hit::Block, |(_, hit)| hit.clone());
+        self.marked_hit(r, under, Mark::Input);
     }
 
     pub(super) fn hovered(&self, r: Rect) -> bool {
@@ -832,6 +863,7 @@ impl Frame<'_> {
         self.canvas.fill(Rect::new(r.x, r.y, r.w, h / 2.0), fill);
         self.canvas.fill(Rect::new(r.x, r.y, r.w, 1.0), p.border);
         self.hit(r, Hit::Block);
+        self.input_box(r);
         let mono = Face::mono(13.0);
         let ui = Face::ui(11.5);
         let x = r.x + 12.0;
@@ -969,7 +1001,11 @@ impl Frame<'_> {
                 p.border
             };
             self.canvas.outline(field, 5.0, 1.0, edge, p.raised);
-            self.hit(field, Hit::Ui(UiEvent::Find(FindAction::Field(is_replace))));
+            self.marked_hit(
+                field,
+                Hit::Ui(UiEvent::Find(FindAction::Field(is_replace))),
+                Mark::Input,
+            );
             // Match Case, Whole Word and Regex, at the query's right end.
             let toggles_w = if is_replace {
                 0.0
@@ -1246,6 +1282,112 @@ impl Frame<'_> {
             PopupKind::Completion { items, selected } => {
                 self.completions(items, *selected, anchor, a, ch)
             }
+            PopupKind::Definition {
+                file,
+                line,
+                first,
+                lines,
+                colours,
+            } => self.definition_card(file, (*line, *first), lines, colours, anchor, a, ch),
+        }
+    }
+
+    /// The definition of the name under Ctrl, under it: its file and line,
+    /// its first lines coloured with their numbers, and what a click does.
+    #[allow(clippy::too_many_arguments)]
+    fn definition_card(
+        &mut self,
+        file: &str,
+        (line, first): (usize, usize),
+        lines: &[String],
+        colours: &[Spans],
+        anchor: (f32, f32),
+        a: &Areas,
+        ch: f32,
+    ) {
+        let p = self.p;
+        let ui = Face::ui(12.0);
+        let line_h = 20.0;
+        let last = first + lines.len().saturating_sub(1);
+        let num_w = self.text.width(&last.to_string(), CODE) + 14.0;
+        let widest = lines
+            .iter()
+            .map(|l| self.text.width(&l.replace('\t', "    "), CODE))
+            .fold(0.0, f32::max);
+        let w = (num_w + widest + 36.0).clamp(360.0, 640.0);
+        let (head_h, foot_h) = (30.0, 28.0);
+        let h = head_h + 12.0 + lines.len() as f32 * line_h + foot_h;
+        let r = self.card_place((anchor.0 - 7.0, anchor.1), w, h, a, ch);
+        self.canvas.shadow(r, 8.0, theme::is_light(&p));
+        self.canvas.outline(r, 8.0, 1.0, p.border, p.widget);
+        self.hit(r, Hit::Block);
+        // The file and line.
+        let x = r.x + 12.0;
+        let fw = self
+            .text
+            .draw_in_row(&mut self.canvas, file, ui, x, r.y, head_h, p.text, r);
+        self.text.draw_in_row(
+            &mut self.canvas,
+            &format!(" · line {line}"),
+            ui,
+            x + fw,
+            r.y,
+            head_h,
+            p.muted,
+            r,
+        );
+        self.canvas
+            .fill(Rect::new(r.x + 1.0, r.y + head_h, r.w - 2.0, 1.0), p.line);
+        // The lines, numbered.
+        let code = Rect::new(
+            r.x + 1.0,
+            r.y + head_h + 1.0,
+            r.w - 2.0,
+            h - head_h - foot_h - 2.0,
+        );
+        let mut y = r.y + head_h + 6.0;
+        let none = Spans::new();
+        for (k, text) in lines.iter().enumerate() {
+            let n = (first + k).to_string();
+            let nw = self.text.width(&n, CODE);
+            self.text.draw_in_row(
+                &mut self.canvas,
+                &n,
+                CODE,
+                x + num_w - 14.0 - nw,
+                y,
+                line_h,
+                p.faint,
+                code,
+            );
+            let spans = colours.get(k).unwrap_or(&none);
+            self.code_line(text, spans, x + num_w, y, line_h, code);
+            y += line_h;
+        }
+        // What a click does.
+        let fy = r.bottom() - foot_h;
+        self.canvas
+            .fill(Rect::new(r.x + 1.0, fy, r.w - 2.0, 1.0), p.line);
+        let small = Face::ui(11.5);
+        let mut fx = x;
+        for (keys, what) in [
+            ("Click", " to go there"),
+            ("Ctrl Alt click", " to the side"),
+        ] {
+            fx += self.text.draw_in_row(
+                &mut self.canvas,
+                keys,
+                small.medium(),
+                fx,
+                fy,
+                foot_h,
+                p.text,
+                r,
+            );
+            fx += self
+                .text
+                .draw_in_row(&mut self.canvas, what, small, fx, fy, foot_h, p.muted, r)
+                + 16.0;
         }
     }
 
@@ -1926,6 +2068,7 @@ impl Frame<'_> {
         self.hit(r, Hit::Block);
         let field = Rect::new(r.x + 6.0, r.y + 6.0, r.w - 12.0, 26.0);
         self.canvas.outline(field, 5.0, 1.0, p.accent, p.raised);
+        self.input_box(field);
         let x = field.x + 8.0;
         if view.selected && !view.text.is_empty() {
             let sel = Rect::new(x - 1.0, field.y + 5.0, text_w + 2.0, 16.0);
@@ -2074,6 +2217,7 @@ impl Frame<'_> {
             26.0,
         );
         self.canvas.outline(field, 5.0, 1.0, p.accent, p.raised);
+        self.input_box(field);
         let x = field.x + 8.0;
         self.text.draw_in_row(
             &mut self.canvas,
@@ -2294,7 +2438,11 @@ impl Frame<'_> {
                             clip,
                         );
                         if link {
-                            self.hit(code, Hit::Ui(UiEvent::Hover(HoverButton::Link(i))));
+                            self.marked_hit(
+                                code,
+                                Hit::Ui(UiEvent::Hover(HoverButton::Link(i))),
+                                Mark::Link,
+                            );
                         }
                         x += cw + 6.0;
                     }
@@ -2388,7 +2536,11 @@ impl Frame<'_> {
                         clip,
                     );
                     self.chip("F12", r.x + 12.0 + lw + 8.0, y + (h - 16.0) / 2.0, false);
-                    self.hit(link, Hit::Ui(UiEvent::Hover(HoverButton::Definition)));
+                    self.marked_hit(
+                        link,
+                        Hit::Ui(UiEvent::Hover(HoverButton::Definition)),
+                        Mark::Link,
+                    );
                 }
             }
         }
@@ -3866,6 +4018,7 @@ impl Frame<'_> {
                         }),
                     );
                 }
+                self.input_box(b);
             }
             Node::Divider => {
                 self.canvas
@@ -4663,7 +4816,7 @@ impl Frame<'_> {
                     UiEvent::CloseTab(i),
                 ),
             };
-            self.hit(shown, Hit::Ui(tab_hit));
+            self.marked_hit(shown, Hit::Ui(tab_hit), Mark::Tab);
             if tab.pinned {
                 // Only its icon: the name is in its tooltip, and changes a
                 // dot in its corner.
@@ -5036,7 +5189,11 @@ impl Frame<'_> {
                 };
                 self.text
                     .draw_in_row(&mut self.canvas, label, link, x, y, row_h, colour, clip);
-                self.hit(r.intersect(clip), Hit::Ui(UiEvent::Press(id.clone())));
+                self.marked_hit(
+                    r.intersect(clip),
+                    Hit::Ui(UiEvent::Press(id.clone())),
+                    Mark::Link,
+                );
                 x += w + 6.0;
             }
             // In the Result alone: both sides under their titles.
@@ -5132,7 +5289,11 @@ impl Frame<'_> {
                 let colour = if hovered { p.bright } else { p.muted };
                 self.text
                     .draw_in_row(&mut self.canvas, label, link, x, y, row_h, colour, clip);
-                self.hit(r.intersect(clip), Hit::Ui(UiEvent::Press(id.clone())));
+                self.marked_hit(
+                    r.intersect(clip),
+                    Hit::Ui(UiEvent::Press(id.clone())),
+                    Mark::Link,
+                );
                 x += w + 14.0;
             }
             if let Some((status, failed)) = &lens.status {
@@ -5370,9 +5531,10 @@ impl Frame<'_> {
                         code,
                     );
                     let what = if key == "i" { "incoming" } else { "current" };
-                    self.hit(
+                    self.marked_hit(
                         r.intersect(code),
                         Hit::Ui(UiEvent::Press(format!("merge:{what}:{i}"))),
+                        Mark::Link,
                     );
                 }
             }
@@ -6116,6 +6278,7 @@ impl Frame<'_> {
 
         // The query, with what's being searched.
         let input = Rect::new(r.x, r.y, r.w, 48.0);
+        self.input_box(input);
         self.text.draw_in_row(
             &mut self.canvas,
             "\u{ea6d}",
@@ -6418,7 +6581,7 @@ impl Frame<'_> {
                     ink,
                     list,
                 );
-                self.hit(link, Hit::Ui(UiEvent::PaletteScope(*scope)));
+                self.marked_hit(link, Hit::Ui(UiEvent::PaletteScope(*scope)), Mark::Link);
                 y += 24.0;
             }
         }

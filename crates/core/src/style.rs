@@ -150,6 +150,9 @@ pub enum Hue {
     Deleted,
     Problem,
     Warned,
+    /// A name drawn as a link, underlined: Ctrl over it goes to its
+    /// definition.
+    Link,
 }
 
 /// Columns a character takes: 0 for combining marks, 2 for wide ones.

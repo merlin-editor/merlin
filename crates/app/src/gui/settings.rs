@@ -320,6 +320,7 @@ impl<'a> Frame<'a> {
         let keys = v.ui.category == Category::Keys && v.ui.search.is_empty();
         let border = if v.ui.record { p.accent } else { p.border };
         self.canvas.outline(r, 7.0, 1.0, border, p.raised);
+        self.input_box(r);
         // The magnifier.
         let (cx, cy) = (r.x + 17.0, r.y + r.h / 2.0 - 1.0);
         self.canvas.outline(

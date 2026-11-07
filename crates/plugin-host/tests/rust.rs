@@ -9,7 +9,8 @@ use merlin_plugins::{BufferEvent, Config, PluginHost, Snapshot};
 fn plugin_dir() -> PathBuf {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/rust");
     assert!(
-        dir.join("target/wasm32-wasip2/release/rust_language.wasm").exists(),
+        dir.join("target/wasm32-wasip2/release/rust_language.wasm")
+            .exists(),
         "build the rust plugin first (see the top of this file)"
     );
     dir
@@ -49,7 +50,9 @@ fn colours_a_file_just_under_the_limit() {
     let mut host = host();
     let events = open(&mut host, &rust(500 * 1024));
     assert!(
-        !events.iter().any(|e| matches!(e, Event::PluginFailed { .. })),
+        !events
+            .iter()
+            .any(|e| matches!(e, Event::PluginFailed { .. })),
         "{events:?}"
     );
     assert!(events.iter().any(|e| matches!(e, Event::SetTokens { .. })));
@@ -60,7 +63,9 @@ fn leaves_a_bigger_file_uncoloured_and_keeps_working() {
     let mut host = host();
     let events = open(&mut host, &rust(2_000_000));
     assert!(
-        !events.iter().any(|e| matches!(e, Event::PluginFailed { .. })),
+        !events
+            .iter()
+            .any(|e| matches!(e, Event::PluginFailed { .. })),
         "{events:?}"
     );
     assert!(!events.iter().any(|e| matches!(e, Event::SetTokens { .. })));

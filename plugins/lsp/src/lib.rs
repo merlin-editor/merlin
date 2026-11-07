@@ -90,6 +90,9 @@ enum Request {
     Initialize,
     Hover,
     Definition,
+    /// Where the name under Ctrl is defined, for the editor to show as a
+    /// link: every place, without going there.
+    DefinitionLink,
     CodeActions,
     /// The whole file or the selection formatted: its edits, for `path`.
     Format {
@@ -1593,6 +1596,27 @@ impl Lsp {
                     None => host::notify("No definition found"),
                 }
             }
+            Request::DefinitionLink => {
+                let list = match result {
+                    Value::Array(list) => list.iter().collect(),
+                    Value::Null => Vec::new(),
+                    one => vec![one],
+                };
+                // A Location, or a LocationLink with the name's own range.
+                let places: Vec<Location> = list
+                    .into_iter()
+                    .filter_map(|l| {
+                        let uri = l.get("uri").or(l.get("targetUri"))?.as_str()?;
+                        let range = l.get("range").or(l.get("targetSelectionRange"))?;
+                        Some(Location {
+                            path: path_of(uri)?,
+                            start: position(&range["start"]),
+                            end: position(&range["end"]),
+                        })
+                    })
+                    .collect();
+                host::show_definitions(&places);
+            }
             Request::Diagnostics { path, version } => {
                 // An answer about older text, or "unchanged", keeps what's shown.
                 let current = server.opened.get(&path) == Some(&version);
@@ -1766,6 +1790,8 @@ impl Plugin for Lsp {
         match id {
             "hover" => self.ask("textDocument/hover", Request::Hover),
             "definition" => self.ask("textDocument/definition", Request::Definition),
+            // The editor's Ctrl over a name, which it doesn't list.
+            "definition-link" => self.ask("textDocument/definition", Request::DefinitionLink),
             "code-actions" => self.ask("textDocument/codeAction", Request::CodeActions),
             "format" => self.format(Formatting::File, false),
             "format-on-save" => self.format(Formatting::File, true),

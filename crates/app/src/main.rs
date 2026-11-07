@@ -222,6 +222,8 @@ struct App {
     /// When which-key shows, for a pause on a prefix.
     which_key_due: Option<(Instant, u64)>,
     palette_search_due: Option<(Instant, u64)>,
+    /// When the language server is asked about the name under Ctrl.
+    link_due: Option<(Instant, u64)>,
     quit: bool,
     /// The Settings tab's state.
     settings_ui: prefs::SettingsUi,
@@ -255,6 +257,7 @@ impl App {
         self.touch_format();
         self.touch_which_key();
         self.touch_palette_search();
+        self.touch_link();
         self.refresh_watch();
     }
 
@@ -273,6 +276,17 @@ impl App {
     fn touch_palette_search(&mut self) {
         self.palette_search_due = match (self.editor.palette_search_wait(), self.palette_search_due)
         {
+            (None, _) => None,
+            (Some((tick, _)), Some((at, timed))) if timed == tick => Some((at, tick)),
+            (Some((tick, ms)), _) => {
+                Some((Instant::now() + std::time::Duration::from_millis(ms), tick))
+            }
+        };
+    }
+
+    /// Times the stop on a name with Ctrl down before it's asked about.
+    fn touch_link(&mut self) {
+        self.link_due = match (self.editor.link_wait(), self.link_due) {
             (None, _) => None,
             (Some((tick, _)), Some((at, timed))) if timed == tick => Some((at, tick)),
             (Some((tick, ms)), _) => {
@@ -1051,6 +1065,7 @@ impl App {
             self.format_due.map(|(at, _)| at),
             self.which_key_due.map(|(at, _)| at),
             self.palette_search_due.map(|(at, _)| at),
+            self.link_due.map(|(at, _)| at),
             self.editor.macro_playing().then(Instant::now),
             self.terminals.due(),
         ]
@@ -1092,6 +1107,12 @@ impl App {
             && let Some((_, tick)) = self.palette_search_due.take()
         {
             self.dispatch(Event::PaletteSearch(tick));
+            changed = true;
+        }
+        if self.link_due.is_some_and(|(at, _)| at <= now)
+            && let Some((_, tick)) = self.link_due.take()
+        {
+            self.dispatch(Event::LinkDue(tick));
             changed = true;
         }
         if self.editor.macro_playing() {
@@ -2419,6 +2440,7 @@ fn main() -> Result<()> {
         format_due: None,
         which_key_due: None,
         palette_search_due: None,
+        link_due: None,
         quit: false,
         settings_ui: prefs::SettingsUi::default(),
         loaded: prefs::Loaded::default(),

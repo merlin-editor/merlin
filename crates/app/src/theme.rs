@@ -387,6 +387,7 @@ pub fn hue(p: &Palette, hue: Hue) -> u32 {
         Hue::Deleted => p.git_removed,
         Hue::Problem => p.error,
         Hue::Warned => p.warning,
+        Hue::Link => p.accent,
     }
 }
 
@@ -452,6 +453,10 @@ pub fn cell(p: &Palette, cell: &Cell) -> Look {
     }
     if let Some(h) = cell.tint {
         l.fg = Some(hue(p, h));
+        if h == Hue::Link {
+            l.underline = true;
+            l.underline_colour = Some(p.accent);
+        }
     }
     if let Some(s) = cell.mark {
         l.underline = true;

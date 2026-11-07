@@ -107,7 +107,8 @@ fn messages_collect_in_output() {
     s.run("key ctrl+k; key x");
     s.run("cmd view.output");
     assert!(
-        s.screen().contains("[info] The key combination (Ctrl+K, X) is not a command"),
+        s.screen()
+            .contains("[info] The key combination (Ctrl+K, X) is not a command"),
         "{}",
         s.screen()
     );

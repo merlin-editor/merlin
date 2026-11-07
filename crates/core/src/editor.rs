@@ -27,6 +27,7 @@ pub(crate) mod guides;
 mod keymap;
 mod keys;
 mod layout;
+mod link;
 mod macros;
 mod search_all;
 pub use macros::{Macro, MacroView};
@@ -363,6 +364,9 @@ pub enum Event {
     /// The palette's text search waited as long as
     /// [`Editor::palette_search_wait`] asked: it searches.
     PaletteSearch(u64),
+    /// The pointer stayed on a name with Ctrl down as long as
+    /// [`Editor::link_wait`] asked: the language server is asked about it.
+    LinkDue(u64),
     /// A macro is playing: [`Editor::macro_playing`]. It plays on for a
     /// moment each time.
     MacroStep,
@@ -415,6 +419,8 @@ pub enum Event {
     ShowRenameReview(Vec<crate::lang::FileEdit>),
     /// Where the name at the cursor is used, for the peek view.
     ShowReferences(Vec<crate::lang::Location>),
+    /// Where the name under Ctrl is defined, from `definition-link`.
+    Definitions(Vec<crate::lang::Location>),
     /// Files read for a rename's review, each with its text, or none if
     /// it couldn't be read.
     FilesRead(Vec<(PathBuf, Option<String>)>),
@@ -989,6 +995,12 @@ enum Popup {
         /// Where the word being completed starts.
         start: usize,
     },
+    /// The definition of the name under Ctrl, after a rest on it. It
+    /// stays while the mouse is on the name, `span`.
+    Definition {
+        span: (usize, usize),
+        card: link::DefinitionCard,
+    },
 }
 
 /// The palette lists commands, files, or a plugin's items.
@@ -1092,6 +1104,13 @@ pub struct Editor {
     /// results are previewed: the doc, cursor and scroll, and the preview
     /// tab then.
     search_preview: Option<(u64, usize, usize, Option<u64>)>,
+    /// The name under the pointer while Ctrl is held, and the ticks that
+    /// wait on it.
+    link: Option<link::Link>,
+    link_tick: u64,
+    /// While `definition-link` is being sent: the plugin's cursor is the
+    /// link's name.
+    link_asking: bool,
     /// Quit with unsaved files kept.
     keep_unsaved: bool,
     /// Files whose unsaved changes came back from the last run.
@@ -1346,6 +1365,9 @@ impl Editor {
             recent_files: Vec::new(),
             recent_commands: Vec::new(),
             search_preview: None,
+            link: None,
+            link_tick: 0,
+            link_asking: false,
             keep_unsaved: false,
             restored: Vec::new(),
             open_folder: None,
@@ -1603,6 +1625,7 @@ impl Editor {
                     .collect::<Vec<_>>()
                     .join("\n"),
             ),
+            Popup::Definition { card, .. } => card.lines.as_ref().map(|(_, l)| l.join("\n")),
             Popup::Completion { .. } => Some(
                 self.completions()
                     .iter()
@@ -1673,6 +1696,7 @@ impl Editor {
             Event::Key(key) => {
                 self.probe = None;
                 self.hover_anchor = None;
+                self.link = None;
                 self.macro_key(key, &mut fx)
             }
             Event::Paste(text) => {
@@ -1889,6 +1913,7 @@ impl Editor {
             Event::WhichKey(tick) => self.which_key_due(tick),
             Event::MacroStep => self.macro_step(&mut fx),
             Event::PaletteSearch(tick) => self.palette_search_due(tick, &mut fx),
+            Event::LinkDue(tick) => self.link_due(tick, &mut fx),
             Event::RegisterSymbolSearch { plugin, command } => {
                 self.symbol_search.retain(|(p, _)| *p != plugin);
                 self.symbol_search.push((plugin, command));
@@ -1944,11 +1969,13 @@ impl Editor {
             Event::ShowRename(info) => self.show_rename(info),
             Event::ShowRenameReview(edits) => self.show_rename_review(edits, &mut fx),
             Event::ShowReferences(places) => self.show_references(places, &mut fx),
+            Event::Definitions(places) => self.definitions_came(places, &mut fx),
             Event::FilesRead(files) => {
                 self.tasks_read(&files, &mut fx);
                 self.tests_read(&files);
                 self.compare_files_read(&files, &mut fx);
                 self.peek_files_read(&files);
+                self.link_files_read(&files);
                 self.files_read(files);
             }
             Event::ShowSignature(signature) => {
@@ -2797,7 +2824,7 @@ impl Editor {
         }
         match &mut self.popup {
             None => false,
-            Some(Popup::Hover { .. }) => {
+            Some(Popup::Hover { .. } | Popup::Definition { .. }) => {
                 self.popup = None;
                 key.code == KeyCode::Esc
             }

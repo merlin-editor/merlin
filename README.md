@@ -398,6 +398,7 @@ Keys, as in VS Code:
 | `Ctrl+Shift+P` / `F1` | The palette: commands, symbols, files and text at once |
 | `Ctrl+P` / `Ctrl+E` | The palette on files (fuzzy; skips hidden and git-ignored files) |
 | `Ctrl+Alt+R` / `Ctrl+Alt+P` | Record a macro, again to stop / play the last one |
+| `Ctrl+click` / `Ctrl+Alt+click` | Go to the definition / open it to the side |
 | `Ctrl+O` / `Ctrl+K Ctrl+O` | Open a file / a folder, in the desktop's dialog |
 | `F10`, `Alt+F`, `Alt+E`, … | Menus |
 | `Ctrl+B` | Side bar |
@@ -448,6 +449,10 @@ with Shift or a sideways wheel, and five times as far with Alt. A touchpad
 moves the text exactly as far as your fingers. Alt+click adds a cursor,
 Shift+Alt+drag selects a box, dragging after a double or triple click
 selects whole words or lines, and a middle click pastes the selection.
+The pointer says what a click does: a hand on links, the text bar on code
+and on every box you type in, an open hand on a tab you can drag, a "not
+allowed" sign where a dragged tab can't go, and a busy arrow while a save
+waits for formatting or the debugger starts. Buttons keep the arrow.
 
 Brackets and quotes close themselves, are typed over, wrap a selection,
 and go together on Backspace. Enter keeps the line's indent, adds a level
@@ -625,6 +630,12 @@ actions, `Ctrl+Shift+I` formats, and `F2` renames: Enter renames every
 place, and Shift+Enter shows them in the bottom panel's Rename tab first,
 to leave some out. `Shift+F12` peeks at a name's references between the
 lines; `F4` steps through them and Enter opens one.
+
+Hold `Ctrl` over a name and it becomes a link: underlined, with a hand
+for the pointer. Rest there and a card shows its definition, with its
+doc comment. `Ctrl+click` goes there, and `Ctrl+Alt+click` opens it to
+the side. A name with several definitions opens them in the peek view,
+and `Ctrl+click` on a name where it's defined finds its references.
 
 rust-analyzer reports some errors as you type, such as unresolved modules,
 and the rest, such as type errors, from `cargo check` when you save. Its

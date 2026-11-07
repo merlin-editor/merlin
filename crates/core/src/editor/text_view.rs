@@ -368,6 +368,7 @@ impl Editor {
             self.carets().iter().filter_map(|c| c.selection()).collect();
         let selection = selections.first().copied();
         let hidden = self.hidden_lines();
+        let link = self.link_span();
         // A window drawing the text gets rows past both edges.
         let overscan = OVERSCAN;
         // The top may be a row part-way down the first line: its rows above
@@ -584,7 +585,7 @@ impl Editor {
                 }
             }
             // Bracket colours, counted over the whole line, drawn or not.
-            let brackets: Vec<Option<Hue>> = chars
+            let mut brackets: Vec<Option<Hue>> = chars
                 .iter()
                 .enumerate()
                 .map(|(i, &c)| {
@@ -606,6 +607,12 @@ impl Editor {
                     }
                 })
                 .collect();
+            // The name under Ctrl, as a link.
+            if let Some((a, b)) = link {
+                for i in a.max(start)..b.min(end) {
+                    brackets[i - start] = Some(Hue::Link);
+                }
+            }
             // Indent guides on the first cell of each level's whitespace,
             // in the line's first row.
             let mut col = 0;

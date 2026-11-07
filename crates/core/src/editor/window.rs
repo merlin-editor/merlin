@@ -210,6 +210,11 @@ pub struct WindowView {
     pub which_key: Option<super::WhichKeyView>,
     /// A macro recording or playing, for the status bar.
     pub recording: Option<super::MacroView>,
+    /// Whether the pointer is on a name drawn as a link, with Ctrl down.
+    pub pointer_link: bool,
+    /// Something is on its way that the pointer shows as busy: a save
+    /// waiting for its formatting, or the debugger starting or building.
+    pub busy: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -620,6 +625,8 @@ impl Editor {
             vim_line: self.vim_line_view(),
             which_key: self.which_key_view(),
             recording: self.macro_view(),
+            pointer_link: self.link_span().is_some(),
+            busy: self.waiting_format.is_some() || self.debug_busy(),
         }
     }
 

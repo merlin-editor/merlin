@@ -116,6 +116,14 @@ impl Editor {
                                 let _ = writeln!(o, " {mark} {label}  {detail}");
                             }
                         }
+                        PopupKind::Definition {
+                            file, line, lines, ..
+                        } => {
+                            let _ = writeln!(o, "definition: {file} · line {line}");
+                            for l in lines {
+                                let _ = writeln!(o, "  {l}");
+                            }
+                        }
                     }
                 }
             }

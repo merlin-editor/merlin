@@ -583,6 +583,12 @@ interface host {
   /// at the cursor is used, for the editor's peek view.
   show-references: func(places: list<location>);
 
+  /// Answers the editor's `definition-link` command, which it runs while
+  /// Ctrl is held over a name: where the name at the cursor is defined,
+  /// empty if nowhere. The editor underlines the name as a link, and a
+  /// click goes there.
+  show-definitions: func(places: list<location>);
+
   /// What the palette's symbol search looks for, while the command a
   /// manifest's `symbols` names runs.
   symbol-query: func() -> string;

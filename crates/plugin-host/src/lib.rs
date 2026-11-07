@@ -749,6 +749,19 @@ impl host::Host for State {
         self.events.push(Event::ShowReferences(places));
     }
 
+    fn show_definitions(&mut self, places: Vec<types::Location>) {
+        let at = |p: types::Position| (p.line, p.column);
+        let places = places
+            .into_iter()
+            .map(|l| merlin_core::lang::Location {
+                path: self.snapshot.local(&l.path),
+                start: at(l.start),
+                end: at(l.end),
+            })
+            .collect();
+        self.events.push(Event::Definitions(places));
+    }
+
     fn symbol_query(&mut self) -> String {
         self.symbol_query.clone()
     }
@@ -1492,15 +1505,14 @@ impl PluginHost {
                 plugin.failed = true;
                 store.data_mut().processes.kill_all();
                 // Out of fuel says nothing a backtrace would add.
-                let message = if err.downcast_ref::<wasmtime::Trap>()
-                    == Some(&wasmtime::Trap::OutOfFuel)
-                {
-                    "it ran too long and was stopped. Turn it off and on in Settings › \
+                let message =
+                    if err.downcast_ref::<wasmtime::Trap>() == Some(&wasmtime::Trap::OutOfFuel) {
+                        "it ran too long and was stopped. Turn it off and on in Settings › \
                      Plugins to start it again."
-                        .to_string()
-                } else {
-                    format!("{err:#}")
-                };
+                            .to_string()
+                    } else {
+                        format!("{err:#}")
+                    };
                 events.push(Event::PluginFailed {
                     plugin: plugin.manifest.name.clone(),
                     message,

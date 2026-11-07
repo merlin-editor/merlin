@@ -131,6 +131,16 @@ pub enum PopupKind {
         items: Vec<(String, String)>,
         selected: usize,
     },
+    /// The definition of the name under Ctrl: its file's name, the line
+    /// it's on and the first line shown (from 1), the lines, and their
+    /// colours as for a hover's code.
+    Definition {
+        file: String,
+        line: usize,
+        first: usize,
+        lines: Vec<String>,
+        colours: Vec<Vec<(usize, usize, Syntax)>>,
+    },
 }
 
 impl Editor {
@@ -567,6 +577,7 @@ impl Editor {
         }
         let span = match &self.popup {
             Some(Popup::Hover { span, .. }) if self.hover_anchor.is_some() => *span,
+            Some(Popup::Definition { span, .. }) => Some(*span),
             _ => None,
         };
         if outside(span) {
@@ -631,8 +642,8 @@ impl Editor {
             Some(Popup::Hover { .. }) => self.hover_anchor,
             _ => None,
         };
-        self.probe
-            .map(|(start, _)| start)
+        self.link_cursor()
+            .or(self.probe.map(|(start, _)| start))
             .or(hovered)
             .unwrap_or(self.doc().cursor)
     }
@@ -716,6 +727,34 @@ impl Editor {
                     .collect(),
                 selected: *selected,
             },
+            // It shows once its file is read.
+            Popup::Definition { card, .. } => {
+                let (first, lines) = card.lines.as_ref()?;
+                let ext = card
+                    .path
+                    .extension()
+                    .map(|e| e.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                // Coloured as a fenced block in the file's language.
+                let fenced: Vec<String> = std::iter::once(format!("```{ext}"))
+                    .chain(lines.iter().cloned())
+                    .chain(std::iter::once("```".to_string()))
+                    .collect();
+                let mut colours = self.hover_colours(&fenced);
+                colours.pop();
+                colours.remove(0);
+                PopupKind::Definition {
+                    file: card
+                        .path
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default(),
+                    line: card.line + 1,
+                    first: first + 1,
+                    lines: lines.clone(),
+                    colours,
+                }
+            }
         };
         Some(PopupView { anchor, kind })
     }

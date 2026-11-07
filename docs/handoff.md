@@ -5,7 +5,8 @@ Read it with [`feature-research.md`](feature-research.md), which has the
 research, the build order, and what's marked **Built**, and with
 [`mockups/README.md`](mockups/README.md), which describes the 11 approved
 mock-ups. Nothing is pushed. The last commit when this was written was
-`8c5108c`.
+the one that adds Ctrl over a name and the pointer shapes, after
+`5498de6`.
 
 ## The user's rules
 
@@ -41,6 +42,7 @@ mock-ups. Nothing is pushed. The last commit when this was written was
 | 7. Debugging | Built. See below |
 | 8. Vim, which-key and macros | Built but for Helix. See below |
 | The palette as one search | Built. See below |
+| Ctrl over a name, and pointer shapes | Built. See below |
 | 9 and 10 | Not started |
 
 ### Language features (`Language.dc.html`)
@@ -892,6 +894,33 @@ code with rust-analyzer:
   Esc puts the editor back (`search_restore`). A file opened while the
   search is up leaves the keys in the palette.
 
+### Ctrl over a name, and pointer shapes (`Pointer.dc.html`)
+
+Built, checked in the window with rust-analyzer: the link and its card,
+Ctrl+click, Ctrl+Alt+click, Ctrl+click on a definition, and the hand, text
+bar, open hand and "not allowed" pointers.
+
+- `editor/link.rs`: Ctrl over a name sets `Editor.link`. After a stop of
+  `LINK_WAIT_MS` (`link_wait()`, then `Event::LinkDue(tick)`), it runs the
+  Language plugin's `definition-link`, with the plugin's cursor on the
+  name (`link_cursor()`). The plugin answers with the `show-definitions`
+  import (`Event::Definitions`). An answer is kept for the name, so moving
+  along it asks nothing. The name is drawn with `Hue::Link`, which the
+  theme underlines in the accent.
+- A rest with Ctrl shows `Popup::Definition`, read from the open document
+  or with `Effect::ReadFiles`. Ctrl+click before the answer goes when it
+  comes (`Link.jump`).
+- The window learns of Ctrl through `ModifiersChanged`, which sends a
+  Move again, so the link comes and goes without moving the pointer.
+- Pointer shapes are in `gui/mod.rs` (`update_pointer`), run after each
+  move and each draw. The frame marks hits as `Mark::Link`, `Mark::Input`
+  or `Mark::Tab` (`marked_hit`, `input_box`). `WindowView` gives
+  `pointer_link` and `busy`.
+- Not built from the mock-up: a breakpoint dragged between lines and a
+  layout dragged in Settings, since neither can be dragged yet, and the
+  busy arrow while a plugin reloads, which is quicker than a frame. The
+  busy arrow wasn't checked in the window.
+
 ### Memory and CPU (2026-11-06)
 
 Measured with merlin on its own repo and the bundled plugins
@@ -1004,11 +1033,11 @@ These are suggestions; nothing of them is written yet.
   straight into core `Event`s. The Rust SDK's re-exports are in
   `sdk/rust/src/lib.rs`; add new types to both lists there.
 - The API stays `0.8`: plugins built before must still load. New host
-  imports are fine (`symbol-query` and `show-project-symbols` are the
-  latest); new exports are not. A plugin offers something new through
+  imports are fine (`show-definitions` is the latest, before it
+  `symbol-query` and `show-project-symbols`); new exports are not. A plugin offers something new through
   its manifest instead, as `symbols` and `[[keys]]` do.
 - Checks before each commit:
-  - `cargo test --workspace`: 478 tests pass as of `8c5108c`
+  - `cargo test --workspace`: 492 tests pass
   - `cargo clippy --workspace --all-targets`
   - in `plugins/lsp`: `cargo clippy --release --target wasm32-wasip2`
   - `cargo fmt --all`
