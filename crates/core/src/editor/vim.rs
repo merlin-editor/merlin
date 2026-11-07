@@ -274,6 +274,11 @@ fn change_case(op: Op, text: &str) -> String {
 }
 
 impl Editor {
+    /// Vim's state, for the keys it handles, which come only while it's on.
+    fn vim_mut(&mut self) -> &mut Vim {
+        self.vim.as_mut().expect("vim")
+    }
+
     pub(crate) fn vim_mode(&self) -> Option<VimMode> {
         self.vim.as_ref().map(|v| v.mode())
     }
@@ -370,7 +375,7 @@ impl Editor {
 
     fn vim_insert_key(&mut self, key: Key, t: char, fx: &mut Vec<Effect>) -> bool {
         let jk: Vec<char> = self.vim_settings.insert_escape.chars().collect();
-        let vim = self.vim.as_mut().expect("vim");
+        let vim = self.vim_mut();
         if let Some(change) = &mut vim.change
             && !vim.replaying
         {
@@ -397,7 +402,7 @@ impl Editor {
                             e.replace(c - 1, c, "", Kind::Typing);
                         }
                     });
-                    let vim = self.vim.as_mut().expect("vim");
+                    let vim = self.vim_mut();
                     if let Some(change) = &mut vim.change {
                         change.pop();
                         change.pop();
@@ -408,7 +413,7 @@ impl Editor {
                 }
             }
         }
-        let vim = self.vim.as_mut().expect("vim");
+        let vim = self.vim_mut();
         vim.escape = (jk.len() == 2 && t == jk[0]).then(Instant::now);
         if vim.mode() == VimMode::Replace {
             if let KeyCode::Char(c) = key.code
@@ -439,7 +444,7 @@ impl Editor {
 
     fn vim_leave_insert(&mut self, _fx: &mut Vec<Effect>) {
         let (id, at) = (self.doc().id, self.doc().cursor);
-        let vim = self.vim.as_mut().expect("vim");
+        let vim = self.vim_mut();
         vim.marks.insert('^', (id, at));
         vim.mode = Some(VimMode::Normal);
         vim.escape = None;
@@ -462,7 +467,7 @@ impl Editor {
     /// The undo steps since the change began become one.
     fn vim_join_undo(&mut self) {
         let id = self.doc().id;
-        let vim = self.vim.as_mut().expect("vim");
+        let vim = self.vim_mut();
         if let Some((doc, from)) = vim.undo_from.take()
             && doc == id
         {
@@ -471,7 +476,7 @@ impl Editor {
     }
 
     fn vim_command_key(&mut self, key: Key, t: char, fx: &mut Vec<Effect>) {
-        let vim = self.vim.as_mut().expect("vim");
+        let vim = self.vim_mut();
         // A selection made some other way, as with the mouse, is Visual
         // mode's.
         if vim.mode() == VimMode::Normal && vim.pending.is_empty() {
@@ -480,7 +485,7 @@ impl Editor {
                 && !self.has_carets()
             {
                 let cursor = doc.cursor;
-                let vim = self.vim.as_mut().expect("vim");
+                let vim = self.vim_mut();
                 vim.mode = Some(VimMode::Visual);
                 vim.anchor = anchor;
                 vim.cursor = if cursor > anchor { cursor - 1 } else { cursor };
@@ -510,7 +515,7 @@ impl Editor {
         if self.vim_leader(fx) {
             return;
         }
-        let vim = self.vim.as_mut().expect("vim");
+        let vim = self.vim_mut();
         let visual = vim.mode().visual();
         match parse(&vim.pending, visual) {
             Parsed::Wait => {}
@@ -527,10 +532,10 @@ impl Editor {
                 if change || visual {
                     let steps = self.doc().buffer.undo_steps();
                     let id = self.doc().id;
-                    self.vim.as_mut().expect("vim").undo_from = Some((id, steps));
+                    self.vim_mut().undo_from = Some((id, steps));
                 }
                 self.vim_run(cmd, fx);
-                let vim = self.vim.as_mut().expect("vim");
+                let vim = self.vim_mut();
                 if vim.mode() == VimMode::Insert || vim.mode() == VimMode::Replace {
                     if change {
                         vim.change = Some(keys);
@@ -592,7 +597,7 @@ impl Editor {
                 let jump = "GnN*#%{}'`".contains(m.chars().next().unwrap_or(' ')) || m == "gg";
                 if jump && !carets {
                     let (id, at) = (self.doc().id, self.doc().cursor);
-                    self.vim.as_mut().expect("vim").marks.insert('\'', (id, at));
+                    self.vim_mut().marks.insert('\'', (id, at));
                 }
                 let before = self.doc().cursor;
                 self.each_caret(Kind::Other, |e, _| {
@@ -666,7 +671,7 @@ impl Editor {
     }
 
     pub(crate) fn vim_enter(&mut self, mode: VimMode) {
-        let vim = self.vim.as_mut().expect("vim");
+        let vim = self.vim_mut();
         vim.mode = Some(mode);
         vim.goal = None;
         vim.escape = None;
@@ -693,7 +698,7 @@ impl Editor {
                 if self.has_carets() {
                     self.clear_carets();
                 }
-                self.vim.as_mut().expect("vim").highlight = false;
+                self.vim_mut().highlight = false;
             }
             (':', None) => {
                 let range = match count {
@@ -719,7 +724,7 @@ impl Editor {
                     }
                     _ => {
                         self.macro_fail(format!("@{r} was empty"));
-                        self.vim.as_mut().expect("vim").note = Some(format!("@{r} is empty"));
+                        self.vim_mut().note = Some(format!("@{r} is empty"));
                     }
                 }
             }
@@ -832,7 +837,7 @@ impl Editor {
                     return;
                 };
                 let len = self.doc().buffer.len();
-                let vim = self.vim.as_mut().expect("vim");
+                let vim = self.vim_mut();
                 vim.mode = Some(mode);
                 vim.anchor = anchor.min(len);
                 vim.cursor = cursor.min(len);
@@ -840,7 +845,7 @@ impl Editor {
             }
             ('m', Some(c)) => {
                 let (id, at) = (self.doc().id, self.doc().cursor);
-                self.vim.as_mut().expect("vim").marks.insert(c, (id, at));
+                self.vim_mut().marks.insert(c, (id, at));
             }
             ('\x01' | '\x18', None) => {
                 let by = if first == '\x01' {
@@ -932,8 +937,7 @@ impl Editor {
                 self.snap_scroll();
             }
             ('K', None) | ('g', Some('h')) => self.run("view.hover", fx),
-            ('g', Some('d')) => self.run("go.definition", fx),
-            ('g', Some('D')) => self.run("go.definition", fx),
+            ('g', Some('d' | 'D')) => self.run("go.definition", fx),
             ('g', Some('r')) => self.run("go.references", fx),
             ('g', Some('a')) => self.run("edit.quick_fix", fx),
             ('g', Some('t')) => self.run("file.next", fx),
@@ -1023,7 +1027,7 @@ impl Editor {
                 self.editor_key(key, fx);
             }
         }
-        let vim = self.vim.as_mut().expect("vim");
+        let vim = self.vim_mut();
         vim.replaying = false;
         vim.last_change = keys;
         // In Insert mode still, if the change was cut short.

@@ -262,7 +262,7 @@ impl Editor {
         let more = keys
             .iter()
             .any(|(k, _)| k.keys.starts_with(&format!("{typed} ")));
-        let vim = self.vim.as_mut().expect("vim");
+        let vim = self.vim_mut();
         match exact {
             Some((key, plugin)) if key.command.is_some() && !more => {
                 vim.pending.clear();

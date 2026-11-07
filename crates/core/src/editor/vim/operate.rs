@@ -20,7 +20,7 @@ impl Editor {
             text.push('\n');
         }
         let clipboard = self.vim_settings.clipboard;
-        let vim = self.vim.as_mut().expect("vim");
+        let vim = self.vim_mut();
         let r = Register {
             text: text.clone(),
             linewise,
@@ -291,7 +291,7 @@ impl Editor {
         fx: &mut Vec<Effect>,
     ) {
         if matches!(reg, Some('+' | '*')) || (reg.is_none() && self.vim_settings.clipboard) {
-            self.vim.as_mut().expect("vim").put = Some((before, n));
+            self.vim_mut().put = Some((before, n));
             fx.push(Effect::ReadClipboard);
             return;
         }
@@ -346,7 +346,7 @@ impl Editor {
             }
             self.replace(span.start, span.end, &with, Kind::Other);
             self.doc_mut().cursor = span.start;
-            let vim = self.vim.as_mut().expect("vim");
+            let vim = self.vim_mut();
             vim.registers.insert(
                 '"',
                 Register {

@@ -272,7 +272,7 @@ impl Editor {
             Some(_) => self.vim.as_ref().map_or(origin, |v| v.cursor),
             None => origin,
         };
-        let vim = self.vim.as_mut().expect("vim");
+        let vim = self.vim_mut();
         vim.line = Some(Line {
             kind,
             text: text.to_string(),
@@ -367,7 +367,7 @@ impl Editor {
             }
             (Up | Down, _) => {
                 let up = key.code == Up;
-                let vim = self.vim.as_mut().expect("vim");
+                let vim = self.vim_mut();
                 let line = vim.line.as_mut().expect("line");
                 let history = if line.kind == ':' {
                     &vim.history
@@ -457,7 +457,7 @@ impl Editor {
     fn vim_search_cursor(&mut self, at: usize) {
         let visual = self.vim_mode().is_some_and(|m| m.visual());
         if visual {
-            self.vim.as_mut().expect("vim").cursor = at;
+            self.vim_mut().cursor = at;
             self.vim_show_visual();
         } else {
             let doc = self.doc_mut();
@@ -602,7 +602,7 @@ impl Editor {
 
     /// Enter on the line.
     fn vim_line_run(&mut self, line: Line, items: Vec<VimLineItem>, fx: &mut Vec<Effect>) {
-        let vim = self.vim.as_mut().expect("vim");
+        let vim = self.vim_mut();
         if line.kind != ':' {
             if line.text.is_empty() {
                 // `/` and Enter searches for the last one again.
@@ -845,7 +845,7 @@ impl Editor {
                 Ok((_, b)) => {
                     let id = self.doc().id;
                     let at = self.doc().cursor;
-                    self.vim.as_mut().expect("vim").marks.insert('\'', (id, at));
+                    self.vim_mut().marks.insert('\'', (id, at));
                     let doc = self.doc();
                     let to = first_non_blank(doc, b);
                     self.set_cursor(to);
@@ -914,7 +914,7 @@ impl Editor {
                 };
                 fx.push(Effect::Open(path));
             }
-            "noh" => self.vim.as_mut().expect("vim").highlight = false,
+            "noh" => self.vim_mut().highlight = false,
             "s" | "&" => {
                 let plan = self.vim_substitute_plan(&ex);
                 match plan {
@@ -935,7 +935,7 @@ impl Editor {
                         let what = if count_only { "match" } else { "replaced" };
                         self.vim_note(format!("{n} {what}{s} on {n_lines} line{l}"));
                         if let Some((pat, rep, _)) = split_substitute(ex.args) {
-                            let vim = self.vim.as_mut().expect("vim");
+                            let vim = self.vim_mut();
                             if !pat.is_empty() {
                                 vim.search = Some((pat.clone(), true));
                             }

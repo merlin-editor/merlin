@@ -393,7 +393,7 @@ impl Editor {
             }
             ('f' | 'F' | 't' | 'T', Some(target)) => {
                 let to = find_in_line(doc, p, first, target, n)?;
-                self.vim.as_mut().expect("vim").last_find = Some((first, target));
+                self.vim_mut().last_find = Some((first, target));
                 (
                     to,
                     if first == 'f' || first == 't' {
@@ -447,7 +447,7 @@ impl Editor {
                 // The word is letters, digits and `_`, which need no escaping.
                 let pattern = format!(r"\<{word}\>");
                 let to = search_regex(doc, s, &vim_regex(&pattern).ok()?, forward, n)?;
-                let vim = self.vim.as_mut().expect("vim");
+                let vim = self.vim_mut();
                 vim.search = Some((pattern, forward));
                 vim.highlight = true;
                 (to, EXCL)
@@ -456,7 +456,7 @@ impl Editor {
                 let (pattern, forward) = last_search?;
                 let forward = forward == (first == 'n');
                 let to = search_regex(doc, p, &vim_regex(&pattern).ok()?, forward, n)?;
-                self.vim.as_mut().expect("vim").highlight = true;
+                self.vim_mut().highlight = true;
                 (to, EXCL)
             }
             ('\'' | '`', Some(mark)) => {
@@ -473,7 +473,7 @@ impl Editor {
             }
             _ => return None,
         };
-        let vim = self.vim.as_mut().expect("vim");
+        let vim = self.vim_mut();
         vim.goal = if keep_goal { goal_out } else { None };
         Some(result)
     }

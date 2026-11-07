@@ -7,7 +7,7 @@ impl Editor {
     pub(super) fn vim_visual_start(&mut self, mode: VimMode) {
         self.clear_carets();
         let cursor = self.doc().cursor;
-        let vim = self.vim.as_mut().expect("vim");
+        let vim = self.vim_mut();
         vim.mode = Some(mode);
         vim.anchor = cursor;
         vim.cursor = cursor;
@@ -116,7 +116,7 @@ impl Editor {
     }
 
     pub(super) fn vim_leave_visual(&mut self) {
-        let vim = self.vim.as_mut().expect("vim");
+        let vim = self.vim_mut();
         vim.last_visual = Some((vim.mode(), vim.anchor, vim.cursor));
         vim.mode = Some(VimMode::Normal);
         let cursor = vim.cursor;
@@ -133,13 +133,13 @@ impl Editor {
         match cmd.what {
             What::Move(m) => {
                 if let Some((to, _)) = self.vim_motion(&m, cmd.count, None) {
-                    self.vim.as_mut().expect("vim").cursor = to;
+                    self.vim_mut().cursor = to;
                     self.vim_show_visual();
                 }
             }
             What::Object(o) => {
                 if let Some(span) = self.vim_object(&o, cmd.count) {
-                    let vim = self.vim.as_mut().expect("vim");
+                    let vim = self.vim_mut();
                     vim.anchor = span.start;
                     vim.cursor = span.end.saturating_sub(1).max(span.start);
                     if span.linewise && vim.mode() == VimMode::Visual {
@@ -225,12 +225,12 @@ impl Editor {
                             self.vim_leave_visual();
                             self.doc_mut().cursor = cursor;
                         } else {
-                            self.vim.as_mut().expect("vim").mode = Some(want);
+                            self.vim_mut().mode = Some(want);
                             self.vim_show_visual();
                         }
                     }
                     ('o' | 'O', None) => {
-                        let vim = self.vim.as_mut().expect("vim");
+                        let vim = self.vim_mut();
                         std::mem::swap(&mut vim.anchor, &mut vim.cursor);
                         self.vim_show_visual();
                     }
@@ -250,7 +250,7 @@ impl Editor {
                         if matches!(reg, Some('+' | '*'))
                             || (reg.is_none() && self.vim_settings.clipboard)
                         {
-                            self.vim.as_mut().expect("vim").put = Some((first == 'P', n));
+                            self.vim_mut().put = Some((first == 'P', n));
                             fx.push(Effect::ReadClipboard);
                             return;
                         }
@@ -308,7 +308,7 @@ impl Editor {
                         let span = self.vim_visual_span();
                         let id = self.doc().id;
                         let end = span.end.saturating_sub(1).max(span.start);
-                        let vim = self.vim.as_mut().expect("vim");
+                        let vim = self.vim_mut();
                         vim.marks.insert('<', (id, span.start));
                         vim.marks.insert('>', (id, end));
                         self.vim_leave_visual();

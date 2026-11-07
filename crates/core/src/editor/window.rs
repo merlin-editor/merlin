@@ -827,9 +827,8 @@ impl Editor {
 /// [`crate::panel::Panel::targets`] lists them.
 fn target_count(node: &Node) -> usize {
     match node {
-        Node::Button(_) | Node::Item { .. } | Node::Input { .. } => 1,
+        Node::Button(_) | Node::Item { .. } | Node::Input { .. } | Node::Wide { .. } => 1,
         Node::Buttons(bs) | Node::Tools(bs) | Node::Banner { buttons: bs, .. } => bs.len(),
-        Node::Wide { .. } => 1,
         Node::Entry(e) => 1 + e.action.is_some() as usize + e.links.len(),
         _ => 0,
     }
