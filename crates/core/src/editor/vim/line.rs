@@ -1155,7 +1155,7 @@ impl Editor {
 
     /// One of merlin's commands, as the palette runs them: a plugin's
     /// goes to its plugin.
-    fn run_command_id(&mut self, id: &str, fx: &mut Vec<Effect>) {
+    pub(crate) fn run_command_id(&mut self, id: &str, fx: &mut Vec<Effect>) {
         let plugin = self
             .plugins
             .iter()

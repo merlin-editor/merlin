@@ -115,6 +115,8 @@ pub(super) const EDITOR_KEYS: &[(&str, &str)] = &[
     ("ctrl+shift+i", "edit.format"),
     ("f2", "edit.rename"),
     ("f9", "debug.toggle_breakpoint"),
+    ("ctrl+alt+r", "macro.record"),
+    ("ctrl+alt+p", "macro.play"),
 ];
 
 /// Two keys in a row, as VS Code's Ctrl+K chords.

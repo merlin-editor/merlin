@@ -274,7 +274,8 @@ These are ordered by votes against effort.
    commands and ranges, merlin's commands by name, `:s` shown as it's
    typed, and `/` and `?`. Which-key is in, for Vim's prefixes, the
    leader (with plugins' `[[keys]]`), registers, marks and Ctrl+K chords.
-   Macros and Helix are next.
+   Macros are in: `q` and `@` in Vim, Record and Play from the palette
+   for both keymaps, and saved ones as `[[macros]]`. Helix is next.
 9. **Several folders in one window, and floating or second windows.**
 10. **Markdown preview**, with Mermaid.
 

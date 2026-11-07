@@ -516,6 +516,44 @@ impl Editor {
                 columns: 1,
             });
         }
+        // Macros to play, after `@`.
+        if rest == ['@'] {
+            let mut names: Vec<char> = vim
+                .registers
+                .keys()
+                .copied()
+                .filter(|c| c.is_ascii_alphanumeric())
+                .collect();
+            names.sort();
+            let mut items: Vec<WhichKeyItem> = names
+                .into_iter()
+                .map(|c| WhichKeyItem {
+                    key: c.to_string(),
+                    label: String::new(),
+                    group: false,
+                    plugin: None,
+                    preview: Some(preview(&vim.registers[&c].text)),
+                })
+                .collect();
+            if let Some(r) = self.last_macro_register {
+                items.insert(
+                    0,
+                    WhichKeyItem {
+                        key: "@".into(),
+                        label: format!("@{r} again"),
+                        group: false,
+                        plugin: None,
+                        preview: None,
+                    },
+                );
+            }
+            return Some(WhichKeyView {
+                chord,
+                hint: "q and a letter records one".into(),
+                items,
+                columns: 1,
+            });
+        }
         // Marks, after `'` and `` ` ``.
         if matches!(rest, ['\''] | ['`']) {
             let doc = self.doc();

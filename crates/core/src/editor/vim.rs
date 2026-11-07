@@ -216,7 +216,7 @@ pub(crate) struct Vim {
     history: Vec<String>,
     searches: Vec<String>,
     /// What the last command said, such as "3 of 12", for the status bar.
-    note: Option<String>,
+    pub(crate) note: Option<String>,
     /// The last `:s`, for `:&` and `&`.
     last_substitute: Option<(String, String)>,
     /// Where Visual mode began, and its cursor.
@@ -369,6 +369,7 @@ fn action(s: &[char], visual: bool) -> Result<Option<usize>, ()> {
     }
     match c {
         'r' | 'm' => Ok(s.get(1).map(|_| 2)),
+        'q' | '@' if !visual => Ok(s.get(1).map(|_| 2)),
         'z' if !visual => match s.get(1) {
             None => Ok(None),
             Some('z' | 't' | 'b' | '.' | '-' | '\r' | 'o' | 'c' | 'a' | 'R' | 'M') => Ok(Some(2)),
@@ -865,6 +866,12 @@ impl Editor {
         }
         vim.pending.push(t);
         vim.pending_keys.push(key);
+        // `q` stops a recording.
+        if vim.pending == ['q'] && self.recording.is_some() {
+            vim.pending.clear();
+            vim.pending_keys.clear();
+            return self.macro_stop();
+        }
         if self.vim_leader(fx) {
             return;
         }
@@ -873,8 +880,10 @@ impl Editor {
         match parse(&vim.pending, visual) {
             Parsed::Wait => {}
             Parsed::Bad => {
+                let keys = show_keys(&vim.pending.iter().collect::<String>());
                 vim.pending.clear();
                 vim.pending_keys.clear();
+                self.macro_fail(format!("{keys} isn't a command"));
             }
             Parsed::Done(cmd) => {
                 vim.pending.clear();
@@ -950,6 +959,7 @@ impl Editor {
                     let (id, at) = (self.doc().id, self.doc().cursor);
                     self.vim.as_mut().expect("vim").marks.insert('\'', (id, at));
                 }
+                let before = self.doc().cursor;
                 self.each_caret(Kind::Other, |e, _| {
                     if let Some((to, _)) = e.vim_motion(&m, cmd.count, None) {
                         let doc = e.doc_mut();
@@ -957,6 +967,10 @@ impl Editor {
                         doc.anchor = None;
                     }
                 });
+                // A motion with nowhere to go stops a macro, as in Vim.
+                if self.doc().cursor == before && must_move(&m) {
+                    self.macro_fail(format!("{} had nowhere to go", show_keys(&m)));
+                }
                 if matches!(m.as_str(), "n" | "N" | "*" | "#") {
                     self.vim_count_note();
                 }
@@ -983,8 +997,9 @@ impl Editor {
                         Target::Object(o) => e.vim_object(o, count),
                         Target::Motion(m) => e.vim_motion_span(m, count, op),
                     };
-                    if let Some(span) = span {
-                        enter |= e.vim_operate(op, span, reg, fx);
+                    match span {
+                        Some(span) => enter |= e.vim_operate(op, span, reg, fx),
+                        None => e.macro_fail("an operator had nothing to act on".into()),
                     }
                 });
                 if enter {
@@ -1739,6 +1754,47 @@ impl Editor {
         }
     }
 
+    /// What a register holds, as text for a macro.
+    pub(crate) fn vim_register_text(&self, r: char) -> Option<String> {
+        let reg = self.vim.as_ref()?.registers.get(&r)?;
+        let mut text = reg.text.clone();
+        if reg.linewise && text.ends_with('\n') {
+            text.pop();
+        }
+        Some(text)
+    }
+
+    pub(crate) fn vim_set_register(&mut self, r: char, text: &str) {
+        if let Some(vim) = &mut self.vim {
+            vim.registers.insert(
+                r,
+                Register {
+                    text: text.to_string(),
+                    linewise: false,
+                },
+            );
+        }
+    }
+
+    /// Back to Normal mode from wherever Vim is, as between a macro's
+    /// cursors.
+    pub(crate) fn vim_reset(&mut self) {
+        let Some(vim) = &mut self.vim else {
+            return;
+        };
+        vim.pending.clear();
+        vim.pending_keys.clear();
+        vim.line = None;
+        match vim.mode() {
+            VimMode::Insert | VimMode::Replace => self.vim_leave_insert(&mut Vec::new()),
+            m if m.visual() => {
+                self.vim_leave_visual();
+                self.vim_clamp();
+            }
+            _ => {}
+        }
+    }
+
     pub(crate) fn vim_enter(&mut self, mode: VimMode) {
         let vim = self.vim.as_mut().expect("vim");
         vim.mode = Some(mode);
@@ -1777,6 +1833,26 @@ impl Editor {
                 self.vim_open_line(':', &range);
             }
             ('/' | '?', None) => self.vim_open_line(first, ""),
+            ('q', Some(r)) if r.is_ascii_alphanumeric() || r == '"' => self.macro_record(Some(r)),
+            ('@', Some(r)) => {
+                let r = match r {
+                    '@' => match self.last_macro_register {
+                        Some(r) => r,
+                        None => return self.macro_fail("no macro had run yet".into()),
+                    },
+                    r => r.to_ascii_lowercase(),
+                };
+                match self.vim_register_text(r) {
+                    Some(text) if !text.is_empty() => {
+                        self.last_macro_register = Some(r);
+                        self.macro_play(format!("@{r}"), &text, n);
+                    }
+                    _ => {
+                        self.macro_fail(format!("@{r} was empty"));
+                        self.vim.as_mut().expect("vim").note = Some(format!("@{r} is empty"));
+                    }
+                }
+            }
             ('&', None) => self.vim_ex("s", None, fx),
             ('i', None) => self.vim_enter(VimMode::Insert),
             ('a', None) => {
@@ -2692,6 +2768,26 @@ impl Span {
 }
 
 /// Whether the keys so far are an operator waiting for its motion.
+/// Motions that fail when they can't move, which stops a macro.
+fn must_move(m: &str) -> bool {
+    m.trim_start_matches(|c: char| c.is_ascii_digit())
+        .starts_with(|c: char| {
+            "hjklwWbBeE{}nN*#fFtT;,+-\r \x7f".contains(c) || (LEFT..=DOWN).contains(&c)
+        })
+}
+
+/// Keys as the status bar shows them.
+fn show_keys(keys: &str) -> String {
+    keys.chars()
+        .map(|c| match c {
+            ESC => "⎋".to_string(),
+            ENTER => "↵".to_string(),
+            c if (c as u32) < 27 => format!("^{}", ((c as u8) + b'A' - 1) as char),
+            c => c.to_string(),
+        })
+        .collect()
+}
+
 fn parse_waits_for_motion(pending: &[char]) -> bool {
     let mut i = 0;
     if pending.first() == Some(&'"') {

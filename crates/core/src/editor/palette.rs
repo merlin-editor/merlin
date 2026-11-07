@@ -13,6 +13,11 @@ impl Editor {
                     .iter()
                     .map(|c| (format!("{}.{}", p.name, c.id), c.title.clone()))
             }))
+            .chain(
+                self.macros
+                    .iter()
+                    .map(|m| (m.command(), format!("Macro: {}", m.name))),
+            )
             .collect()
     }
 
@@ -37,6 +42,13 @@ impl Editor {
                     ),
                 };
                 return vec![item];
+            }
+            Source::MacroName => {
+                let name = palette.query.trim();
+                return vec![match name {
+                    "" => (String::new(), "Type a name for the macro".into()),
+                    name => (name.to_string(), format!("Save as Macro: {name}")),
+                }];
             }
             _ => &palette.items,
         };
@@ -106,7 +118,11 @@ impl Editor {
                     return;
                 };
                 match (item, palette.source) {
-                    (Some((id, _)), Source::Commands) => self.run(&id, fx),
+                    (Some((id, _)), Source::Commands) => {
+                        self.macro_command(&id);
+                        self.run(&id, fx)
+                    }
+                    (Some((name, _)), Source::MacroName) => self.macro_save(&name, fx),
                     (Some((path, _)), Source::Files) => {
                         if !self.compare_picked(PathBuf::from(&path), fx) {
                             self.open(PathBuf::from(path), fx);

@@ -640,6 +640,13 @@ impl App {
                             queue.push_back(Event::Error(format!("Can't save {key}: {err}")));
                         }
                     }
+                    Effect::SaveMacro(saved) => {
+                        if !self.scripted
+                            && let Err(err) = self.settings.save_macro(&saved)
+                        {
+                            queue.push_back(Event::Error(format!("Can't save the macro: {err}")));
+                        }
+                    }
                     Effect::PreviewTheme(kind, name) => {
                         queue.extend(self.preview(kind, name));
                     }
@@ -1018,6 +1025,7 @@ impl App {
             self.auto_save,
             self.format_due.map(|(at, _)| at),
             self.which_key_due.map(|(at, _)| at),
+            self.editor.macro_playing().then(Instant::now),
             self.terminals.due(),
         ]
         .into_iter()
@@ -1052,6 +1060,10 @@ impl App {
             && let Some((_, tick)) = self.which_key_due.take()
         {
             self.dispatch(Event::WhichKey(tick));
+            changed = true;
+        }
+        if self.editor.macro_playing() {
+            self.dispatch(Event::MacroStep);
             changed = true;
         }
         if self.format_due.is_some_and(|(at, _)| at <= now) {

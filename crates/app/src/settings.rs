@@ -63,6 +63,12 @@ const USER_TEMPLATE: &str = r#"# merlin settings. Saving this file applies them.
 [keys]
 # "ctrl+k" = "view.minimap"
 # "ctrl+d" = ""       # unbinds a key
+# "ctrl+alt+1" = "macro.saved.note_the_line"   # a saved macro's key
+
+# Macros saved with Save the Last Macro As…, keys as Vim writes them:
+# [[macros]]
+# name = "Note the line"
+# keys = "I// NOTE: <Esc>j"
 
 # Plugins' settings, by plugin name:
 # [plugins.lsp]
@@ -146,6 +152,32 @@ impl Files {
         self.edit(workspace, key, |table, last| {
             table[last] = toml_edit::value(value);
         })
+    }
+
+    /// Saves a macro in the user's settings as `[[macros]]`, in place of
+    /// one with the same name.
+    pub fn save_macro(&self, saved: &merlin_core::Macro) -> Result<(), String> {
+        let path = &self.user;
+        let text = fs::read_to_string(path).unwrap_or_default();
+        let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e| format!("{e}"))?;
+        let list = doc
+            .entry("macros")
+            .or_insert_with(|| toml_edit::Item::ArrayOfTables(Default::default()))
+            .as_array_of_tables_mut()
+            .ok_or("macros isn't a list of tables")?;
+        let mut table = toml_edit::Table::new();
+        table["name"] = toml_edit::value(saved.name.as_str());
+        table["keys"] = toml_edit::value(saved.keys.as_str());
+        let old = list
+            .iter()
+            .position(|t| t.get("name").and_then(|n| n.as_str()) == Some(saved.name.as_str()));
+        match old.and_then(|i| list.get_mut(i)) {
+            Some(old) => *old = table,
+            None => list.push(table),
+        }
+        fs::create_dir_all(path.parent().unwrap_or(Path::new(".")))
+            .and_then(|()| fs::write(path, doc.to_string()))
+            .map_err(|e| e.to_string())
     }
 
     /// Takes `key` out of the user's settings or the workspace's, so the
@@ -347,6 +379,21 @@ pub fn editor(table: &toml::Table) -> Settings {
             .and_then(|v| v.as_str())
             == Some("relative"),
         keys,
+        macros: table
+            .get("macros")
+            .and_then(|m| m.as_array())
+            .map(|list| {
+                list.iter()
+                    .filter_map(|m| {
+                        let m = m.as_table()?;
+                        Some(merlin_core::Macro {
+                            name: m.get("name")?.as_str()?.to_string(),
+                            keys: m.get("keys")?.as_str()?.to_string(),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
     }
 }
 
@@ -612,5 +659,26 @@ mod tests {
         assert!(text.contains("\"ctrl+.\" = \"edit.rename\""), "{text}");
         let (user, _) = f.each();
         assert_eq!(user["editor"]["tab_size"].as_integer(), Some(2));
+    }
+
+    #[test]
+    fn a_saved_macro_goes_in_as_macros_and_replaces_its_name() {
+        let f = files("macros");
+        fs::create_dir_all(f.user.parent().unwrap()).unwrap();
+        fs::write(&f.user, "[editor]\nminimap = true\n").unwrap();
+        let m = |name: &str, keys: &str| merlin_core::Macro {
+            name: name.into(),
+            keys: keys.into(),
+        };
+        f.save_macro(&m("Note", "I// <Esc>")).unwrap();
+        f.save_macro(&m("Bang", "A!<Esc>")).unwrap();
+        f.save_macro(&m("Note", "I# <Esc>")).unwrap();
+        let text = fs::read_to_string(&f.user).unwrap();
+        assert_eq!(text.matches("[[macros]]").count(), 2, "{text}");
+        let (table, _) = f.load();
+        assert_eq!(
+            editor(&table).macros,
+            [m("Note", "I# <Esc>"), m("Bang", "A!<Esc>")]
+        );
     }
 }

@@ -61,6 +61,9 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
     ("find.open", "Edit: Find"),
     ("find.replace", "Edit: Replace"),
     ("palette.open", "View: Command Palette…"),
+    ("macro.record", "Record a Macro"),
+    ("macro.play", "Play the Last Macro"),
+    ("macro.save", "Save the Last Macro As…"),
     ("view.sidebar", "View: Toggle Side Bar"),
     ("view.explorer", "View: Explorer"),
     ("view.search", "View: Search"),
@@ -221,6 +224,18 @@ impl Editor {
         }
         if id.starts_with("merge.") {
             return self.merge_command(id, fx);
+        }
+        if id == "macro.record" {
+            return match self.macro_recording() {
+                true => self.macro_stop(),
+                false => self.macro_record(None),
+            };
+        }
+        if id == "macro.save" {
+            return self.macro_ask_name();
+        }
+        if id == "macro.play" || id.starts_with("macro.saved.") {
+            return self.macro_command_run(id);
         }
         if id.starts_with("files.") && self.hot_exit_command(id) {
             return;

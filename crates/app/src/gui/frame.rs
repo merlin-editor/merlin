@@ -5739,6 +5739,13 @@ impl Frame<'_> {
                 x += w + 14.0;
             }
             if let Some(note) = &vim.note {
+                // Cut short to leave the bar's other items their room.
+                let items: f32 = view
+                    .status
+                    .iter()
+                    .map(|i| self.text.width(&i.text, face) + 18.0)
+                    .sum();
+                let note = &self.text.fit(note, face, (w - 14.0 - items - x).max(60.0));
                 let w = self.text.width(note, face);
                 self.text.draw_in_row(
                     &mut self.canvas,
@@ -5752,6 +5759,79 @@ impl Frame<'_> {
                 );
                 x += w + 14.0;
             }
+        }
+        // A macro recording, with its keys so far, or playing, with how far
+        // it has got.
+        if let Some(rec) = &view.recording {
+            let (label, colour) = match rec.progress {
+                Some((done, of)) => (format!("Playing {} · {done} of {of}", rec.name), p.text),
+                None if rec.name.is_empty() => ("Recording".to_string(), p.error),
+                None => (format!("Recording {}", rec.name), p.error),
+            };
+            if rec.progress.is_none() {
+                let d = 7.0;
+                self.canvas.round(
+                    Rect::new(x, bar.y + (STATUS_H - d) / 2.0, d, d),
+                    d / 2.0,
+                    p.error,
+                );
+                x += d + 6.0;
+            }
+            let w = self.text.width(&label, face);
+            self.text.draw_in_row(
+                &mut self.canvas,
+                &label,
+                face,
+                x,
+                bar.y,
+                STATUS_H,
+                colour,
+                bar,
+            );
+            x += w + 10.0;
+            if let Some((done, of)) = rec.progress {
+                let track = Rect::new(x, bar.y + (STATUS_H - 4.0) / 2.0, 120.0, 4.0);
+                self.canvas.round(track, 2.0, p.chip);
+                let part = (done as f32 / of.max(1) as f32).clamp(0.0, 1.0);
+                if part > 0.0 {
+                    let fill = Rect::new(track.x, track.y, track.w * part, track.h);
+                    self.canvas.round(fill, 2.0, p.accent);
+                }
+                x = track.right() + 10.0;
+            }
+            if !rec.keys.is_empty() {
+                let mono = Face::mono(12.0);
+                // The last keys, if there are more than fit.
+                let shown: String = {
+                    let chars: Vec<char> = rec.keys.chars().collect();
+                    let from = chars.len().saturating_sub(40);
+                    chars[from..].iter().collect()
+                };
+                let w = self.text.width(&shown, mono);
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    &shown,
+                    mono,
+                    x,
+                    bar.y,
+                    STATUS_H,
+                    p.bright,
+                    bar,
+                );
+                x += w + 10.0;
+            }
+            let w = self.text.width(&rec.hint, face);
+            self.text.draw_in_row(
+                &mut self.canvas,
+                &rec.hint,
+                face,
+                x,
+                bar.y,
+                STATUS_H,
+                p.muted,
+                bar,
+            );
+            x += w + 14.0;
         }
         let mut left_end = x;
         let mut right_items = Vec::new();

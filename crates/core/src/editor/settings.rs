@@ -56,6 +56,8 @@ pub struct Settings {
     /// `view.minimap`, maybe only when a condition holds. An empty command
     /// unbinds the keys.
     pub keys: Vec<super::UserKey>,
+    /// Macros saved by name, as `[[macros]]`.
+    pub macros: Vec<super::Macro>,
 }
 
 impl Default for Settings {
@@ -85,6 +87,7 @@ impl Default for Settings {
             vim: Default::default(),
             relative_line_numbers: false,
             keys: Vec::new(),
+            macros: Vec::new(),
         }
     }
 }
@@ -124,6 +127,7 @@ impl Editor {
         self.set_keymap(settings.keymap);
         self.vim_settings = settings.vim;
         self.relative_numbers = settings.relative_line_numbers;
+        self.macros = settings.macros;
         if !self.preview_tabs {
             self.preview = None;
         }

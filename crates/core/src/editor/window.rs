@@ -203,6 +203,8 @@ pub struct WindowView {
     pub vim_line: Option<super::VimLineView>,
     /// What the next keys do, after a pause on a prefix.
     pub which_key: Option<super::WhichKeyView>,
+    /// A macro recording or playing, for the status bar.
+    pub recording: Option<super::MacroView>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -488,6 +490,7 @@ impl Editor {
                 Source::Themes { .. } => "Themes",
                 Source::Tasks => "Tasks",
                 Source::Restored => "Files",
+                Source::MacroName => "Macro",
             },
             items: shown
                 .into_iter()
@@ -553,6 +556,7 @@ impl Editor {
             vim: self.vim_view(),
             vim_line: self.vim_line_view(),
             which_key: self.which_key_view(),
+            recording: self.macro_view(),
         }
     }
 

@@ -227,6 +227,7 @@ impl Session {
     }
 
     pub fn send(&mut self, event: Event) {
+        let step = matches!(event, Event::MacroStep);
         for effect in self.editor.update(event) {
             self.effects.push(effect.clone());
             match effect {
@@ -300,6 +301,7 @@ impl Session {
                 | Effect::PluginPick { .. }
                 | Effect::PluginReview { .. }
                 | Effect::SetSetting { .. }
+                | Effect::SaveMacro(_)
                 | Effect::OpenSettings { .. }
                 | Effect::PreviewTheme(..)
                 | Effect::SetTheme(..)
@@ -318,6 +320,12 @@ impl Session {
                 | Effect::OpenFolder(_)
                 | Effect::SetSelection(_)
                 | Effect::ReadSelection => {}
+            }
+        }
+        // A macro plays to its end, as the window steps it.
+        if !step {
+            while self.editor.macro_playing() {
+                self.send(Event::MacroStep);
             }
         }
     }

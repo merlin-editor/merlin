@@ -437,3 +437,77 @@ fn ctrl_k_chords_have_a_card_too() {
         card.items
     );
 }
+
+#[test]
+fn q_records_and_at_plays_with_a_count() {
+    let mut s = vim("a1\na2\na3\na4\na5");
+    s.run("type qqA!; key esc; type jq");
+    assert_eq!(s.text(), "a1!\na2\na3\na4\na5");
+    assert!(s.editor.window_view().recording.is_none(), "q stopped it");
+    s.run("type 2@q");
+    assert_eq!(s.text(), "a1!\na2!\na3!\na4\na5");
+    s.run("type @@");
+    assert_eq!(s.text(), "a1!\na2!\na3!\na4!\na5");
+    // One undo takes the whole run.
+    s.run("type u");
+    assert_eq!(s.text(), "a1!\na2!\na3!\na4\na5");
+}
+
+#[test]
+fn a_run_stops_at_the_first_key_that_fails() {
+    let mut s = vim("x\nx\nx");
+    s.run("type qwA.; key esc; type jq");
+    s.run("type 20@w");
+    assert_eq!(s.text(), "x.\nx.\nx.");
+    let note = s.editor.window_view().vim.unwrap().note.unwrap();
+    assert!(note.contains("stopped early at line 3"), "{note}");
+    assert!(note.contains("j had nowhere to go"), "{note}");
+}
+
+#[test]
+fn a_macro_is_a_register_to_paste_and_yank_back() {
+    let mut s = vim("word\n");
+    s.run("type qaI<; key esc; type q");
+    assert_eq!(s.text(), "<word\n");
+    s.run("type o; key esc; type \"ap");
+    assert_eq!(s.text(), "<word\nI<lt><Esc>\n");
+    // Other keys yanked into it play instead.
+    s.run("type ddoA!<Esc>; key esc; type 0\"ay$gg@a");
+    assert_eq!(s.text(), "<word!\n\nA!<Esc>");
+}
+
+#[test]
+fn a_recursive_macro_runs_until_it_fails() {
+    let mut s = vim("1\n2\n3\n4");
+    // `qbq` empties b, so the @b recorded runs nothing yet.
+    s.run("type qbqqbA,; key esc; type j@bq");
+    assert_eq!(s.text(), "1,\n2\n3\n4");
+    s.run("type @b");
+    assert_eq!(s.text(), "1,\n2,\n3,\n4,");
+}
+
+#[test]
+fn several_cursors_each_play_the_macro() {
+    let mut s = vim("ab\nab\nab");
+    s.run("type qcA!; key esc; type q");
+    assert_eq!(s.text(), "ab!\nab\nab");
+    s.run("key ctrl+alt+down; key ctrl+alt+down");
+    s.run("type @c");
+    assert_eq!(s.text(), "ab!!\nab!\nab!");
+    assert_eq!(
+        s.editor.window_view().vim.unwrap().note.as_deref(),
+        Some("Ran @c once")
+    );
+}
+
+#[test]
+fn which_key_lists_the_macros_after_at() {
+    let mut s = vim("x");
+    s.run("type qmA!; key esc; type q@m@");
+    let tick = s.editor.which_key_wait().expect("waiting on @").0;
+    s.send(Event::WhichKey(tick));
+    let card = s.editor.window_view().which_key.expect("the card");
+    let keys: Vec<&str> = card.items.iter().map(|i| i.key.as_str()).collect();
+    assert_eq!(keys, ["@", "m"]);
+    assert_eq!(card.items[1].preview.as_deref(), Some("A!<Esc>"));
+}

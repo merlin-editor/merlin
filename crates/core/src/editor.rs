@@ -27,6 +27,8 @@ pub(crate) mod guides;
 mod keymap;
 mod keys;
 mod layout;
+mod macros;
+pub use macros::{Macro, MacroView};
 mod menu;
 mod merge;
 mod merge_editor;
@@ -346,6 +348,9 @@ pub enum Event {
     /// A pause on a prefix went on as long as
     /// [`Editor::which_key_wait`] asked: which-key shows.
     WhichKey(u64),
+    /// A macro is playing: [`Editor::macro_playing`]. It plays on for a
+    /// moment each time.
+    MacroStep,
     /// Debuggers a plugin's manifest declares.
     RegisterDebuggers {
         plugin: String,
@@ -597,6 +602,9 @@ pub enum Effect {
         key: String,
         value: String,
     },
+    /// Save a macro in the user's settings, as `[[macros]]`, in place of
+    /// one with its name.
+    SaveMacro(Macro),
     /// Open the user's settings file, or the workspace's.
     OpenSettings {
         workspace: bool,
@@ -926,6 +934,8 @@ enum Source {
     Tasks,
     /// The files whose unsaved changes came back.
     Restored,
+    /// A name to save the last macro as.
+    MacroName,
 }
 
 enum Popup {
@@ -1028,6 +1038,15 @@ pub struct Editor {
     /// key came since.
     which_key_tick: u64,
     which_key_shown: bool,
+    recording: Option<macros::Recording>,
+    macro_run: Option<macros::MacroRun>,
+    /// Why the key a macro just played failed.
+    macro_failed: Option<String>,
+    /// The macro recorded or played last, and the Vim register it was in.
+    last_macro: Option<String>,
+    last_macro_register: Option<char>,
+    /// The macros saved in the settings.
+    macros: Vec<Macro>,
     /// Quit with unsaved files kept.
     keep_unsaved: bool,
     /// Files whose unsaved changes came back from the last run.
@@ -1270,6 +1289,12 @@ impl Editor {
             plugin_keys: Vec::new(),
             which_key_tick: 0,
             which_key_shown: false,
+            recording: None,
+            macro_run: None,
+            macro_failed: None,
+            last_macro: None,
+            last_macro_register: None,
+            macros: Vec::new(),
             keep_unsaved: false,
             restored: Vec::new(),
             open_folder: None,
@@ -1597,7 +1622,7 @@ impl Editor {
             Event::Key(key) => {
                 self.probe = None;
                 self.hover_anchor = None;
-                self.key(key, &mut fx)
+                self.macro_key(key, &mut fx)
             }
             Event::Paste(text) => {
                 if !self.rename_paste(&text) && !self.terminal_paste(&text, &mut fx) {
@@ -1812,6 +1837,7 @@ impl Editor {
             Event::RunTask(name) => self.run_task_named(&name, &mut fx),
             Event::RegisterKeys { plugin, keys } => self.register_keys(plugin, keys),
             Event::WhichKey(tick) => self.which_key_due(tick),
+            Event::MacroStep => self.macro_step(&mut fx),
             Event::RegisterDebuggers { plugin, debuggers } => {
                 self.register_debuggers(plugin, debuggers, &mut fx)
             }
