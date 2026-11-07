@@ -915,221 +915,10 @@ impl Editor {
                 fx.push(Effect::Open(path));
             }
             "noh" => self.vim_mut().highlight = false,
-            "s" | "&" => {
-                let plan = self.vim_substitute_plan(&ex);
-                match plan {
-                    Ok((edits, n_lines)) if !edits.is_empty() => {
-                        let count_only =
-                            split_substitute(ex.args).is_some_and(|(_, _, f)| f.contains('n'));
-                        let n = edits.len();
-                        if !count_only {
-                            let last = edits.last().map_or(0, |e| e.at);
-                            self.apply_all(edits);
-                            let doc = self.doc();
-                            let line = doc.line_col(last.min(doc.buffer.len())).0;
-                            let to = first_non_blank(doc, line);
-                            self.set_cursor(to);
-                        }
-                        let s = if n == 1 { "" } else { "s" };
-                        let l = if n_lines == 1 { "" } else { "s" };
-                        let what = if count_only { "match" } else { "replaced" };
-                        self.vim_note(format!("{n} {what}{s} on {n_lines} line{l}"));
-                        if let Some((pat, rep, _)) = split_substitute(ex.args) {
-                            let vim = self.vim_mut();
-                            if !pat.is_empty() {
-                                vim.search = Some((pat.clone(), true));
-                            }
-                            vim.last_substitute = Some((pat, rep));
-                        }
-                    }
-                    Ok(_) => self.vim_note("Nothing matches".into()),
-                    Err(e) => self.vim_note(e),
-                }
-            }
-            "g" | "v" => {
-                let keep = name == "g" && !ex.bang;
-                let Some(delim) = ex.args.chars().next() else {
-                    return self.vim_note("Write it as g/pattern/command".into());
-                };
-                let mut parts = ex.args[delim.len_utf8()..].splitn(2, delim);
-                let pattern = parts.next().unwrap_or_default();
-                let command = parts.next().unwrap_or("p").trim();
-                let re = match vim_regex(pattern) {
-                    Ok(re) => re,
-                    Err(e) => return self.vim_note(e),
-                };
-                let (a, b) = if ex.range.is_empty() {
-                    (0, self.doc().last_line())
-                } else {
-                    match lines {
-                        Ok(l) => l,
-                        Err(e) => return self.vim_note(e),
-                    }
-                };
-                let doc = self.doc();
-                let hits: Vec<usize> = (a..=b)
-                    .filter(|&l| {
-                        re.is_match(&doc.line_chars(l).into_iter().collect::<String>()) == keep
-                    })
-                    .collect();
-                // Bottom up, so the lines above keep their numbers.
-                for &line in hits.iter().rev() {
-                    let n = line + 1;
-                    self.vim_ex(&format!("{n}{command}"), None, fx);
-                }
-                let n = hits.len();
-                self.vim_note(format!("{n} line{}", if n == 1 { "" } else { "s" }));
-            }
-            "sort" => {
-                let (a, b) = if ex.range.is_empty() {
-                    (0, self.doc().last_line())
-                } else {
-                    match lines {
-                        Ok(l) => l,
-                        Err(e) => return self.vim_note(e),
-                    }
-                };
-                let doc = self.doc();
-                let mut rows: Vec<String> = (a..=b)
-                    .map(|l| doc.line_chars(l).into_iter().collect())
-                    .collect();
-                let numeric = ex.args.contains('n');
-                let fold = ex.args.contains('i');
-                let number = |s: &String| -> i64 {
-                    let digits: String = s
-                        .chars()
-                        .skip_while(|c| !c.is_ascii_digit() && *c != '-')
-                        .take_while(|c| c.is_ascii_digit() || *c == '-')
-                        .collect();
-                    digits.parse().unwrap_or(i64::MIN)
-                };
-                if numeric {
-                    rows.sort_by_key(number);
-                } else if fold {
-                    rows.sort_by_key(|s| s.to_lowercase());
-                } else {
-                    rows.sort();
-                }
-                if ex.bang {
-                    rows.reverse();
-                }
-                if ex.args.contains('u') {
-                    rows.dedup_by(|x, y| {
-                        if fold {
-                            x.to_lowercase() == y.to_lowercase()
-                        } else {
-                            x == y
-                        }
-                    });
-                }
-                let (start, end) = (doc.line_start(a), line_end(doc, b));
-                let with = rows.join("\n");
-                if doc.slice(start, end) != with {
-                    self.replace(start, end, &with, Kind::Other);
-                }
-                self.set_cursor(start);
-            }
-            "d" | "y" | ">" | "<" | "j" | "m" | "t" | "norm" => {
-                let (a, b) = match lines {
-                    Ok(l) => l,
-                    Err(e) => return self.vim_note(e),
-                };
-                let doc = self.doc();
-                let span = Span {
-                    start: doc.line_start(a),
-                    end: next_line(doc, b),
-                    linewise: true,
-                };
-                let reg = ex
-                    .args
-                    .chars()
-                    .next()
-                    .filter(|c| c.is_ascii_alphabetic() || *c == '_' || *c == '+');
-                match name {
-                    "d" => {
-                        self.vim_operate(Op::Delete, span, reg, fx);
-                    }
-                    "y" => {
-                        let text = self.doc().slice(span.start, span.end);
-                        self.vim_yank(reg, text, true, false, fx);
-                    }
-                    ">" | "<" => {
-                        self.vim_operate(
-                            if name == ">" { Op::Indent } else { Op::Outdent },
-                            span,
-                            None,
-                            fx,
-                        );
-                    }
-                    "j" => {
-                        self.set_cursor(span.start);
-                        self.vim_join((b - a).max(1), !ex.bang);
-                    }
-                    "m" | "t" => {
-                        let target = match ex.args.trim() {
-                            "0" => None,
-                            to => match self.vim_range(to) {
-                                Ok((_, t)) => Some(t),
-                                Err(e) => return self.vim_note(e),
-                            },
-                        };
-                        if name == "m" && target.is_some_and(|t| (a..=b).contains(&t)) {
-                            return self.vim_note("Can't move lines into themselves".into());
-                        }
-                        let mut text = self.doc().slice(span.start, span.end);
-                        if !text.ends_with('\n') {
-                            text.push('\n');
-                        }
-                        let doc = self.doc();
-                        let mut at = target.map_or(0, |t| next_line(doc, t));
-                        let at_end =
-                            at == doc.buffer.len() && !doc.slice(0, at).ends_with('\n') && at > 0;
-                        let insert = if at_end {
-                            format!("\n{}", text.trim_end_matches('\n'))
-                        } else {
-                            text.clone()
-                        };
-                        if name == "m" {
-                            // Take them out first, from wherever they are.
-                            if at > span.start {
-                                self.vim_operate(Op::Delete, span, Some('_'), fx);
-                                at -= span.end - span.start;
-                            } else {
-                                self.vim_operate(Op::Delete, span, Some('_'), fx);
-                            }
-                        }
-                        let at = at.min(self.doc().buffer.len());
-                        self.replace(at, at, &insert, Kind::Other);
-                        let doc = self.doc();
-                        let line = doc.line_col(at + insert.starts_with('\n') as usize).0;
-                        let to = first_non_blank(doc, line.min(doc.last_line()));
-                        self.set_cursor(to);
-                    }
-                    _ => {
-                        // `:normal`: the keys on each line, top down.
-                        let keys: Vec<Key> = ex
-                            .args
-                            .chars()
-                            .map(|c| Key::plain(KeyCode::Char(c)))
-                            .collect();
-                        for line in a..=b {
-                            if line > self.doc().last_line() {
-                                break;
-                            }
-                            let start = self.doc().line_start(line);
-                            self.set_cursor(start);
-                            for &key in &keys {
-                                if !self.vim_key(key, fx) {
-                                    self.editor_key(key, fx);
-                                }
-                            }
-                            if self.vim_mode() != Some(VimMode::Normal) {
-                                self.vim_key(Key::plain(KeyCode::Esc), fx);
-                            }
-                        }
-                    }
-                }
-            }
+            "s" | "&" => self.ex_substitute(&ex),
+            "g" | "v" => self.ex_global(&ex, name, lines, fx),
+            "sort" => self.ex_sort(&ex, lines),
+            "d" | "y" | ">" | "<" | "j" | "m" | "t" | "norm" => self.ex_lines(&ex, name, lines, fx),
             "set" => {
                 for option in ex.args.split_whitespace() {
                     match option {
@@ -1150,6 +939,238 @@ impl Editor {
             "bp" => self.run("file.prev", fx),
             "term" => self.run("terminal.new", fx),
             _ => {}
+        }
+    }
+
+    /// `:s` and `:&`: substitutes on the range's lines, or counts with `n`.
+    fn ex_substitute(&mut self, ex: &Ex) {
+        let plan = self.vim_substitute_plan(ex);
+        match plan {
+            Ok((edits, n_lines)) if !edits.is_empty() => {
+                let count_only = split_substitute(ex.args).is_some_and(|(_, _, f)| f.contains('n'));
+                let n = edits.len();
+                if !count_only {
+                    let last = edits.last().map_or(0, |e| e.at);
+                    self.apply_all(edits);
+                    let doc = self.doc();
+                    let line = doc.line_col(last.min(doc.buffer.len())).0;
+                    let to = first_non_blank(doc, line);
+                    self.set_cursor(to);
+                }
+                let s = if n == 1 { "" } else { "s" };
+                let l = if n_lines == 1 { "" } else { "s" };
+                let what = if count_only { "match" } else { "replaced" };
+                self.vim_note(format!("{n} {what}{s} on {n_lines} line{l}"));
+                if let Some((pat, rep, _)) = split_substitute(ex.args) {
+                    let vim = self.vim_mut();
+                    if !pat.is_empty() {
+                        vim.search = Some((pat.clone(), true));
+                    }
+                    vim.last_substitute = Some((pat, rep));
+                }
+            }
+            Ok(_) => self.vim_note("Nothing matches".into()),
+            Err(e) => self.vim_note(e),
+        }
+    }
+
+    /// `:g` and `:v`: a command on each line that matches, or doesn't.
+    fn ex_global(
+        &mut self,
+        ex: &Ex,
+        name: &str,
+        lines: Result<(usize, usize), String>,
+        fx: &mut Vec<Effect>,
+    ) {
+        let keep = name == "g" && !ex.bang;
+        let Some(delim) = ex.args.chars().next() else {
+            return self.vim_note("Write it as g/pattern/command".into());
+        };
+        let mut parts = ex.args[delim.len_utf8()..].splitn(2, delim);
+        let pattern = parts.next().unwrap_or_default();
+        let command = parts.next().unwrap_or("p").trim();
+        let re = match vim_regex(pattern) {
+            Ok(re) => re,
+            Err(e) => return self.vim_note(e),
+        };
+        let (a, b) = if ex.range.is_empty() {
+            (0, self.doc().last_line())
+        } else {
+            match lines {
+                Ok(l) => l,
+                Err(e) => return self.vim_note(e),
+            }
+        };
+        let doc = self.doc();
+        let hits: Vec<usize> = (a..=b)
+            .filter(|&l| re.is_match(&doc.line_chars(l).into_iter().collect::<String>()) == keep)
+            .collect();
+        // Bottom up, so the lines above keep their numbers.
+        for &line in hits.iter().rev() {
+            let n = line + 1;
+            self.vim_ex(&format!("{n}{command}"), None, fx);
+        }
+        let n = hits.len();
+        self.vim_note(format!("{n} line{}", if n == 1 { "" } else { "s" }));
+    }
+
+    /// `:sort`: the range's lines, or all of them, in order.
+    fn ex_sort(&mut self, ex: &Ex, lines: Result<(usize, usize), String>) {
+        let (a, b) = if ex.range.is_empty() {
+            (0, self.doc().last_line())
+        } else {
+            match lines {
+                Ok(l) => l,
+                Err(e) => return self.vim_note(e),
+            }
+        };
+        let doc = self.doc();
+        let mut rows: Vec<String> = (a..=b)
+            .map(|l| doc.line_chars(l).into_iter().collect())
+            .collect();
+        let numeric = ex.args.contains('n');
+        let fold = ex.args.contains('i');
+        let number = |s: &String| -> i64 {
+            let digits: String = s
+                .chars()
+                .skip_while(|c| !c.is_ascii_digit() && *c != '-')
+                .take_while(|c| c.is_ascii_digit() || *c == '-')
+                .collect();
+            digits.parse().unwrap_or(i64::MIN)
+        };
+        if numeric {
+            rows.sort_by_key(number);
+        } else if fold {
+            rows.sort_by_key(|s| s.to_lowercase());
+        } else {
+            rows.sort();
+        }
+        if ex.bang {
+            rows.reverse();
+        }
+        if ex.args.contains('u') {
+            rows.dedup_by(|x, y| {
+                if fold {
+                    x.to_lowercase() == y.to_lowercase()
+                } else {
+                    x == y
+                }
+            });
+        }
+        let (start, end) = (doc.line_start(a), line_end(doc, b));
+        let with = rows.join("\n");
+        if doc.slice(start, end) != with {
+            self.replace(start, end, &with, Kind::Other);
+        }
+        self.set_cursor(start);
+    }
+
+    /// The commands on a range of lines: `:d`, `:y`, `:>`, `:<`, `:j`, `:m`,
+    /// `:t` and `:norm`.
+    fn ex_lines(
+        &mut self,
+        ex: &Ex,
+        name: &str,
+        lines: Result<(usize, usize), String>,
+        fx: &mut Vec<Effect>,
+    ) {
+        let (a, b) = match lines {
+            Ok(l) => l,
+            Err(e) => return self.vim_note(e),
+        };
+        let doc = self.doc();
+        let span = Span {
+            start: doc.line_start(a),
+            end: next_line(doc, b),
+            linewise: true,
+        };
+        let reg = ex
+            .args
+            .chars()
+            .next()
+            .filter(|c| c.is_ascii_alphabetic() || *c == '_' || *c == '+');
+        match name {
+            "d" => {
+                self.vim_operate(Op::Delete, span, reg, fx);
+            }
+            "y" => {
+                let text = self.doc().slice(span.start, span.end);
+                self.vim_yank(reg, text, true, false, fx);
+            }
+            ">" | "<" => {
+                self.vim_operate(
+                    if name == ">" { Op::Indent } else { Op::Outdent },
+                    span,
+                    None,
+                    fx,
+                );
+            }
+            "j" => {
+                self.set_cursor(span.start);
+                self.vim_join((b - a).max(1), !ex.bang);
+            }
+            "m" | "t" => {
+                let target = match ex.args.trim() {
+                    "0" => None,
+                    to => match self.vim_range(to) {
+                        Ok((_, t)) => Some(t),
+                        Err(e) => return self.vim_note(e),
+                    },
+                };
+                if name == "m" && target.is_some_and(|t| (a..=b).contains(&t)) {
+                    return self.vim_note("Can't move lines into themselves".into());
+                }
+                let mut text = self.doc().slice(span.start, span.end);
+                if !text.ends_with('\n') {
+                    text.push('\n');
+                }
+                let doc = self.doc();
+                let mut at = target.map_or(0, |t| next_line(doc, t));
+                let at_end = at == doc.buffer.len() && !doc.slice(0, at).ends_with('\n') && at > 0;
+                let insert = if at_end {
+                    format!("\n{}", text.trim_end_matches('\n'))
+                } else {
+                    text.clone()
+                };
+                if name == "m" {
+                    // Take them out first, from wherever they are.
+                    if at > span.start {
+                        self.vim_operate(Op::Delete, span, Some('_'), fx);
+                        at -= span.end - span.start;
+                    } else {
+                        self.vim_operate(Op::Delete, span, Some('_'), fx);
+                    }
+                }
+                let at = at.min(self.doc().buffer.len());
+                self.replace(at, at, &insert, Kind::Other);
+                let doc = self.doc();
+                let line = doc.line_col(at + insert.starts_with('\n') as usize).0;
+                let to = first_non_blank(doc, line.min(doc.last_line()));
+                self.set_cursor(to);
+            }
+            _ => {
+                // `:normal`: the keys on each line, top down.
+                let keys: Vec<Key> = ex
+                    .args
+                    .chars()
+                    .map(|c| Key::plain(KeyCode::Char(c)))
+                    .collect();
+                for line in a..=b {
+                    if line > self.doc().last_line() {
+                        break;
+                    }
+                    let start = self.doc().line_start(line);
+                    self.set_cursor(start);
+                    for &key in &keys {
+                        if !self.vim_key(key, fx) {
+                            self.editor_key(key, fx);
+                        }
+                    }
+                    if self.vim_mode() != Some(VimMode::Normal) {
+                        self.vim_key(Key::plain(KeyCode::Esc), fx);
+                    }
+                }
+            }
         }
     }
 
