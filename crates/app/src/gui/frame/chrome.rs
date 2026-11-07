@@ -323,46 +323,26 @@ impl Frame<'_> {
             );
             x += w + 14.0;
         }
-        let mut left_end = x;
+        let mut left_items = Vec::new();
         let mut right_items = Vec::new();
         for (i, item) in view.status.iter().enumerate() {
-            if item.right {
-                right_items.push((i, item));
-                continue;
-            }
             let tw = self.text.width(&item.text, face);
-            let r = Rect::new(x - 6.0, bar.y + 3.0, tw + 12.0, STATUS_H - 6.0);
-            if item.clickable && self.hovered(r) {
-                self.canvas.round(r, 5.0, p.hover);
-            }
-            let colour = if item.error {
-                p.error
-            } else if item.accent {
-                p.accent
-            } else if debugging {
-                p.warning
+            if item.right {
+                right_items.push((i, item, tw));
             } else {
-                p.muted
-            };
-            self.text.draw_in_row(
-                &mut self.canvas,
-                &item.text,
-                face,
-                x,
-                bar.y,
-                STATUS_H,
-                colour,
-                bar,
-            );
-            if item.clickable {
-                self.hit(r, Hit::Ui(UiEvent::Status(i)));
+                left_items.push((i, item, tw));
             }
-            x += tw + 18.0;
-            left_end = x;
+        }
+        // Where there isn't room for both sides, the right side's middle
+        // items go first: the indent, encoding, line endings and keymap,
+        // keeping the cursor's place and the language.
+        let left_w: f32 = left_items.iter().map(|(.., tw)| tw + 18.0).sum();
+        let right_w = |r: &[(usize, _, f32)]| r.iter().map(|(.., tw)| tw + 18.0).sum::<f32>();
+        while right_items.len() > 2 && x + left_w + right_w(&right_items) > w - 14.0 {
+            right_items.remove(1);
         }
         let mut rx = w - 14.0;
-        for (i, item) in right_items.into_iter().rev() {
-            let tw = self.text.width(&item.text, face);
+        for &(i, item, tw) in right_items.iter().rev() {
             rx -= tw;
             let r = Rect::new(rx - 6.0, bar.y + 3.0, tw + 12.0, STATUS_H - 6.0);
             if item.clickable && self.hovered(r) {
@@ -384,6 +364,49 @@ impl Frame<'_> {
                 self.hit(r, Hit::Ui(UiEvent::Status(i)));
             }
             rx -= 18.0;
+        }
+        // The left side stops short of the right: an item without room is
+        // cut short, and those after it left out.
+        let mut left_end = x;
+        for (i, item, tw) in left_items {
+            let room = rx - 12.0 - x;
+            if room < 40.0 {
+                break;
+            }
+            let text = if tw > room {
+                self.text.fit(&item.text, face, room)
+            } else {
+                item.text.clone()
+            };
+            let tw = tw.min(room);
+            let r = Rect::new(x - 6.0, bar.y + 3.0, tw + 12.0, STATUS_H - 6.0);
+            if item.clickable && self.hovered(r) {
+                self.canvas.round(r, 5.0, p.hover);
+            }
+            let colour = if item.error {
+                p.error
+            } else if item.accent {
+                p.accent
+            } else if debugging {
+                p.warning
+            } else {
+                p.muted
+            };
+            self.text.draw_in_row(
+                &mut self.canvas,
+                &text,
+                face,
+                x,
+                bar.y,
+                STATUS_H,
+                colour,
+                bar,
+            );
+            if item.clickable {
+                self.hit(r, Hit::Ui(UiEvent::Status(i)));
+            }
+            x += tw + 18.0;
+            left_end = x;
         }
         if let Some((message, error)) = &view.problem {
             let room = rx - left_end - 12.0;
