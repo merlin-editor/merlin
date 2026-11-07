@@ -26,17 +26,7 @@ impl Frame<'_> {
         }
         self.canvas.round(mark, 5.0, p.accent);
         let m = "m";
-        let mw = self.text.width(m, Face::ui(11.0).bold());
-        self.text.draw_in_row(
-            &mut self.canvas,
-            m,
-            Face::ui(11.0).bold(),
-            mark.x + (18.0 - mw) / 2.0,
-            mark.y,
-            18.0,
-            p.ground,
-            mark,
-        );
+        self.centred(m, Face::ui(11.0).bold(), mark, p.ground, mark);
         self.text.draw_in_row(
             &mut self.canvas,
             &view.project,
@@ -575,19 +565,7 @@ impl Frame<'_> {
             bx -= bw;
             let b = Rect::new(bx, r.bottom() - 40.0, bw, 28.0);
             let primary = i + 1 == toast.buttons.len();
-            let hovered = self.hovered(b);
-            let (bg, fg) = if primary {
-                (
-                    if hovered {
-                        mix(p.accent, 0xffffff, 0.88)
-                    } else {
-                        p.accent
-                    },
-                    p.ground,
-                )
-            } else {
-                (if hovered { p.border } else { p.chip }, p.bright)
-            };
+            let (bg, fg) = self.button_colours(primary, self.hovered(b));
             self.canvas.round(b, 6.0, bg);
             self.text
                 .draw_in_row(&mut self.canvas, label, bf, b.x + 12.0, b.y, 28.0, fg, b);

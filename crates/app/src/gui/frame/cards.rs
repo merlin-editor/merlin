@@ -693,17 +693,7 @@ impl Frame<'_> {
             .take(1)
             .collect::<String>()
             .to_uppercase();
-        let iw = self.text.width(&initial, Face::ui(11.0).bold());
-        self.text.draw_in_row(
-            &mut self.canvas,
-            &initial,
-            Face::ui(11.0).bold(),
-            av.x + (22.0 - iw) / 2.0,
-            av.y,
-            22.0,
-            p.bright,
-            clip,
-        );
+        self.centred(&initial, Face::ui(11.0).bold(), av, p.bright, clip);
         let aw = self.text.draw_in_row(
             &mut self.canvas,
             &card.author,

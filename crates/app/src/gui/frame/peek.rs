@@ -4,9 +4,6 @@
 use super::*;
 
 impl Frame<'_> {
-    /// The references peek view, in the rows `text` opens for it from `y`:
-    /// a header, the chosen reference's lines on the left, and every
-    /// reference by file on the right.
     /// A change opened in place from its gutter bar, in the `rows` after
     /// screen position `y`: which change, Stage, Revert, the arrows and
     /// close, then what the lines were and are.
@@ -22,24 +19,7 @@ impl Frame<'_> {
         if r.bottom() < clip.y || r.y > clip.bottom() {
             return;
         }
-        self.hit(r, Hit::Block);
-        self.canvas
-            .outline(r, 8.0, 1.0, p.border, mix(p.ground, p.island, 0.5));
-        let inner = Rect::new(r.x + 1.0, r.y + 1.0, r.w - 2.0, r.h - 2.0);
-        let clip = Rect::new(
-            inner.x,
-            inner.y.max(clip.y),
-            inner.w,
-            (inner.bottom().min(clip.bottom()) - inner.y.max(clip.y)).max(0.0),
-        );
-        let head = Rect::new(inner.x, inner.y, inner.w, 30.0);
-        self.canvas.round(head, 7.0, p.widget);
-        self.canvas.fill(
-            Rect::new(head.x, head.bottom() - 7.0, head.w, 7.0),
-            p.widget,
-        );
-        self.canvas
-            .fill(Rect::new(head.x, head.bottom(), head.w, 1.0), p.border);
+        let (inner, clip, head) = self.peek_card(r, p.border, clip);
         let face = Face::ui(12.0);
         let title = format!("Change {} of {}", change.index, change.count);
         let tw = self.text.draw_in_row(
@@ -75,14 +55,10 @@ impl Frame<'_> {
             if hovered {
                 self.canvas.round(b, 5.0, p.hover);
             }
-            let gw = self.text.width(glyph, face);
-            self.text.draw_in_row(
-                &mut self.canvas,
+            self.centred(
                 glyph,
                 face,
-                b.x + (22.0 - gw) / 2.0,
-                b.y,
-                22.0,
+                b,
                 if hovered { p.bright } else { p.muted },
                 clip,
             );
@@ -173,6 +149,9 @@ impl Frame<'_> {
         }
     }
 
+    /// The references peek view, in the rows `text` opens for it from `y`:
+    /// a header, the chosen reference's lines on the left, and every
+    /// reference by file on the right.
     pub fn peek(&mut self, peek: &PeekView, text: Rect, y: f32, ch: f32) {
         let p = self.p;
         let r = Rect::new(
@@ -185,26 +164,9 @@ impl Frame<'_> {
         if r.bottom() < clip.y || r.y > clip.bottom() {
             return;
         }
-        self.hit(r, Hit::Block);
         let border = if peek.focused { p.accent } else { p.border };
-        self.canvas
-            .outline(r, 8.0, 1.0, border, mix(p.ground, p.island, 0.5));
-        let inner = Rect::new(r.x + 1.0, r.y + 1.0, r.w - 2.0, r.h - 2.0);
-        let clip = Rect::new(
-            inner.x,
-            inner.y.max(clip.y),
-            inner.w,
-            (inner.bottom().min(clip.bottom()) - inner.y.max(clip.y)).max(0.0),
-        );
         // The header: the name, how many, and its buttons.
-        let head = Rect::new(inner.x, inner.y, inner.w, 30.0);
-        self.canvas.round(head, 7.0, p.widget);
-        self.canvas.fill(
-            Rect::new(head.x, head.bottom() - 7.0, head.w, 7.0),
-            p.widget,
-        );
-        self.canvas
-            .fill(Rect::new(head.x, head.bottom(), head.w, 1.0), p.border);
+        let (inner, clip, head) = self.peek_card(r, border, clip);
         let bold = Face::ui(12.5).bold();
         let nw = self.text.draw_in_row(
             &mut self.canvas,
@@ -469,5 +431,31 @@ impl Frame<'_> {
             );
             iy += h;
         }
+    }
+
+    /// A peek's card over `r`, outlined in `border`, which the text behind
+    /// takes no clicks through: its inside, `clip` cut to that, and its
+    /// 30-pixel header.
+    fn peek_card(&mut self, r: Rect, border: u32, clip: Rect) -> (Rect, Rect, Rect) {
+        let p = self.p;
+        self.hit(r, Hit::Block);
+        self.canvas
+            .outline(r, 8.0, 1.0, border, mix(p.ground, p.island, 0.5));
+        let inner = Rect::new(r.x + 1.0, r.y + 1.0, r.w - 2.0, r.h - 2.0);
+        let clip = Rect::new(
+            inner.x,
+            inner.y.max(clip.y),
+            inner.w,
+            (inner.bottom().min(clip.bottom()) - inner.y.max(clip.y)).max(0.0),
+        );
+        let head = Rect::new(inner.x, inner.y, inner.w, 30.0);
+        self.canvas.round(head, 7.0, p.widget);
+        self.canvas.fill(
+            Rect::new(head.x, head.bottom() - 7.0, head.w, 7.0),
+            p.widget,
+        );
+        self.canvas
+            .fill(Rect::new(head.x, head.bottom(), head.w, 1.0), p.border);
+        (inner, clip, head)
     }
 }

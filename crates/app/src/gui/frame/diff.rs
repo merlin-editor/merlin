@@ -48,17 +48,7 @@ impl Frame<'_> {
             if self.hovered(r) {
                 self.canvas.round(r, 5.0, p.hover);
             }
-            let gw = self.text.width(glyph, face);
-            self.text.draw_in_row(
-                &mut self.canvas,
-                glyph,
-                face,
-                r.x + (20.0 - gw) / 2.0,
-                y,
-                h,
-                p.muted,
-                r,
-            );
+            self.centred(glyph, face, r, p.muted, r);
             self.hit(r, Hit::Command(command));
         }
         let (label, colour) = match (bar.left, bar.inline) {
@@ -417,17 +407,7 @@ impl Frame<'_> {
                         let hovered = self.hovered(b);
                         if *ticked {
                             self.canvas.round(b, 3.0, p.accent);
-                            let tw = self.text.width("✓", Face::ui(11.0));
-                            self.text.draw_in_row(
-                                &mut self.canvas,
-                                "✓",
-                                Face::ui(11.0),
-                                b.x + (14.0 - tw) / 2.0,
-                                b.y,
-                                14.0,
-                                p.on_accent,
-                                code,
-                            );
+                            self.centred("✓", Face::ui(11.0), b, p.on_accent, code);
                         } else {
                             let border = if hovered { p.accent } else { p.faint };
                             self.canvas.outline(b, 3.0, 1.0, border, p.island);
@@ -527,17 +507,7 @@ impl Frame<'_> {
             if self.hovered(r) {
                 self.canvas.round(r, 5.0, p.hover);
             }
-            let gw = self.text.width(glyph, face);
-            self.text.draw_in_row(
-                &mut self.canvas,
-                glyph,
-                face,
-                r.x + (20.0 - gw) / 2.0,
-                y,
-                h,
-                p.muted,
-                r,
-            );
+            self.centred(glyph, face, r, p.muted, r);
             self.hit(r, Hit::Command(command));
         }
         // A note such as "Moved from x.rs, no changes" says it already.
@@ -637,17 +607,7 @@ impl Frame<'_> {
                 self.canvas
                     .round(revert, 4.0, if hovered { p.border } else { p.chip });
                 let face = Face::ui(12.0);
-                let gw = self.text.width("«", face);
-                self.text.draw_in_row(
-                    &mut self.canvas,
-                    "«",
-                    face,
-                    revert.x + (22.0 - gw) / 2.0,
-                    revert.y,
-                    18.0,
-                    p.bright,
-                    revert,
-                );
+                self.centred("«", face, revert, p.bright, revert);
                 self.tips
                     .push((revert, "Revert to the last commit (Alt+R)".into()));
                 self.hit(revert, Hit::Ui(UiEvent::DiffRevert(index)));

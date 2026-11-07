@@ -199,6 +199,37 @@ impl Frame<'_> {
         );
     }
 
+    /// A button's ground and text: the accent for the primary one, a chip
+    /// for the rest, lighter while hovered.
+    pub(super) fn button_colours(&self, primary: bool, hovered: bool) -> (u32, u32) {
+        let p = self.p;
+        if primary {
+            let bg = if hovered {
+                mix(p.accent, 0xffffff, 0.88)
+            } else {
+                p.accent
+            };
+            (bg, p.ground)
+        } else {
+            (if hovered { p.border } else { p.chip }, p.bright)
+        }
+    }
+
+    /// `glyph` in the middle of `r`.
+    pub(super) fn centred(&mut self, glyph: &str, face: Face, r: Rect, colour: u32, clip: Rect) {
+        let gw = self.text.width(glyph, face);
+        self.text.draw_in_row(
+            &mut self.canvas,
+            glyph,
+            face,
+            r.x + (r.w - gw) / 2.0,
+            r.y,
+            r.h,
+            colour,
+            clip,
+        );
+    }
+
     pub(super) fn button(
         &mut self,
         label: &str,
@@ -211,19 +242,7 @@ impl Frame<'_> {
         let face = Face::ui(13.0).medium();
         let tw = self.text.width(label, face);
         let r = Rect::new(x, y, tw + 28.0, 30.0);
-        let hovered = self.hovered(r);
-        let (bg, fg) = if primary {
-            (
-                if hovered {
-                    mix(p.accent, 0xffffff, 0.88)
-                } else {
-                    p.accent
-                },
-                p.ground,
-            )
-        } else {
-            (if hovered { p.border } else { p.chip }, p.bright)
-        };
+        let (bg, fg) = self.button_colours(primary, self.hovered(r));
         if focused {
             self.canvas.outline(
                 Rect::new(x - 2.0, y - 2.0, r.w + 4.0, 34.0),
@@ -253,17 +272,11 @@ impl Frame<'_> {
         let (lw, kw) = (self.text.width(label, face), self.text.width(key, chip));
         let w = lw + kw + 12.0 + 8.0 + 20.0;
         let r = Rect::new(right - w, y, w, 26.0);
-        let hovered = self.hovered(r);
-        let (bg, fg, chip_bg, chip_fg) = if primary {
-            let bg = if hovered {
-                mix(p.accent, 0xffffff, 0.88)
-            } else {
-                p.accent
-            };
-            (bg, p.ground, mix(p.ground, bg, 0.18), p.ground)
+        let (bg, fg) = self.button_colours(primary, self.hovered(r));
+        let (chip_bg, chip_fg) = if primary {
+            (mix(p.ground, bg, 0.18), p.ground)
         } else {
-            let bg = if hovered { p.border } else { p.chip };
-            (bg, p.bright, mix(p.chip_text, bg, 0.12), p.chip_text)
+            (mix(p.chip_text, bg, 0.12), p.chip_text)
         };
         self.canvas.round(r, 6.0, bg);
         self.text

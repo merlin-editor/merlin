@@ -388,14 +388,7 @@ impl Frame<'_> {
                     clip,
                 );
                 if let Some(index) = target {
-                    self.hit(
-                        row,
-                        Hit::Ui(UiEvent::Target {
-                            side,
-                            index,
-                            clicks: 1,
-                        }),
-                    );
+                    self.hit(row, pick(side, index));
                 }
             }
             Node::Entry(e) => {
@@ -404,41 +397,20 @@ impl Frame<'_> {
                 let hits = self.entry(e, row, clip);
                 let check = hits.check;
                 if let Some(index) = target {
-                    self.hit(
-                        row,
-                        Hit::Ui(UiEvent::Target {
-                            side,
-                            index,
-                            clicks: 1,
-                        }),
-                    );
+                    self.hit(row, pick(side, index));
                     if let Some(b) = check {
                         self.hit(b, Hit::Ui(UiEvent::Check { side, index }));
                     }
                     if e.action.is_some() {
                         let a = Rect::new(row.right() - 50.0, row.y + 3.0, 20.0, 20.0);
-                        self.hit(
-                            a,
-                            Hit::Ui(UiEvent::Target {
-                                side,
-                                index: index + 1,
-                                clicks: 1,
-                            }),
-                        );
+                        self.hit(a, pick(side, index + 1));
                     }
                     if let Some(f) = hits.fold {
                         self.hit(f, Hit::Ui(UiEvent::Fold { side, index }));
                     }
                     let first_link = index + 1 + usize::from(e.action.is_some());
                     for (j, l) in hits.links.iter().enumerate() {
-                        self.hit(
-                            *l,
-                            Hit::Ui(UiEvent::Target {
-                                side,
-                                index: first_link + j,
-                                clicks: 1,
-                            }),
-                        );
+                        self.hit(*l, pick(side, first_link + j));
                     }
                 }
             }
@@ -453,11 +425,7 @@ impl Frame<'_> {
                 if let Some(index) = target {
                     self.hit(
                         Rect::new(r.x + 14.0, r.y + 4.0, bw, 30.0),
-                        Hit::Ui(UiEvent::Target {
-                            side,
-                            index,
-                            clicks: 1,
-                        }),
+                        pick(side, index),
                     );
                 }
             }
@@ -468,14 +436,7 @@ impl Frame<'_> {
                     let focused = sv.focused && index == Some(sv.selected);
                     let bw = self.button(&b.label, x, r.y + 4.0, focused, k == 0);
                     if let Some(index) = index {
-                        self.hit(
-                            Rect::new(x, r.y + 4.0, bw, 30.0),
-                            Hit::Ui(UiEvent::Target {
-                                side,
-                                index,
-                                clicks: 1,
-                            }),
-                        );
+                        self.hit(Rect::new(x, r.y + 4.0, bw, 30.0), pick(side, index));
                     }
                     x += bw + 8.0;
                 }
@@ -508,14 +469,7 @@ impl Frame<'_> {
                         br,
                     );
                     if let Some(index) = index {
-                        self.hit(
-                            br,
-                            Hit::Ui(UiEvent::Target {
-                                side,
-                                index,
-                                clicks: 1,
-                            }),
-                        );
+                        self.hit(br, pick(side, index));
                     }
                     x += br.w + 6.0;
                 }
@@ -566,14 +520,7 @@ impl Frame<'_> {
                         .fill(Rect::new(cx, b.y + 7.0, 1.5, b.h - 14.0), p.accent);
                 }
                 if let Some(index) = target {
-                    self.hit(
-                        b,
-                        Hit::Ui(UiEvent::Target {
-                            side,
-                            index,
-                            clicks: 1,
-                        }),
-                    );
+                    self.hit(b, pick(side, index));
                 }
                 self.input_box(b);
             }
@@ -640,14 +587,7 @@ impl Frame<'_> {
                     let focused = sv.focused && index == Some(sv.selected);
                     let bw = self.button(&button.label, x, b.y + 49.0, focused, false);
                     if let Some(index) = index {
-                        self.hit(
-                            Rect::new(x, b.y + 49.0, bw, 30.0),
-                            Hit::Ui(UiEvent::Target {
-                                side,
-                                index,
-                                clicks: 1,
-                            }),
-                        );
+                        self.hit(Rect::new(x, b.y + 49.0, bw, 30.0), pick(side, index));
                     }
                     x += bw + 8.0;
                 }
@@ -692,14 +632,7 @@ impl Frame<'_> {
                     b,
                 );
                 if let Some(index) = target {
-                    self.hit(
-                        b,
-                        Hit::Ui(UiEvent::Target {
-                            side,
-                            index,
-                            clicks: 1,
-                        }),
-                    );
+                    self.hit(b, pick(side, index));
                 }
             }
         }
@@ -859,17 +792,7 @@ impl Frame<'_> {
                 let a = Rect::new(row.right() - 50.0, row.y + 3.0, 20.0, 20.0);
                 self.canvas.round(a, 5.0, p.chip);
                 let g = glyph.to_string();
-                let gw = self.text.width(&g, Face::mono(13.0));
-                self.text.draw_in_row(
-                    &mut self.canvas,
-                    &g,
-                    Face::mono(13.0),
-                    a.x + (20.0 - gw) / 2.0,
-                    a.y,
-                    20.0,
-                    p.bright,
-                    clip,
-                );
+                self.centred(&g, Face::mono(13.0), a, p.bright, clip);
             }
             return hits;
         }
@@ -1114,18 +1037,17 @@ impl Frame<'_> {
             let a = Rect::new(right - 20.0, row.y + 3.0, 20.0, 20.0);
             self.canvas.round(a, 5.0, p.chip);
             let g = glyph.to_string();
-            let gw = self.text.width(&g, Face::mono(13.0));
-            self.text.draw_in_row(
-                &mut self.canvas,
-                &g,
-                Face::mono(13.0),
-                a.x + (20.0 - gw) / 2.0,
-                a.y,
-                20.0,
-                p.bright,
-                clip,
-            );
+            self.centred(&g, Face::mono(13.0), a, p.bright, clip);
         }
         hits
     }
+}
+
+/// A click on a side bar's row `index`.
+fn pick(side: Side, index: usize) -> Hit {
+    Hit::Ui(UiEvent::Target {
+        side,
+        index,
+        clicks: 1,
+    })
 }

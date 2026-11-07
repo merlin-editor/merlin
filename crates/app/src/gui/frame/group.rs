@@ -204,17 +204,7 @@ impl Frame<'_> {
                     self.canvas.round(close, 4.0, p.chip);
                 }
                 let face = Face::ui(if mark == '●' { 10.0 } else { 14.0 });
-                let mw = self.text.width(&mark.to_string(), face);
-                self.text.draw_in_row(
-                    &mut self.canvas,
-                    &mark.to_string(),
-                    face,
-                    close.x + (18.0 - mw) / 2.0,
-                    close.y,
-                    18.0,
-                    p.muted,
-                    clip,
-                );
+                self.centred(&mark.to_string(), face, close, p.muted, clip);
             }
             if close.x >= left && close.right() <= right {
                 self.hit(close, Hit::Ui(close_hit));
