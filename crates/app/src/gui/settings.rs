@@ -134,7 +134,6 @@ impl<'a> Frame<'a> {
     /// Returns how far it scrolls.
     pub fn settings_page(&mut self, v: &'a SettingsView, r: Rect, focused: bool) -> f32 {
         let p = self.p;
-        self.canvas.fill(r, p.island);
         self.hit(r, Hit::SettingsBody);
         let nav_w = NAV_W.min(r.w * 0.3);
         self.settings_nav(v, Rect::new(r.x, r.y, nav_w, r.h));

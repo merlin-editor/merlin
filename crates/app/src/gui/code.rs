@@ -99,13 +99,6 @@ impl Fonts {
         // The rows the view has, and the part of one more the area fits.
         let bottom = (top + (area.h as f32 + 1.0) * ch).min(oy + h);
         let clip = [text_x as i32, top as i32, right as i32, bottom as i32];
-        canvas.fill_px(
-            gutter_x as usize,
-            top as usize,
-            (right - gutter_x) as usize,
-            (bottom - top) as usize,
-            p.island,
-        );
         let a = Area {
             cw,
             ch,
@@ -254,6 +247,14 @@ impl Fonts {
         // shadow under them.
         if !view.sticky.is_empty() {
             let rows = view.sticky.len() as u16;
+            canvas.scene.prims.push(Prim::Quad {
+                rect: [gutter_x, top, right, top + rows as f32 * ch],
+                radius: 0.0,
+                fill: p.island,
+                alpha: 255,
+                border: 0,
+                border_w: 0.0,
+            });
             let pinned = TextView {
                 area: merlin_core::editor::CellRect { h: rows, ..area },
                 lines: view.sticky.clone(),

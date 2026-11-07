@@ -415,19 +415,6 @@ impl Canvas<'_> {
         self.round(r, 0.0, colour);
     }
 
-    /// A rectangle in physical pixels, filled.
-    pub fn fill_px(&mut self, x: usize, y: usize, w: usize, h: usize, colour: u32) {
-        let (x, y) = (x as f32, y as f32);
-        self.scene.prims.push(Prim::Quad {
-            rect: [x, y, x + w as f32, y + h as f32],
-            radius: 0.0,
-            fill: colour,
-            alpha: 255,
-            border: 0,
-            border_w: 0.0,
-        });
-    }
-
     /// A rectangle with corners rounded to `radius`, smoothed at the edges.
     pub fn round(&mut self, r: Rect, radius: f32, colour: u32) {
         self.tint(r, radius, colour, 255);
