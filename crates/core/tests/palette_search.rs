@@ -31,7 +31,7 @@ fn pause(s: &mut Session) {
 }
 
 #[test]
-fn ctrl_p_and_ctrl_shift_p_open_on_their_scopes() {
+fn ctrl_p_opens_on_files_and_ctrl_shift_p_on_everything() {
     let mut s = project();
     s.run("key ctrl+p");
     let p = palette(&s);
@@ -43,11 +43,14 @@ fn ctrl_p_and_ctrl_shift_p_open_on_their_scopes() {
         .map(|c| c.0.as_str())
         .collect();
     assert_eq!(on, ["Files"]);
-    s.run("key esc; key ctrl+shift+p");
-    assert_eq!(palette(&s).kind, "Commands");
     // Backspace on the empty box widens it to everything.
     s.run("key backspace");
     assert_eq!(palette(&s).kind, "Everything");
+    // The command palette searches everything, and > narrows it.
+    s.run("key esc; key ctrl+shift+p");
+    assert_eq!(palette(&s).kind, "Everything");
+    s.run("type >");
+    assert_eq!(palette(&s).kind, "Commands");
 }
 
 #[test]
@@ -240,4 +243,11 @@ fn a_result_in_a_file_not_open_previews_in_the_preview_tab() {
     assert_eq!(s.editor.open_files().len(), 2);
     let tabs = s.editor.window_view().tabs;
     assert!(tabs.iter().all(|t| !t.preview), "kept, not a preview");
+}
+
+#[test]
+fn letters_together_rank_before_scattered_ones() {
+    let mut s = project();
+    s.run("key ctrl+shift+p; type >wrap");
+    assert_eq!(palette(&s).items[0].0, "Toggle Word Wrap");
 }

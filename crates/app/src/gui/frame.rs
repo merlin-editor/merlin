@@ -3127,8 +3127,8 @@ impl Frame<'_> {
             p.muted,
             search,
         );
-        self.chip("Ctrl P", search.right() - 8.0, search.y + 6.0, true);
-        self.hit(search, Hit::Command("file.open"));
+        self.chip("Ctrl Shift P", search.right() - 8.0, search.y + 6.0, true);
+        self.hit(search, Hit::Command("palette.open"));
         // Layout toggles: side bar, panel, secondary side bar.
         let mut bx = w - 10.0 - 3.0 * 32.0;
         for (i, (id, glyph, command)) in [

@@ -101,7 +101,7 @@ fn the_palette_lists_commands_and_runs_a_clicked_one() {
     s.send(Event::Command("palette.open".into()));
     s.run("type toggle word wrap");
     let palette = s.editor.window_view().palette.expect("the palette is open");
-    assert_eq!(palette.kind, "Commands");
+    assert_eq!(palette.kind, "Everything");
     assert_eq!(palette.query, "toggle word wrap");
     let row = palette
         .items

@@ -456,7 +456,7 @@ impl Editor {
             "edit.paste" => fx.push(Effect::ReadClipboard),
             "find.open" => self.open_find(false),
             "find.replace" => self.open_find(true),
-            "palette.open" => self.open_search(search_all::Scope::Commands, fx),
+            "palette.open" => self.open_search(search_all::Scope::Everything, fx),
             "settings.open" => self.open_settings(None, fx),
             "view.plugins" => self.show_view(views::PLUGINS, fx),
             "theme.pick" => self.pick_theme(ThemeKind::Colours),

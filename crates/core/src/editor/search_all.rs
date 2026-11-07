@@ -818,7 +818,7 @@ impl Editor {
         let mut ranked: Vec<(i64, usize)> = commands
             .iter()
             .enumerate()
-            .filter_map(|(i, (_, title))| Some((fuzzy::score(query, title)?, i)))
+            .filter_map(|(i, (_, title))| Some((ranked_score(query, title)?, i)))
             .collect();
         ranked.sort_by_key(|&(score, i)| (Reverse(score), i));
         ranked
@@ -930,7 +930,7 @@ impl Editor {
                 let score = if query.is_empty() {
                     0
                 } else {
-                    match fuzzy::score(query, &s.name) {
+                    match ranked_score(query, &s.name) {
                         Some(score) => score,
                         None => continue,
                     }
@@ -981,7 +981,7 @@ impl Editor {
                 if open.contains(&s.path.as_path()) {
                     continue;
                 }
-                let Some(score) = fuzzy::score(query, &s.name) else {
+                let Some(score) = ranked_score(query, &s.name) else {
                     continue;
                 };
                 let path = s.path.to_string_lossy();
@@ -1018,6 +1018,21 @@ impl Editor {
             .map(|(_, _, r)| r)
             .collect()
     }
+}
+
+/// How well `name` matches: the query's letters together, as in "Word
+/// Wrap" for `wrap`, beat them scattered, as in "Show Hover and Problems".
+fn ranked_score(query: &str, name: &str) -> Option<i64> {
+    let score = fuzzy::score(query, name)?;
+    let lower = name.to_lowercase();
+    let together = match lower.find(query) {
+        // At a word's start, best.
+        Some(0) => 2000,
+        Some(at) if !lower[..at].ends_with(char::is_alphanumeric) => 2000,
+        Some(_) => 1000,
+        None => 0,
+    };
+    Some(score + together)
 }
 
 /// The file a row is in, if it's in one: empty for the current file's
