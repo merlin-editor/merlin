@@ -941,8 +941,10 @@ impl Lsp {
 
     /// Syncs the active file, then sends a request about the cursor.
     fn ask(&mut self, method: &str, request: Request) {
+        // Most of these come by themselves, as a hover under the mouse
+        // does: a file no server reads has nothing to say.
         let Some((path, spec, language)) = self.active() else {
-            return host::notify("No language server for this file");
+            return;
         };
         let Ok(cursor) = host::active_cursor() else {
             return;
