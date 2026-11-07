@@ -472,41 +472,13 @@ impl Editor {
             let folded = hidden.iter().any(|r| r.start == line + 1);
             let shown = rows.len().min((bottom - row) as usize) as u16;
 
-            let mut syntax = vec![Syntax::Plain; chars.len()];
-            for &(a, b, kind) in &spans {
-                for i in a.max(start)..b.min(end) {
-                    syntax[i - start] = kind;
-                }
-            }
-            // An empty mark underlines one character, so it can be seen.
-            let mut marks: Vec<Option<Severity>> = vec![None; chars.len()];
-            let mut worst: Option<Severity> = None;
-            let mut note: Option<&crate::lang::Mark> = None;
-            // Problems starting on the line that could be written out, once
-            // each: rust-analyzer and cargo check can both report one.
-            let mut notable: Vec<String> = Vec::new();
-            for mark in doc
-                .marks
-                .iter()
-                .filter(|m| m.start <= end && m.end >= start)
-            {
-                worst = Some(worst.map_or(mark.severity, |w| w.min(mark.severity)));
-                if (start..=end).contains(&mark.start) && mark.severity < Severity::Hint {
-                    let text = note_text(&mark.message);
-                    if !notable.contains(&text) {
-                        notable.push(text);
-                    }
-                    if note.is_none_or(|n| mark.severity < n.severity) {
-                        note = Some(mark);
-                    }
-                }
-                let b = mark.end.max(mark.start + 1).min(end);
-                let a = mark.start.max(start).min(b.saturating_sub(1));
-                for i in a.max(start)..b {
-                    let slot = &mut marks[i - start];
-                    *slot = Some(slot.map_or(mark.severity, |s| s.min(mark.severity)));
-                }
-            }
+            let syntax = line_syntax(&spans, start, end);
+            let LineMarks {
+                marks,
+                worst,
+                note,
+                notable,
+            } = line_marks(doc, start, end);
 
             let review = doc.review.as_ref().and_then(|r| r.lines.get(line)).copied();
             let git = doc.git_signs.get(line).copied().flatten();
@@ -584,80 +556,10 @@ impl Editor {
                     }
                 }
             }
-            // Bracket colours, counted over the whole line, drawn or not.
-            let mut brackets: Vec<Option<Hue>> = chars
-                .iter()
-                .enumerate()
-                .map(|(i, &c)| {
-                    let d = depth.as_mut()?;
-                    if matches!(syntax[i], Syntax::String | Syntax::Comment) {
-                        return None;
-                    }
-                    let hue = |k: usize| [Hue::Bracket1, Hue::Bracket2, Hue::Bracket3][k % 3];
-                    match c {
-                        '(' | '[' | '{' => {
-                            *d += 1;
-                            Some(hue(*d - 1))
-                        }
-                        ')' | ']' | '}' => {
-                            *d = d.saturating_sub(1);
-                            Some(hue(*d))
-                        }
-                        _ => None,
-                    }
-                })
-                .collect();
-            // The name under Ctrl, as a link.
-            if let Some((a, b)) = link {
-                for i in a.max(start)..b.min(end) {
-                    brackets[i - start] = Some(Hue::Link);
-                }
-            }
-            // Indent guides on the first cell of each level's whitespace,
-            // in the line's first row.
-            let mut col = 0;
-            let first_row_end = rows.get(1).map_or(chars.len(), |r| r.start);
-            let line_guides = chars
-                .iter()
-                .enumerate()
-                .map(|(i, &c)| {
-                    let here = col;
-                    col += crate::doc::advance(c, col);
-                    (i < first_row_end
-                        && matches!(c, ' ' | '\t')
-                        && guides.is_guide(line, first, here))
-                    .then(|| guides.is_active(line, here))
-                })
-                .collect();
+            let brackets = line_brackets(&chars, &syntax, &mut depth, link, start);
+            let line_guides = indent_guides(&chars, &rows, &guides, line, first);
             let eol_selected = selections.iter().any(|&(a, b)| (a..b).contains(&end));
-            let first = doc.inlays.partition_point(|i| i.pos < start);
-            let mut replaced = Vec::new();
-            for edit in preview.iter().filter(|e| e.at >= start && e.at <= end) {
-                let col = edit.at - start;
-                let len = edit.removed.chars().count();
-                styles[col..(col + len).min(chars.len())].fill(Style::Replaced);
-                let label: String = edit.inserted.replace('\n', "⏎");
-                replaced.push(InlayView {
-                    col: col + len,
-                    cols: crate::style::str_width(&label),
-                    label,
-                    kind: crate::lang::InlayKind::Replacement,
-                });
-            }
-            let mut inlays: Vec<InlayView> = doc.inlays[first..]
-                .iter()
-                .take_while(|i| i.pos <= end)
-                .map(|i| InlayView {
-                    col: i.pos - start,
-                    cols: i.cols,
-                    label: i.label.clone(),
-                    kind: i.kind,
-                })
-                .collect();
-            if !replaced.is_empty() {
-                inlays.extend(replaced);
-                inlays.sort_by_key(|i| i.col);
-            }
+            let inlays = line_inlays(doc, &preview, start, end, &mut styles);
             let note = note.filter(|_| self.inline_notes).map(|m| {
                 let text = note_text(&m.message);
                 match notable.len().saturating_sub(1) {
@@ -821,6 +723,171 @@ pub(super) fn visible_lines(scroll: usize, rows: usize, lines: usize) -> std::op
 
 /// Columns between the halves of a changes tab side by side.
 const GAP: u16 = 7;
+
+/// A line's syntax colours, from the document's `spans`, for its
+/// characters from `start` to `end`.
+fn line_syntax(spans: &[(usize, usize, Syntax)], start: usize, end: usize) -> Vec<Syntax> {
+    let mut syntax = vec![Syntax::Plain; end - start];
+    for &(a, b, kind) in spans {
+        for i in a.max(start)..b.min(end) {
+            syntax[i - start] = kind;
+        }
+    }
+    syntax
+}
+
+/// A line's problems: each character's worst, the line's worst, the one to
+/// write after it, and every distinct one starting on it.
+struct LineMarks<'a> {
+    marks: Vec<Option<Severity>>,
+    worst: Option<Severity>,
+    note: Option<&'a crate::lang::Mark>,
+    notable: Vec<String>,
+}
+
+/// The problems on the line from `start` to `end`. An empty mark
+/// underlines one character, so it can be seen.
+fn line_marks(doc: &crate::doc::Doc, start: usize, end: usize) -> LineMarks<'_> {
+    let mut marks: Vec<Option<Severity>> = vec![None; end - start];
+    let mut worst: Option<Severity> = None;
+    let mut note: Option<&crate::lang::Mark> = None;
+    // Problems starting on the line that could be written out, once
+    // each: rust-analyzer and cargo check can both report one.
+    let mut notable: Vec<String> = Vec::new();
+    for mark in doc
+        .marks
+        .iter()
+        .filter(|m| m.start <= end && m.end >= start)
+    {
+        worst = Some(worst.map_or(mark.severity, |w| w.min(mark.severity)));
+        if (start..=end).contains(&mark.start) && mark.severity < Severity::Hint {
+            let text = note_text(&mark.message);
+            if !notable.contains(&text) {
+                notable.push(text);
+            }
+            if note.is_none_or(|n| mark.severity < n.severity) {
+                note = Some(mark);
+            }
+        }
+        let b = mark.end.max(mark.start + 1).min(end);
+        let a = mark.start.max(start).min(b.saturating_sub(1));
+        for i in a.max(start)..b {
+            let slot = &mut marks[i - start];
+            *slot = Some(slot.map_or(mark.severity, |s| s.min(mark.severity)));
+        }
+    }
+    LineMarks {
+        marks,
+        worst,
+        note,
+        notable,
+    }
+}
+
+/// Bracket colours, counted over the whole line, drawn or not, from the
+/// `depth` the line starts at; and the name under Ctrl, as a link.
+fn line_brackets(
+    chars: &[char],
+    syntax: &[Syntax],
+    depth: &mut Option<usize>,
+    link: Option<(usize, usize)>,
+    start: usize,
+) -> Vec<Option<Hue>> {
+    let end = start + chars.len();
+    let mut brackets: Vec<Option<Hue>> = chars
+        .iter()
+        .enumerate()
+        .map(|(i, &c)| {
+            let d = depth.as_mut()?;
+            if matches!(syntax[i], Syntax::String | Syntax::Comment) {
+                return None;
+            }
+            let hue = |k: usize| [Hue::Bracket1, Hue::Bracket2, Hue::Bracket3][k % 3];
+            match c {
+                '(' | '[' | '{' => {
+                    *d += 1;
+                    Some(hue(*d - 1))
+                }
+                ')' | ']' | '}' => {
+                    *d = d.saturating_sub(1);
+                    Some(hue(*d))
+                }
+                _ => None,
+            }
+        })
+        .collect();
+    // The name under Ctrl, as a link.
+    if let Some((a, b)) = link {
+        for i in a.max(start)..b.min(end) {
+            brackets[i - start] = Some(Hue::Link);
+        }
+    }
+    brackets
+}
+
+/// Indent guides on the first cell of each level's whitespace, in the
+/// line's first row.
+fn indent_guides(
+    chars: &[char],
+    rows: &[Row],
+    guides: &guides::Guides,
+    line: usize,
+    first: usize,
+) -> Vec<Option<bool>> {
+    let mut col = 0;
+    let first_row_end = rows.get(1).map_or(chars.len(), |r| r.start);
+    chars
+        .iter()
+        .enumerate()
+        .map(|(i, &c)| {
+            let here = col;
+            col += crate::doc::advance(c, col);
+            (i < first_row_end && matches!(c, ' ' | '\t') && guides.is_guide(line, first, here))
+                .then(|| guides.is_active(line, here))
+        })
+        .collect()
+}
+
+/// A line's inlay hints, with what Vim's `:s` puts in as it's typed; what
+/// `:s` takes away is marked in `styles`.
+fn line_inlays(
+    doc: &crate::doc::Doc,
+    preview: &[crate::edit::Edit],
+    start: usize,
+    end: usize,
+    styles: &mut [Style],
+) -> Vec<InlayView> {
+    let first = doc.inlays.partition_point(|i| i.pos < start);
+    let mut replaced = Vec::new();
+    for edit in preview.iter().filter(|e| e.at >= start && e.at <= end) {
+        let col = edit.at - start;
+        let len = edit.removed.chars().count();
+        let to = (col + len).min(styles.len());
+        styles[col..to].fill(Style::Replaced);
+        let label: String = edit.inserted.replace('\n', "⏎");
+        replaced.push(InlayView {
+            col: col + len,
+            cols: crate::style::str_width(&label),
+            label,
+            kind: crate::lang::InlayKind::Replacement,
+        });
+    }
+    let mut inlays: Vec<InlayView> = doc.inlays[first..]
+        .iter()
+        .take_while(|i| i.pos <= end)
+        .map(|i| InlayView {
+            col: i.pos - start,
+            cols: i.cols,
+            label: i.label.clone(),
+            kind: i.kind,
+        })
+        .collect();
+    if !replaced.is_empty() {
+        inlays.extend(replaced);
+        inlays.sort_by_key(|i| i.col);
+    }
+    inlays
+}
 
 /// The first side-by-side row to show, for a view scrolled to `scroll`.
 pub(crate) fn split_first(rows: &[(Option<usize>, Option<usize>)], scroll: usize) -> usize {
