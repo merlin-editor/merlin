@@ -934,7 +934,6 @@ impl Editor {
         let m = self.merges.remove(k);
         // Git sees the file on disk, so it's staged once it's saved.
         if self.doc().buffer.is_dirty() {
-            self.saving.quiet.insert(id);
             self.merge_staging.push((id, m.path.clone()));
             self.save_current(fx);
         } else {

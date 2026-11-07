@@ -104,10 +104,10 @@ fn ctrl_j_toggles_the_panel() {
 #[test]
 fn messages_collect_in_output() {
     let mut s = project();
-    s.run("key ctrl+s");
+    s.run("key ctrl+k; key x");
     s.run("cmd view.output");
     assert!(
-        s.screen().contains("[info] Saved src/main.rs"),
+        s.screen().contains("[info] The key combination (Ctrl+K, X) is not a command"),
         "{}",
         s.screen()
     );

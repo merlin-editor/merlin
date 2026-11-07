@@ -1701,9 +1701,7 @@ impl Editor {
                     d.buffer.mark_saved(revision);
                     d.buffer.path = Some(path.clone());
                 }
-                if !self.saving.quiet.remove(&doc) {
-                    self.notify(format!("Saved {}", path.display()));
-                }
+                // A save says nothing: the tab's dot going is enough.
                 if self.git.branch.is_some() {
                     fx.push(Effect::GitStatus);
                 }

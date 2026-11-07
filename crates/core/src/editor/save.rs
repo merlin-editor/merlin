@@ -1,8 +1,6 @@
 //! What happens around saving: an `.editorconfig`'s say over a file,
 //! tidying whitespace on save, and saving by itself.
 
-use std::collections::HashSet;
-
 use super::{Editor, Effect, Focus};
 use crate::edit::Edit;
 use crate::indent::Indent;
@@ -51,8 +49,6 @@ pub(crate) struct Saving {
     pub delay_ms: u64,
     pub trim_trailing_whitespace: bool,
     pub insert_final_newline: bool,
-    /// Files saved by themselves, so their saves don't each say so.
-    pub quiet: HashSet<u64>,
 }
 
 impl Editor {
@@ -207,7 +203,6 @@ impl Editor {
                 continue;
             }
             self.current = i;
-            self.saving.quiet.insert(id);
             self.tidy_for_save(true);
             self.push_save(fx);
         }

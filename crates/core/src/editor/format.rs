@@ -141,11 +141,6 @@ impl Editor {
                 self.edit_file(file);
             }
         }
-        // A notice since the save began says why it didn't format; the
-        // usual "Saved" mustn't hide it.
-        if self.message.is_some() {
-            self.saving.quiet.insert(waiting.doc);
-        }
         self.finish_save(waiting.doc, fx);
         others
     }
@@ -155,8 +150,6 @@ impl Editor {
         let Some(waiting) = self.waiting_format.take() else {
             return;
         };
-        // Its notice says it saved, instead of the usual one.
-        self.saving.quiet.insert(waiting.doc);
         self.finish_save(waiting.doc, fx);
         self.notify(format!(
             "Saved without formatting: the language server didn't answer in {:.1} s",
