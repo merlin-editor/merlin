@@ -5,7 +5,7 @@ Read it with [`feature-research.md`](feature-research.md), which has the
 research, the build order, and what's marked **Built**, and with
 [`mockups/README.md`](mockups/README.md), which describes the 11 approved
 mock-ups. Nothing is pushed. The last commit when this was written was
-`d4283cc`.
+`8c5108c`.
 
 ## The user's rules
 
@@ -39,7 +39,9 @@ mock-ups. Nothing is pushed. The last commit when this was written was
 | 5. Hot exit | Built. See below |
 | 6. Settings editor | Built. See below |
 | 7. Debugging | Built. See below |
-| 8 to 10 | Not started |
+| 8. Vim, which-key and macros | Built but for Helix. See below |
+| The palette as one search | Built. See below |
+| 9 and 10 | Not started |
 
 ### Language features (`Language.dc.html`)
 
@@ -847,6 +849,49 @@ declaring a debugger, with no code in merlin for its language.
 - **Left:** dragging the toolbar, and Copy as Expression and Stop When
   It Changes in the variable menu.
 
+### Keys: Vim, which-key and macros (`KeysFlow.dc.html`)
+
+Built (`5bbd679` to `f66fa24`), each checked in the window:
+
+- **Vim** is `crates/core/src/editor/vim.rs`, with the `:` line in
+  `vim/line.rs` and which-key in `vim/which.rs`. Keys become chars
+  (control codes, and private-use chars for the arrows); `parse()` gives
+  Wait, Bad or Done(Cmd). Insert mode is merlin's own typing, and
+  `History::join_from` makes each change one undo step. The dot replays
+  the keys recorded. `keys.rs` calls `vim_key` before the bindings.
+- **Which-key** waits as format on save does: the core's
+  `which_key_wait()` gives a tick and a delay, the app times it and sends
+  `Event::WhichKey(tick)`, and each key bumps the tick.
+- **Macros** are `editor/macros.rs`, for both keymaps. A macro is text, as
+  Vim writes keys (`0wcwkept<Esc>j`, `<Cmd>id<CR>` for a palette command),
+  so a Vim register holds it and `[[macros]]` can. Keys are recorded in
+  `macro_key`, around `key()`. A run plays in slices of 20 ms: the app
+  sends `Event::MacroStep` while `macro_playing()`. A motion that can't
+  move, an operator with nothing to act on, or a key that isn't a command
+  stops it (`macro_fail`).
+- **Left:** Helix.
+
+### The palette as one search (`PaletteSearch.dc.html`)
+
+Built (`3794421` to `a9a10fc`), checked in the window on merlin's own
+code with rust-analyzer:
+
+- `editor/search_all.rs`: the scopes, the rows by section (`search_rows`,
+  cached in `Palette.rows` as the query changes, not each frame), recent
+  files and commands (kept in the workspace file as `recent-file` and
+  `recent-command`), the › choices, and previews. Ctrl+P opens on Files;
+  Ctrl+Shift+P and the title bar's box on Everything.
+- File names come from the Explorer's list, or `Effect::ListFiles`. Text
+  and project symbols wait for a pause (`palette_search_wait()`, then
+  `Event::PaletteSearch(tick)`): text through `Effect::Search`, symbols
+  through `Effect::SearchSymbols` to each plugin whose manifest names a
+  `symbols` command. That command reads the query with the
+  `symbol-query` import and answers with `show-project-symbols`; the
+  Language plugin asks its servers' `workspace/symbol`.
+- Previews switch to an open file's tab, or open the preview tab, and
+  Esc puts the editor back (`search_restore`). A file opened while the
+  search is up leaves the keys in the palette.
+
 ### Memory and CPU (2026-11-06)
 
 Measured with merlin on its own repo and the bundled plugins
@@ -958,8 +1003,12 @@ These are suggestions; nothing of them is written yet.
   `crates/plugin-host/src/lib.rs` (`impl host::Host for State`) and turned
   straight into core `Event`s. The Rust SDK's re-exports are in
   `sdk/rust/src/lib.rs`; add new types to both lists there.
+- The API stays `0.8`: plugins built before must still load. New host
+  imports are fine (`symbol-query` and `show-project-symbols` are the
+  latest); new exports are not. A plugin offers something new through
+  its manifest instead, as `symbols` and `[[keys]]` do.
 - Checks before each commit:
-  - `cargo test --workspace`: 401 tests passed after the memory and CPU check
+  - `cargo test --workspace`: 478 tests pass as of `8c5108c`
   - `cargo clippy --workspace --all-targets`
   - in `plugins/lsp`: `cargo clippy --release --target wasm32-wasip2`
   - `cargo fmt --all`

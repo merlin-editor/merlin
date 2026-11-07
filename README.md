@@ -97,7 +97,7 @@ all of them takes about a quarter of a second.
 
 The window is laid out like VS Code, in flat panes set apart by shade: a
 title bar with the menus (File, Edit, Selection, View, Go, Help), a search
-box that opens Go to File, and buttons that show or hide the side bar, the
+box that opens the palette, and buttons that show or hide the side bar, the
 panel and the secondary side bar; the activity bar on the far left; the side
 bar with the Explorer, Search and Source Control; the editor with its tabs;
 plugin panels on the right; the panel underneath with Problems and Output;
@@ -174,6 +174,64 @@ The **Outline** view in the side bar lists the file's symbols, and
 `Ctrl+Shift+O` jumps to one. Symbols are found in the text: functions, types
 and the like by the word that declares them, in Rust, Python, JavaScript,
 TypeScript, Go and similar languages, and headings in Markdown.
+
+## The palette
+
+`Ctrl+Shift+P` opens one search over commands, symbols, files and the
+project's text. With **Everything** on, each has a section with its best
+few (four commands, three symbols, two files, a line of text) and a link
+to the rest. The chips under the box narrow it to one, as does a sign
+typed first: `>` commands, `@` symbols, `/` text. Tab and Shift+Tab move
+through them, and Backspace on an empty box widens it again. `Ctrl+P`
+opens it on Files. Names with the letters you typed together, as Toggle
+Word Wrap has "wrap", come before ones with them scattered.
+
+Each row says what it is: a command's keys and what it does, a symbol's
+kind, what it's in and its line, a file's folder, a line of text with its
+match tinted. Symbols come from the open files at once and from the
+whole project through the language server, a moment after typing stops,
+as text does from the project search. Empty, the box lists the files
+opened and commands run last, kept with the workspace.
+
+Moving through the results shows each in the editor behind, in the
+preview tab if its file isn't open; Esc goes back to where you were and
+Enter keeps it. `Ctrl+Enter` opens a result to the side, and `Alt+Enter`
+moves a text search to the Search view. A command with a lit `›` offers
+more: → or a click opens it, as Fold's levels (Fold Level 1 to 5), your
+saved macros, or the files you closed.
+
+## Vim mode, which-key and macros
+
+`[editor] keymap = "vim"`, or Keymap in the status bar, gives the text
+Vim's keys: Normal, Insert, Visual (also by line and block) and Replace
+mode, with motions, operators, text objects, counts, registers, marks,
+the dot, and one undo step for each change. The status bar shows the
+mode and the keys typed so far, the cursor's shape follows the mode, and
+`[editor] line_numbers = "relative"` counts lines from the cursor. merlin's
+own typing does Insert mode, so completion, closing brackets and several
+cursors work there too. The Ctrl keys in `[vim] keep` stay merlin's.
+
+`:` opens Vim's command line under the text, with its commands and ranges
+(`:w`, `:q`, `:s`, `:g`, `:sort`, `:norm`, `:set`, …), merlin's commands by
+name, and suggestions as you type. `:s` shows its changes as you type
+them. `/` and `?` search, with the matches tinted and "2 of 4" in the
+status bar.
+
+**Which-key:** a pause on a prefix (`g`, `z`, `[`, `]`, `Ctrl+W`, an
+operator, `"`, `'`, `@`, or VS Code's `Ctrl+K`) shows a card of what the
+next keys do. The **leader** (Space, `[vim] leader`) has merlin's commands
+in groups, and plugins add their own with `[[keys]]` in their manifest.
+`[vim] which_key_delay` sets the pause, in milliseconds.
+
+**Macros:** `qq` records into `q`, `q` stops, `@q` plays, `20@q` plays it 20
+times and `@@` plays the last again. A run stops at the first key that
+fails and says where; one `u` undoes it; with several cursors it plays at
+each. A macro is a register, so `"qp` pastes it to edit and `"qy$` puts it
+back. With either keymap, Record a Macro (`Ctrl+Alt+R`) records what you
+type and the commands you run from the palette, Play the Last Macro
+(`Ctrl+Alt+P`) plays it, and Save the Last Macro As… names it. Saved ones go
+in your settings as `[[macros]]`, with a name and the keys as Vim writes
+them, and show in the palette and Keyboard Shortcuts.
 
 ## Themes and packs
 
@@ -337,8 +395,9 @@ Keys, as in VS Code:
 
 | Keys | Does |
 |---|---|
-| `Ctrl+Shift+P` / `F1` | Commands |
-| `Ctrl+P` / `Ctrl+E` | Go to a file (fuzzy; skips hidden and git-ignored files) |
+| `Ctrl+Shift+P` / `F1` | The palette: commands, symbols, files and text at once |
+| `Ctrl+P` / `Ctrl+E` | The palette on files (fuzzy; skips hidden and git-ignored files) |
+| `Ctrl+Alt+R` / `Ctrl+Alt+P` | Record a macro, again to stop / play the last one |
 | `Ctrl+O` / `Ctrl+K Ctrl+O` | Open a file / a folder, in the desktop's dialog |
 | `F10`, `Alt+F`, `Alt+E`, … | Menus |
 | `Ctrl+B` | Side bar |
@@ -677,4 +736,6 @@ Other languages work too: anything that builds a WASI 0.2 component for
 - A review is all or nothing per edit; you can't accept some hunks and not
   others. Markdown has no tables or nested quotes.
 - The SDK isn't published, so `plugin new` points at the copy in this repo.
+- No Helix keymap yet. In Vim mode, `Ctrl+W h`, `j`, `k` and `l` cycle
+  through the groups rather than going by direction.
 - No networking API.

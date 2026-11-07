@@ -275,7 +275,11 @@ These are ordered by votes against effort.
    typed, and `/` and `?`. Which-key is in, for Vim's prefixes, the
    leader (with plugins' `[[keys]]`), registers, marks and Ctrl+K chords.
    Macros are in: `q` and `@` in Vim, Record and Play from the palette
-   for both keymaps, and saved ones as `[[macros]]`. Helix is next.
+   for both keymaps, and saved ones as `[[macros]]`. Helix is left for
+   later, as the user asked.
+
+   Also built, from the user's screenshot: **the palette as one search**
+   over commands, symbols, files and text (`PaletteSearch.dc.html`).
 9. **Several folders in one window, and floating or second windows.**
 10. **Markdown preview**, with Mermaid.
 
