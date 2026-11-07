@@ -462,27 +462,13 @@ fn named_key(inner: &str) -> Option<Key> {
     }
     key.code = match rest.to_ascii_lowercase().as_str() {
         "lt" => KeyCode::Char('<'),
-        "cr" | "enter" | "return" => KeyCode::Enter,
+        "cr" | "return" => KeyCode::Enter,
         "bs" => KeyCode::Backspace,
-        "del" => KeyCode::Delete,
-        "esc" => KeyCode::Esc,
-        "space" => KeyCode::Char(' '),
         "tab" if key.shift => {
             key.shift = false;
             KeyCode::BackTab
         }
-        "tab" => KeyCode::Tab,
-        "left" => KeyCode::Left,
-        "right" => KeyCode::Right,
-        "up" => KeyCode::Up,
-        "down" => KeyCode::Down,
-        "home" => KeyCode::Home,
-        "end" => KeyCode::End,
-        "pageup" => KeyCode::PageUp,
-        "pagedown" => KeyCode::PageDown,
-        f if f.len() > 1 && f.starts_with('f') && f[1..].parse::<u8>().is_ok() => {
-            KeyCode::F(f[1..].parse().ok()?)
-        }
+        name if let Some(code) = KeyCode::named(name) => code,
         _ => {
             let mut chars = rest.chars();
             match (chars.next(), chars.next()) {

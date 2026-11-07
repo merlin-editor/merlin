@@ -262,6 +262,17 @@ fn swap_case(c: char) -> String {
     }
 }
 
+/// `text` in lower case, upper case or swapped, for `gu`, `gU` and `g~`.
+fn change_case(op: Op, text: &str) -> String {
+    text.chars()
+        .map(|c| match op {
+            Op::Lower => c.to_lowercase().collect::<String>(),
+            Op::Upper => c.to_uppercase().collect(),
+            _ => swap_case(c),
+        })
+        .collect()
+}
+
 impl Editor {
     pub(crate) fn vim_mode(&self) -> Option<VimMode> {
         self.vim.as_ref().map(|v| v.mode())

@@ -71,6 +71,22 @@ impl State {
         }
     }
 
+    /// A plugin's places as the editor's, with workspace paths.
+    pub(super) fn locations(
+        &self,
+        places: Vec<types::Location>,
+    ) -> Vec<merlin_core::lang::Location> {
+        let at = |p: types::Position| (p.line, p.column);
+        places
+            .into_iter()
+            .map(|l| merlin_core::lang::Location {
+                path: self.snapshot.local(&l.path),
+                start: at(l.start),
+                end: at(l.end),
+            })
+            .collect()
+    }
+
     /// A plugin's file edits as the editor's, with workspace paths.
     pub(super) fn file_edits(
         &self,
@@ -350,28 +366,12 @@ impl host::Host for State {
     }
 
     fn show_references(&mut self, places: Vec<types::Location>) {
-        let at = |p: types::Position| (p.line, p.column);
-        let places = places
-            .into_iter()
-            .map(|l| merlin_core::lang::Location {
-                path: self.snapshot.local(&l.path),
-                start: at(l.start),
-                end: at(l.end),
-            })
-            .collect();
+        let places = self.locations(places);
         self.events.push(Event::ShowReferences(places));
     }
 
     fn show_definitions(&mut self, places: Vec<types::Location>) {
-        let at = |p: types::Position| (p.line, p.column);
-        let places = places
-            .into_iter()
-            .map(|l| merlin_core::lang::Location {
-                path: self.snapshot.local(&l.path),
-                start: at(l.start),
-                end: at(l.end),
-            })
-            .collect();
+        let places = self.locations(places);
         self.events.push(Event::Definitions(places));
     }
 

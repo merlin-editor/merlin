@@ -19,6 +19,37 @@ pub enum KeyCode {
     F(u8),
 }
 
+impl KeyCode {
+    /// A key by its name in lower case, as `enter`, `pageup`, `space` or
+    /// `f5`: the names settings' keys and macros' `<…>` share.
+    pub(crate) fn named(name: &str) -> Option<KeyCode> {
+        Some(match name {
+            "enter" => KeyCode::Enter,
+            "backspace" => KeyCode::Backspace,
+            "delete" | "del" => KeyCode::Delete,
+            "left" => KeyCode::Left,
+            "right" => KeyCode::Right,
+            "up" => KeyCode::Up,
+            "down" => KeyCode::Down,
+            "home" => KeyCode::Home,
+            "end" => KeyCode::End,
+            "pageup" => KeyCode::PageUp,
+            "pagedown" => KeyCode::PageDown,
+            "tab" => KeyCode::Tab,
+            "backtab" => KeyCode::BackTab,
+            "esc" => KeyCode::Esc,
+            "space" => KeyCode::Char(' '),
+            f if f.len() > 1
+                && f.starts_with('f')
+                && f[1..].parse::<u8>().is_ok_and(|n| (1..=12).contains(&n)) =>
+            {
+                KeyCode::F(f[1..].parse().unwrap())
+            }
+            _ => return None,
+        })
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Key {
     pub code: KeyCode,
@@ -102,30 +133,10 @@ impl Key {
                 break;
             }
         }
-        let code = match rest {
-            "enter" => KeyCode::Enter,
-            "backspace" => KeyCode::Backspace,
-            "delete" | "del" => KeyCode::Delete,
-            "left" => KeyCode::Left,
-            "right" => KeyCode::Right,
-            "up" => KeyCode::Up,
-            "down" => KeyCode::Down,
-            "home" => KeyCode::Home,
-            "end" => KeyCode::End,
-            "pageup" => KeyCode::PageUp,
-            "pagedown" => KeyCode::PageDown,
-            "tab" => KeyCode::Tab,
-            "backtab" => KeyCode::BackTab,
-            "esc" => KeyCode::Esc,
-            "space" => KeyCode::Char(' '),
-            f if f.len() > 1
-                && f.starts_with('f')
-                && f[1..].parse::<u8>().is_ok_and(|n| (1..=12).contains(&n)) =>
-            {
-                KeyCode::F(f[1..].parse().unwrap())
-            }
-            s => {
-                let mut chars = s.chars();
+        let code = match KeyCode::named(rest) {
+            Some(code) => code,
+            None => {
+                let mut chars = rest.chars();
                 match (chars.next(), chars.next()) {
                     (Some(c), None) => KeyCode::Char(c),
                     _ => return None,

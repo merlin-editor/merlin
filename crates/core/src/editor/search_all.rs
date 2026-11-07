@@ -227,15 +227,7 @@ impl Editor {
             self.macro_command(command);
             return self.run_command_id(command, fx);
         }
-        let (path, line, column) = if let Some(path) = id.strip_prefix("f:") {
-            (path.to_string(), None, 0)
-        } else if let Some(rest) = id.strip_prefix("s:").or_else(|| id.strip_prefix("t:")) {
-            // path:line:column, the path maybe with colons of its own.
-            let mut parts = rest.rsplitn(3, ':');
-            let column = parts.next().and_then(|c| c.parse().ok()).unwrap_or(0);
-            let line = parts.next().and_then(|l| l.parse().ok());
-            (parts.next().unwrap_or_default().to_string(), line, column)
-        } else {
+        let Some((path, line, column)) = row_place(id) else {
             return;
         };
         if side {
@@ -244,8 +236,8 @@ impl Editor {
         match (path.is_empty(), line) {
             // A symbol in the current file, which may have no path.
             (true, Some(line)) => self.go_to_block(line as usize),
-            (false, Some(line)) => self.open_at(PathBuf::from(&path), line, column, fx),
-            (false, None) => self.open(PathBuf::from(&path), fx),
+            (false, Some(line)) => self.open_at(PathBuf::from(path), line, column, fx),
+            (false, None) => self.open(PathBuf::from(path), fx),
             (true, None) => {}
         }
     }
@@ -257,17 +249,10 @@ impl Editor {
             return;
         };
         let id = row.id.clone();
-        let (path, line, column) = if let Some(path) = id.strip_prefix("f:") {
-            (path.to_string(), None, 0)
-        } else if let Some(rest) = id.strip_prefix("s:").or_else(|| id.strip_prefix("t:")) {
-            let mut parts = rest.rsplitn(3, ':');
-            let column = parts.next().and_then(|c| c.parse().ok()).unwrap_or(0);
-            let line = parts.next().and_then(|l| l.parse().ok());
-            (parts.next().unwrap_or_default().to_string(), line, column)
-        } else {
+        let Some((path, line, column)) = row_place(&id) else {
             return;
         };
-        let index = match path.as_str() {
+        let index = match path {
             "" => Some(self.current),
             path => self
                 .docs
@@ -1035,17 +1020,27 @@ fn ranked_score(query: &str, name: &str) -> Option<i64> {
     Some(score + together)
 }
 
-/// The file a row is in, if it's in one: empty for the current file's
+/// The file a row is in, if it's in one: not for the current file's
 /// symbols.
 fn row_path(id: &str) -> Option<&str> {
+    row_place(id)
+        .map(|(path, ..)| path)
+        .filter(|p| !p.is_empty())
+}
+
+/// Where a row goes: its file, empty for the current file's symbols, and
+/// its line and column. A file's row is `f:path`; a symbol's and a text
+/// match's are `s:` and `t:` with `path:line:column`, the path maybe with
+/// colons of its own.
+fn row_place(id: &str) -> Option<(&str, Option<u32>, u32)> {
     if let Some(path) = id.strip_prefix("f:") {
-        return Some(path);
+        return Some((path, None, 0));
     }
     let rest = id.strip_prefix("s:").or_else(|| id.strip_prefix("t:"))?;
     let mut parts = rest.rsplitn(3, ':');
-    parts.next();
-    parts.next();
-    parts.next().filter(|p| !p.is_empty())
+    let column = parts.next().and_then(|c| c.parse().ok()).unwrap_or(0);
+    let line = parts.next().and_then(|l| l.parse().ok());
+    Some((parts.next().unwrap_or_default(), line, column))
 }
 
 /// What commands do, in a few words, after their names.

@@ -379,14 +379,7 @@ impl Editor {
                 let mut edits = Vec::new();
                 for &(s, e) in &spans {
                     let text = self.doc().slice(s, e);
-                    let changed: String = text
-                        .chars()
-                        .map(|c| match op {
-                            Op::Lower => c.to_lowercase().collect::<String>(),
-                            Op::Upper => c.to_uppercase().collect(),
-                            _ => swap_case(c),
-                        })
-                        .collect();
+                    let changed = change_case(op, &text);
                     if changed != text {
                         edits.push(Edit {
                             at: s,

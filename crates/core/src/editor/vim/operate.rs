@@ -141,14 +141,7 @@ impl Editor {
                 false
             }
             Op::Lower | Op::Upper | Op::Toggle => {
-                let changed: String = text
-                    .chars()
-                    .map(|c| match op {
-                        Op::Lower => c.to_lowercase().collect::<String>(),
-                        Op::Upper => c.to_uppercase().collect(),
-                        _ => swap_case(c),
-                    })
-                    .collect();
+                let changed = change_case(op, &text);
                 if changed != text {
                     self.replace(start, end, &changed, Kind::Other);
                 }

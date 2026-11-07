@@ -94,7 +94,6 @@ impl Editor {
         {
             return self.open_search(search_all::Scope::Commands, fx);
         }
-        let count = self.palette_items().len();
         let Some(palette) = &mut self.palette else {
             self.focus = Focus::Editor;
             return;
@@ -127,16 +126,6 @@ impl Editor {
                 self.close_palette();
                 // Compare Files stops asking.
                 self.comparing = None;
-            }
-            KeyCode::Up => palette.selected = palette.selected.saturating_sub(1),
-            KeyCode::Down => palette.selected = (palette.selected + 1).min(count.saturating_sub(1)),
-            KeyCode::Backspace => {
-                palette.query.pop();
-                palette.selected = 0;
-            }
-            KeyCode::Char(c) if !key.ctrl && !key.alt => {
-                palette.query.push(c);
-                palette.selected = 0;
             }
             KeyCode::Enter => {
                 let selected = palette.selected;
@@ -185,7 +174,7 @@ impl Editor {
                     (Some(_), Source::Search { .. }) | (None, _) => {}
                 }
             }
-            _ => {}
+            _ => self.palette_step(key),
         }
     }
 
