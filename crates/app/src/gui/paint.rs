@@ -14,39 +14,7 @@ impl Gui<'_> {
             on: caret_on,
             expand: self.app.window.cursor_blinking == Blinking::Expand,
         };
-        // A scroll since the last frame glides there from where it was, but
-        // a touchpad's follows the fingers already.
-        let mut tops = Vec::new();
-        let mut moved_groups = Vec::new();
-        for v in &texts {
-            if tops.iter().any(|(g, _)| *g == v.group) {
-                continue;
-            }
-            let was = self
-                .last_top
-                .iter()
-                .find(|(g, _)| *g == v.group)
-                .map(|t| t.1);
-            // Scrolling shows the thumbs.
-            if was.is_some_and(|was| was != v.top_row) {
-                moved_groups.push(v.group);
-            }
-            if let Some(was) = was
-                && was != v.top_row
-                && !self.touched
-                && self.app.window.smooth_scrolling
-            {
-                let rows = (v.top_row - was) as f32;
-                let from = self.glide_offset(v.group) + rows * cell_h;
-                self.glide =
-                    (rows.abs() <= v.overscan as f32).then(|| (v.group, Instant::now(), from));
-            }
-            tops.push((v.group, v.top_row));
-        }
-        self.last_top = tops;
-        for g in moved_groups {
-            self.show_bars(g);
-        }
+        self.follow_scrolls(&texts, cell_h);
         let bars: Vec<(usize, overview::Shown)> = (0..self.areas.groups.len())
             .map(|g| (g, self.bars_shown(g)))
             .collect();
@@ -161,127 +129,21 @@ impl Gui<'_> {
             panel_max: self.sizes.bottom_before.is_some(),
         };
         f.base(&view, &areas, &mut self.state, w, h);
-        for text in &texts {
-            let Some(area) = areas.groups.get(text.group) else {
-                continue;
-            };
-            let t = area.text;
-            let glide = match self.glide {
-                Some((g, ..)) if g == text.group => glide,
-                _ => 0.0,
-            };
-            grid.draw_code(
-                text,
-                &mut f.canvas,
-                f.text,
-                [t.x * s, t.y * s, t.w * s, t.h * s],
-                &self.app.look.palette,
-                caret,
-                glide,
-            );
-        }
-        // The peek views, in the rows they open between the lines.
-        let row_h = grid.cell_h as f32 / s;
-        // A changes tab's boxes, in the gap between its halves.
-        for text in &texts {
-            let Some(area) = areas.groups.get(text.group) else {
-                continue;
-            };
-            if text.diff.is_none() {
-                continue;
-            }
-            let glide = match self.glide {
-                Some((g, ..)) if g == text.group => glide,
-                _ => 0.0,
-            };
-            let y0 = area.text.y + (text.area.y as f32 - text.top_frac) * row_h + glide / s;
-            f.diff_marks(text, area.text, grid.cell_w as f32 / s, row_h, y0);
-        }
-        for text in &texts {
-            let (Some(peek), Some(area)) = (&text.peek, areas.groups.get(text.group)) else {
-                continue;
-            };
-            let glide = match self.glide {
-                Some((g, ..)) if g == text.group => glide,
-                _ => 0.0,
-            };
-            let rows = text.area.y as f32 + peek.row as f32 - text.top_frac;
-            let y = area.text.y + rows * row_h + glide / s;
-            f.peek(peek, area.text, y, row_h);
-        }
-        // Two compared files' titles over their halves.
-        let cell_w = grid.cell_w as f32 / s;
-        for (g, group) in view.groups.iter().enumerate() {
-            let (Some(titles), Some(area)) = (&group.compare, areas.groups.get(g)) else {
-                continue;
-            };
-            let halves: Vec<Rect> = texts
-                .iter()
-                .filter(|t| t.group == g)
-                .map(|t| {
-                    Rect::new(
-                        area.text.x + t.area.x as f32 * cell_w,
-                        area.text.y,
-                        t.area.w as f32 * cell_w,
-                        area.text.h,
-                    )
-                })
-                .collect();
-            f.compare_titles(titles, &halves);
-        }
-        // The merge editor's panes and the Result's notes.
-        for text in &texts {
-            let (Some(merge), Some(area)) = (&text.merge, areas.groups.get(text.group)) else {
-                continue;
-            };
-            let glide = match self.glide {
-                Some((g, ..)) if g == text.group => glide,
-                _ => 0.0,
-            };
-            let y0 = area.text.y + (text.area.y as f32 - text.top_frac) * row_h + glide / s;
-            let gutter = text.gutter as f32 * grid.cell_w as f32 / s;
-            f.merge_editor(merge, area, y0, row_h, gutter);
-        }
-        // Tests: ▶ Run Test over each, failures under their lines, and
-        // how each went in the gutter.
-        for text in &texts {
-            let Some(area) = areas.groups.get(text.group) else {
-                continue;
-            };
-            if text.tests.is_empty() && text.failures.is_empty() {
-                continue;
-            }
-            let glide = match self.glide {
-                Some((g, ..)) if g == text.group => glide,
-                _ => 0.0,
-            };
-            let cell_w = grid.cell_w as f32 / s;
-            let y0 = area.text.y + (text.area.y as f32 - text.top_frac) * row_h + glide / s;
-            let x0 = area.text.x + text.area.x as f32 * cell_w;
-            let code = Rect::new(x0, area.text.y, text.area.w as f32 * cell_w, area.text.h);
-            f.test_rows(text, code, y0, row_h, cell_w);
-        }
-        // A commit's card over the blame column.
-        for text in &texts {
-            let (Some(card), Some(area)) = (&text.blame_card, areas.groups.get(text.group)) else {
-                continue;
-            };
-            let rows = text.area.y as f32 + card.row as f32 - text.top_frac;
-            f.blame_card(card, area.text, area.text.y + rows * row_h);
-        }
-        // A change opened in place, likewise.
-        for text in &texts {
-            let (Some(change), Some(area)) = (&text.change, areas.groups.get(text.group)) else {
-                continue;
-            };
-            let glide = match self.glide {
-                Some((g, ..)) if g == text.group => glide,
-                _ => 0.0,
-            };
-            let rows = text.area.y as f32 + change.row as f32 - text.top_frac;
-            let y = area.text.y + rows * row_h + glide / s;
-            f.change_peek(change, area.text, y, row_h, change.rows);
-        }
+        let glide_of = |group: usize| match self.glide {
+            Some((g, ..)) if g == group => glide,
+            _ => 0.0,
+        };
+        draw_texts(
+            &mut f,
+            grid,
+            &texts,
+            &view,
+            &areas,
+            &self.app.look.palette,
+            caret,
+            s,
+            glide_of,
+        );
         // The terminals' screens, each fitted to its pane first.
         let colours = self.app.terminal_colours();
         let term = view.terminal.as_ref();
@@ -304,41 +166,15 @@ impl Gui<'_> {
         }
         self.term_panes = f.term_panes.clone();
         self.term_drawn = self.app.terminals.version;
-        // Beside each group's code, its minimap and scrollbars, and a
-        // shadow under the tabs once it's scrolled; the review side by
-        // side has them on its new side.
-        let p = self.app.look.palette;
         let cell_w = grid.cell_w as f32 / s;
-        for (g, area) in areas.groups.iter().enumerate() {
-            let Some(v) = texts.iter().rfind(|v| v.group == g) else {
-                continue;
-            };
-            let shown = bars.get(g).map_or_else(Default::default, |b| b.1);
-            if let Some(rect) = area.minimap {
-                overview::draw_minimap(&mut f.canvas, &p, rect, v, shown);
-                f.hits.push((rect, Hit::Minimap(g)));
-            }
-            overview::draw_vbar(&mut f.canvas, &p, area.bar, v, shown);
-            f.hits.push((
-                area.bar,
-                Hit::Scrollbar {
-                    group: g,
-                    horizontal: false,
-                },
-            ));
-            let track = overview::htrack(area.text, v, cell_w);
-            if overview::hthumb(track, v).is_some() {
-                overview::draw_hbar(&mut f.canvas, &p, track, v, shown);
-                f.hits.push((
-                    track,
-                    Hit::Scrollbar {
-                        group: g,
-                        horizontal: true,
-                    },
-                ));
-            }
-            overview::draw_shadow(&mut f.canvas, area.text, v);
-        }
+        draw_bars(
+            &mut f,
+            &areas,
+            &texts,
+            &bars,
+            &self.app.look.palette,
+            cell_w,
+        );
         let mut room = None;
         if let Some(sv) = &settings {
             for &g in &pages {
@@ -373,17 +209,7 @@ impl Gui<'_> {
             ui.scroll = ui.scroll.min(room);
         }
         self.settings_drawn = settings;
-        let shown_ok = match &mut shown.backend {
-            Backend::Gpu(gpu) => gpu.draw(&self.scene, &self.bitmaps, &shown.window),
-            Backend::Cpu(surface) => match surface.buffer_mut() {
-                Ok(mut buffer) if buffer.len() == pw * ph => {
-                    cpu::draw(&self.scene, &self.bitmaps, &mut buffer, pw, ph);
-                    shown.window.pre_present_notify();
-                    buffer.present().is_ok()
-                }
-                _ => false,
-            },
-        };
+        let shown_ok = present(shown, &self.scene, &self.bitmaps, pw, ph);
         self.areas = areas;
         if !shown_ok {
             // Not shown: draw again when asked.
@@ -429,6 +255,42 @@ impl Gui<'_> {
                 self.glide = None;
             }
             self.redraw();
+        }
+    }
+
+    /// A scroll since the last frame glides there from where it was, but a
+    /// touchpad's follows the fingers already. Scrolling shows the thumbs.
+    fn follow_scrolls(&mut self, texts: &[TextView], cell_h: f32) {
+        let mut tops = Vec::new();
+        let mut moved_groups = Vec::new();
+        for v in texts {
+            if tops.iter().any(|(g, _)| *g == v.group) {
+                continue;
+            }
+            let was = self
+                .last_top
+                .iter()
+                .find(|(g, _)| *g == v.group)
+                .map(|t| t.1);
+            // Scrolling shows the thumbs.
+            if was.is_some_and(|was| was != v.top_row) {
+                moved_groups.push(v.group);
+            }
+            if let Some(was) = was
+                && was != v.top_row
+                && !self.touched
+                && self.app.window.smooth_scrolling
+            {
+                let rows = (v.top_row - was) as f32;
+                let from = self.glide_offset(v.group) + rows * cell_h;
+                self.glide =
+                    (rows.abs() <= v.overscan as f32).then(|| (v.group, Instant::now(), from));
+            }
+            tops.push((v.group, v.top_row));
+        }
+        self.last_top = tops;
+        for g in moved_groups {
+            self.show_bars(g);
         }
     }
 
@@ -513,5 +375,183 @@ impl Gui<'_> {
             return 0.0;
         }
         from * (1.0 - t).powi(3)
+    }
+}
+
+/// The code of each text view, then what's drawn over and between its
+/// lines: changes tabs' boxes, peeks, compared files' titles, the merge
+/// editor, tests, the blame card and a change opened in place.
+#[allow(clippy::too_many_arguments)]
+fn draw_texts(
+    f: &mut Frame,
+    grid: &mut Fonts,
+    texts: &[TextView],
+    view: &WindowView,
+    areas: &Areas,
+    palette: &crate::theme::Palette,
+    caret: code::Caret,
+    s: f32,
+    glide_of: impl Fn(usize) -> f32,
+) {
+    for text in texts {
+        let Some(area) = areas.groups.get(text.group) else {
+            continue;
+        };
+        let t = area.text;
+        let glide = glide_of(text.group);
+        grid.draw_code(
+            text,
+            &mut f.canvas,
+            f.text,
+            [t.x * s, t.y * s, t.w * s, t.h * s],
+            palette,
+            caret,
+            glide,
+        );
+    }
+    // The peek views, in the rows they open between the lines.
+    let row_h = grid.cell_h as f32 / s;
+    // A changes tab's boxes, in the gap between its halves.
+    for text in texts {
+        let Some(area) = areas.groups.get(text.group) else {
+            continue;
+        };
+        if text.diff.is_none() {
+            continue;
+        }
+        let glide = glide_of(text.group);
+        let y0 = area.text.y + (text.area.y as f32 - text.top_frac) * row_h + glide / s;
+        f.diff_marks(text, area.text, grid.cell_w as f32 / s, row_h, y0);
+    }
+    for text in texts {
+        let (Some(peek), Some(area)) = (&text.peek, areas.groups.get(text.group)) else {
+            continue;
+        };
+        let glide = glide_of(text.group);
+        let rows = text.area.y as f32 + peek.row as f32 - text.top_frac;
+        let y = area.text.y + rows * row_h + glide / s;
+        f.peek(peek, area.text, y, row_h);
+    }
+    // Two compared files' titles over their halves.
+    let cell_w = grid.cell_w as f32 / s;
+    for (g, group) in view.groups.iter().enumerate() {
+        let (Some(titles), Some(area)) = (&group.compare, areas.groups.get(g)) else {
+            continue;
+        };
+        let halves: Vec<Rect> = texts
+            .iter()
+            .filter(|t| t.group == g)
+            .map(|t| {
+                Rect::new(
+                    area.text.x + t.area.x as f32 * cell_w,
+                    area.text.y,
+                    t.area.w as f32 * cell_w,
+                    area.text.h,
+                )
+            })
+            .collect();
+        f.compare_titles(titles, &halves);
+    }
+    // The merge editor's panes and the Result's notes.
+    for text in texts {
+        let (Some(merge), Some(area)) = (&text.merge, areas.groups.get(text.group)) else {
+            continue;
+        };
+        let glide = glide_of(text.group);
+        let y0 = area.text.y + (text.area.y as f32 - text.top_frac) * row_h + glide / s;
+        let gutter = text.gutter as f32 * grid.cell_w as f32 / s;
+        f.merge_editor(merge, area, y0, row_h, gutter);
+    }
+    // Tests: ▶ Run Test over each, failures under their lines, and
+    // how each went in the gutter.
+    for text in texts {
+        let Some(area) = areas.groups.get(text.group) else {
+            continue;
+        };
+        if text.tests.is_empty() && text.failures.is_empty() {
+            continue;
+        }
+        let glide = glide_of(text.group);
+        let cell_w = grid.cell_w as f32 / s;
+        let y0 = area.text.y + (text.area.y as f32 - text.top_frac) * row_h + glide / s;
+        let x0 = area.text.x + text.area.x as f32 * cell_w;
+        let code = Rect::new(x0, area.text.y, text.area.w as f32 * cell_w, area.text.h);
+        f.test_rows(text, code, y0, row_h, cell_w);
+    }
+    // A commit's card over the blame column.
+    for text in texts {
+        let (Some(card), Some(area)) = (&text.blame_card, areas.groups.get(text.group)) else {
+            continue;
+        };
+        let rows = text.area.y as f32 + card.row as f32 - text.top_frac;
+        f.blame_card(card, area.text, area.text.y + rows * row_h);
+    }
+    // A change opened in place, likewise.
+    for text in texts {
+        let (Some(change), Some(area)) = (&text.change, areas.groups.get(text.group)) else {
+            continue;
+        };
+        let glide = glide_of(text.group);
+        let rows = text.area.y as f32 + change.row as f32 - text.top_frac;
+        let y = area.text.y + rows * row_h + glide / s;
+        f.change_peek(change, area.text, y, row_h, change.rows);
+    }
+}
+
+/// Beside each group's code, its minimap and scrollbars, and a shadow
+/// under the tabs once it's scrolled; the review side by side has them on
+/// its new side.
+fn draw_bars(
+    f: &mut Frame,
+    areas: &Areas,
+    texts: &[TextView],
+    bars: &[(usize, overview::Shown)],
+    p: &crate::theme::Palette,
+    cell_w: f32,
+) {
+    for (g, area) in areas.groups.iter().enumerate() {
+        let Some(v) = texts.iter().rfind(|v| v.group == g) else {
+            continue;
+        };
+        let shown = bars.get(g).map_or_else(Default::default, |b| b.1);
+        if let Some(rect) = area.minimap {
+            overview::draw_minimap(&mut f.canvas, p, rect, v, shown);
+            f.hits.push((rect, Hit::Minimap(g)));
+        }
+        overview::draw_vbar(&mut f.canvas, p, area.bar, v, shown);
+        f.hits.push((
+            area.bar,
+            Hit::Scrollbar {
+                group: g,
+                horizontal: false,
+            },
+        ));
+        let track = overview::htrack(area.text, v, cell_w);
+        if overview::hthumb(track, v).is_some() {
+            overview::draw_hbar(&mut f.canvas, p, track, v, shown);
+            f.hits.push((
+                track,
+                Hit::Scrollbar {
+                    group: g,
+                    horizontal: true,
+                },
+            ));
+        }
+        overview::draw_shadow(&mut f.canvas, area.text, v);
+    }
+}
+
+/// The scene, on the GPU or in the window's buffer: whether it showed.
+fn present(shown: &mut Shown, scene: &Scene, bitmaps: &Bitmaps, pw: usize, ph: usize) -> bool {
+    match &mut shown.backend {
+        Backend::Gpu(gpu) => gpu.draw(scene, bitmaps, &shown.window),
+        Backend::Cpu(surface) => match surface.buffer_mut() {
+            Ok(mut buffer) if buffer.len() == pw * ph => {
+                cpu::draw(scene, bitmaps, &mut buffer, pw, ph);
+                shown.window.pre_present_notify();
+                buffer.present().is_ok()
+            }
+            _ => false,
+        },
     }
 }
