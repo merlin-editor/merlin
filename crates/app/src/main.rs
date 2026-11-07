@@ -221,6 +221,7 @@ struct App {
     format_due: Option<(Instant, u64)>,
     /// When which-key shows, for a pause on a prefix.
     which_key_due: Option<(Instant, u64)>,
+    palette_search_due: Option<(Instant, u64)>,
     quit: bool,
     /// The Settings tab's state.
     settings_ui: prefs::SettingsUi,
@@ -253,12 +254,25 @@ impl App {
         self.touch_auto_save();
         self.touch_format();
         self.touch_which_key();
+        self.touch_palette_search();
         self.refresh_watch();
     }
 
     /// Times the pause before which-key shows.
     fn touch_which_key(&mut self) {
         self.which_key_due = match (self.editor.which_key_wait(), self.which_key_due) {
+            (None, _) => None,
+            (Some((tick, _)), Some((at, timed))) if timed == tick => Some((at, tick)),
+            (Some((tick, ms)), _) => {
+                Some((Instant::now() + std::time::Duration::from_millis(ms), tick))
+            }
+        };
+    }
+
+    /// Times the pause before the palette searches the project's text.
+    fn touch_palette_search(&mut self) {
+        self.palette_search_due = match (self.editor.palette_search_wait(), self.palette_search_due)
+        {
             (None, _) => None,
             (Some((tick, _)), Some((at, timed))) if timed == tick => Some((at, tick)),
             (Some((tick, ms)), _) => {
@@ -1025,6 +1039,7 @@ impl App {
             self.auto_save,
             self.format_due.map(|(at, _)| at),
             self.which_key_due.map(|(at, _)| at),
+            self.palette_search_due.map(|(at, _)| at),
             self.editor.macro_playing().then(Instant::now),
             self.terminals.due(),
         ]
@@ -1060,6 +1075,12 @@ impl App {
             && let Some((_, tick)) = self.which_key_due.take()
         {
             self.dispatch(Event::WhichKey(tick));
+            changed = true;
+        }
+        if self.palette_search_due.is_some_and(|(at, _)| at <= now)
+            && let Some((_, tick)) = self.palette_search_due.take()
+        {
+            self.dispatch(Event::PaletteSearch(tick));
             changed = true;
         }
         if self.editor.macro_playing() {
@@ -2386,6 +2407,7 @@ fn main() -> Result<()> {
         auto_save_for: Vec::new(),
         format_due: None,
         which_key_due: None,
+        palette_search_due: None,
         quit: false,
         settings_ui: prefs::SettingsUi::default(),
         loaded: prefs::Loaded::default(),

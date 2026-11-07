@@ -26,12 +26,7 @@ impl Editor {
         let Some(palette) = &self.palette else {
             return Vec::new();
         };
-        let commands;
         let items = match palette.source {
-            Source::Commands => {
-                commands = self.commands();
-                &commands
-            }
             Source::Line => {
                 let lines = self.doc().last_line() + 1;
                 let item = match palette.query.trim().parse::<usize>() {
@@ -42,6 +37,13 @@ impl Editor {
                     ),
                 };
                 return vec![item];
+            }
+            Source::Search { .. } => {
+                return palette
+                    .rows
+                    .iter()
+                    .map(|r| (r.id.clone(), r.label.clone()))
+                    .collect();
             }
             Source::MacroName => {
                 let name = palette.query.trim();
@@ -67,6 +69,19 @@ impl Editor {
     }
 
     pub(crate) fn palette_key(&mut self, key: Key, fx: &mut Vec<Effect>) {
+        if self.search_key(key, fx) {
+            return;
+        }
+        if self.search_open() {
+            let query = self.palette.as_ref().map(|p| p.query.clone());
+            self.palette_step(key);
+            if key.code == KeyCode::Esc {
+                self.close_palette();
+            } else if self.palette.as_ref().map(|p| p.query.clone()) != query {
+                self.search_changed();
+            }
+            return;
+        }
         let count = self.palette_items().len();
         let Some(palette) = &mut self.palette else {
             self.focus = Focus::Editor;
@@ -118,10 +133,6 @@ impl Editor {
                     return;
                 };
                 match (item, palette.source) {
-                    (Some((id, _)), Source::Commands) => {
-                        self.macro_command(&id);
-                        self.run(&id, fx)
-                    }
                     (Some((name, _)), Source::MacroName) => self.macro_save(&name, fx),
                     (Some((path, _)), Source::Files) => {
                         if !self.compare_picked(PathBuf::from(&path), fx) {
@@ -157,7 +168,8 @@ impl Editor {
                         self.theme[kind as usize] = theme.clone();
                         fx.push(Effect::SetTheme(kind, theme));
                     }
-                    (None, _) => {}
+                    // The search's keys handle it.
+                    (Some(_), Source::Search { .. }) | (None, _) => {}
                 }
             }
             _ => {}

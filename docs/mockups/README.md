@@ -56,4 +56,4 @@ built.
 
 `KeysFlow.dc.html` was approved on 2026-11-07. It fills in `Keys.dc.html`.
 
-`PaletteSearch.dc.html` waits on the user's review.
+`PaletteSearch.dc.html` was approved and built on 2026-11-07.

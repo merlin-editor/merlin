@@ -82,6 +82,9 @@ pub enum UiEvent {
     },
     /// A palette row, by its index among all the palette's items.
     PaletteRow(usize),
+    /// A scope chip of the palette's search, or a section's "more" link,
+    /// by the scope's index in [`PaletteView::scopes`].
+    PaletteScope(usize),
     ClosePalette,
     /// A notice's button, by its index.
     ToastButton(usize),
@@ -276,6 +279,28 @@ pub struct PaletteView {
     pub selected: usize,
     /// More about each item, as Run Task has: empty for the rest.
     pub extras: Vec<PaletteExtra>,
+    /// The search's scope chips: each one's name, its key or sign, and
+    /// whether it's the one on. Empty for other lists.
+    pub scopes: Vec<(String, Option<String>, bool)>,
+    /// The scope's sign, typed before the query, shown dimmed.
+    pub sign: Option<char>,
+    /// Shown dimmed in the empty box.
+    pub placeholder: Option<String>,
+    /// The footer's keys and what they do; empty for the usual ones.
+    pub hints: Vec<(String, String)>,
+}
+
+/// What a row of the search shows before its label.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub enum PaletteIcon {
+    #[default]
+    None,
+    /// A command's ›.
+    Command,
+    /// A symbol's kind as a letter, and whether it's a type.
+    Symbol(char, bool),
+    /// A file's icon, by its name.
+    File(String),
 }
 
 /// What Run Task shows of an item besides its label.
@@ -289,6 +314,14 @@ pub struct PaletteExtra {
     pub heading: Option<String>,
     /// Dimmed, as Configure Tasks is.
     pub muted: bool,
+    pub icon: PaletteIcon,
+    /// Characters of the label tinted as a text match, from and to.
+    pub hit: Option<(usize, usize)>,
+    /// The label is code, in the code's font.
+    pub code: bool,
+    /// A link under the row to the rest of its section, and the scope it
+    /// goes to, by its index.
+    pub more: Option<(String, usize)>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -457,7 +490,7 @@ impl Editor {
                             detail,
                             chip,
                             heading,
-                            muted: false,
+                            ..Default::default()
                         },
                         None => PaletteExtra {
                             muted: true,
@@ -465,6 +498,8 @@ impl Editor {
                         },
                     })
                     .collect()
+            } else if matches!(p.source, Source::Search { .. }) {
+                p.rows.iter().map(|r| r.extra.clone()).collect()
             } else if matches!(p.source, Source::Restored) {
                 shown
                     .iter()
@@ -478,11 +513,11 @@ impl Editor {
             };
             (p, shown, extras)
         });
+        let chrome = self.search_chrome();
         let palette = palette.map(|(p, shown, extras)| PaletteView {
             title: p.title.clone(),
             query: p.query.clone(),
             kind: match p.source {
-                Source::Commands => "Commands",
                 Source::Files => "Files",
                 Source::Line => "Go to Line",
                 Source::Symbols => "Symbols",
@@ -491,12 +526,17 @@ impl Editor {
                 Source::Tasks => "Tasks",
                 Source::Restored => "Files",
                 Source::MacroName => "Macro",
+                Source::Search { scope, .. } => scope.label(),
             },
             items: shown
                 .into_iter()
                 .map(|(id, label)| {
                     let key = match p.source {
-                        Source::Commands => self.key_hint(&id),
+                        Source::Search { .. } => p
+                            .rows
+                            .iter()
+                            .find(|r| r.id == id)
+                            .and_then(|r| r.key.clone()),
                         // The test task's key on the one it runs.
                         Source::Tasks => self
                             .first_task(crate::editor::TaskGroup::Test)
@@ -509,6 +549,13 @@ impl Editor {
                 .collect(),
             selected: p.selected,
             extras,
+            scopes: chrome
+                .as_ref()
+                .map(|c| c.scopes.clone())
+                .unwrap_or_default(),
+            sign: chrome.as_ref().and_then(|c| c.sign),
+            placeholder: chrome.as_ref().map(|c| c.placeholder.clone()),
+            hints: chrome.map(|c| c.hints).unwrap_or_default(),
         });
         let toast = self.message.as_ref().map(|m| ToastView {
             text: m.text.clone(),
@@ -732,6 +779,7 @@ impl Editor {
                     self.palette_key(crate::key::Key::plain(crate::key::KeyCode::Enter), fx);
                 }
             }
+            UiEvent::PaletteScope(i) => self.search_scope_clicked(i),
             UiEvent::ClosePalette => {
                 self.close_palette();
             }

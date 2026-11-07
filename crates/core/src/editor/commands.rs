@@ -245,7 +245,7 @@ impl Editor {
                 Some(_) => self.save_formatted(fx),
                 None => self.run("file.save_as", fx),
             },
-            "file.open" => fx.push(Effect::ListFiles),
+            "file.open" => self.open_search(search_all::Scope::Files, fx),
             "file.close" => self.close(false),
             "file.next" => self.next_tab(true),
             "file.keep" => self.keep_open(),
@@ -445,10 +445,7 @@ impl Editor {
             "edit.paste" => fx.push(Effect::ReadClipboard),
             "find.open" => self.open_find(false),
             "find.replace" => self.open_find(true),
-            "palette.open" => {
-                self.palette = Some(Palette::new(Source::Commands, None, Vec::new()));
-                self.focus = Focus::Palette;
-            }
+            "palette.open" => self.open_search(search_all::Scope::Commands, fx),
             "settings.open" => self.open_settings(None, fx),
             "view.plugins" => self.show_view(views::PLUGINS, fx),
             "theme.pick" => self.pick_theme(ThemeKind::Colours),

@@ -28,6 +28,7 @@ mod keymap;
 mod keys;
 mod layout;
 mod macros;
+mod search_all;
 pub use macros::{Macro, MacroView};
 mod menu;
 mod merge;
@@ -73,8 +74,8 @@ mod workspace;
 mod wrap;
 
 pub use window::{
-    PaletteExtra, PaletteView, RailItem, SideView, StatusView, TabView, ToastView, UiEvent,
-    WindowView,
+    PaletteExtra, PaletteIcon, PaletteView, RailItem, SideView, StatusView, TabView, ToastView,
+    UiEvent, WindowView,
 };
 
 pub use context::{
@@ -348,6 +349,9 @@ pub enum Event {
     /// A pause on a prefix went on as long as
     /// [`Editor::which_key_wait`] asked: which-key shows.
     WhichKey(u64),
+    /// The palette's text search waited as long as
+    /// [`Editor::palette_search_wait`] asked: it searches.
+    PaletteSearch(u64),
     /// A macro is playing: [`Editor::macro_playing`]. It plays on for a
     /// moment each time.
     MacroStep,
@@ -916,7 +920,6 @@ impl Find {
 }
 
 enum Source {
-    Commands,
     Files,
     Line,
     Symbols,
@@ -936,6 +939,12 @@ enum Source {
     Restored,
     /// A name to save the last macro as.
     MacroName,
+    /// Everything at once, or one scope of it.
+    Search {
+        scope: search_all::Scope,
+        /// The scope's sign was typed, and shows before the query.
+        signed: bool,
+    },
 }
 
 enum Popup {
@@ -968,8 +977,10 @@ struct Palette {
     selected: usize,
     title: Option<String>,
     source: Source,
-    /// Ids and labels, for files and pickers. Commands are listed live.
+    /// Ids and labels, for files and pickers.
     items: Vec<(String, String)>,
+    /// The search's rows, worked out as the query changes.
+    rows: Vec<search_all::Row>,
 }
 
 impl Palette {
@@ -980,6 +991,7 @@ impl Palette {
             title,
             source,
             items,
+            rows: Vec::new(),
         }
     }
 }
@@ -1047,6 +1059,13 @@ pub struct Editor {
     last_macro_register: Option<char>,
     /// The macros saved in the settings.
     macros: Vec<Macro>,
+    /// The project's files, as the palette asked for them.
+    palette_files: Vec<String>,
+    palette_text: search_all::TextSearch,
+    /// The files in front last, and the commands the palette ran last,
+    /// latest first.
+    recent_files: Vec<PathBuf>,
+    recent_commands: Vec<String>,
     /// Quit with unsaved files kept.
     keep_unsaved: bool,
     /// Files whose unsaved changes came back from the last run.
@@ -1295,6 +1314,10 @@ impl Editor {
             last_macro: None,
             last_macro_register: None,
             macros: Vec::new(),
+            palette_files: Vec::new(),
+            palette_text: Default::default(),
+            recent_files: Vec::new(),
+            recent_commands: Vec::new(),
             keep_unsaved: false,
             restored: Vec::new(),
             open_folder: None,
@@ -1694,6 +1717,7 @@ impl Editor {
                 text,
                 tokens,
             } => self.text_coloured(language, text, tokens),
+            Event::Files(files) if self.search_open() => self.search_files_came(files),
             Event::Files(files) => {
                 if files.is_empty() {
                     self.notify("No files found".into());
@@ -1838,6 +1862,7 @@ impl Editor {
             Event::RegisterKeys { plugin, keys } => self.register_keys(plugin, keys),
             Event::WhichKey(tick) => self.which_key_due(tick),
             Event::MacroStep => self.macro_step(&mut fx),
+            Event::PaletteSearch(tick) => self.palette_search_due(tick, &mut fx),
             Event::RegisterDebuggers { plugin, debuggers } => {
                 self.register_debuggers(plugin, debuggers, &mut fx)
             }
@@ -1960,6 +1985,7 @@ impl Editor {
                 tree.built_for = None;
             }
             Event::SearchResults { query, hits } => {
+                self.palette_search_came(&query, &hits);
                 if query == self.search.query {
                     self.search.hits = hits;
                     self.search.searching = false;
@@ -2095,6 +2121,7 @@ impl Editor {
         }
         self.share_selection(&mut fx);
         self.save_on_focus_change(was, &mut fx);
+        self.note_recent();
         for side in [Side::Left, Side::Right, Side::Bottom] {
             self.select(side, self.selected_index(side));
         }
