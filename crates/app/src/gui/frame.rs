@@ -3113,7 +3113,7 @@ impl Frame<'_> {
             search,
         );
         let hint = self.text.fit(
-            "Search files, commands and symbols",
+            "Search files, commands, symbols and text",
             ui,
             (sw - 100.0).max(0.0),
         );
@@ -6301,11 +6301,19 @@ impl Frame<'_> {
             }
             // What it is, before its label.
             let mut lx = row.x + 12.0;
+            let mut chevron = None;
             let mid = row.y + row.h / 2.0;
             match extra.map(|e| &e.icon) {
                 Some(PaletteIcon::Command) => {
+                    // Brighter where it offers more, which a click opens.
                     let b = Rect::new(lx, mid - 9.0, 18.0, 18.0);
-                    self.canvas.round(b, 4.0, p.chip);
+                    let more = extra.is_some_and(|e| e.choices);
+                    let (fill, ink) = match more {
+                        true if self.hovered(b) => (p.accent, p.on_accent),
+                        true => (mix(p.accent, p.widget, 0.2), p.accent),
+                        false => (p.chip, p.muted),
+                    };
+                    self.canvas.round(b, 4.0, fill);
                     self.text.draw_in_row(
                         &mut self.canvas,
                         "›",
@@ -6313,9 +6321,12 @@ impl Frame<'_> {
                         b.x + 6.0,
                         b.y,
                         b.h,
-                        p.muted,
+                        ink,
                         b,
                     );
+                    if more {
+                        chevron = Some(b);
+                    }
                     lx += 28.0;
                 }
                 Some(PaletteIcon::Symbol(letter, ty)) => {
@@ -6385,6 +6396,9 @@ impl Frame<'_> {
                 }
             }
             self.hit(row, Hit::Ui(UiEvent::PaletteRow(k)));
+            if let Some(b) = chevron {
+                self.hit(b, Hit::Ui(UiEvent::PaletteChoices(k)));
+            }
             if let Some((text, scope)) = more(k) {
                 let face = Face::ui(12.0);
                 let w = self.text.width(text, face);

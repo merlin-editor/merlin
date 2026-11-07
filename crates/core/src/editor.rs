@@ -349,6 +349,17 @@ pub enum Event {
     /// A pause on a prefix went on as long as
     /// [`Editor::which_key_wait`] asked: which-key shows.
     WhichKey(u64),
+    /// A plugin's command that searches the project's symbols, from its
+    /// manifest's `symbols`.
+    RegisterSymbolSearch {
+        plugin: String,
+        command: String,
+    },
+    /// Symbols a plugin found for the palette's search for `query`.
+    ProjectSymbols {
+        query: String,
+        symbols: Vec<crate::lang::ProjectSymbol>,
+    },
     /// The palette's text search waited as long as
     /// [`Editor::palette_search_wait`] asked: it searches.
     PaletteSearch(u64),
@@ -605,6 +616,13 @@ pub enum Effect {
     SetSetting {
         key: String,
         value: String,
+    },
+    /// Run a plugin's symbol search for the palette, with `query` for its
+    /// `symbol-query`.
+    SearchSymbols {
+        plugin: String,
+        command: String,
+        query: String,
     },
     /// Save a macro in the user's settings, as `[[macros]]`, in place of
     /// one with its name.
@@ -939,6 +957,8 @@ enum Source {
     Restored,
     /// A name to save the last macro as.
     MacroName,
+    /// What a command's › offers, such as Fold's levels: search rows' ids.
+    Choices,
     /// Everything at once, or one scope of it.
     Search {
         scope: search_all::Scope,
@@ -1062,10 +1082,15 @@ pub struct Editor {
     /// The project's files, as the palette asked for them.
     palette_files: Vec<String>,
     palette_text: search_all::TextSearch,
+    /// Plugins that search the project's symbols, and their commands.
+    symbol_search: Vec<(String, String)>,
     /// The files in front last, and the commands the palette ran last,
     /// latest first.
     recent_files: Vec<PathBuf>,
     recent_commands: Vec<String>,
+    /// Where the editor was when the palette's search opened, as the doc,
+    /// cursor and scroll, while its results are previewed.
+    search_preview: Option<(u64, usize, usize)>,
     /// Quit with unsaved files kept.
     keep_unsaved: bool,
     /// Files whose unsaved changes came back from the last run.
@@ -1316,8 +1341,10 @@ impl Editor {
             macros: Vec::new(),
             palette_files: Vec::new(),
             palette_text: Default::default(),
+            symbol_search: Vec::new(),
             recent_files: Vec::new(),
             recent_commands: Vec::new(),
+            search_preview: None,
             keep_unsaved: false,
             restored: Vec::new(),
             open_folder: None,
@@ -1863,6 +1890,11 @@ impl Editor {
             Event::WhichKey(tick) => self.which_key_due(tick),
             Event::MacroStep => self.macro_step(&mut fx),
             Event::PaletteSearch(tick) => self.palette_search_due(tick, &mut fx),
+            Event::RegisterSymbolSearch { plugin, command } => {
+                self.symbol_search.retain(|(p, _)| *p != plugin);
+                self.symbol_search.push((plugin, command));
+            }
+            Event::ProjectSymbols { query, symbols } => self.project_symbols_came(&query, symbols),
             Event::RegisterDebuggers { plugin, debuggers } => {
                 self.register_debuggers(plugin, debuggers, &mut fx)
             }

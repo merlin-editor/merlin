@@ -86,6 +86,11 @@ pub struct Manifest {
     /// `keys` (after the leader, such as `x n`) and the command they run.
     #[serde(default)]
     pub keys: Vec<ManifestKey>,
+    /// A command that searches the project's symbols for the palette. It
+    /// reads the query with `symbol-query` and answers with
+    /// `show-project-symbols`.
+    #[serde(default)]
+    pub symbols: Option<String>,
 }
 
 /// A debugger, as `[[debuggers]]` in a manifest declares it.
@@ -223,6 +228,12 @@ fn manifest_events(manifest: &Manifest) -> Vec<Event> {
         events.push(Event::RegisterKeys {
             plugin: plugin.clone(),
             keys,
+        });
+    }
+    if let Some(command) = &manifest.symbols {
+        events.push(Event::RegisterSymbolSearch {
+            plugin: plugin.clone(),
+            command: command.clone(),
         });
     }
     if !manifest.debuggers.is_empty() {
@@ -396,6 +407,8 @@ struct State {
     /// breakpoints, for `debug-start` and `breakpoints`.
     debug_start: Option<merlin_core::DebugStart>,
     breakpoints: Vec<merlin_core::Breakpoint>,
+    /// What the palette's symbol search looks for, for `symbol-query`.
+    symbol_query: String,
 }
 
 /// Counts the memory an instance grows to. It allows any growth: fuel and
@@ -731,6 +744,25 @@ impl host::Host for State {
             })
             .collect();
         self.events.push(Event::ShowReferences(places));
+    }
+
+    fn symbol_query(&mut self) -> String {
+        self.symbol_query.clone()
+    }
+
+    fn show_project_symbols(&mut self, query: String, symbols: Vec<types::ProjectSymbol>) {
+        let symbols = symbols
+            .into_iter()
+            .map(|s| merlin_core::lang::ProjectSymbol {
+                name: s.name,
+                kind: s.kind,
+                container: s.container,
+                path: self.snapshot.local(&s.path),
+                line: s.start.line,
+                column: s.start.column,
+            })
+            .collect();
+        self.events.push(Event::ProjectSymbols { query, symbols });
     }
 
     fn insert_text(&mut self, text: String) -> Result<(), String> {
@@ -1391,6 +1423,7 @@ impl PluginHost {
             limits: Limits::default(),
             debug_start: None,
             breakpoints: Vec::new(),
+            symbol_query: String::new(),
         };
         let mut store = Store::new(&self.engine, state);
         store.limiter(|s| &mut s.limits);
@@ -1504,6 +1537,24 @@ impl PluginHost {
         let Some(i) = self.index(plugin) else {
             return Vec::new();
         };
+        self.call(i, snapshot, |b, s| b.call_run_command(s, command))
+            .1
+    }
+
+    /// Runs a plugin's symbol search, with `query` for `symbol-query`.
+    pub fn search_symbols(
+        &mut self,
+        plugin: &str,
+        command: &str,
+        query: &str,
+        snapshot: Snapshot,
+    ) -> Vec<Event> {
+        let Some(i) = self.index(plugin) else {
+            return Vec::new();
+        };
+        if let Some(instance) = &mut self.plugins[i].instance {
+            instance.store.data_mut().symbol_query = query.to_string();
+        }
         self.call(i, snapshot, |b, s| b.call_run_command(s, command))
             .1
     }

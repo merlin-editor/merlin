@@ -47,6 +47,18 @@ interface types {
     depth: u32,
   }
 
+  /// A symbol anywhere in the project, for the palette's search.
+  record project-symbol {
+    name: string,
+    /// Such as `function`, `struct`, `method`.
+    kind: string,
+    /// What it's in, such as `impl Editor`; empty for nothing.
+    container: string,
+    /// Relative to the workspace root, or absolute.
+    path: string,
+    start: position,
+  }
+
   /// Lines `start` up to `end`, not including it.
   record line-range {
     start: u32,
@@ -478,7 +490,7 @@ interface types {
 /// What the editor offers a plugin. Calls that need a permission check the
 /// plugin's manifest and return an error naming the permission if denied.
 interface host {
-  use types.{framing, pick-item, position, selection, text-change, diagnostic, detailed-diagnostic, code-action, file-edit, rename-info, location, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint, signature, task, test-item, test-result, debug-target, debug-launch, function-stop, breakpoint, debug-state, debug-thread, stack-frame, debug-variable, breakpoint-state, stop-filter, inline-value, output-kind};
+  use types.{framing, pick-item, position, selection, text-change, diagnostic, detailed-diagnostic, code-action, file-edit, rename-info, location, project-symbol, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint, signature, task, test-item, test-result, debug-target, debug-launch, function-stop, breakpoint, debug-state, debug-thread, stack-frame, debug-variable, breakpoint-state, stop-filter, inline-value, output-kind};
 
   /// Text of the active buffer. Needs `editor-read`.
   active-text: func() -> result<string, string>;
@@ -570,6 +582,14 @@ interface host {
   /// Answers the editor's `references` command (Shift+F12): where the name
   /// at the cursor is used, for the editor's peek view.
   show-references: func(places: list<location>);
+
+  /// What the palette's symbol search looks for, while the command a
+  /// manifest's `symbols` names runs.
+  symbol-query: func() -> string;
+
+  /// Answers the palette's symbol search for `query`: the project's
+  /// symbols whose names match it, best first.
+  show-project-symbols: func(query: string, symbols: list<project-symbol>);
 
   /// Shows text next to the cursor until the next key.
   show-hover: func(text: string);

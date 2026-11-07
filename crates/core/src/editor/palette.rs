@@ -73,14 +73,26 @@ impl Editor {
             return;
         }
         if self.search_open() {
-            let query = self.palette.as_ref().map(|p| p.query.clone());
+            let before = self.palette.as_ref().map(|p| (p.query.clone(), p.selected));
             self.palette_step(key);
+            let after = self.palette.as_ref().map(|p| (p.query.clone(), p.selected));
             if key.code == KeyCode::Esc {
+                self.search_restore();
                 self.close_palette();
-            } else if self.palette.as_ref().map(|p| p.query.clone()) != query {
+            } else if after.as_ref().map(|a| &a.0) != before.as_ref().map(|b| &b.0) {
                 self.search_changed();
+            } else if after != before {
+                self.search_preview();
             }
             return;
+        }
+        // Backspace on a command's empty choices goes back to the commands.
+        if let Some(p) = &self.palette
+            && matches!(p.source, Source::Choices)
+            && p.query.is_empty()
+            && key.code == KeyCode::Backspace
+        {
+            return self.open_search(search_all::Scope::Commands, fx);
         }
         let count = self.palette_items().len();
         let Some(palette) = &mut self.palette else {
@@ -168,6 +180,7 @@ impl Editor {
                         self.theme[kind as usize] = theme.clone();
                         fx.push(Effect::SetTheme(kind, theme));
                     }
+                    (Some((id, _)), Source::Choices) => self.search_pick(&id, false, fx),
                     // The search's keys handle it.
                     (Some(_), Source::Search { .. }) | (None, _) => {}
                 }

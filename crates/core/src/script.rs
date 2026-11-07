@@ -302,6 +302,7 @@ impl Session {
                 | Effect::PluginReview { .. }
                 | Effect::SetSetting { .. }
                 | Effect::SaveMacro(_)
+                | Effect::SearchSymbols { .. }
                 | Effect::OpenSettings { .. }
                 | Effect::PreviewTheme(..)
                 | Effect::SetTheme(..)

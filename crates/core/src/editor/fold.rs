@@ -172,6 +172,36 @@ impl Editor {
         }
     }
 
+    /// Folds the blocks `level` deep, 1 for the outermost, as VS Code's
+    /// Fold Level commands do. Others stay as they are.
+    pub(crate) fn fold_level(&mut self, level: usize) {
+        let doc = self.doc();
+        // The last lines of the blocks around each line.
+        let mut around: Vec<usize> = Vec::new();
+        let mut folds = doc.folds.clone();
+        for line in 0..=doc.last_line() {
+            while around.last().is_some_and(|&end| end < line) {
+                around.pop();
+            }
+            if let Some(end) = block_end(doc, line) {
+                let start = doc.line_start(line);
+                if around.len() + 1 == level && !folds.contains(&start) {
+                    folds.push(start);
+                }
+                around.push(end);
+            }
+        }
+        folds.sort_unstable();
+        self.doc_mut().folds = folds;
+        let cur = self.doc().line_col(self.doc().cursor).0;
+        if let Some(range) = self.hidden_lines().into_iter().find(|r| r.contains(&cur)) {
+            let line = range.start - 1;
+            let doc = self.doc_mut();
+            doc.cursor = doc.line_start(line) + doc.buffer.line_len(line);
+            doc.anchor = None;
+        }
+    }
+
     pub(crate) fn unfold_all(&mut self) {
         self.doc_mut().folds.clear();
     }

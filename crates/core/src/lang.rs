@@ -73,6 +73,19 @@ pub struct Location {
     pub end: (u32, u32),
 }
 
+/// A symbol anywhere in the project, as a language plugin found it for the
+/// palette: where it starts, as UTF-16 line and column.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProjectSymbol {
+    pub name: String,
+    pub kind: String,
+    /// What it's in, such as `impl Editor`; empty for nothing.
+    pub container: String,
+    pub path: std::path::PathBuf,
+    pub line: u32,
+    pub column: u32,
+}
+
 /// What renaming the name at the cursor would change: the name's place in
 /// the active file, as UTF-16 line and column, and how far it reaches.
 #[derive(Clone, Debug, PartialEq, Eq)]

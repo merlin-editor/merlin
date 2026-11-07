@@ -126,3 +126,94 @@ fn a_command_runs_and_a_file_opens() {
     s.run("key ctrl+shift+p; type toggle line comment; key enter");
     assert_eq!(s.text(), "// fn main() { fold(); }\n");
 }
+
+#[test]
+fn the_chevron_opens_a_commands_choices() {
+    let mut s = project();
+    s.run("key ctrl+p; type fold.rs; key enter");
+    s.run("key ctrl+shift+p; type fold all");
+    let p = palette(&s);
+    assert!(p.extras[0].choices, "Fold All offers levels");
+    assert_eq!(p.extras[0].detail, "every block in the file");
+    s.run("key right");
+    let p = palette(&s);
+    assert_eq!(p.kind, "Choices");
+    assert_eq!(p.items[0].0, "Fold Level 1");
+    // Backspace goes back to the commands.
+    s.run("key backspace");
+    assert_eq!(palette(&s).kind, "Commands");
+    s.run("key esc");
+}
+
+#[test]
+fn moving_through_results_previews_them_and_esc_goes_back() {
+    let mut s = project();
+    s.run("key ctrl+p; type fold.rs; key enter; key ctrl+p; type main; key enter");
+    assert_eq!(s.text(), "fn main() { fold(); }\n");
+    s.run("key ctrl+shift+p; key backspace; type @fold; key down");
+    // The second symbol, fold_all, is in fold.rs, open behind.
+    assert!(s.text().starts_with("/// Each fold"), "{}", s.text());
+    assert_eq!(s.editor.cursor(), 53);
+    s.run("key esc");
+    assert_eq!(s.text(), "fn main() { fold(); }\n");
+    assert_eq!(s.editor.cursor(), 0);
+}
+
+#[test]
+fn project_symbols_come_from_language_plugins() {
+    let mut s = project();
+    s.send(Event::RegisterSymbolSearch {
+        plugin: "lsp".into(),
+        command: "project-symbols".into(),
+    });
+    s.run("key ctrl+shift+p; key backspace; type @widget");
+    let (tick, _) = s.editor.palette_search_wait().expect("it waits");
+    s.effects.clear();
+    s.send(Event::PaletteSearch(tick));
+    assert!(s.effects.contains(&merlin_core::Effect::SearchSymbols {
+        plugin: "lsp".into(),
+        command: "project-symbols".into(),
+        query: "widget".into(),
+    }));
+    s.send(Event::ProjectSymbols {
+        query: "widget".into(),
+        symbols: vec![merlin_core::lang::ProjectSymbol {
+            name: "Widget".into(),
+            kind: "struct".into(),
+            container: "ui".into(),
+            path: "src/ui.rs".into(),
+            line: 4,
+            column: 11,
+        }],
+    });
+    let p = palette(&s);
+    assert_eq!(p.items[0].0, "struct Widget");
+    assert_eq!(p.extras[0].detail, "ui · ui.rs:5");
+    assert!(matches!(p.extras[0].icon, PaletteIcon::Symbol('T', true)));
+}
+
+#[test]
+fn recents_are_kept_with_the_workspace() {
+    let mut s = project();
+    s.run("key ctrl+p; type fold.rs; key enter; key ctrl+p; type readme; key enter");
+    s.run("key ctrl+shift+p; type fold all; key enter");
+    let text = s.editor.workspace().to_text();
+    assert!(text.contains("recent-command edit.fold_all"), "{text}");
+    let ws = merlin_core::Workspace::parse(&text);
+    assert_eq!(ws.recent_commands, ["edit.fold_all"]);
+    assert_eq!(ws.recent_files[1].to_str(), Some("src/fold.rs"));
+}
+
+#[test]
+fn fold_level_folds_the_blocks_that_deep() {
+    let mut s = Session::new(
+        "fn a() {\n    if x {\n        y();\n    }\n}\n",
+        Some("a.rs"),
+        60,
+        12,
+    );
+    s.run("key ctrl+shift+p; type fold level 2; key enter");
+    let screen = s.screen();
+    assert!(!screen.contains("y();"), "{screen}");
+    assert!(screen.contains("fn a()"), "{screen}");
+}

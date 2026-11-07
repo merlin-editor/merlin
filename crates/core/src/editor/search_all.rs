@@ -86,11 +86,18 @@ pub(crate) struct TextSearch {
     asked: String,
     hits: Vec<SearchHit>,
     searching: bool,
+    /// The same for the project's symbols, from language plugins.
+    symbols_asked: String,
+    symbols: Vec<crate::lang::ProjectSymbol>,
 }
 
 impl Editor {
     /// Opens the palette as the search, on a scope.
     pub(crate) fn open_search(&mut self, scope: Scope, fx: &mut Vec<Effect>) {
+        if !self.search_open() {
+            let doc = self.doc();
+            self.search_preview = Some((doc.id, doc.cursor, doc.scroll));
+        }
         self.palette = Some(Palette::new(
             Source::Search {
                 scope,
@@ -166,6 +173,10 @@ impl Editor {
                     self.view_submit(views::SEARCH, &query, fx);
                 }
             }
+            KeyCode::Right => {
+                let selected = self.palette.as_ref().map_or(0, |p| p.selected);
+                self.search_choices(selected, fx);
+            }
             KeyCode::Enter => {
                 let selected = self.palette.as_ref().map_or(0, |p| p.selected);
                 let Some(row) = self.palette.as_ref().and_then(|p| p.rows.get(selected)) else {
@@ -175,6 +186,8 @@ impl Editor {
                     return true;
                 }
                 let id = row.id.clone();
+                // From where it was, so Back goes there.
+                self.search_restore();
                 self.close_palette();
                 self.search_pick(&id, key.ctrl, fx);
             }
@@ -202,7 +215,7 @@ impl Editor {
 
     /// Does what a row is for: runs a command, opens a file, or goes to a
     /// symbol or a line. `side` opens it to the side.
-    fn search_pick(&mut self, id: &str, side: bool, fx: &mut Vec<Effect>) {
+    pub(crate) fn search_pick(&mut self, id: &str, side: bool, fx: &mut Vec<Effect>) {
         if let Some(command) = id.strip_prefix("c:") {
             self.recent_commands.retain(|c| c != command);
             self.recent_commands.insert(0, command.to_string());
@@ -230,6 +243,107 @@ impl Editor {
             (false, Some(line)) => self.open_at(PathBuf::from(&path), line, column, fx),
             (false, None) => self.open(PathBuf::from(&path), fx),
             (true, None) => {}
+        }
+    }
+
+    /// Shows the selected row's place in the editor behind, where its file
+    /// is open, without a tab of its own.
+    pub(crate) fn search_preview(&mut self) {
+        let Some(row) = self.palette.as_ref().and_then(|p| p.rows.get(p.selected)) else {
+            return;
+        };
+        let id = row.id.clone();
+        let (path, line, column) = if let Some(path) = id.strip_prefix("f:") {
+            (path.to_string(), None, 0)
+        } else if let Some(rest) = id.strip_prefix("s:").or_else(|| id.strip_prefix("t:")) {
+            let mut parts = rest.rsplitn(3, ':');
+            let column = parts.next().and_then(|c| c.parse().ok()).unwrap_or(0);
+            let line = parts.next().and_then(|l| l.parse().ok());
+            (parts.next().unwrap_or_default().to_string(), line, column)
+        } else {
+            return;
+        };
+        let index = match path.as_str() {
+            "" => Some(self.current),
+            path => self
+                .docs
+                .iter()
+                .position(|d| d.buffer.path.as_deref() == Some(std::path::Path::new(path))),
+        };
+        let Some(index) = index else {
+            return;
+        };
+        self.current = index;
+        if let Some(line) = line {
+            self.go_to(line, column);
+        }
+    }
+
+    /// Back to where the editor was before the search previewed anything.
+    pub(crate) fn search_restore(&mut self) {
+        let Some((id, cursor, scroll)) = self.search_preview.take() else {
+            return;
+        };
+        if let Some(i) = self.index_of(id) {
+            self.current = i;
+            let doc = self.doc_mut();
+            doc.cursor = cursor.min(doc.buffer.len());
+            doc.anchor = None;
+            doc.scroll = scroll;
+        }
+    }
+
+    /// What a command's › offers: its choices to pick from.
+    fn command_choices(&self, id: &str) -> Option<Vec<(String, String)>> {
+        let list: Vec<(String, String)> = match id {
+            "edit.fold" | "edit.fold_all" | "edit.unfold" | "edit.unfold_all" => (1..=5)
+                .map(|n| (format!("c:edit.fold_level{n}"), format!("Fold Level {n}")))
+                .collect(),
+            "macro.play" => self
+                .macros
+                .iter()
+                .map(|m| (format!("c:{}", m.command()), format!("Macro: {}", m.name)))
+                .collect(),
+            "file.reopen" => self
+                .closed
+                .iter()
+                .rev()
+                .map(|p| (format!("f:{}", p.display()), p.display().to_string()))
+                .collect(),
+            _ => return None,
+        };
+        (!list.is_empty()).then_some(list)
+    }
+
+    /// Commands that open a list of their own, which their › opens.
+    fn opens_a_list(id: &str) -> bool {
+        matches!(
+            id,
+            "theme.pick" | "icons.pick" | "task.run" | "go.symbol" | "go.line" | "file.open"
+        )
+    }
+
+    /// Opens what the command at row `i` offers, if it offers anything.
+    pub(crate) fn search_choices(&mut self, i: usize, fx: &mut Vec<Effect>) {
+        let Some(row) = self.palette.as_ref().and_then(|p| p.rows.get(i)) else {
+            return;
+        };
+        let Some(id) = row.id.strip_prefix("c:").map(str::to_string) else {
+            return;
+        };
+        let title = row.label.clone();
+        if let Some(choices) = self.command_choices(&id) {
+            self.search_restore();
+            self.palette = Some(Palette::new(
+                Source::Choices,
+                Some(format!("{title} ›")),
+                choices,
+            ));
+            self.focus = Focus::Palette;
+        } else if Self::opens_a_list(&id) {
+            self.search_restore();
+            self.close_palette();
+            self.search_pick(&format!("c:{id}"), false, fx);
         }
     }
 
@@ -263,8 +377,37 @@ impl Editor {
     /// The palette's text search waits on a pause: which one, and how long.
     /// `None` with nothing to search.
     pub fn palette_search_wait(&self) -> Option<(u64, u64)> {
-        let text = self.search_text()?;
-        (text != self.palette_text.asked).then_some((self.palette_text.tick, TEXT_WAIT_MS))
+        let t = &self.palette_text;
+        let text = self.search_text().is_some_and(|q| q != t.asked);
+        let symbols = self.symbol_query().is_some_and(|q| q != t.symbols_asked);
+        (text || symbols).then_some((t.tick, TEXT_WAIT_MS))
+    }
+
+    /// The symbols to ask language plugins for, if any plugin can.
+    fn symbol_query(&self) -> Option<String> {
+        if self.symbol_search.is_empty() {
+            return None;
+        }
+        let (scope, query) = self.search_state()?;
+        let query = query.trim();
+        let enough = match scope {
+            Scope::Symbols => !query.is_empty(),
+            Scope::Everything => query.chars().count() >= 2,
+            _ => false,
+        };
+        enough.then(|| query.to_string())
+    }
+
+    /// Symbols a plugin found: kept if they're for what's being searched.
+    pub(crate) fn project_symbols_came(
+        &mut self,
+        query: &str,
+        symbols: Vec<crate::lang::ProjectSymbol>,
+    ) {
+        if query == self.palette_text.symbols_asked {
+            self.palette_text.symbols.extend(symbols);
+            self.search_changed();
+        }
     }
 
     /// The text to search for, with the scope that shows it.
@@ -285,7 +428,22 @@ impl Editor {
         if tick != self.palette_text.tick {
             return;
         }
-        if let Some(text) = self.search_text() {
+        if let Some(query) = self.symbol_query()
+            && query != self.palette_text.symbols_asked
+        {
+            self.palette_text.symbols_asked = query.clone();
+            self.palette_text.symbols.clear();
+            for (plugin, command) in &self.symbol_search {
+                fx.push(Effect::SearchSymbols {
+                    plugin: plugin.clone(),
+                    command: command.clone(),
+                    query: query.clone(),
+                });
+            }
+        }
+        if let Some(text) = self.search_text()
+            && text != self.palette_text.asked
+        {
             self.palette_text.asked = text.clone();
             self.palette_text.hits.clear();
             self.palette_text.searching = true;
@@ -328,6 +486,7 @@ impl Editor {
             Scope::Commands => &[
                 ("↑ ↓", "to move"),
                 ("Enter", "to run"),
+                ("→", "for a command's choices"),
                 ("Tab", "for the next scope"),
             ],
             _ if p.query.is_empty() => &[
@@ -587,13 +746,18 @@ impl Editor {
             Some((c, n)) => (c.to_string(), n.to_string()),
             None => (String::new(), title.to_string()),
         };
+        let detail = DESCRIPTIONS
+            .iter()
+            .find(|(c, _)| *c == id)
+            .map_or(category, |(_, d)| d.to_string());
         Row {
             id: format!("c:{id}"),
             label: name,
             key: self.key_hint(id),
             extra: PaletteExtra {
-                detail: category,
+                detail,
                 icon: PaletteIcon::Command,
+                choices: self.command_choices(id).is_some() || Self::opens_a_list(id),
                 ..Default::default()
             },
         }
@@ -702,7 +866,10 @@ impl Editor {
             for s in &symbols {
                 stack.truncate(s.depth);
                 let inside = stack.last().cloned();
+                // A name that says what it is, as `impl Editor`, needs no
+                // kind before it.
                 let label = match s.kind.as_str() {
+                    _ if s.name.contains(' ') => s.name.clone(),
                     "#" => s.name.clone(),
                     kind => format!("{kind} {}", s.name),
                 };
@@ -752,6 +919,46 @@ impl Editor {
                 ));
             }
         }
+        // The rest of the project's, from language plugins, after the open
+        // files' own.
+        let asked = &self.palette_text.symbols_asked;
+        if !query.is_empty() && *asked.to_lowercase() == *query {
+            let open: Vec<&std::path::Path> = docs
+                .iter()
+                .filter_map(|d| d.buffer.path.as_deref())
+                .collect();
+            for s in &self.palette_text.symbols {
+                if open.contains(&s.path.as_path()) {
+                    continue;
+                }
+                let Some(score) = fuzzy::score(query, &s.name) else {
+                    continue;
+                };
+                let path = s.path.to_string_lossy();
+                let file = path.rsplit('/').next().unwrap_or(&path);
+                let at = format!("{file}:{}", s.line + 1);
+                ranked.push((
+                    score,
+                    docs.len(),
+                    Row {
+                        id: format!("s:{path}:{}:{}", s.line, s.column),
+                        label: format!("{} {}", s.kind, s.name),
+                        key: None,
+                        extra: PaletteExtra {
+                            detail: match s.container.as_str() {
+                                "" => at,
+                                c => format!("{c} · {at}"),
+                            },
+                            icon: {
+                                let (letter, kind) = symbol_letter(&s.kind);
+                                PaletteIcon::Symbol(letter, kind)
+                            },
+                            ..Default::default()
+                        },
+                    },
+                ));
+            }
+        }
         if !query.is_empty() {
             ranked.sort_by_key(|(score, n, _)| (Reverse(*score), *n));
         }
@@ -762,6 +969,73 @@ impl Editor {
             .collect()
     }
 }
+
+/// What commands do, in a few words, after their names.
+const DESCRIPTIONS: &[(&str, &str)] = &[
+    ("edit.fold", "the block around the cursor"),
+    ("edit.unfold", "the block around the cursor"),
+    ("edit.fold_all", "every block in the file"),
+    ("edit.unfold_all", "every block in the file"),
+    ("edit.fold_level1", "the outermost blocks"),
+    ("edit.fold_level2", "blocks inside one other"),
+    ("edit.fold_level3", "blocks inside two others"),
+    ("edit.fold_level4", "blocks inside three others"),
+    ("edit.fold_level5", "blocks inside four others"),
+    ("edit.comment", "or uncomment the selected lines"),
+    ("edit.move_line_up", "the line or selected lines"),
+    ("edit.move_line_down", "the line or selected lines"),
+    ("edit.copy_line_up", "the line or selected lines"),
+    ("edit.copy_line_down", "the line or selected lines"),
+    ("edit.delete_line", "the line or selected lines"),
+    (
+        "edit.select_all_matches",
+        "every match of the selection, with a cursor each",
+    ),
+    (
+        "edit.add_next",
+        "the next match of the selection, with a cursor",
+    ),
+    (
+        "edit.expand_selection",
+        "to the word, then the brackets, then the block",
+    ),
+    ("edit.format", "with the language server"),
+    (
+        "edit.rename",
+        "the name at the cursor, everywhere it's used",
+    ),
+    (
+        "edit.quick_fix",
+        "the fixes and changes on offer at the cursor",
+    ),
+    ("file.save", "the file in front"),
+    ("file.save_as", "under a new name"),
+    ("file.reopen", "the last one closed"),
+    ("file.close_others", "every tab in the group but this one"),
+    ("file.copy_path", "of the file in front"),
+    ("file.open_folder", "as the project"),
+    ("go.symbol", "in the file in front"),
+    ("go.line", "by its number"),
+    ("view.split", "the editor to the right"),
+    ("view.wrap", "long lines at the window's edge"),
+    ("view.minimap", "the overview of the file at the right"),
+    ("view.zoom_in", "the whole window"),
+    ("view.zoom_out", "the whole window"),
+    ("theme.pick", "previewed as you move through them"),
+    ("icons.pick", "previewed as you move through them"),
+    ("terminal.new", "in the panel"),
+    ("task.build", "the default build task"),
+    ("task.run", "from tasks.toml, Cargo.toml or a plugin"),
+    (
+        "macro.record",
+        "the keys typed and commands run, until it's run again",
+    ),
+    ("macro.play", "the last macro recorded"),
+    ("macro.save", "with a name, for the palette and a key"),
+    ("vim.toggle", "between Vim's keys and VS Code's"),
+    ("settings.open", "the Settings window"),
+    ("debug.start", "the chosen launch, or pick one"),
+];
 
 /// The scope chips, the sign typed, the placeholder and the footer.
 pub(crate) struct SearchChrome {

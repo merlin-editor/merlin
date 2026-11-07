@@ -140,6 +140,10 @@ enum Request {
     },
     /// Where the name at the cursor is used, for the peek view.
     Peek,
+    /// The project's symbols matching what the palette searches for.
+    ProjectSymbols {
+        query: String,
+    },
     /// A rename's edits: made, or sent to review.
     Rename {
         review: bool,
@@ -180,6 +184,9 @@ struct Server {
     /// Whether it gives symbols and folding ranges.
     #[serde(default)]
     symbols: bool,
+    /// Whether it searches the project's symbols.
+    #[serde(default)]
+    workspace_symbols: bool,
     #[serde(default)]
     folds: bool,
     #[serde(default)]
@@ -771,6 +778,27 @@ fn file_edits(edit: &Value) -> Vec<FileEdit> {
     files
 }
 
+/// An LSP symbol kind as words, as declarations say them.
+fn symbol_kind(kind: u64) -> &'static str {
+    match kind {
+        2 => "mod",
+        3 => "namespace",
+        5 => "class",
+        6 => "method",
+        8 => "field",
+        9 => "constructor",
+        10 => "enum",
+        11 => "interface",
+        12 => "fn",
+        13 => "variable",
+        14 => "const",
+        22 => "variant",
+        23 => "struct",
+        26 => "type",
+        _ => "symbol",
+    }
+}
+
 fn position(value: &Value) -> Position {
     Position {
         line: value["line"].as_u64().unwrap_or(0) as u32,
@@ -820,6 +848,7 @@ impl Lsp {
                     latest_completion: 0,
                     legend: Vec::new(),
                     symbols: false,
+                    workspace_symbols: false,
                     folds: false,
                     inlay_hints: false,
                     formats: false,
@@ -961,6 +990,37 @@ impl Lsp {
             server.latest_completion = server.next_id + 1;
         }
         server.request(method, params, request);
+    }
+
+    /// Asks each server that's running, or the current file's, for the
+    /// project's symbols matching the palette's query.
+    fn project_symbols(&mut self) {
+        let query = host::symbol_query();
+        if query.is_empty() {
+            return;
+        }
+        if self.servers.iter().all(|s| s.process.is_none())
+            && let Some((_, spec, _)) = self.active()
+        {
+            self.ensure(spec);
+        }
+        for server in &mut self.servers {
+            // One still starting is asked too: its answer comes once it's up.
+            let can = match server.status {
+                Status::Starting => true,
+                Status::Ready => server.workspace_symbols,
+                Status::Failed(_) => false,
+            };
+            if server.process.is_some() && can {
+                server.request(
+                    "workspace/symbol",
+                    json!({"query": query}),
+                    Request::ProjectSymbols {
+                        query: query.clone(),
+                    },
+                );
+            }
+        }
     }
 
     /// The editor's F2: whether the name at the cursor can be renamed, and
@@ -1358,6 +1418,7 @@ impl Lsp {
                     .unwrap_or_default();
                 let offered = |v: &Value| !v.is_null() && *v != Value::Bool(false);
                 server.symbols = offered(&caps["documentSymbolProvider"]);
+                server.workspace_symbols = offered(&caps["workspaceSymbolProvider"]);
                 server.folds = offered(&caps["foldingRangeProvider"]);
                 server.inlay_hints = offered(&caps["inlayHintProvider"]);
                 server.formats = offered(&caps["documentFormattingProvider"]);
@@ -1457,6 +1518,25 @@ impl Lsp {
                     places: list.len().max(1) as u32,
                     files: files.len().max(1) as u32,
                 }));
+            }
+            Request::ProjectSymbols { query } => {
+                let symbols: Vec<ProjectSymbol> = result
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .take(200)
+                    .filter_map(|s| {
+                        let location = &s["location"];
+                        Some(ProjectSymbol {
+                            name: s["name"].as_str()?.to_string(),
+                            kind: symbol_kind(s["kind"].as_u64().unwrap_or(0)).into(),
+                            container: s["containerName"].as_str().unwrap_or_default().to_string(),
+                            path: path_of(location["uri"].as_str()?)?,
+                            start: position(&location["range"]["start"]),
+                        })
+                    })
+                    .collect();
+                host::show_project_symbols(&query, &symbols);
             }
             Request::Peek => {
                 let places: Vec<Location> = result
@@ -1680,6 +1760,8 @@ impl Plugin for Lsp {
             "format-changed" => self.format(Formatting::Changed, true),
             "rename" => self.prepare_rename(),
             "references" => self.ask("textDocument/references", Request::Peek),
+            // The palette's symbol search, as the manifest's `symbols`.
+            "project-symbols" => self.project_symbols(),
             "complete" => self.ask(
                 "textDocument/completion",
                 Request::Completion { manual: true },

@@ -21,6 +21,10 @@ pub struct Workspace {
     pub debug_target: Option<String>,
     /// Watch's expressions.
     pub watches: Vec<String>,
+    /// The palette's recently opened files and recently run commands,
+    /// latest first.
+    pub recent_files: Vec<PathBuf>,
+    pub recent_commands: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -91,6 +95,12 @@ impl Workspace {
         for w in &self.watches {
             out += &format!("watch {}\n", w.replace('\n', " "));
         }
+        for path in &self.recent_files {
+            out += &format!("recent-file {}\n", path.display());
+        }
+        for id in &self.recent_commands {
+            out += &format!("recent-command {id}\n");
+        }
         out
     }
 
@@ -130,6 +140,14 @@ impl Workspace {
             }
             if let Some(expr) = line.strip_prefix("watch ") {
                 ws.watches.push(expr.to_string());
+                continue;
+            }
+            if let Some(path) = line.strip_prefix("recent-file ") {
+                ws.recent_files.push(PathBuf::from(path));
+                continue;
+            }
+            if let Some(id) = line.strip_prefix("recent-command ") {
+                ws.recent_commands.push(id.to_string());
                 continue;
             }
             let mut words = line.splitn(4, ' ');
@@ -225,6 +243,8 @@ impl Editor {
             breakpoints: self.debug.breakpoints.clone(),
             debug_target: self.debug.chosen.clone(),
             watches: self.debug.watches.clone(),
+            recent_files: self.recent_files.clone(),
+            recent_commands: self.recent_commands.clone(),
         }
     }
 
@@ -233,6 +253,10 @@ impl Editor {
     pub(crate) fn restore(&mut self, ws: Workspace) {
         self.restore_breakpoints(ws.breakpoints.clone(), ws.debug_target.clone());
         self.debug.watches = ws.watches.clone();
+        if !ws.recent_files.is_empty() || !ws.recent_commands.is_empty() {
+            self.recent_files = ws.recent_files.clone();
+            self.recent_commands = ws.recent_commands.clone();
+        }
         let mut groups: Vec<Group> = Vec::new();
         // Each group's view of each of its files.
         let mut views: Vec<Vec<(u64, View)>> = Vec::new();

@@ -654,6 +654,17 @@ impl App {
                             queue.push_back(Event::Error(format!("Can't save {key}: {err}")));
                         }
                     }
+                    Effect::SearchSymbols {
+                        plugin,
+                        command,
+                        query,
+                    } => {
+                        let snapshot = self.snapshot();
+                        queue.extend(
+                            self.host
+                                .search_symbols(&plugin, &command, &query, snapshot),
+                        );
+                    }
                     Effect::SaveMacro(saved) => {
                         if !self.scripted
                             && let Err(err) = self.settings.save_macro(&saved)

@@ -82,6 +82,8 @@ pub enum UiEvent {
     },
     /// A palette row, by its index among all the palette's items.
     PaletteRow(usize),
+    /// A command's › in the palette's search, by the row's index.
+    PaletteChoices(usize),
     /// A scope chip of the palette's search, or a section's "more" link,
     /// by the scope's index in [`PaletteView::scopes`].
     PaletteScope(usize),
@@ -322,6 +324,8 @@ pub struct PaletteExtra {
     /// A link under the row to the rest of its section, and the scope it
     /// goes to, by its index.
     pub more: Option<(String, usize)>,
+    /// A command whose › offers more, such as Fold's levels.
+    pub choices: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -527,6 +531,7 @@ impl Editor {
                 Source::Restored => "Files",
                 Source::MacroName => "Macro",
                 Source::Search { scope, .. } => scope.label(),
+                Source::Choices => "Choices",
             },
             items: shown
                 .into_iter()
@@ -555,7 +560,18 @@ impl Editor {
                 .unwrap_or_default(),
             sign: chrome.as_ref().and_then(|c| c.sign),
             placeholder: chrome.as_ref().map(|c| c.placeholder.clone()),
-            hints: chrome.map(|c| c.hints).unwrap_or_default(),
+            hints: match (chrome, &p.source) {
+                (Some(c), _) => c.hints,
+                (None, Source::Choices) => [
+                    ("↑ ↓", "to move"),
+                    ("Enter", "to run"),
+                    ("Backspace", "back to the commands"),
+                ]
+                .iter()
+                .map(|(k, w)| (k.to_string(), w.to_string()))
+                .collect(),
+                _ => Vec::new(),
+            },
         });
         let toast = self.message.as_ref().map(|m| ToastView {
             text: m.text.clone(),
@@ -780,7 +796,9 @@ impl Editor {
                 }
             }
             UiEvent::PaletteScope(i) => self.search_scope_clicked(i),
+            UiEvent::PaletteChoices(i) => self.search_choices(i, fx),
             UiEvent::ClosePalette => {
+                self.search_restore();
                 self.close_palette();
             }
             UiEvent::ToastButton(i) => {

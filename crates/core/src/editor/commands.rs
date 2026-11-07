@@ -16,6 +16,11 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
     ("edit.unfold", "Unfold"),
     ("edit.fold_all", "Fold All"),
     ("edit.unfold_all", "Unfold All"),
+    ("edit.fold_level1", "Fold Level 1"),
+    ("edit.fold_level2", "Fold Level 2"),
+    ("edit.fold_level3", "Fold Level 3"),
+    ("edit.fold_level4", "Fold Level 4"),
+    ("edit.fold_level5", "Fold Level 5"),
     ("file.prev", "View: Previous Editor"),
     ("edit.undo", "Edit: Undo"),
     ("edit.redo", "Edit: Redo"),
@@ -224,6 +229,12 @@ impl Editor {
         }
         if id.starts_with("merge.") {
             return self.merge_command(id, fx);
+        }
+        if let Some(level) = id
+            .strip_prefix("edit.fold_level")
+            .and_then(|n| n.parse().ok())
+        {
+            return self.fold_level(level);
         }
         if id == "macro.record" {
             return match self.macro_recording() {

@@ -40,7 +40,7 @@ pub mod bindings {
 pub use bindings::merlin::plugin::host;
 pub use bindings::merlin::plugin::types::{
     ActionKind, BufferEvent, Button, CodeAction, Command, Completion, DetailedDiagnostic, Diagnostic, DocSymbol, FileEdit, FoldRange, Framing, InlayHint,
-    InlayKind, Input, Item, LineRange, Location, Node, Panel, PickItem, Position, ProcessEvent, RenameInfo, Selection,
+    InlayKind, Input, Item, LineRange, Location, Node, Panel, PickItem, Position, ProcessEvent, ProjectSymbol, RenameInfo, Selection,
     Setting, Severity, Signature, Styled, Task, TaskGroup, TestItem, TestOutcome, TestResult, TextChange, Token, TokenKind, TokenLayer, Tone,
     Breakpoint, BreakpointState, DebugLaunch, FunctionStop, DebugPause, DebugState, DebugTarget, DebugThread, DebugVariable, InlineValue,
     OutputKind, StackFrame, StopFilter,
@@ -93,7 +93,7 @@ pub mod settings {
 pub mod prelude {
     pub use crate::{
         ActionKind, BufferEvent, Button, CodeAction, Command, Completion, DetailedDiagnostic, Diagnostic, DocSymbol, FileEdit, FoldRange, Framing,
-        InlayHint, InlayKind, LineRange, Location, Node, Panel, PickItem, Plugin, Position, ProcessEvent, RenameInfo,
+        InlayHint, InlayKind, LineRange, Location, Node, Panel, PickItem, Plugin, Position, ProcessEvent, ProjectSymbol, RenameInfo,
         Selection, Severity, Signature, Task, TaskGroup, TestItem, TestOutcome, TestResult, TextChange, Token, TokenKind, TokenLayer, Tone, host,
         settings, Breakpoint, BreakpointState, DebugLaunch, FunctionStop, DebugPause, DebugState, DebugTarget, DebugThread, DebugVariable,
         InlineValue, OutputKind, StackFrame, StopFilter,
