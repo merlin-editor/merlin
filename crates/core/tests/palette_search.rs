@@ -217,3 +217,27 @@ fn fold_level_folds_the_blocks_that_deep() {
     assert!(!screen.contains("y();"), "{screen}");
     assert!(screen.contains("fn a()"), "{screen}");
 }
+
+#[test]
+fn a_result_in_a_file_not_open_previews_in_the_preview_tab() {
+    let mut s = project();
+    s.run("key ctrl+p; type main; key enter");
+    // fn fold() in fold.rs, then the call in main.rs.
+    s.run("key ctrl+shift+p; key backspace; type /fold()");
+    pause(&mut s);
+    s.run("key down; key up");
+    assert!(s.text().starts_with("/// Each fold"), "{}", s.text());
+    assert_eq!(s.editor.cursor(), 43, "at the match");
+    assert_eq!(s.editor.open_files().len(), 2);
+    s.run("key esc");
+    assert_eq!(s.text(), "fn main() { fold(); }\n");
+    assert_eq!(s.editor.open_files().len(), 1, "the preview went");
+    // Picked, it stays as a tab of its own.
+    s.run("key ctrl+shift+p; key backspace; type /fold()");
+    pause(&mut s);
+    s.run("key down; key up; key enter");
+    assert!(s.text().starts_with("/// Each fold"));
+    assert_eq!(s.editor.open_files().len(), 2);
+    let tabs = s.editor.window_view().tabs;
+    assert!(tabs.iter().all(|t| !t.preview), "kept, not a preview");
+}

@@ -82,7 +82,7 @@ impl Editor {
             } else if after.as_ref().map(|a| &a.0) != before.as_ref().map(|b| &b.0) {
                 self.search_changed();
             } else if after != before {
-                self.search_preview();
+                self.search_preview(fx);
             }
             return;
         }

@@ -1004,6 +1004,7 @@ impl Lsp {
         {
             self.ensure(spec);
         }
+        let mut asked = false;
         for server in &mut self.servers {
             // One still starting is asked too: its answer comes once it's up.
             let can = match server.status {
@@ -1019,7 +1020,12 @@ impl Lsp {
                         query: query.clone(),
                     },
                 );
+                asked = true;
             }
+        }
+        // Nothing to ask: the palette hears there's nothing.
+        if !asked {
+            host::show_project_symbols(&query, &[]);
         }
     }
 
@@ -1380,6 +1386,10 @@ impl Lsp {
                 Request::PrepareRename | Request::References { .. } => {
                     let why = error["message"].as_str().unwrap_or("it can't be renamed");
                     return host::show_rename(Err(&format!("Can't rename this: {why}")));
+                }
+                // The palette waits to hear, quietly.
+                Request::ProjectSymbols { query } => {
+                    return host::show_project_symbols(query, &[]);
                 }
                 _ => {}
             }

@@ -89,6 +89,8 @@ pub(crate) struct TextSearch {
     /// The same for the project's symbols, from language plugins.
     symbols_asked: String,
     symbols: Vec<crate::lang::ProjectSymbol>,
+    /// Plugins asked that haven't answered yet.
+    symbols_waiting: usize,
 }
 
 impl Editor {
@@ -96,7 +98,7 @@ impl Editor {
     pub(crate) fn open_search(&mut self, scope: Scope, fx: &mut Vec<Effect>) {
         if !self.search_open() {
             let doc = self.doc();
-            self.search_preview = Some((doc.id, doc.cursor, doc.scroll));
+            self.search_preview = Some((doc.id, doc.cursor, doc.scroll, self.preview));
         }
         self.palette = Some(Palette::new(
             Source::Search {
@@ -186,8 +188,10 @@ impl Editor {
                     return true;
                 }
                 let id = row.id.clone();
-                // From where it was, so Back goes there.
-                self.search_restore();
+                // From where it was, so Back goes there, keeping the
+                // preview tab if it's what was picked.
+                let keep = row_path(&id).map(str::to_string);
+                self.search_restore_keeping(keep.as_deref());
                 self.close_palette();
                 self.search_pick(&id, key.ctrl, fx);
             }
@@ -246,9 +250,9 @@ impl Editor {
         }
     }
 
-    /// Shows the selected row's place in the editor behind, where its file
-    /// is open, without a tab of its own.
-    pub(crate) fn search_preview(&mut self) {
+    /// Shows the selected row's place in the editor behind: in its tab if
+    /// its file is open, else in the preview tab, which the next replaces.
+    pub(crate) fn search_preview(&mut self, fx: &mut Vec<Effect>) {
         let Some(row) = self.palette.as_ref().and_then(|p| p.rows.get(p.selected)) else {
             return;
         };
@@ -271,6 +275,11 @@ impl Editor {
                 .position(|d| d.buffer.path.as_deref() == Some(std::path::Path::new(path))),
         };
         let Some(index) = index else {
+            if self.preview_tabs {
+                let path = PathBuf::from(path);
+                self.pending_goto = line.map(|line| (path.clone(), line, column));
+                self.open_preview(path, fx);
+            }
             return;
         };
         self.current = index;
@@ -281,9 +290,33 @@ impl Editor {
 
     /// Back to where the editor was before the search previewed anything.
     pub(crate) fn search_restore(&mut self) {
-        let Some((id, cursor, scroll)) = self.search_preview.take() else {
+        self.search_restore_keeping(None);
+    }
+
+    /// The same, but a preview tab the search opened on `keep` stays, as a
+    /// tab of its own; any other it opened goes.
+    fn search_restore_keeping(&mut self, keep: Option<&str>) {
+        let Some((id, cursor, scroll, before)) = self.search_preview.take() else {
             return;
         };
+        self.pending_goto = None;
+        self.opening_preview = None;
+        if let Some(shown) = self.preview.filter(|p| Some(*p) != before)
+            && let Some(i) = self.index_of(shown)
+            && !self.docs[i].buffer.is_dirty()
+        {
+            let path = self.docs[i].buffer.path.clone();
+            if keep.is_some() && path.as_deref() == keep.map(std::path::Path::new) {
+                self.preview = None;
+            } else {
+                self.docs.remove(i);
+                self.preview = None;
+                if self.current > i {
+                    self.current -= 1;
+                }
+                self.current = self.current.min(self.docs.len().saturating_sub(1));
+            }
+        }
         if let Some(i) = self.index_of(id) {
             self.current = i;
             let doc = self.doc_mut();
@@ -405,6 +438,7 @@ impl Editor {
         symbols: Vec<crate::lang::ProjectSymbol>,
     ) {
         if query == self.palette_text.symbols_asked {
+            self.palette_text.symbols_waiting = self.palette_text.symbols_waiting.saturating_sub(1);
             self.palette_text.symbols.extend(symbols);
             self.search_changed();
         }
@@ -433,6 +467,7 @@ impl Editor {
         {
             self.palette_text.symbols_asked = query.clone();
             self.palette_text.symbols.clear();
+            self.palette_text.symbols_waiting = self.symbol_search.len();
             for (plugin, command) in &self.symbol_search {
                 fx.push(Effect::SearchSymbols {
                     plugin: plugin.clone(),
@@ -647,10 +682,25 @@ impl Editor {
             );
         }
         if matches!(scope, Scope::Everything | Scope::Symbols) {
+            let found = self.symbol_rows(&query, scope == Scope::Symbols);
+            // The project's are still to come.
+            let waiting = self.symbol_query().is_some_and(|q| {
+                q != self.palette_text.symbols_asked || self.palette_text.symbols_waiting > 0
+            });
+            if found.is_empty() && waiting && scope == Scope::Symbols {
+                rows.push(Row {
+                    label: "Searching the project's symbols…".into(),
+                    extra: PaletteExtra {
+                        muted: true,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                });
+            }
             section(
                 &mut rows,
                 heading("Symbols"),
-                self.symbol_rows(&query, scope == Scope::Symbols),
+                found,
                 n_symbols,
                 Scope::Symbols,
                 None,
@@ -968,6 +1018,19 @@ impl Editor {
             .map(|(_, _, r)| r)
             .collect()
     }
+}
+
+/// The file a row is in, if it's in one: empty for the current file's
+/// symbols.
+fn row_path(id: &str) -> Option<&str> {
+    if let Some(path) = id.strip_prefix("f:") {
+        return Some(path);
+    }
+    let rest = id.strip_prefix("s:").or_else(|| id.strip_prefix("t:"))?;
+    let mut parts = rest.rsplitn(3, ':');
+    parts.next();
+    parts.next();
+    parts.next().filter(|p| !p.is_empty())
 }
 
 /// What commands do, in a few words, after their names.

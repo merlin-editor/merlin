@@ -1088,9 +1088,10 @@ pub struct Editor {
     /// latest first.
     recent_files: Vec<PathBuf>,
     recent_commands: Vec<String>,
-    /// Where the editor was when the palette's search opened, as the doc,
-    /// cursor and scroll, while its results are previewed.
-    search_preview: Option<(u64, usize, usize)>,
+    /// Where the editor was when the palette's search opened, while its
+    /// results are previewed: the doc, cursor and scroll, and the preview
+    /// tab then.
+    search_preview: Option<(u64, usize, usize, Option<u64>)>,
     /// Quit with unsaved files kept.
     keep_unsaved: bool,
     /// Files whose unsaved changes came back from the last run.
@@ -2266,7 +2267,10 @@ impl Editor {
             }
             return;
         }
-        self.focus = Focus::Editor;
+        // The palette's search keeps the keys while it previews a file.
+        if !self.search_open() {
+            self.focus = Focus::Editor;
+        }
         let as_preview = self.opening_preview.take().is_some_and(|p| p == path);
         if let Some(i) = self
             .docs
