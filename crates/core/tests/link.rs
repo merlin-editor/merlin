@@ -105,6 +105,12 @@ fn a_name_with_no_definition_and_letting_go_of_ctrl_show_no_link() {
     let mut s = linking();
     over_shade(&mut s);
     s.send(Event::Definitions(Vec::new()));
+    // Asked once more, later, in case the server was busy.
+    let (tick, ms) = s.editor.link_wait().expect("asks again");
+    assert!(ms > 100);
+    s.send(Event::LinkDue(tick));
+    s.send(Event::Definitions(Vec::new()));
+    assert_eq!(s.editor.link_wait(), None, "but only once");
     assert!(!linked(&s, 5, 6));
     assert!(!s.editor.window_view().pointer_link);
     // Off the name and back, it's asked again; this time it has one.

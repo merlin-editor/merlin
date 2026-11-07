@@ -1108,9 +1108,6 @@ pub struct Editor {
     /// wait on it.
     link: Option<link::Link>,
     link_tick: u64,
-    /// While `definition-link` is being sent: the plugin's cursor is the
-    /// link's name.
-    link_asking: bool,
     /// Quit with unsaved files kept.
     keep_unsaved: bool,
     /// Files whose unsaved changes came back from the last run.
@@ -1367,7 +1364,6 @@ impl Editor {
             search_preview: None,
             link: None,
             link_tick: 0,
-            link_asking: false,
             keep_unsaved: false,
             restored: Vec::new(),
             open_folder: None,

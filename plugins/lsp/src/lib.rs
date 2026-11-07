@@ -943,20 +943,53 @@ impl Lsp {
     }
 
     /// Syncs the active file, then sends a request about the cursor.
+    /// Brings the server's copy of the active file up to the editor's, if
+    /// it's behind, so positions in it mean the same to both.
+    fn catch_up(&mut self, path: &str, spec: &'static Spec, language: &str) {
+        let now = host::active_version().ok();
+        let server = self.ensure(spec);
+        let open = server.opened.contains_key(path);
+        let was = server.synced.get(path).copied();
+        // The server has it as it is.
+        if open && (now.is_none() || now == was) {
+            return;
+        }
+        // Only what changed, when the server takes ranges and the editor
+        // still has them; else the whole text.
+        let changes = match (server.incremental && open, was) {
+            (true, Some(was)) => host::active_changes(was).ok().flatten(),
+            _ => None,
+        };
+        match changes {
+            Some(changes) if changes.is_empty() => {}
+            Some(changes) => server.send_changes(path, &changes),
+            None => {
+                let text = host::active_text().unwrap_or_default();
+                server.sync(path, language, &text);
+            }
+        }
+        if let Some(now) = now {
+            server.synced.insert(path.to_string(), now);
+        }
+    }
+
     fn ask(&mut self, method: &str, request: Request) {
         // Most of these come by themselves, as a hover under the mouse
         // does: a file no server reads has nothing to say.
         let Some((path, spec, language)) = self.active() else {
+            // The editor waits to hear about the name under Ctrl.
+            if matches!(request, Request::DefinitionLink) {
+                host::show_definitions(&[]);
+            }
             return;
         };
         let Ok(cursor) = host::active_cursor() else {
             return;
         };
-        let text = host::active_text().unwrap_or_default();
+        // A position in text the server hasn't had yet would be wrong, or
+        // past its end.
+        self.catch_up(&path, spec, language);
         let server = self.ensure(spec);
-        if !server.opened.contains_key(&path) {
-            server.sync(&path, language, &text);
-        }
         let here = json!({"line": cursor.line, "character": cursor.column});
         let params = if matches!(request, Request::CodeActions) {
             // With the problems on the cursor's line, which the fixes are for.
@@ -1397,13 +1430,17 @@ impl Lsp {
                 Request::ProjectSymbols { query } => {
                     return host::show_project_symbols(query, &[]);
                 }
+                // So does Ctrl over a name.
+                Request::DefinitionLink => return host::show_definitions(&[]),
                 _ => {}
             }
             // Servers cancel requests that newer edits made pointless.
             let cancelled = matches!(error["code"].as_i64(), Some(-32802..=-32800));
+            // What comes by itself as the mouse rests says nothing either.
             let quiet = matches!(
                 request,
-                Request::Completion { manual: false }
+                Request::Hover
+                    | Request::Completion { manual: false }
                     | Request::Diagnostics { .. }
                     | Request::Tokens { .. }
                     | Request::Symbols { .. }
@@ -1876,31 +1913,7 @@ impl Plugin for Lsp {
             }
             return;
         }
-        let now = host::active_version().ok();
-        let server = self.ensure(spec);
-        let open = server.opened.contains_key(&path);
-        let was = server.synced.get(&path).copied();
-        // Back to a file the server has as it is.
-        if matches!(event, BufferEvent::Switched) && open && (now.is_none() || now == was) {
-            return;
-        }
-        // Only what changed, when the server takes ranges and the editor
-        // still has them; else the whole text.
-        let changes = match (server.incremental && open, was) {
-            (true, Some(was)) => host::active_changes(was).ok().flatten(),
-            _ => None,
-        };
-        match changes {
-            Some(changes) if changes.is_empty() => {}
-            Some(changes) => server.send_changes(&path, &changes),
-            None => {
-                let text = host::active_text().unwrap_or_default();
-                server.sync(&path, language, &text);
-            }
-        }
-        if let Some(now) = now {
-            server.synced.insert(path.clone(), now);
-        }
+        self.catch_up(&path, spec, language);
         if matches!(event, BufferEvent::Changed) {
             self.typed();
         }

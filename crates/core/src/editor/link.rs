@@ -11,6 +11,10 @@ use crate::lang::Location;
 /// language server is asked about it.
 pub(crate) const LINK_WAIT_MS: u64 = 60;
 
+/// How long before asking once more after an empty answer: a server
+/// busy with an edit just made may have given up on the first.
+const RETRY_MS: u64 = 400;
+
 /// Lines of a definition the card shows, and of its doc comment above.
 const CARD_LINES: usize = 6;
 const DOC_LINES: usize = 3;
@@ -27,6 +31,8 @@ pub(crate) struct Link {
     /// A click came before the answer: where to go when it comes, to the
     /// side or not.
     jump: Option<bool>,
+    /// Whether it's being asked again after an empty answer.
+    retry: bool,
 }
 
 /// A definition in the card that a rest with Ctrl brings up.
@@ -81,6 +87,7 @@ impl Editor {
             asked: false,
             places: None,
             jump: None,
+            retry: false,
         });
     }
 
@@ -88,39 +95,51 @@ impl Editor {
     /// tick to send back as [`super::Event::LinkDue`].
     pub fn link_wait(&self) -> Option<(u64, u64)> {
         let link = self.link.as_ref().filter(|l| !l.asked)?;
-        Some((link.tick, LINK_WAIT_MS))
+        Some((link.tick, if link.retry { RETRY_MS } else { LINK_WAIT_MS }))
     }
 
     /// The pointer stayed on the name: asks where it's defined.
     pub(crate) fn link_due(&mut self, tick: u64, fx: &mut Vec<Effect>) {
+        // A name in a file that isn't the current one any more is dropped.
+        let doc = self.doc().id;
+        if self.link.as_ref().is_some_and(|l| l.doc != doc) {
+            self.link = None;
+        }
         if let Some(link) = self.link.as_mut().filter(|l| l.tick == tick && !l.asked) {
             link.asked = true;
-            self.ask_link(fx);
+            Self::ask_link(fx);
         }
     }
 
-    fn ask_link(&mut self, fx: &mut Vec<Effect>) {
-        self.link_asking = true;
+    fn ask_link(fx: &mut Vec<Effect>) {
         fx.push(Effect::PluginCommand {
             plugin: "lsp".into(),
             command: "definition-link".into(),
         });
     }
 
-    /// Where plugins see the cursor while the link is asked about.
+    /// Where plugins see the cursor while the link is asked about: on
+    /// its name, in its own file only.
     pub(crate) fn link_cursor(&self) -> Option<usize> {
         self.link
             .as_ref()
-            .filter(|_| self.link_asking)
+            .filter(|l| l.asked && l.places.is_none() && l.doc == self.doc().id)
             .map(|l| l.word.0)
     }
 
     /// The server's answer.
     pub(crate) fn definitions_came(&mut self, places: Vec<Location>, fx: &mut Vec<Effect>) {
-        self.link_asking = false;
         let Some(link) = self.link.as_mut().filter(|l| l.places.is_none()) else {
             return;
         };
+        // Nothing, the first time: asked once more, unless a click waits.
+        if places.is_empty() && !link.retry && link.jump.is_none() {
+            self.link_tick += 1;
+            link.tick = self.link_tick;
+            link.asked = false;
+            link.retry = true;
+            return;
+        }
         link.places = Some(places);
         if let Some(side) = link.jump.take() {
             self.link_go(side, fx);
@@ -163,8 +182,9 @@ impl Editor {
             asked: true,
             places: None,
             jump: Some(side),
+            retry: false,
         });
-        self.ask_link(fx);
+        Self::ask_link(fx);
     }
 
     /// Goes to the link's definition: the one place, or the peek view for
