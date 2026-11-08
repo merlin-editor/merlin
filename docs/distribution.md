@@ -84,6 +84,7 @@ The full spec for the package format, the registry repo, `index.json`, signing a
 
 ### Today
 - `merlin plugin install <dir>...` links a built plugin folder into `~/.config/merlin/plugins/` (or `$XDG_CONFIG_HOME/merlin/plugins/`) and grants what its manifest asks for. Plugins there load at every start.
+- `merlin plugin pack [dir]` packs a built plugin into a deterministic `<name>-<version>.merlin`, and `merlin plugin install <file.merlin>` unpacks one there, swapping out the version before it and recording it in `installed.toml`.
 - `scripts/install-plugins.sh` builds the plugins that come with Merlin from source and installs them this way.
 - `merlin plugin new <name>` creates a plugin from the template.
 - The host accepts only plugins whose manifest `api` equals `API_VERSION` exactly (see section 8).
@@ -97,8 +98,8 @@ The full spec for the package format, the registry repo, `index.json`, signing a
 
 ### Phased Implementation Roadmap
 1. **Phase 0 (Done)**: Publish SDK crates to crates.io; point `merlin-grammar`'s C build at its bundled headers (`sdk/grammar/.cargo/config.toml`, `wasm-include/`); create automated release workflows.
-2. **Phase 1 (Next)**: `.merlin` package format, `merlin plugin pack`, local archive installation, and atomic staging directory swaps.
-3. **Phase 2**: Sources configuration, index verification (`minisign-verify`), and CLI search/update commands.
+2. **Phase 1 (Done, API 0.14)**: `.merlin` package format, `merlin plugin pack`, local archive installation, and staging directory swaps.
+3. **Phase 2 (Next)**: Sources configuration, index verification (`minisign-verify`), and CLI search/update commands.
 4. **Phase 3**: Registry template repo at `merlin-editor/plugins` with reproducible CI builds and signing.
 5. **Phase 4**: In-app "Browse" tab in Settings › Plugins with update indicators.
 
@@ -106,7 +107,7 @@ The full spec for the package format, the registry repo, `index.json`, signing a
 
 ## 7. Edge Cases, Packaging & Operational Considerations
 
-None of section 7 is built yet except the `install` hints in 7.2.
+Of section 7, the `install` hints in 7.2 and the Windows fallback in 7.4 are built.
 
 ### 7.1 Bundled / Offline Plugins in Release Archives (Planned)
 - **Problem**: Fresh installs without a local Rust toolchain or network access should not have an uncoloured editor.
@@ -119,14 +120,13 @@ None of section 7 is built yet except the `install` hints in 7.2.
 - **Planned**: The editor does not block installation if a process is missing on `$PATH`. Instead, the install confirmation card reads the `install` hints (to be added for language servers too) and surfaces a copyable command:
   > *"Installed Rust! Note: `rust-analyzer` was not found on your $PATH. Install it to enable completion and diagnostics: `rustup component add rust-analyzer` [Copy]"*
 
-### 7.3 Wasm Optimization (`wasm-opt`) (Planned)
-- **Problem**: Unoptimized component `.wasm` files can be 2–3 MB each (e.g. `rust_language.wasm` is 2.9 MB).
-- **Solution**: Both `merlin plugin pack` and the registry CI run `wasm-opt -Oz` (Binaryen) if installed, typically reducing wasm size by 40–60% and improving cold-start compilation times.
+### 7.3 Wasm Optimization (`wasm-opt`) (Partly Built)
+- **Problem**: Unoptimized component `.wasm` files can be 2–3 MB each (e.g. `rust_language.wasm` is 2.9 MB; packed, the Rust plugin is 684 KB).
+- **Solution**: `merlin plugin pack` runs `wasm-opt -Oz` (Binaryen) if installed, and the registry CI will too. Whether Binaryen reads components rather than core modules is untested (see plugin-registry.md section 4).
 
-### 7.4 Cross-Platform Symlinks & Windows Fallback (`merlin plugin install`) (Planned)
+### 7.4 Cross-Platform Symlinks & Windows Fallback (`merlin plugin install`) (Built)
 - **Problem**: Standard user accounts on Windows often lack permission to create UNIX symbolic links unless Developer Mode is enabled.
-- **Today**: `merlin plugin install` calls `std::os::unix::fs::symlink` with no Windows branch (`crates/app/src/main.rs`), so it doesn't build for Windows.
-- **Solution**: In `merlin plugin install`, if `std::os::windows::fs::symlink_dir` fails with an access error, fall back to directory junctions or directory copying with a helpful notice.
+- **Solution**: `merlin plugin install <dir>` links with `std::os::windows::fs::symlink_dir` on Windows. If that fails, it packs the folder and installs the package instead, saying it's a copy that needs installing again after a rebuild (`crates/plugin-host/src/package.rs`, `link`). Not yet tried on Windows itself.
 
 ### 7.5 Yanks & Security Revocations (Planned)
 - **Problem**: Mitigating compromised or critically buggy plugin versions after release.

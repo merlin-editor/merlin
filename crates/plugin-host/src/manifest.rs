@@ -17,7 +17,19 @@ pub struct Manifest {
     /// or grey.
     #[serde(default)]
     pub hue: Option<String>,
+    /// Its own version, as semver (`1.2.0`, `0.3.0-beta.1`). A registry
+    /// publishes each version once.
+    pub version: String,
     pub api: String,
+    /// Its licence, as an SPDX expression such as `MIT OR Apache-2.0`.
+    #[serde(default)]
+    pub license: Option<String>,
+    /// Where its source lives, for people to read.
+    #[serde(default)]
+    pub repository: Option<String>,
+    /// What `merlin plugin pack` leaves out of its archive.
+    #[serde(default)]
+    pub package: ManifestPackage,
     /// The component file, relative to the plugin folder. A plugin that
     /// only adds data, such as colour themes, has none.
     #[serde(default)]
@@ -76,6 +88,45 @@ pub struct Manifest {
     /// File types it opens in a tab of its own: see [`ManifestEditor`].
     #[serde(default)]
     pub editors: Vec<ManifestEditor>,
+}
+
+/// `[package]`: what goes in the plugin's `.merlin` archive.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct ManifestPackage {
+    /// Files and folders to leave out, as globs relative to the plugin's
+    /// folder (`tools/`, `*.psd`), on top of the build's own files.
+    #[serde(default)]
+    pub exclude: Vec<String>,
+}
+
+/// Whether `name` will do as a plugin's name: lowercase letters, digits
+/// and `-`, starting with a letter, 2 to 40 long. It names its folder,
+/// its settings table and its registry entry.
+pub fn valid_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    (2..=40).contains(&name.len())
+        && chars.next().is_some_and(|c| c.is_ascii_lowercase())
+        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+/// Whether `version` is semver: three numbers without leading zeros, and
+/// a pre-release or build after `-` or `+` if any.
+pub fn valid_version(version: &str) -> bool {
+    let core = version.split(['-', '+']).next().unwrap_or("");
+    let rest = &version[core.len()..];
+    let parts: Vec<&str> = core.split('.').collect();
+    let number = |p: &&str| {
+        !p.is_empty()
+            && p.chars().all(|c| c.is_ascii_digit())
+            && (p.len() == 1 || !p.starts_with('0'))
+    };
+    let tail_ok = rest.is_empty()
+        || (rest.len() > 1
+            && rest[1..]
+                .split(['.', '+', '-'])
+                .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_alphanumeric())));
+    parts.len() == 3 && parts.iter().all(number) && tail_ok
 }
 
 /// A file type a plugin opens as a document, as `[[editors]]` declares
@@ -878,6 +929,20 @@ pub fn manifest(dir: &Path) -> Result<Manifest> {
     )
     .with_context(|| format!("parsing {}", path.display()))?;
     let mut manifest = manifest;
+    if !valid_name(&manifest.name) {
+        bail!(
+            "in {}: name {:?} must be 2 to 40 lowercase letters, digits and -, starting with a letter",
+            path.display(),
+            manifest.name
+        );
+    }
+    if !valid_version(&manifest.version) {
+        bail!(
+            "in {}: version {:?} must be semver, such as 0.1.0",
+            path.display(),
+            manifest.version
+        );
+    }
     let (schema, defaults) =
         read_schema(&manifest.settings).with_context(|| format!("in {}", path.display()))?;
     manifest.schema = schema;
@@ -1040,12 +1105,53 @@ NameError: name 'nme' is not defined\n";
         fs::create_dir_all(&dir).unwrap();
         fs::write(
             dir.join("plugin.toml"),
-            "name = \"bad\"\ntitle = \"Bad\"\napi = \"0.10\"\n\
+            "name = \"bad\"\ntitle = \"Bad\"\nversion = \"0.1.0\"\napi = \"0.10\"\n\
              [[problem-matchers]]\nlines = [{ regex = '(', file = 1 }]\n",
         )
         .unwrap();
         let err = format!("{:#}", super::manifest(&dir).unwrap_err());
         assert!(err.contains("problem matcher pattern"), "{err}");
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn names_and_versions_are_checked() {
+        for good in ["rust", "word-count", "merlin-themes", "c2"] {
+            assert!(valid_name(good), "{good}");
+        }
+        for bad in [
+            "",
+            "r",
+            "Rust",
+            "2go",
+            "my_plugin",
+            "a.b",
+            "-x",
+            &"a".repeat(41),
+        ] {
+            assert!(!valid_name(bad), "{bad}");
+        }
+        for good in [
+            "0.1.0",
+            "1.20.300",
+            "1.0.0-beta.1",
+            "1.0.0+build.5",
+            "0.0.0",
+        ] {
+            assert!(valid_version(good), "{good}");
+        }
+        for bad in [
+            "",
+            "1",
+            "1.0",
+            "1.0.0.0",
+            "01.0.0",
+            "1.0.x",
+            "1.0.0-",
+            "v1.0.0",
+            "1.0.0-a..b",
+        ] {
+            assert!(!valid_version(bad), "{bad}");
+        }
     }
 }

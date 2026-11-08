@@ -16,3 +16,10 @@ ignore = "0.4"
 wasmtime = "50"
 wasmtime-wasi = "50"
 png = "0.18"
+# `.merlin` packages: a deterministic gzipped tar, its SHA-256, and the
+# manifest rewritten in place.
+tar = { version = "0.4", default-features = false }
+flate2 = "1"
+sha2 = "0.10"
+toml_edit = "0.25"
+globset = "0.4"

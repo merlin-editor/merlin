@@ -66,6 +66,7 @@ strip = true
             format!(
                 r#"name = "{name}"
 title = "{title}"
+version = "0.1.0"
 api = "{api}"
 component = "target/wasm32-wasip2/release/{crate_name}.wasm"
 

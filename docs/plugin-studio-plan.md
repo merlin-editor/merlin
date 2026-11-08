@@ -30,7 +30,7 @@ The plugin requires access to workspace files and build tools (`cargo`, `wasm-op
 name = "merlin-plugin-studio"
 title = "Plugin Studio"
 version = "0.1.0"
-api = "0.13"
+api = "0.14"
 component = "target/wasm32-wasip2/release/merlin_plugin_studio.wasm"
 
 # Main visual workbench opened in an editor tab
@@ -56,7 +56,7 @@ processes = ["cargo", "wasm-opt", "git"]
 ### 2.2 Permissions Boundary
 * **File Operations**: Uses `workspace-read` and `editor-write` (via `host.read-file`, `host.apply-edits`, `host.list-files`) to inspect project structures and scaffold code.
 * **Process Execution**: Strictly limited to build tools (`cargo`, `wasm-opt`, `git`). It runs with standard host permissions upon user approval, keeping compilation out of the UI thread.
-* **Host Compatibility**: Its `api` must equal the editor's `API_VERSION` (`0.13` today), and moves with it.
+* **Host Compatibility**: Its `api` must equal the editor's `API_VERSION` (`0.14` today), and moves with it.
 * **Note**: `cargo` runs build scripts, so asking for it means the studio can run anything you can (`docs/plugin-registry.md` 10.2). It falls in the registry's "outside the sandbox" review tier.
 
 ---

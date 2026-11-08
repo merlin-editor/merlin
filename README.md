@@ -281,7 +281,8 @@ merlin comes with:
 # plugin.toml
 name = "my-looks"
 title = "My Looks"
-api = "0.13"
+version = "0.1.0"
+api = "0.14"
 
 [[themes]]          # shows in the colour or icon theme picker
 label = "My Theme"
@@ -694,7 +695,8 @@ title = "Word Count"
 # Its tile in the plugin lists: two letters and a colour.
 badge = "WC"
 hue = "green"
-api = "0.13"
+version = "0.1.0"
+api = "0.14"
 component = "target/wasm32-wasip2/release/word_count.wasm"
 
 [permissions]
@@ -889,6 +891,23 @@ What else plugins get, besides commands and panels:
 
 Other languages work too: anything that builds a WASI 0.2 component for
 [`sdk/rust/wit/merlin.wit`](sdk/rust/wit/merlin.wit).
+
+### Packing a plugin
+
+```sh
+merlin plugin pack hello          # hello-0.1.0.merlin, and its SHA-256
+merlin plugin install hello-0.1.0.merlin
+```
+
+A package is one file holding `plugin.toml`, the component as
+`plugin.wasm`, and the plugin's other files: everything in its folder but
+what builds it (`src/`, `target/`, `Cargo.toml` and the like) and what
+`[package] exclude` leaves out. The same source packs to the same bytes
+every time (set `SOURCE_DATE_EPOCH` to choose the files' time), with
+`wasm-opt -Oz` run first when it's installed. Installing one unpacks it
+beside the plugins folder and swaps it in, replacing the version before it.
+How packages will reach people through a registry is in
+[docs/plugin-registry.md](docs/plugin-registry.md).
 
 ## Not done yet
 

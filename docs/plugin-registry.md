@@ -3,7 +3,9 @@
 How plugins get from an author to a user's editor through
 [merlin-editor/plugins](https://github.com/merlin-editor/plugins). This is the
 spec behind phases 1–4 of section 6 in [distribution.md](distribution.md).
-Nothing here is built yet; the registry repo is empty.
+Phase 1 (sections 2 and 4, and installing a package from disk) is built; the
+rest isn't yet. The registry repo has its license, keys, `gh-pages` branch
+and `registry` environment, and no plugins.
 
 ---
 
@@ -133,16 +135,23 @@ A gzip-compressed tar file, built so the same input always gives the same bytes:
   so comments and order survive. Data-only plugins (themes, icons, layouts) have
   no component.
 - **Contents**: everything in the plugin's folder except the default excludes
-  (`target/`, `src/`, `tests/`, `.cargo/`, `.git/`, `Cargo.toml`, `Cargo.lock`)
-  and anything in `[package] exclude`. Then every file the manifest names (theme,
+  (`target/`, `src/`, `tests/`, `.cargo/`, `.git/`, `Cargo.toml`, `Cargo.lock`,
+  and any `*.merlin` file) and anything in `[package] exclude`. An exclude is a
+  glob from the plugin's folder: `*` stays within a folder, `**` crosses them,
+  and a pattern that matches a folder leaves out everything in it. Then every file the manifest names (theme,
   pack and icon files) must be present, or packing fails.
-- **Determinism**: ustar format; entries sorted by path; mtime set to the pinned
-  commit's time; uid/gid 0 with no user or group names; mode 0644 for files and
-  0755 for folders; no symlinks, hard links or device files; `gzip -n -9`.
-- **Optimisation**: `wasm-opt -Oz` runs on the component before packing. In CI
-  this always happens with the pinned version; locally it's skipped with a notice
-  if `wasm-opt` isn't installed, and then a local pack won't match CI's.
-- **Limit**: 25 MB per archive.
+- **Determinism**: ustar format; files only, with no entries for folders,
+  sorted by path; every mtime is `SOURCE_DATE_EPOCH` (CI sets it to the pinned
+  commit's time) or 0 without it; uid/gid 0 with no user or group names; mode
+  0644; no symlinks (a symlink in the folder stops packing); gzip at the best
+  level with no name or time in its header.
+- **Optimisation**: `wasm-opt -Oz --all-features` runs on the component when
+  it's on `PATH`. If it isn't, or it fails, the component goes in as built,
+  with a notice; a local pack then won't match CI's. Binaryen is made for core
+  modules, so whether it reads a component needs checking before phase 3 makes
+  CI rely on it; if it doesn't, CI optimises the core module before
+  `wasm-component-ld` wraps it, or skips this step.
+- **Limit**: 25 MB per archive, and 200 MB unpacked when installing.
 
 `merlin plugin pack [dir]` writes `<name>-<version>.merlin` and prints its
 SHA-256 and size.
@@ -280,15 +289,15 @@ authors release their own.
 
 1. Download into `~/.cache/merlin/downloads/`. Check size and SHA-256 against
    the index.
-2. Unpack into `~/.config/merlin/plugins/.staging/<name>-<random>/`. Refuse
+2. Unpack into `~/.config/merlin/plugins/.staging/<random>/`. Refuse
    absolute paths, `..`, symlinks, hard links and device files.
 3. Read the unpacked `plugin.toml`: `name`, `version` and `api` must match the
    index.
 4. Ask for its permissions (7.3).
-5. Move the current `~/.config/merlin/plugins/<name>/` to `.trash/`, move the
-   staging folder into its place, delete the trash. On start, Merlin clears
-   `.staging/` and, if `<name>/` is missing but `.trash/<name>` exists, puts it
-   back.
+5. Move the current `~/.config/merlin/plugins/<name>/` to
+   `.trash/<random>/<name>`, move the staging folder into its place, delete the
+   trash. On start, Merlin clears `.staging/` and puts back anything in
+   `.trash/` whose name has nothing in its place.
 6. Record it in `installed.toml` in the data folder: name, source, version and
    SHA-256. Update checks read this.
 
@@ -336,6 +345,10 @@ one in place of the other asks first.
 | `merlin plugin update [name]` | Updates one or all; asks again if permissions grew |
 | `merlin plugin uninstall <name>` | Removes it and its grant |
 
+Built so far: `pack`, and `install` of a folder or a `.merlin` file.
+Uninstalling is in Settings › Plugins: a linked plugin loses its link, and a
+packaged one's folder goes to the system's bin and leaves `installed.toml`.
+
 ---
 
 ## 8. Bundled Plugins
@@ -350,12 +363,12 @@ update from the registry like any other.
 
 ## 9. Build Order
 
-1. **Manifest and pack**: `version`, `license`, `repository`, `[package]`;
-   `merlin plugin pack`; deterministic archives; installing a local `.merlin`
-   with staging and swap; `installed.toml`. Also fix two current gaps: the grant
-   message leaves out `workspace-read` and `terminal`, and
-   `merlin plugin install` doesn't build on Windows. Make the WIT package
-   version match `API_VERSION` (11.1).
+1. **Manifest and pack (done, API 0.14)**: `version`, `license`,
+   `repository`, `[package]`; `merlin plugin pack`; deterministic archives;
+   installing a local `.merlin` with staging and swap; `installed.toml`. The
+   grant message lists every permission; `merlin plugin install` builds on
+   Windows and copies a folder when links aren't allowed; the WIT package
+   version is the API version.
 2. **Index and sources**: the `index.json` types, `minisign-verify`, serial and
    expiry checks, `[plugin-sources]`, `search`, `update`, `uninstall`.
 3. **Registry repo**: the layout, container, `check.yml`, `publish.yml`,
@@ -452,11 +465,11 @@ loses those plugins until then.
 - **Tell authors.** When an editor release bumps the API, `publish.yml` opens an
   issue on each third-party plugin's repo saying so, with a link to what changed.
 - **Merlin's own plugins** get new versions in the same release, as in 7.1.
-- **Make the WIT package version the API version.** `sdk/rust/wit/merlin.wit`
-  declares `package merlin:plugin@0.10.0` while `API_VERSION` is `0.13`. They
-  should be the same number, bumped together. That's needed for 11.2, and it
-  lets `merlin plugin pack` check the manifest's `api` against what the component
-  actually imports, instead of trusting the manifest.
+- **The WIT package version is the API version** (`merlin:plugin@0.14.0` for
+  API `0.14`), bumped together. That's needed for 11.2. It also means a
+  component built for another API fails to link, whatever its manifest says.
+  Later, `merlin plugin pack` can read the version the component imports and
+  check the manifest's `api` against it.
 
 ### 11.2 From 1.0: Additive Minors, Adapters for Majors
 

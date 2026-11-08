@@ -3,7 +3,8 @@ title = "C/C++"
 description = "C & C++ syntax, outlines & clangd"
 badge = "C+"
 hue = "blue"
-api = "0.13"
+version = "0.1.0"
+api = "0.14"
 component = "target/wasm32-wasip2/release/cpp.wasm"
 # Starts when one of its files opens, or the project has one.
 activate-on = ["language:c", "language:cpp", "file:CMakeLists.txt"]

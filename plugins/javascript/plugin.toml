@@ -3,7 +3,8 @@ title = "JavaScript"
 description = "JS & TypeScript syntax, tasks & tsserver"
 badge = "JS"
 hue = "yellow"
-api = "0.13"
+version = "0.1.0"
+api = "0.14"
 component = "target/wasm32-wasip2/release/javascript_language.wasm"
 # Starts when one of its files opens, or the project has one.
 activate-on = ["language:javascript", "language:typescript", "file:package.json"]

@@ -3,7 +3,8 @@ title = "JSON"
 description = "Syntax highlighting & code folding"
 badge = "{}"
 hue = "green"
-api = "0.13"
+version = "0.1.0"
+api = "0.14"
 component = "target/wasm32-wasip2/release/json_language.wasm"
 # Starts when one of its files opens, or the project has one.
 activate-on = ["language:json"]

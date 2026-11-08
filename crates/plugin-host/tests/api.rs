@@ -340,7 +340,7 @@ fn data_only_plugins_have_no_panel_and_ask_nothing() {
     fs::write(
         dir.join("plugin.toml"),
         format!(
-            "name = \"looks\"\ntitle = \"Looks\"\napi = \"{}\"\n\n[[packs]]\nlabel = \"Flat\"\nfile = \"flat.toml\"\n",
+            "name = \"looks\"\ntitle = \"Looks\"\nversion = \"0.1.0\"\napi = \"{}\"\n\n[[packs]]\nlabel = \"Flat\"\nfile = \"flat.toml\"\n",
             merlin_plugins::API_VERSION
         ),
     )

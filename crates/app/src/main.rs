@@ -37,6 +37,13 @@ merlin - a code editor with sandboxed plugins
 
 Usage: merlin [options] [file...]
        merlin plugin new <name>   Start a plugin in a new folder
+       merlin plugin install <dir | file.merlin>...
+                                  Install plugins: a folder is linked, so
+                                  rebuilding it updates it; a package is
+                                  unpacked
+       merlin plugin pack [dir] [--out <dir>]
+                                  Pack a built plugin into
+                                  <name>-<version>.merlin
 
 Options:
   --plugin <dir>     Load the plugin in <dir> (repeatable). Plugins in
@@ -97,11 +104,13 @@ fn parse_args() -> Result<Args> {
 
 fn plugin_dirs(args: &Args) -> Vec<PathBuf> {
     let mut dirs = args.plugins.clone();
-    let config = env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .or_else(|| env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")));
-    if let Some(config) = config
-        && let Ok(entries) = fs::read_dir(config.join("merlin/plugins"))
+    let installed = settings::plugins_dir();
+    if let Some(installed) = &installed {
+        // An install that stopped halfway is put right before anything loads.
+        merlin_plugins::package::recover(installed);
+    }
+    if let Some(installed) = installed
+        && let Ok(entries) = fs::read_dir(installed)
     {
         let mut found: Vec<_> = entries.flatten().map(|e| e.path()).collect();
         found.sort();
@@ -114,49 +123,102 @@ fn plugin_dirs(args: &Args) -> Vec<PathBuf> {
     dirs
 }
 
-/// `merlin plugin install <dir>...`: links each plugin into the user's
-/// plugins folder, so it loads at every start, and allows what its manifest
-/// asks for, since installing it is the user's say-so.
-fn install_plugins(dirs: &[String]) -> Result<()> {
-    let config = env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute())
-        .or_else(|| env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
-        .context("no home folder")?;
-    let plugins = config.join("merlin/plugins");
+/// `merlin plugin install <dir | file.merlin>...`: links each plugin
+/// folder into the user's plugins folder, or unpacks each package there,
+/// so it loads at every start, and allows what its manifest asks for,
+/// since installing it is the user's say-so.
+fn install_plugins(items: &[String]) -> Result<()> {
+    use merlin_plugins::package;
+    let plugins = settings::plugins_dir().context("no home folder")?;
     fs::create_dir_all(&plugins)?;
-    for dir in dirs {
-        let dir = Path::new(dir)
-            .canonicalize()
-            .with_context(|| format!("no plugin at {dir}"))?;
-        let manifest = merlin_plugins::manifest(&dir)?;
-        if let Some(component) = &manifest.component
-            && !dir.join(component).exists()
-        {
-            bail!(
-                "{} isn't built: run `cargo build --release` in {}",
-                manifest.name,
-                dir.display()
-            );
-        }
-        let link = plugins.join(&manifest.name);
-        if link.symlink_metadata().is_ok() {
-            if link.canonicalize().ok().as_ref() != Some(&dir) {
-                bail!("{} is already installed from elsewhere", link.display());
+    let data = Config::standard().data_dir;
+    for item in items {
+        let path = Path::new(item);
+        let is_package =
+            path.is_file() && path.extension().is_some_and(|e| e == package::EXTENSION);
+        let (manifest, installed, how) = if is_package {
+            let manifest = package::install(path, &plugins, &data)?;
+            let installed = plugins.join(&manifest.name);
+            (manifest, installed, String::new())
+        } else {
+            let dir = path
+                .canonicalize()
+                .with_context(|| format!("no plugin or package at {item}"))?;
+            let manifest = merlin_plugins::manifest(&dir)?;
+            if let Some(component) = &manifest.component
+                && !dir.join(component).exists()
+            {
+                bail!(
+                    "{} isn't built: run `cargo build --release` in {}",
+                    manifest.name,
+                    dir.display()
+                );
             }
-        } else {
-            std::os::unix::fs::symlink(&dir, &link)?;
-        }
-        let (_, allowed) = merlin_plugins::grant(&Config::standard(), &link)?;
+            let linked = package::link(&dir, &manifest.name, &plugins, &data)?;
+            let how = if linked {
+                String::new()
+            } else {
+                " as a copy, since this system won't make links (Developer Mode allows them \
+                 on Windows); install it again after rebuilding it"
+                    .to_string()
+            };
+            let installed = plugins.join(&manifest.name);
+            (manifest, installed, how)
+        };
+        let (_, allowed) = merlin_plugins::grant(&Config::standard(), &installed)?;
+        let title = format!("{} {}", manifest.title, manifest.version);
         if allowed.is_empty() {
-            println!("Installed {}", manifest.title);
+            println!("Installed {title}{how}");
         } else {
-            println!("Installed {}, allowed to:", manifest.title);
+            println!("Installed {title}{how}, allowed to:");
             for what in &allowed {
                 println!("  • {what}");
             }
         }
     }
+    Ok(())
+}
+
+/// `merlin plugin pack [dir] [--out <dir>]`: packs a plugin into
+/// `<name>-<version>.merlin`, the same bytes every time from the same
+/// source and `SOURCE_DATE_EPOCH`.
+fn pack_plugin(args: &[String]) -> Result<()> {
+    use merlin_plugins::package::{self, Optimised};
+    let mut dir = None;
+    let mut out = None;
+    let mut it = args.iter();
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "--out" => out = Some(PathBuf::from(it.next().context("--out needs a folder")?)),
+            flag if flag.starts_with('-') => bail!("unknown option: {flag}\n\n{USAGE}"),
+            _ if dir.is_some() => bail!("pack takes one plugin folder\n\n{USAGE}"),
+            path => dir = Some(PathBuf::from(path)),
+        }
+    }
+    let dir = dir.unwrap_or_else(|| PathBuf::from("."));
+    let out = out.unwrap_or_else(|| PathBuf::from("."));
+    let packed = package::pack(&dir, &out, package::source_epoch())?;
+    match &packed.optimised {
+        Optimised::NoComponent => {}
+        Optimised::Missing => eprintln!(
+            "Note: wasm-opt isn't installed, so the component went in as built. \
+             The registry's build runs it, so this package won't match the registry's."
+        ),
+        Optimised::Failed(why) => eprintln!(
+            "Note: wasm-opt couldn't optimise the component ({why}), so it went in as built."
+        ),
+        Optimised::Done { before, after } => println!(
+            "Optimised the component from {} KB to {} KB",
+            before / 1024,
+            after / 1024
+        ),
+    }
+    println!("Packed {}", packed.path.display());
+    println!(
+        "  {} KB, sha256 {}",
+        packed.size.div_ceil(1024),
+        packed.sha256
+    );
     Ok(())
 }
 
@@ -1110,6 +1172,12 @@ fn main() -> Result<()> {
         && !dirs.is_empty()
     {
         return install_plugins(dirs);
+    }
+    if let [plugin, pack, rest @ ..] = &argv[..]
+        && plugin == "plugin"
+        && pack == "pack"
+    {
+        return pack_plugin(rest);
     }
     let args = parse_args()?;
     let root = env::current_dir()

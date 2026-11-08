@@ -1,4 +1,4 @@
-package merlin:plugin@0.10.0;
+package merlin:plugin@0.14.0;
 
 interface types {
   /// What a run of text is, for its colour.

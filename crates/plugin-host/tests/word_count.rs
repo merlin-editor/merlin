@@ -29,7 +29,7 @@ fn copy_with_manifest(name: &str, permissions: &str) -> PathBuf {
     fs::write(
         dir.join("plugin.toml"),
         format!(
-            "name = \"{name}\"\ntitle = \"Test\"\napi = \"{api}\"\ncomponent = \"plugin.wasm\"\n\n[permissions]\n{permissions}\n",
+            "name = \"{name}\"\ntitle = \"Test\"\nversion = \"0.1.0\"\napi = \"{api}\"\ncomponent = \"plugin.wasm\"\n\n[permissions]\n{permissions}\n",
             api = merlin_plugins::API_VERSION
         ),
     )

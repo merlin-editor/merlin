@@ -4,7 +4,8 @@ title = "merlin Icons"
 description = "File and UI icon themes"
 badge = "IC"
 hue = "purple"
-api = "0.13"
+version = "0.1.0"
+api = "0.14"
 
 # Icon themes, for Preferences: File Icon Theme.
 [[packs]]
@@ -20,3 +21,7 @@ file = "outline.toml"
 [[packs]]
 label = "Line Icons"
 file = "line.toml"
+
+# The script that draws the icons stays out of the package.
+[package]
+exclude = ["tools/"]
