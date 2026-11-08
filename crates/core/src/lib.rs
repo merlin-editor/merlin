@@ -42,7 +42,9 @@ pub use editor::{
     Debugger, FunctionStop, OutputKind, StackFrame, StopFilter,
 };
 pub use editor::{LogLevel, OutputBarView, OutputClick, OutputList, OutputRowView};
-pub use editor::{PanelTab, Place, ToolButton, ToolView, ViewIcon, ViewSpec, view_key};
+pub use editor::{
+    MenuItem, MenuPlace, PanelTab, Place, ToolButton, ToolView, ViewIcon, ViewSpec, view_key,
+};
 pub use key::{Key, KeyCode};
 pub use lang::{Completion, Diagnostic, InlayHint, InlayKind, Severity, Signature};
 pub use merlin_syntax::Syntax;

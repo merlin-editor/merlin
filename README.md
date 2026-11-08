@@ -824,6 +824,10 @@ What else plugins get, besides commands and panels:
   when one of its commands, views or buttons is used. Its commands from
   the last run stay in the palette meanwhile. `depends = ["lsp"]` names
   plugins it needs; without them it doesn't start, and says why.
+- **Right-click menus.** `[[menus]]` puts a command in the editor's, the
+  Explorer's or a tab's menu (`where = "editor"`, `"explorer"`, `"tab"`),
+  with an optional `title`. `host::menu_target()` says which file the menu
+  was on.
 - **Buffer events**: `buffer` hears when the active file switches, changes or
   is saved.
 - **The selection**: `host::active_selection` gives its text and position.

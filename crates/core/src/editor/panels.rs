@@ -18,6 +18,9 @@ pub(crate) struct Bar {
     pub target: Option<Target>,
     /// Where the focused element was, for when it goes away.
     pub index: usize,
+    /// Shown before its panel had an input: the first one that comes
+    /// takes focus.
+    pub want_input: bool,
 }
 
 impl Side {
@@ -218,12 +221,16 @@ impl Editor {
         let bar = self.bar_mut(side);
         bar.visible = true;
         self.focus = side.focus();
-        if let Some(i) = self
+        match self
             .panel_targets(side)
             .iter()
             .position(|t| matches!(t, Target::Input(_)))
         {
-            self.select(side, i);
+            Some(i) => {
+                self.select(side, i);
+                self.bar_mut(side).want_input = false;
+            }
+            None => self.bar_mut(side).want_input = true,
         }
     }
 

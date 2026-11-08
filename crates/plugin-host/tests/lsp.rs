@@ -49,6 +49,7 @@ fn snapshot() -> Snapshot {
         cursor: (2, 6),
         selection: None,
         changed: None,
+        menu_target: None,
     }
 }
 
@@ -273,6 +274,7 @@ fn formatting_sends_the_servers_edits_and_changed_lines_ask_for_their_ranges() {
     );
     let changed = Snapshot {
         changed: Some(vec![(2, 2), (0, 0)]),
+        menu_target: None,
         ..snapshot()
     };
     let mut edits = format_edits(&mut host, "format-changed", changed);

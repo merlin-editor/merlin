@@ -496,3 +496,73 @@ fn a_box_keeps_focus_when_a_reply_comes_in_above_it() {
         })
     );
 }
+
+#[test]
+fn plugins_commands_join_the_right_click_menus() {
+    use merlin_core::{MenuItem, MenuPlace};
+    let mut s = with_views();
+    s.send(Event::RegisterPlugin {
+        plugin: "chat".into(),
+        commands: vec![merlin_core::Command {
+            id: "ask".into(),
+            title: "Chat: Ask".into(),
+            key: None,
+        }],
+    });
+    s.send(Event::RegisterMenus {
+        plugin: "chat".into(),
+        items: vec![
+            MenuItem {
+                place: MenuPlace::Tab,
+                command: "ask".into(),
+                title: Some("Ask About This File".into()),
+            },
+            MenuItem {
+                place: MenuPlace::Explorer,
+                command: "ask".into(),
+                title: None,
+            },
+        ],
+    });
+    s.send(Event::Ui(UiEvent::TabMenu));
+    let menu = s.editor.window_view().context.expect("the tab's menu");
+    let last = menu.items.last().unwrap();
+    assert_eq!(last.label, "Ask About This File");
+    assert_eq!(s.editor.menu_target().as_deref(), Some("src/main.rs"));
+    s.send(Event::Ui(UiEvent::ContextItem(menu.items.len() - 1)));
+    assert_eq!(
+        s.effects.last(),
+        Some(&Effect::PluginCommand {
+            plugin: "chat".into(),
+            command: "ask".into()
+        })
+    );
+}
+
+#[test]
+fn a_view_shown_before_it_draws_focuses_its_box_when_it_does() {
+    let mut s = with_views();
+    s.send(Event::FocusView {
+        plugin: "cargo".into(),
+        view: "chat".into(),
+    });
+    s.send(Event::SetPanel {
+        plugin: view_key("cargo", "chat"),
+        panel: Some(Panel {
+            title: "Chat".into(),
+            nodes: vec![
+                Node::Button(merlin_core::Button {
+                    id: "copy".into(),
+                    label: "Copy".into(),
+                }),
+                Node::Input {
+                    id: "ask".into(),
+                    placeholder: "Ask".into(),
+                    secret: false,
+                    multiline: true,
+                },
+            ],
+        }),
+    });
+    assert_eq!(s.editor.window_view().right.unwrap().selected, 1);
+}

@@ -27,6 +27,7 @@ impl Plugin for Testbed {
             "show-setting",
             "show-path",
             "show-chat",
+            "about",
             "colour",
             "log",
             "warn",
@@ -43,6 +44,11 @@ impl Plugin for Testbed {
                 host::set_view_badge("activity", self.clicks);
             }
             "show-chat" => host::focus_view("chat"),
+            "about" => {
+                let target = host::menu_target().unwrap_or_else(|| "nothing".into());
+                self.asked.push(format!("about {target}"));
+                host::focus_view("chat");
+            }
             "spawn" => self.cat = host::spawn("cat", &[], &[], Framing::Lines).ok(),
             "send" => {
                 if let Some(cat) = self.cat {

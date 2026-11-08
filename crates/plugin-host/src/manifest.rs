@@ -70,6 +70,24 @@ pub struct Manifest {
     /// Plugins it needs, by name; without them it doesn't start.
     #[serde(default)]
     pub depends: Vec<String>,
+    /// Its commands in right-click menus: see [`ManifestMenu`].
+    #[serde(default)]
+    pub menus: Vec<ManifestMenu>,
+}
+
+/// One of a plugin's commands in a right-click menu, as `[[menus]]`
+/// declares it.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct ManifestMenu {
+    /// `editor`, `explorer` or `tab`.
+    #[serde(rename = "where")]
+    pub place: String,
+    /// The plugin's command, with or without its name before it.
+    pub command: String,
+    /// What the menu says; the command's title without.
+    #[serde(default)]
+    pub title: Option<String>,
 }
 
 /// A view, as `[[views]]` in a manifest declares it.
@@ -269,6 +287,27 @@ pub(super) fn manifest_events(manifest: &Manifest) -> Vec<Event> {
         events.push(Event::RegisterKeys {
             plugin: plugin.clone(),
             keys,
+        });
+    }
+    let menus: Vec<_> = manifest
+        .menus
+        .iter()
+        .filter_map(|m| {
+            Some(merlin_core::MenuItem {
+                place: merlin_core::MenuPlace::parse(&m.place)?,
+                command: m
+                    .command
+                    .strip_prefix(&format!("{plugin}."))
+                    .unwrap_or(&m.command)
+                    .to_string(),
+                title: m.title.clone(),
+            })
+        })
+        .collect();
+    if !menus.is_empty() {
+        events.push(Event::RegisterMenus {
+            plugin: plugin.clone(),
+            items: menus,
         });
     }
     if let Some(command) = &manifest.symbols {
@@ -775,6 +814,15 @@ pub fn manifest(dir: &Path) -> Result<Manifest> {
             .with_context(|| format!("in {}", path.display()))?;
     }
     check_views(&manifest).with_context(|| format!("in {}", path.display()))?;
+    for menu in &manifest.menus {
+        if merlin_core::MenuPlace::parse(&menu.place).is_none() {
+            bail!(
+                "in {}: a menu's where = {:?}; it can be editor, explorer or tab",
+                path.display(),
+                menu.place
+            );
+        }
+    }
     for trigger in &manifest.activate_on {
         let known = trigger.starts_with("language:")
             || trigger.starts_with("file:")

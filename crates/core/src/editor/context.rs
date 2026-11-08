@@ -198,6 +198,13 @@ impl Editor {
             selected: None,
             title: None,
         });
+        let file = self
+            .doc()
+            .buffer
+            .path
+            .as_ref()
+            .map(|p| p.display().to_string());
+        self.add_plugin_items(super::MenuPlace::Editor, file);
         self.focus = Focus::Menu;
     }
 

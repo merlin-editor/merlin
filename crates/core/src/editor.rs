@@ -129,7 +129,7 @@ use crate::layers::{DocSymbol, Layer, Token};
 use crate::panel::{Panel, PickItem};
 
 pub use events::*;
-pub use plugin_views::{Place, ToolButton, ViewIcon, ViewSpec, view_key};
+pub use plugin_views::{MenuItem, MenuPlace, Place, ToolButton, ViewIcon, ViewSpec, view_key};
 pub use views::SearchHit;
 
 /// Most matches the palette keeps, so a big project stays fast.
@@ -291,8 +291,13 @@ pub struct Editor {
     hidden_views: Vec<String>,
     /// The view whose right-click menu is open.
     view_menu: Option<String>,
-    /// A plugin row's right-click menu: the plugin, and what it offers.
-    row_menu: Option<(String, Vec<crate::panel::Button>)>,
+    /// Plugins' items in the open right-click menu: whose, what it says,
+    /// and what it does.
+    menu_slots: Vec<(String, String, plugin_views::Slot)>,
+    /// Plugins' commands in right-click menus.
+    menus: Vec<(String, MenuItem)>,
+    /// The file the last right-click menu was opened on.
+    menu_target: Option<String>,
     menu: Option<menu::Menu>,
     tree: Option<views::Tree>,
     search: views::Search,
@@ -585,7 +590,9 @@ impl Editor {
             view_places: Vec::new(),
             hidden_views: Vec::new(),
             view_menu: None,
-            row_menu: None,
+            menu_slots: Vec::new(),
+            menus: Vec::new(),
+            menu_target: None,
             menu: None,
             tree: None,
             search: Default::default(),

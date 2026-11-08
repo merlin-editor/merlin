@@ -1027,6 +1027,7 @@ fn snapshot(editor: &Editor, root: &Path) -> Snapshot {
             .zip(editor.selection())
             .map(|((start, end), text)| Selection { start, end, text }),
         changed: editor.changed_lines(),
+        menu_target: editor.menu_target(),
     }
 }
 

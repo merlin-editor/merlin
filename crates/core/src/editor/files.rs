@@ -123,6 +123,12 @@ impl Editor {
             selected: None,
             title: None,
         });
+        let row = self
+            .explorer_row
+            .as_deref()
+            .and_then(|r| r.get(2..))
+            .map(str::to_string);
+        self.add_plugin_items(super::MenuPlace::Explorer, row);
         self.focus = Focus::Menu;
     }
 

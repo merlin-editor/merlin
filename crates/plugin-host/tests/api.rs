@@ -935,3 +935,25 @@ fn a_plugin_needing_one_thats_missing_stops_and_says_so() {
     );
     assert!(host.plugins()[0].failed);
 }
+
+#[test]
+fn a_menu_command_knows_which_file_its_menu_was_on() {
+    let (dir, mut config) = setup("menus");
+    config.ask = false;
+    let mut host = PluginHost::new(config).unwrap();
+    let events = host.load(&dir).unwrap();
+    assert!(events.iter().any(|e| matches!(
+        e,
+        Event::RegisterMenus { items, .. } if items.len() == 3
+            && items[0].title.as_deref() == Some("Ask Testbed About This")
+    )));
+    let mut on = snapshot();
+    on.menu_target = Some("src/lib.rs".into());
+    host.run_command("testbed", "about", on);
+    let chat = merlin_core::view_key("testbed", "chat");
+    let events = host.render_panels(&snapshot(), &[chat], false);
+    assert!(
+        format!("{events:?}").contains("about src/lib.rs"),
+        "{events:?}"
+    );
+}

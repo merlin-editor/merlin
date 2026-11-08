@@ -112,6 +112,8 @@ pub struct Snapshot {
     /// The lines changed since git's copy, as first and last line, or
     /// none when the file isn't in git.
     pub changed: Option<Vec<(u32, u32)>>,
+    /// The file the last right-click menu was opened on.
+    pub menu_target: Option<String>,
 }
 
 /// Selected text, and where it starts and ends as lines and UTF-16 columns.

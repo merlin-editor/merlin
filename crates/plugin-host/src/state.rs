@@ -176,6 +176,10 @@ impl host::Host for State {
         }))
     }
 
+    fn menu_target(&mut self) -> Option<String> {
+        self.snapshot.menu_target.clone()
+    }
+
     fn changed_lines(&mut self) -> Result<Option<Vec<types::LineRange>>, String> {
         self.need(self.permissions.editor_read, "editor-read")?;
         Ok(self.snapshot.changed.as_ref().map(|lines| {

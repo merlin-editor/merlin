@@ -173,6 +173,11 @@ pub enum Event {
         plugin: String,
         views: Vec<super::ViewSpec>,
     },
+    /// A plugin's commands in right-click menus; none once it's gone.
+    RegisterMenus {
+        plugin: String,
+        items: Vec<super::MenuItem>,
+    },
     /// A count on a view's icon or tab; 0 for none.
     ViewBadge {
         plugin: String,

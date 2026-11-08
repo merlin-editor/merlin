@@ -34,6 +34,20 @@ name = "Notes"
 extensions = ["notes"]
 line-comment = ";"
 
+# A command in the editor's, the Explorer's and a tab's right-click menus.
+[[menus]]
+where = "editor"
+command = "about"
+title = "Ask Testbed About This"
+
+[[menus]]
+where = "explorer"
+command = "about"
+
+[[menus]]
+where = "tab"
+command = "about"
+
 # One view in each place a view can go, for the window's tests.
 [[views]]
 id = "activity"

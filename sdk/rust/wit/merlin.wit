@@ -628,6 +628,11 @@ interface host {
   /// `editor-read`.
   active-selection: func() -> result<option<selection>, string>;
 
+  /// The file a right-click menu was opened on, for a command the
+  /// manifest's `[[menus]]` put there: the Explorer's row, the tab's file,
+  /// or the open file for the editor's menu. Relative to the workspace.
+  menu-target: func() -> option<string>;
+
   /// The active buffer's lines changed since git's copy of it, each as
   /// its first and last line, or none when it isn't in git. Needs
   /// `editor-read`.

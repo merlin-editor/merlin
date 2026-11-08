@@ -164,6 +164,44 @@ pub(crate) struct ViewInfo {
     pub hidden: bool,
 }
 
+/// A right-click menu plugins can add to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MenuPlace {
+    Editor,
+    Explorer,
+    Tab,
+}
+
+impl MenuPlace {
+    pub fn parse(text: &str) -> Option<Self> {
+        Some(match text {
+            "editor" => Self::Editor,
+            "explorer" => Self::Explorer,
+            "tab" => Self::Tab,
+            _ => return None,
+        })
+    }
+}
+
+/// One of a plugin's commands in a right-click menu.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MenuItem {
+    pub place: MenuPlace,
+    /// The plugin's command, without its name.
+    pub command: String,
+    /// What the menu says; the command's title without.
+    pub title: Option<String>,
+}
+
+/// What a plugin's item in a right-click menu does.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Slot {
+    /// A row's menu button: a click, to `on-click`.
+    Click(String),
+    /// A command from `[[menus]]`.
+    Command(String),
+}
+
 /// A view's name among the side bars' panels: its plugin's, then its id.
 pub fn view_key(plugin: &str, id: &str) -> String {
     format!("{plugin}/{id}")
@@ -280,6 +318,19 @@ impl Editor {
                 shown.nodes = panel.map(|p| p.nodes).unwrap_or_default();
             }
             (_, _, panel) => entry.panel = panel,
+        }
+        // Shown before it had an input: its first one takes focus now.
+        for side in [Side::Left, Side::Right, Side::Bottom, Side::Tab] {
+            if self.bar(side).want_input
+                && self.active_panel_name(side).as_deref() == Some(name)
+                && let Some(i) = self
+                    .panel_targets(side)
+                    .iter()
+                    .position(|t| matches!(t, crate::panel::Target::Input(_)))
+            {
+                self.select(side, i);
+                self.bar_mut(side).want_input = false;
+            }
         }
     }
 
@@ -441,7 +492,10 @@ impl Editor {
         let Some(menu) = menu else { return };
         let items = ROW_ITEMS.iter().take(menu.len()).copied().collect();
         self.popup = None;
-        self.row_menu = Some((plugin, menu));
+        self.menu_slots = menu
+            .into_iter()
+            .map(|b| (plugin.clone(), b.label, Slot::Click(b.id)))
+            .collect();
         self.context = Some(ContextMenu {
             items,
             selected: None,
@@ -450,13 +504,13 @@ impl Editor {
         self.focus = Focus::Menu;
     }
 
-    /// A plugin row's menu item's label, by its place.
+    /// A plugin's item in a menu: its label, by its place.
     pub(crate) fn row_menu_label(&self, id: &str) -> Option<String> {
         let i: usize = id.strip_prefix("row.menu.")?.parse().ok()?;
-        Some(self.row_menu.as_ref()?.1.get(i)?.label.clone())
+        Some(self.menu_slots.get(i)?.1.clone())
     }
 
-    /// A plugin row's menu item picked: its click goes to the plugin.
+    /// A plugin's item in a menu picked: its click or command goes to it.
     pub(crate) fn row_menu_picked(&mut self, id: &str, fx: &mut Vec<super::Effect>) -> bool {
         let Some(i) = id
             .strip_prefix("row.menu.")
@@ -464,15 +518,57 @@ impl Editor {
         else {
             return false;
         };
-        if let Some((plugin, menu)) = self.row_menu.take()
-            && let Some(button) = menu.into_iter().nth(i)
-        {
-            fx.push(super::Effect::PluginClick {
-                plugin,
-                button: button.id,
+        if let Some((plugin, _, slot)) = std::mem::take(&mut self.menu_slots).into_iter().nth(i) {
+            fx.push(match slot {
+                Slot::Click(button) => super::Effect::PluginClick { plugin, button },
+                Slot::Command(command) => super::Effect::PluginCommand { plugin, command },
             });
         }
         true
+    }
+
+    /// Plugins' commands in right-click menus.
+    pub(crate) fn register_menus(&mut self, plugin: &str, items: Vec<MenuItem>) {
+        self.menus.retain(|(p, _)| p != plugin);
+        self.menus
+            .extend(items.into_iter().map(|i| (plugin.to_string(), i)));
+    }
+
+    /// Adds plugins' commands for `place` to the menu just opened, after
+    /// a line, remembering the file it's about for `menu-target`.
+    pub(crate) fn add_plugin_items(&mut self, place: MenuPlace, target: Option<String>) {
+        self.menu_target = target;
+        self.menu_slots.clear();
+        for (plugin, item) in &self.menus {
+            if item.place != place || self.menu_slots.len() >= ROW_ITEMS.len() {
+                continue;
+            }
+            // Only a command the plugin has, by the menu's title or its own.
+            let Some(command) = self
+                .plugins
+                .iter()
+                .find(|p| p.name == *plugin)
+                .and_then(|p| p.commands.iter().find(|c| c.id == item.command))
+            else {
+                continue;
+            };
+            let label = item.title.clone().unwrap_or_else(|| command.title.clone());
+            self.menu_slots
+                .push((plugin.clone(), label, Slot::Command(item.command.clone())));
+        }
+        if self.menu_slots.is_empty() {
+            return;
+        }
+        if let Some(menu) = &mut self.context {
+            menu.items.push("-");
+            menu.items
+                .extend(ROW_ITEMS.iter().take(self.menu_slots.len()).copied());
+        }
+    }
+
+    /// The file the last right-click menu was opened on.
+    pub fn menu_target(&self) -> Option<String> {
+        self.menu_target.clone()
     }
 
     /// Runs one of [`VIEW_ITEMS`] on the view whose menu was opened.
