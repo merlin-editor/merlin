@@ -32,8 +32,14 @@ impl GitNet {
         if let Some(pid) = pid {
             self.cancelled
                 .store(true, std::sync::atomic::Ordering::SeqCst);
+            // The whole group, or tree on Windows: git and what it started.
+            #[cfg(unix)]
             let _ = Command::new("kill")
                 .args(["-TERM", "--", &format!("-{pid}")])
+                .status();
+            #[cfg(windows)]
+            let _ = Command::new("taskkill")
+                .args(["/T", "/F", "/PID", &pid.to_string()])
                 .status();
         }
     }
@@ -363,7 +369,6 @@ impl Git {
     /// a cancel stops what it started too. Returns how it went and what it
     /// said.
     pub(super) fn net(&self, args: &[&str]) -> (SyncOutcome, String) {
-        use std::os::unix::process::CommandExt;
         let mut command = Command::new("git");
         command
             .args(args)
@@ -371,8 +376,12 @@ impl Git {
             .env("GIT_TERMINAL_PROMPT", "0")
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .process_group(0);
+            .stderr(std::process::Stdio::piped());
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            command.process_group(0);
+        }
         // ssh asks for passphrases itself: not when nothing set how it runs.
         let configured = Command::new("git")
             .args(["config", "--get", "core.sshCommand"])

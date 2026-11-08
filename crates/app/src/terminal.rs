@@ -251,6 +251,10 @@ impl Terminals {
             working_directory: Some(root.to_path_buf()),
             drain_on_exit: true,
             env,
+            // Quote the shell's arguments for Windows' command line, as
+            // Alacritty does by default.
+            #[cfg(windows)]
+            escape_args: true,
         };
         let pty = tty::new(&options, window_size(size, cell), id).map_err(|e| e.to_string())?;
         let proxy = Proxy {

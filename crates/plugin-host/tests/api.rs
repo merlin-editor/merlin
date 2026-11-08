@@ -171,6 +171,7 @@ fn declining_drops_the_plugin() {
 fn secrets_are_kept_per_plugin_in_a_private_file() {
     let (dir, mut config) = setup("secrets");
     config.ask = false;
+    #[cfg(unix)]
     let data = config.data_dir.clone();
     let mut host = PluginHost::new(config).unwrap();
     host.load(&dir).unwrap();
@@ -178,10 +179,10 @@ fn secrets_are_kept_per_plugin_in_a_private_file() {
     let shown = notices(host.run_command("testbed", "show-secret", snapshot()));
     assert_eq!(shown, ["secret: Some(\"hunter2\")"]);
 
-    let file = data.join("secrets/testbed.toml");
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
+        let file = data.join("secrets/testbed.toml");
         let mode = fs::metadata(&file).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o600);
     }

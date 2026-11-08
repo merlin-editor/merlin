@@ -25,7 +25,8 @@ unicode-script = "0.5"
 resvg = { version = "0.49", default-features = false }
 png = "0.18"
 trash = "5"
-notify = { version = "8", default-features = false }
+# FSEvents is its macOS backend; it does nothing elsewhere.
+notify = { version = "8", default-features = false, features = ["macos_fsevent"] }
 rfd = "0.17.2"
 copypasta = "0.10.2"
 raw-window-handle = "0.6"

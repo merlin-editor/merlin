@@ -39,13 +39,21 @@ jobs:
           targets: wasm32-wasip2
 
       # The plugin host's tests load real plugins. Grammars' C code needs a
-      # clang that targets wasm, which the Linux runner has.
+      # clang that targets wasm: Linux's and Windows' runners have one, and
+      # macOS's Apple clang doesn't, so it uses Homebrew's LLVM.
+      - name: Use LLVM's clang for wasm (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install llvm
+          echo "CC_wasm32_wasip2=$(brew --prefix llvm)/bin/clang" >> "$GITHUB_ENV"
+          echo "AR_wasm32_wasip2=$(brew --prefix llvm)/bin/llvm-ar" >> "$GITHUB_ENV"
+
       - name: Build the plugins the tests load
-        if: runner.os == 'Linux'
         shell: bash
         run: |
           for dir in plugins/*/; do
             [ -f "$dir/Cargo.toml" ] || continue
+            echo "Building $dir"
             (cd "$dir" && cargo build --release --locked --quiet)
           done
 
