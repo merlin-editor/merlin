@@ -873,7 +873,8 @@ What else plugins get, besides commands and panels:
   screen's resolution on the plugin's own thread, with each page's
   thumbnail standing in meanwhile. `page_text` says where the words are,
   and they become the tab's text, so Find, selecting with the mouse,
-  Ctrl+C and Ctrl+A work as in a code tab. A document's tiles take at most
+  Ctrl+C and Ctrl+A work as in a code tab; right-click for Search the
+  Project for This or Copy Page as Image (with `wl-copy` or `xclip`). A document's tiles take at most
   64 MB, the oldest dropped first, and a hidden tab keeps only its
   thumbnails.
 

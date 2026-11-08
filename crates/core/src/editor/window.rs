@@ -35,6 +35,11 @@ pub enum UiEvent {
         id: u32,
         action: super::SurfaceAction,
     },
+    /// A right click on a document's page.
+    SurfaceMenu {
+        id: u32,
+        page: u32,
+    },
     /// A press, or a drag with it held, on a document's page, in points.
     SurfacePoint {
         id: u32,
@@ -907,6 +912,7 @@ impl Editor {
             }
             UiEvent::MoveView { name, place } => self.move_view(&name, place),
             UiEvent::SurfaceArea { id, w, h } => self.surface_area(id, w, h),
+            UiEvent::SurfaceMenu { id, page } => self.surface_menu(id, page),
             UiEvent::SurfaceScroll { id, by, across } => self.surface_scroll(id, by, across),
             UiEvent::Surface { id, action } => self.surface_ui(id, action),
             UiEvent::SurfacePoint {

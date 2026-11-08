@@ -468,6 +468,8 @@ impl Editor {
             "edit.cut" => self.copy(true, fx),
             "edit.paste" => fx.push(Effect::ReadClipboard),
             "find.open" => self.open_find(false),
+            "surface.search" => self.surface_search(fx),
+            "surface.copy_page" => self.surface_copy_page(fx),
             "find.replace" => self.open_find(true),
             "palette.open" => self.open_search(search_all::Scope::Everything, fx),
             "settings.open" => self.open_settings(None, fx),

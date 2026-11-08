@@ -29,6 +29,12 @@ const ITEMS: &[(&str, &str)] = &[
     ("palette.open", "Command Palette…"),
 ];
 
+/// A document's own menu items.
+const SURFACE_ITEMS: &[(&str, &str)] = &[
+    ("surface.search", "Search the Project for This"),
+    ("surface.copy_page", "Copy Page as Image"),
+];
+
 pub(crate) struct ContextMenu {
     /// Command ids, `-` for separators.
     pub(crate) items: Vec<&'static str>,
@@ -248,6 +254,7 @@ impl Editor {
                         .chain(super::scm::SCM_ITEMS)
                         .chain(super::debug::BREAK_ITEMS)
                         .chain(super::plugin_views::VIEW_ITEMS)
+                        .chain(SURFACE_ITEMS)
                         .find(|(i, _)| *i == id)
                         .map_or(id, |(_, l)| l)
                         .to_string(),

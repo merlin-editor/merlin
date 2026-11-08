@@ -405,6 +405,8 @@ pub struct PageView {
     pub processes: Vec<String>,
     pub running: Vec<(String, u32, Option<u64>)>,
     pub memory: usize,
+    /// What its pictures take: its views' and its documents' pages.
+    pub pictures: usize,
     pub busy: Duration,
     pub commands: Vec<(String, Option<String>)>,
     pub languages: Vec<String>,

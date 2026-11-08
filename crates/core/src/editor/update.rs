@@ -162,6 +162,13 @@ impl Editor {
                 page,
                 boxes,
             } => self.document_text(surface, page, boxes),
+            Event::PageImage { image, .. } => match image {
+                Ok(image) => {
+                    fx.push(Effect::CopyImage(image));
+                    self.notify_done("Copied the page".into());
+                }
+                Err(why) => self.error(format!("Couldn't copy the page: {why}")),
+            },
             Event::FocusView { plugin, view } => {
                 self.show_plugin_view(&super::view_key(&plugin, &view))
             }

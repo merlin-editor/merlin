@@ -1254,6 +1254,42 @@ impl PluginHost {
         events
     }
 
+    /// A page drawn whole, to copy: a [`Event::PageImage`].
+    pub fn page_image(
+        &mut self,
+        plugin: &str,
+        surface: u32,
+        tile: merlin_core::TileKey,
+    ) -> Vec<Event> {
+        let Some(i) = self.index(plugin) else {
+            return Vec::new();
+        };
+        let asked = types::Tile {
+            page: tile.page,
+            x: 0,
+            y: 0,
+            width: tile.width,
+            height: tile.height,
+            scale: tile.scale(),
+        };
+        self.post(
+            i,
+            Snapshot::default(),
+            None,
+            true,
+            move |b, s| b.call_render_tile(s, surface, asked),
+            move |picture| {
+                let image = picture.and_then(|p| {
+                    let (width, height, pixels) = state::decode(types::Picture::Rgba(p))?;
+                    Ok(Arc::new(merlin_core::PluginImage::new(
+                        width, height, pixels,
+                    )))
+                });
+                vec![Event::PageImage { surface, image }]
+            },
+        )
+    }
+
     /// Asks where a page's text is: a [`Event::DocumentText`].
     pub fn page_text(&mut self, plugin: &str, surface: u32, page: u32) -> Vec<Event> {
         let Some(i) = self.index(plugin) else {

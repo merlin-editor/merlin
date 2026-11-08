@@ -1878,6 +1878,7 @@ dependencies = [
  "merlin-core",
  "merlin-plugins",
  "notify",
+ "png",
  "pollster",
  "raw-window-handle",
  "resvg",

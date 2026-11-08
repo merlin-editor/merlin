@@ -198,6 +198,8 @@ pub(crate) struct Surface {
     pub starts: Vec<Vec<usize>>,
     /// The cursor as last followed, so moving it shows it.
     followed: usize,
+    /// The page the right-click menu was opened on.
+    menu_page: u32,
 }
 
 /// A document tab, as the window draws it.
@@ -450,6 +452,7 @@ impl Editor {
             words: Vec::new(),
             starts: Vec::new(),
             followed: 0,
+            menu_page: 0,
         });
         fx.push(Effect::OpenDocument {
             plugin: editor.plugin,
@@ -754,6 +757,85 @@ impl Editor {
         }
     }
 
+    /// The right-click menu on a document's `page`: Copy and Search the
+    /// Project for the selection, plugins' items for the file, and Copy
+    /// Page as Image.
+    pub(crate) fn surface_menu(&mut self, id: u32, page: u32) {
+        let Some(s) = self.surfaces.iter_mut().find(|s| s.id == id) else {
+            return;
+        };
+        s.menu_page = page;
+        let selected = self.doc().selection().is_some();
+        let items = if selected {
+            vec!["edit.copy", "surface.search"]
+        } else {
+            Vec::new()
+        };
+        self.context = Some(super::context::ContextMenu {
+            items,
+            selected: None,
+            title: None,
+        });
+        let file = self
+            .doc()
+            .buffer
+            .path
+            .as_ref()
+            .map(|p| p.display().to_string());
+        self.add_plugin_items(MenuPlace::Editor, file);
+        if let Some(menu) = &mut self.context {
+            if !menu.items.is_empty() {
+                menu.items.push("-");
+            }
+            menu.items.push("surface.copy_page");
+        }
+        self.focus = Focus::Menu;
+    }
+
+    /// Searches the project for what's selected, in the palette.
+    pub(crate) fn surface_search(&mut self, fx: &mut Vec<Effect>) {
+        let doc = self.doc();
+        let Some(text) = doc
+            .selection()
+            .map(|(a, b)| doc.slice(a, b).replace('\n', " "))
+        else {
+            return;
+        };
+        self.open_search(super::search_all::Scope::Text, fx);
+        if let Some(palette) = &mut self.palette {
+            palette.query = format!("/{text}");
+        }
+        self.search_changed();
+    }
+
+    /// Asks the plugin for the page the menu was on, twice as sharp as at
+    /// 100%, to copy as a picture.
+    pub(crate) fn surface_copy_page(&mut self, fx: &mut Vec<Effect>) {
+        let Some(s) = self.current_surface() else {
+            return;
+        };
+        let Pages::Ready(pages) = &s.pages else {
+            return;
+        };
+        let Some(size) = pages.get(s.menu_page as usize) else {
+            return;
+        };
+        // Twice 100%, but no side past 4096 pixels.
+        let scale = (2.0 * PX_PER_PT).min(4096.0 / size.width.max(size.height).max(1.0));
+        fx.push(Effect::PageImage {
+            plugin: s.plugin.clone(),
+            surface: s.id,
+            tile: TileKey {
+                page: s.menu_page,
+                x: 0,
+                y: 0,
+                width: (size.width * scale).round().max(1.0) as u32,
+                height: (size.height * scale).round().max(1.0) as u32,
+                scale: (scale * 1000.0).round() as u32,
+            },
+        });
+    }
+
     /// Closes what tabs no longer show: a closed tab's document goes, and
     /// a hidden one drops its tiles but its thumbnails.
     pub(crate) fn surfaces_tidy(&mut self, fx: &mut Vec<Effect>) {
@@ -846,6 +928,24 @@ impl Editor {
                 )
             })
             .collect()
+    }
+
+    /// What a plugin's pictures take: its views' pictures, and the pages
+    /// of its documents drawn, for its page in Settings.
+    pub fn picture_bytes(&self, plugin: &str) -> usize {
+        let images: usize = self
+            .images
+            .iter()
+            .filter(|((p, _), _)| p == plugin)
+            .map(|(_, i)| i.pixels.len())
+            .sum();
+        let tiles: usize = self
+            .surfaces
+            .iter()
+            .filter(|s| s.plugin == plugin)
+            .map(|s| s.tiles.bytes())
+            .sum();
+        images + tiles
     }
 
     /// The status bar's words for the current document: its page, its

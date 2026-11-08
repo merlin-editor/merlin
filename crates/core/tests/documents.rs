@@ -140,6 +140,31 @@ fn a_pdf_opens_as_pages_with_its_words_to_find_and_copy() {
     let view = s.editor.window_view();
     assert_eq!(view.surfaces[0].1.selected.len(), 1);
 
+    // Its menu: Copy and Search for the selection, and the page.
+    s.send(Event::Ui(UiEvent::SurfaceMenu {
+        id: surface,
+        page: 0,
+    }));
+    let labels: Vec<String> = s
+        .editor
+        .window_view()
+        .context
+        .expect("a menu")
+        .items
+        .into_iter()
+        .map(|i| i.label)
+        .collect();
+    assert_eq!(
+        labels,
+        [
+            "Copy",
+            "Search the Project for This",
+            "",
+            "Copy Page as Image"
+        ]
+    );
+    s.send(key(KeyCode::Esc, false));
+
     // Next page, and typing changes nothing.
     s.send(Event::Ui(UiEvent::Surface {
         id: surface,

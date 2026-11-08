@@ -518,6 +518,9 @@ impl Frame<'_> {
         if !page.data_only {
             sub.push(format!("{} in merlin", bytes(page.memory as u64)));
         }
+        if page.pictures > 0 {
+            sub.push(format!("{} of pictures", bytes(page.pictures as u64)));
+        }
         for (prog, _, mem) in &page.running {
             let name = prog.rsplit('/').next().unwrap_or(prog);
             sub.push(format!("{name} {}", mem.map_or_else(|| "—".into(), bytes)));

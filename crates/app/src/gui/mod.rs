@@ -819,6 +819,19 @@ impl ApplicationHandler for Gui<'_> {
                             self.pointer_event(g, MouseKind::Context, at, 1);
                         }
                     }
+                    // A document's menu, about the page it's on.
+                    Some(Hit::Surface(id)) => {
+                        let page = self
+                            .surfaces
+                            .iter()
+                            .find(|s| s.id == id)
+                            .and_then(|s| s.point(at.0, at.1))
+                            .map(|(page, ..)| page);
+                        if let Some(page) = page {
+                            self.context_at = Some(at);
+                            self.dispatch(Event::Ui(UiEvent::SurfaceMenu { id, page }));
+                        }
+                    }
                     // An Explorer row's menu, or the menu for its empty space.
                     Some(Hit::Ui(UiEvent::Target { side, index, .. })) => {
                         self.context_at = Some(at);

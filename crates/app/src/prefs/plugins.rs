@@ -46,6 +46,7 @@ impl App {
         let p = self.host.plugins().into_iter().find(|p| p.name == name)?;
         let rows = self.rows_of(&p);
         let off_here = self.off_here(&p.name);
+        let pictures = self.editor.picture_bytes(&p.name);
         Some(PageView {
             mark: mark(&p),
             commands: self.editor.plugin_commands(&p.name),
@@ -71,6 +72,7 @@ impl App {
             terminal: p.permissions.terminal,
             processes: p.permissions.processes,
             memory: p.memory,
+            pictures,
             busy: p.busy,
             languages: p.languages,
             looks: p.looks,

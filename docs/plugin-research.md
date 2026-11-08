@@ -265,6 +265,7 @@ The PDF viewer is the test: it's `PluginDocument.dc.html` in
    has the mock-up's toolbar, thumbnails, tiles with the thumbnail
    standing in (hatched until that comes), and the status bar's page and
    zoom; the words are the tab's text, so Find, selection and Copy are the
-   editor's own. Still to come from the mock-up: its right-click menu
-   (Copy Page as Image needs an image clipboard) and picture memory on the
-   plugin's page.
+   editor's own. Its right-click menu has Copy, Search the Project for
+   This, plugins' items, and Copy Page as Image (a PNG through `wl-copy`
+   or `xclip`, as the clipboard library takes only text); a plugin's page
+   in Settings shows its pictures' memory beside its own.

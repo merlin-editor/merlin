@@ -241,6 +241,16 @@ impl App {
                 surface,
                 page,
             } => queue.extend(self.host.page_text(&plugin, surface, page)),
+            Effect::PageImage {
+                plugin,
+                surface,
+                tile,
+            } => queue.extend(self.host.page_image(&plugin, surface, tile)),
+            Effect::CopyImage(image) => {
+                if let Err(err) = copy_image(&image) {
+                    queue.push_back(Event::Error(format!("Couldn't copy the page: {err}")));
+                }
+            }
             Effect::CloseDocument { plugin, surface } => {
                 self.host.close_document(&plugin, surface);
                 self.tiles_asked.retain(|(s, _)| *s != surface);
@@ -396,4 +406,49 @@ impl App {
             jobs::events(vec![Event::Picked { pick, path }])
         });
     }
+}
+
+/// Puts a picture on the clipboard as a PNG, through `wl-copy` on Wayland
+/// or `xclip` on X11: the clipboard the window holds takes only text.
+fn copy_image(image: &merlin_core::PluginImage) -> Result<(), String> {
+    // Plain RGBA, as a PNG keeps it.
+    let mut rgba = image.pixels.clone();
+    for px in rgba.chunks_exact_mut(4) {
+        let a = px[3] as u32;
+        if a > 0 && a < 255 {
+            for c in &mut px[..3] {
+                *c = ((*c as u32 * 255 + a / 2) / a).min(255) as u8;
+            }
+        }
+    }
+    let mut png_bytes = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut png_bytes, image.width, image.height);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().map_err(|e| e.to_string())?;
+        writer.write_image_data(&rgba).map_err(|e| e.to_string())?;
+    }
+    let (program, args): (&str, &[&str]) = if env::var_os("WAYLAND_DISPLAY").is_some() {
+        ("wl-copy", &["--type", "image/png"])
+    } else {
+        ("xclip", &["-selection", "clipboard", "-t", "image/png"])
+    };
+    let mut child = std::process::Command::new(program)
+        .args(args)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|_| format!("it needs {program}, which isn't installed"))?;
+    use std::io::Write;
+    child
+        .stdin
+        .take()
+        .ok_or("no pipe")?
+        .write_all(&png_bytes)
+        .map_err(|e| e.to_string())?;
+    // wl-copy stays to serve the clipboard; it isn't waited for.
+    std::thread::spawn(move || child.wait());
+    Ok(())
 }

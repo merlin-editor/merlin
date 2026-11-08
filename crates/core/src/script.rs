@@ -301,6 +301,8 @@ impl Session {
                 | Effect::OpenDocument { .. }
                 | Effect::PageText { .. }
                 | Effect::CloseDocument { .. }
+                | Effect::PageImage { .. }
+                | Effect::CopyImage(_)
                 | Effect::PluginCancel { .. }
                 | Effect::PluginSubmit { .. }
                 | Effect::PluginPick { .. }

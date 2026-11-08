@@ -213,6 +213,11 @@ pub enum Event {
         tile: super::TileKey,
         image: Result<std::sync::Arc<crate::PluginImage>, String>,
     },
+    /// A document's page drawn whole, to copy, or why it couldn't be.
+    PageImage {
+        surface: u32,
+        image: Result<std::sync::Arc<crate::PluginImage>, String>,
+    },
     /// Where a document page's words are.
     DocumentText {
         surface: u32,
@@ -768,6 +773,14 @@ pub enum Effect {
         surface: u32,
         page: u32,
     },
+    /// Asks for a document's page drawn whole, to copy as a picture.
+    PageImage {
+        plugin: String,
+        surface: u32,
+        tile: super::TileKey,
+    },
+    /// Puts a picture on the clipboard.
+    CopyImage(std::sync::Arc<crate::PluginImage>),
     /// A document's tab closed.
     CloseDocument {
         plugin: String,
