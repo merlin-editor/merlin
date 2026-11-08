@@ -167,6 +167,28 @@ impl Frame<'_> {
         let border = if peek.focused { p.accent } else { p.border };
         // The header: the name, how many, and its buttons.
         let (inner, clip, head) = self.peek_card(r, border, clip);
+        self.peek_header(peek, head, clip);
+        // The list, on the right.
+        let list_w = (inner.w * 0.32).clamp(220.0, 330.0);
+        let body = Rect::new(
+            inner.x,
+            head.bottom() + 1.0,
+            inner.w,
+            inner.bottom() - head.bottom() - 1.0,
+        );
+        let list = Rect::new(body.right() - list_w, body.y, list_w, body.h);
+        let code = Rect::new(body.x, body.y, body.w - list_w - 1.0, body.h);
+        self.canvas.fill(code, p.island);
+        self.canvas
+            .fill(Rect::new(list.x - 1.0, list.y, 1.0, list.h), p.border);
+        self.peek_preview(peek, code, clip, ch);
+        self.peek_list(peek, list, clip);
+    }
+
+    /// The references peek's header: the name, how many references in how
+    /// many files, and its buttons.
+    fn peek_header(&mut self, peek: &PeekView, head: Rect, clip: Rect) {
+        let p = self.p;
         let bold = Face::ui(12.5).bold();
         let nw = self.text.draw_in_row(
             &mut self.canvas,
@@ -210,19 +232,12 @@ impl Frame<'_> {
             }
             self.hit(b, Hit::Ui(event));
         }
-        // The list, on the right.
-        let list_w = (inner.w * 0.32).clamp(220.0, 330.0);
-        let body = Rect::new(
-            inner.x,
-            head.bottom() + 1.0,
-            inner.w,
-            inner.bottom() - head.bottom() - 1.0,
-        );
-        let list = Rect::new(body.right() - list_w, body.y, list_w, body.h);
-        let code = Rect::new(body.x, body.y, body.w - list_w - 1.0, body.h);
-        self.canvas.fill(code, p.island);
-        self.canvas
-            .fill(Rect::new(list.x - 1.0, list.y, 1.0, list.h), p.border);
+    }
+
+    /// The chosen reference's lines, in the peek's left part, without
+    /// their shared indent and slid left so the reference shows.
+    fn peek_preview(&mut self, peek: &PeekView, code: Rect, clip: Rect, ch: f32) {
+        let p = self.p;
         let code_clip = Rect::new(
             code.x,
             clip.y.max(code.y),
@@ -298,7 +313,11 @@ impl Frame<'_> {
             self.code_line_in(&text, &colours, x, ly, ch, code_clip, mono);
             ly += ch;
         }
-        // Files and their references.
+    }
+
+    /// Files and their references, in the peek's right part.
+    fn peek_list(&mut self, peek: &PeekView, list: Rect, clip: Rect) {
+        let p = self.p;
         let list_clip = Rect::new(
             list.x,
             clip.y.max(list.y),

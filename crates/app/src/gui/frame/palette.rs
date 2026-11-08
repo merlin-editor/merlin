@@ -27,7 +27,82 @@ impl Frame<'_> {
         self.canvas.outline(r, 12.0, 1.0, p.border, p.widget);
         self.hit(r, Hit::Block);
 
-        // The query, with what's being searched.
+        self.palette_query(pv, r);
+        self.palette_scopes(pv, r);
+        self.canvas
+            .fill(Rect::new(r.x, r.y + 48.0 + chips_h, r.w, 1.0), p.chip);
+
+        let list = Rect::new(r.x, r.y + 49.0 + chips_h, r.w, list_h);
+        if pv.items.is_empty() {
+            self.text.draw_in_row(
+                &mut self.canvas,
+                "Nothing matches",
+                Face::ui(13.0),
+                r.x + 20.0,
+                list.y + 6.0,
+                34.0,
+                p.muted,
+                list,
+            );
+        }
+        let mut y = list.y + 6.0;
+        for (k, (label, key)) in pv.items.iter().enumerate().skip(first).take(PALETTE_ROWS) {
+            if let Some(heading) = heading(k) {
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    &heading.to_uppercase(),
+                    Face::ui(11.0).medium(),
+                    r.x + 18.0,
+                    y,
+                    26.0,
+                    p.muted,
+                    list,
+                );
+                y += 26.0;
+            }
+            let row = Rect::new(r.x + 6.0, y, r.w - 12.0, 34.0);
+            y += 34.0;
+            let on = k == pv.selected;
+            if on {
+                self.canvas.round(row, 7.0, p.selected);
+            } else if self.hovered(row) {
+                self.canvas.round(row, 7.0, p.hover);
+            }
+            let chevron = self.palette_item(pv, k, label, key, row);
+            self.hit(row, Hit::Ui(UiEvent::PaletteRow(k)));
+            if let Some(b) = chevron {
+                self.hit(b, Hit::Ui(UiEvent::PaletteChoices(k)));
+            }
+            if let Some((text, scope)) = more(k) {
+                let face = Face::ui(12.0);
+                let w = self.text.width(text, face);
+                let link = Rect::new(r.x + 22.0, y, w + 8.0, 24.0);
+                let ink = if self.hovered(link) {
+                    p.bright
+                } else {
+                    p.accent
+                };
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    text,
+                    face,
+                    link.x + 4.0,
+                    y,
+                    24.0,
+                    ink,
+                    list,
+                );
+                self.marked_hit(link, Hit::Ui(UiEvent::PaletteScope(*scope)), Mark::Link);
+                y += 24.0;
+            }
+        }
+        self.palette_footer(pv, r);
+    }
+
+    /// The palette's query line: its title, sign, the query or its
+    /// placeholder with the caret, and the Esc chip.
+    fn palette_query(&mut self, pv: &PaletteView, r: Rect) {
+        let p = self.p;
         let input = Rect::new(r.x, r.y, r.w, 48.0);
         self.input_box(input);
         self.text.draw_in_row(
@@ -100,6 +175,11 @@ impl Frame<'_> {
             let kind_w = self.text.width(pv.kind, Face::ui(11.0)) + 12.0;
             self.chip(pv.kind, r.right() - 14.0 - 40.0 - kind_w, r.y + 16.0, false);
         }
+    }
+
+    /// The search's scope chips, under the query.
+    fn palette_scopes(&mut self, pv: &PaletteView, r: Rect) {
+        let p = self.p;
         let mut cx = r.x + 14.0;
         for (i, (label, key, on)) in pv.scopes.iter().enumerate() {
             let face = Face::ui(12.5).medium();
@@ -145,199 +225,166 @@ impl Frame<'_> {
             self.hit(chip, Hit::Ui(UiEvent::PaletteScope(i)));
             cx = chip.right() + 6.0;
         }
-        self.canvas
-            .fill(Rect::new(r.x, r.y + 48.0 + chips_h, r.w, 1.0), p.chip);
+    }
 
-        let list = Rect::new(r.x, r.y + 49.0 + chips_h, r.w, list_h);
-        if pv.items.is_empty() {
+    /// A palette row's contents: its key, plugin chip and detail at the
+    /// right, what it is, then its label with the query's letters marked.
+    /// Gives the chevron's box when a click on it opens more.
+    fn palette_item(
+        &mut self,
+        pv: &PaletteView,
+        k: usize,
+        label: &str,
+        key: &Option<String>,
+        row: Rect,
+    ) -> Option<Rect> {
+        let p = self.p;
+        let extra = pv.extras.get(k);
+        // At the right: the key, then the plugin's chip, then where
+        // it's from.
+        let mut right = row.right() - 10.0;
+        if let Some(key) = key {
+            right -= self.chip(key, right, row.y + 9.0, true) + 8.0;
+        }
+        if let Some(chip) = extra.and_then(|e| e.chip.as_deref()) {
+            right -= self.plugin_chip(chip, right, row.y + 9.0) + 8.0;
+        }
+        let at_right = pv.scopes.is_empty() || extra.is_some_and(|e| e.code);
+        if let Some(detail) = extra
+            .map(|e| e.detail.as_str())
+            .filter(|d| !d.is_empty() && at_right)
+        {
+            let face = Face::ui(12.0);
+            let w = self.text.width(detail, face);
             self.text.draw_in_row(
                 &mut self.canvas,
-                "Nothing matches",
-                Face::ui(13.0),
-                r.x + 20.0,
-                list.y + 6.0,
-                34.0,
+                detail,
+                face,
+                right - w,
+                row.y,
+                row.h,
                 p.muted,
-                list,
+                row,
             );
+            right -= w + 12.0;
         }
-        let mut y = list.y + 6.0;
-        for (k, (label, key)) in pv.items.iter().enumerate().skip(first).take(PALETTE_ROWS) {
-            if let Some(heading) = heading(k) {
+        // What it is, before its label.
+        let mut lx = row.x + 12.0;
+        let mid = row.y + row.h / 2.0;
+        let chevron = self.palette_icon(extra, &mut lx, mid, row);
+        let max = (right - lx).min(row.w - 140.0);
+        let code = extra.is_some_and(|e| e.code);
+        let end = if extra.is_some_and(|e| e.muted) {
+            lx + self.text.draw_in_row(
+                &mut self.canvas,
+                label,
+                Face::ui(13.5),
+                lx,
+                row.y,
+                row.h,
+                p.muted,
+                row,
+            )
+        } else if code {
+            let hit = extra.and_then(|e| e.hit);
+            self.code_match(label, hit, lx, row, max)
+        } else {
+            self.matched(label, &pv.query, lx, row, max)
+        };
+        // The search's detail follows its label, as what it's in.
+        if let Some(detail) = extra
+            .map(|e| e.detail.as_str())
+            .filter(|d| !d.is_empty() && !pv.scopes.is_empty() && !code)
+        {
+            let face = Face::ui(12.5);
+            let room = right - end - 12.0;
+            if room > 40.0 {
+                let detail = self.text.fit(detail, face, room);
                 self.text.draw_in_row(
                     &mut self.canvas,
-                    &heading.to_uppercase(),
-                    Face::ui(11.0).medium(),
-                    r.x + 18.0,
-                    y,
-                    26.0,
-                    p.muted,
-                    list,
-                );
-                y += 26.0;
-            }
-            let row = Rect::new(r.x + 6.0, y, r.w - 12.0, 34.0);
-            y += 34.0;
-            let on = k == pv.selected;
-            if on {
-                self.canvas.round(row, 7.0, p.selected);
-            } else if self.hovered(row) {
-                self.canvas.round(row, 7.0, p.hover);
-            }
-            let extra = pv.extras.get(k);
-            // At the right: the key, then the plugin's chip, then where
-            // it's from.
-            let mut right = row.right() - 10.0;
-            if let Some(key) = key {
-                right -= self.chip(key, right, row.y + 9.0, true) + 8.0;
-            }
-            if let Some(chip) = extra.and_then(|e| e.chip.as_deref()) {
-                right -= self.plugin_chip(chip, right, row.y + 9.0) + 8.0;
-            }
-            let at_right = pv.scopes.is_empty() || extra.is_some_and(|e| e.code);
-            if let Some(detail) = extra
-                .map(|e| e.detail.as_str())
-                .filter(|d| !d.is_empty() && at_right)
-            {
-                let face = Face::ui(12.0);
-                let w = self.text.width(detail, face);
-                self.text.draw_in_row(
-                    &mut self.canvas,
-                    detail,
+                    &detail,
                     face,
-                    right - w,
+                    end + 10.0,
                     row.y,
                     row.h,
                     p.muted,
                     row,
                 );
-                right -= w + 12.0;
-            }
-            // What it is, before its label.
-            let mut lx = row.x + 12.0;
-            let mut chevron = None;
-            let mid = row.y + row.h / 2.0;
-            match extra.map(|e| &e.icon) {
-                Some(PaletteIcon::Command) => {
-                    // Brighter where it offers more, which a click opens.
-                    let b = Rect::new(lx, mid - 9.0, 18.0, 18.0);
-                    let more = extra.is_some_and(|e| e.choices);
-                    let (fill, ink) = match more {
-                        true if self.hovered(b) => (p.accent, p.on_accent),
-                        true => (mix(p.accent, p.widget, 0.2), p.accent),
-                        false => (p.chip, p.muted),
-                    };
-                    self.canvas.round(b, 4.0, fill);
-                    self.text.draw_in_row(
-                        &mut self.canvas,
-                        "›",
-                        Face::ui(12.0),
-                        b.x + 6.0,
-                        b.y,
-                        b.h,
-                        ink,
-                        b,
-                    );
-                    if more {
-                        chevron = Some(b);
-                    }
-                    lx += 28.0;
-                }
-                Some(PaletteIcon::Symbol(letter, ty)) => {
-                    let ink = if *ty { p.type_ } else { p.function };
-                    let b = Rect::new(lx, mid - 9.0, 18.0, 18.0);
-                    self.canvas.round(b, 4.0, mix(ink, p.widget, 0.16));
-                    let face = Face::ui(11.0).bold();
-                    let s = letter.to_string();
-                    let w = self.text.width(&s, face);
-                    self.text.draw_in_row(
-                        &mut self.canvas,
-                        &s,
-                        face,
-                        b.x + (18.0 - w) / 2.0,
-                        b.y,
-                        b.h,
-                        ink,
-                        b,
-                    );
-                    lx += 28.0;
-                }
-                Some(PaletteIcon::File(name)) => {
-                    let core = merlin_core::file_icon(name, true);
-                    self.file_icon(name, Some(core), lx + 1.0, mid - 8.0, 16.0, row);
-                    lx += 28.0;
-                }
-                _ => {}
-            }
-            let max = (right - lx).min(row.w - 140.0);
-            let code = extra.is_some_and(|e| e.code);
-            let end = if extra.is_some_and(|e| e.muted) {
-                lx + self.text.draw_in_row(
-                    &mut self.canvas,
-                    label,
-                    Face::ui(13.5),
-                    lx,
-                    row.y,
-                    row.h,
-                    p.muted,
-                    row,
-                )
-            } else if code {
-                let hit = extra.and_then(|e| e.hit);
-                self.code_match(label, hit, lx, row, max)
-            } else {
-                self.matched(label, &pv.query, lx, row, max)
-            };
-            // The search's detail follows its label, as what it's in.
-            if let Some(detail) = extra
-                .map(|e| e.detail.as_str())
-                .filter(|d| !d.is_empty() && !pv.scopes.is_empty() && !code)
-            {
-                let face = Face::ui(12.5);
-                let room = right - end - 12.0;
-                if room > 40.0 {
-                    let detail = self.text.fit(detail, face, room);
-                    self.text.draw_in_row(
-                        &mut self.canvas,
-                        &detail,
-                        face,
-                        end + 10.0,
-                        row.y,
-                        row.h,
-                        p.muted,
-                        row,
-                    );
-                }
-            }
-            self.hit(row, Hit::Ui(UiEvent::PaletteRow(k)));
-            if let Some(b) = chevron {
-                self.hit(b, Hit::Ui(UiEvent::PaletteChoices(k)));
-            }
-            if let Some((text, scope)) = more(k) {
-                let face = Face::ui(12.0);
-                let w = self.text.width(text, face);
-                let link = Rect::new(r.x + 22.0, y, w + 8.0, 24.0);
-                let ink = if self.hovered(link) {
-                    p.bright
-                } else {
-                    p.accent
-                };
-                self.text.draw_in_row(
-                    &mut self.canvas,
-                    text,
-                    face,
-                    link.x + 4.0,
-                    y,
-                    24.0,
-                    ink,
-                    list,
-                );
-                self.marked_hit(link, Hit::Ui(UiEvent::PaletteScope(*scope)), Mark::Link);
-                y += 24.0;
             }
         }
+        chevron
+    }
 
-        // How to use it.
+    /// What a palette row is, before its label: a command's chevron box, a
+    /// symbol's letter or a file's icon. Moves `lx` past it, and gives the
+    /// chevron's box when a click on it opens more.
+    fn palette_icon(
+        &mut self,
+        extra: Option<&merlin_core::PaletteExtra>,
+        lx: &mut f32,
+        mid: f32,
+        row: Rect,
+    ) -> Option<Rect> {
+        let p = self.p;
+        let mut chevron = None;
+        match extra.map(|e| &e.icon) {
+            Some(PaletteIcon::Command) => {
+                // Brighter where it offers more, which a click opens.
+                let b = Rect::new(*lx, mid - 9.0, 18.0, 18.0);
+                let more = extra.is_some_and(|e| e.choices);
+                let (fill, ink) = match more {
+                    true if self.hovered(b) => (p.accent, p.on_accent),
+                    true => (mix(p.accent, p.widget, 0.2), p.accent),
+                    false => (p.chip, p.muted),
+                };
+                self.canvas.round(b, 4.0, fill);
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    "›",
+                    Face::ui(12.0),
+                    b.x + 6.0,
+                    b.y,
+                    b.h,
+                    ink,
+                    b,
+                );
+                if more {
+                    chevron = Some(b);
+                }
+                *lx += 28.0;
+            }
+            Some(PaletteIcon::Symbol(letter, ty)) => {
+                let ink = if *ty { p.type_ } else { p.function };
+                let b = Rect::new(*lx, mid - 9.0, 18.0, 18.0);
+                self.canvas.round(b, 4.0, mix(ink, p.widget, 0.16));
+                let face = Face::ui(11.0).bold();
+                let s = letter.to_string();
+                let w = self.text.width(&s, face);
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    &s,
+                    face,
+                    b.x + (18.0 - w) / 2.0,
+                    b.y,
+                    b.h,
+                    ink,
+                    b,
+                );
+                *lx += 28.0;
+            }
+            Some(PaletteIcon::File(name)) => {
+                let core = merlin_core::file_icon(name, true);
+                self.file_icon(name, Some(core), *lx + 1.0, mid - 8.0, 16.0, row);
+                *lx += 28.0;
+            }
+            _ => {}
+        }
+        chevron
+    }
+
+    /// How to use it, along the palette's foot.
+    fn palette_footer(&mut self, pv: &PaletteView, r: Rect) {
+        let p = self.p;
         let foot = Rect::new(r.x, r.bottom() - 34.0, r.w, 34.0);
         self.canvas
             .fill(Rect::new(r.x + 1.0, foot.y, r.w - 2.0, 1.0), p.chip);

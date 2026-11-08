@@ -358,48 +358,8 @@ impl Editor {
                 String::new()
             }
         );
-        let item = |key: &str, label: &str| WhichKeyItem {
-            key: key.to_string(),
-            label: label.trim_start_matches("+ ").to_string(),
-            group: label.starts_with("+ "),
-            plugin: None,
-            preview: None,
-        };
-        // VS Code's chords: what the second key does.
         if let Some(first) = self.chord {
-            let titles: HashMap<String, String> = self.commands().into_iter().collect();
-            let mut items: Vec<WhichKeyItem> = self
-                .keymap
-                .iter()
-                .filter(|b| b.keys.len() == 2 && b.keys[0] == first && !b.command.is_empty())
-                .map(|b| {
-                    let title = titles.get(&b.command).cloned().unwrap_or(b.command.clone());
-                    let label = title
-                        .split_once(": ")
-                        .map_or(title.as_str(), |(_, t)| t)
-                        .to_string();
-                    let second = b.keys[1];
-                    let key = if second.ctrl && first.ctrl {
-                        format!(
-                            "Ctrl {}",
-                            Key {
-                                ctrl: false,
-                                ..second
-                            }
-                        )
-                    } else {
-                        second.to_string()
-                    };
-                    item(&key, &label)
-                })
-                .collect();
-            items.dedup_by(|a, b| a.key == b.key);
-            return Some(WhichKeyView {
-                chord: first.to_string(),
-                hint,
-                items,
-                columns: 2,
-            });
+            return self.which_chord(first, hint);
         }
         let vim = self.vim.as_ref()?;
         let pending = &vim.pending;
@@ -409,50 +369,8 @@ impl Editor {
             .map(|c| shown(*c))
             .collect::<Vec<_>>()
             .join(" ");
-        // The leader's keys.
         if pending.first() == Some(&leader) && vim.mode() == VimMode::Normal {
-            let typed: String = pending[1..]
-                .iter()
-                .map(|c| c.to_string())
-                .collect::<Vec<_>>()
-                .join(" ");
-            let depth = if typed.is_empty() {
-                0
-            } else {
-                typed.split(' ').count()
-            };
-            let prefix = if typed.is_empty() {
-                String::new()
-            } else {
-                format!("{typed} ")
-            };
-            let mut items: Vec<WhichKeyItem> = Vec::new();
-            for (key, plugin) in self.leader_keys() {
-                let Some(rest) = key.keys.strip_prefix(&prefix) else {
-                    continue;
-                };
-                if rest.split(' ').count() != 1 || key.keys.split(' ').count() != depth + 1 {
-                    continue;
-                }
-                let group = key.command.is_none();
-                // A later one with the same key wins, as a plugin's does.
-                items.retain(|i| i.key != rest);
-                items.push(WhichKeyItem {
-                    key: rest.to_string(),
-                    label: key.label.trim_start_matches("+ ").to_string(),
-                    group,
-                    plugin,
-                    preview: None,
-                });
-            }
-            // Groups first, as the card lists them.
-            items.sort_by_key(|i| !i.group);
-            return Some(WhichKeyView {
-                chord,
-                hint,
-                items,
-                columns: 4,
-            });
+            return self.which_leader(vim, chord, hint);
         }
         let mut i = 0;
         if pending.first() == Some(&'"') {
@@ -462,128 +380,14 @@ impl Editor {
             i += 1;
         }
         let rest = &pending[i.min(pending.len())..];
-        // Registers, after `"`.
         if pending.len() == 1 && pending[0] == '"' {
-            let mut names: Vec<char> = vim.registers.keys().copied().collect();
-            let order = |c: &char| {
-                "\"0123456789-abcdefghijklmnopqrstuvwxyz+/:"
-                    .find(*c)
-                    .unwrap_or(99)
-            };
-            if vim.search.is_some() && !names.contains(&'/') {
-                names.push('/');
-            }
-            if !vim.history.is_empty() && !names.contains(&':') {
-                names.push(':');
-            }
-            names.sort_by_key(order);
-            let items = names
-                .into_iter()
-                .map(|c| {
-                    let text = match c {
-                        '/' => vim.search.as_ref().map(|s| s.0.clone()).unwrap_or_default(),
-                        ':' => vim.history.last().cloned().unwrap_or_default(),
-                        c => vim
-                            .registers
-                            .get(&c)
-                            .map(|r| r.text.clone())
-                            .unwrap_or_default(),
-                    };
-                    let label = match c {
-                        '"' => "last delete or yank",
-                        '0' => "last yank",
-                        '1' => "last line delete",
-                        '-' => "small delete",
-                        '+' | '*' => "clipboard",
-                        '/' => "last search",
-                        ':' => "last command",
-                        'q' => "macro",
-                        _ => "",
-                    };
-                    WhichKeyItem {
-                        key: c.to_string(),
-                        label: label.into(),
-                        group: false,
-                        plugin: None,
-                        preview: Some(preview(&text)),
-                    }
-                })
-                .collect();
-            return Some(WhichKeyView {
-                chord,
-                hint: "' and ` list marks the same way".into(),
-                items,
-                columns: 1,
-            });
+            return self.which_registers(vim, chord);
         }
-        // Macros to play, after `@`.
         if rest == ['@'] {
-            let mut names: Vec<char> = vim
-                .registers
-                .keys()
-                .copied()
-                .filter(|c| c.is_ascii_alphanumeric())
-                .collect();
-            names.sort();
-            let mut items: Vec<WhichKeyItem> = names
-                .into_iter()
-                .map(|c| WhichKeyItem {
-                    key: c.to_string(),
-                    label: String::new(),
-                    group: false,
-                    plugin: None,
-                    preview: Some(preview(&vim.registers[&c].text)),
-                })
-                .collect();
-            if let Some(r) = self.last_macro_register {
-                items.insert(
-                    0,
-                    WhichKeyItem {
-                        key: "@".into(),
-                        label: format!("@{r} again"),
-                        group: false,
-                        plugin: None,
-                        preview: None,
-                    },
-                );
-            }
-            return Some(WhichKeyView {
-                chord,
-                hint: "q and a letter records one".into(),
-                items,
-                columns: 1,
-            });
+            return self.which_macros(vim, chord);
         }
-        // Marks, after `'` and `` ` ``.
         if matches!(rest, ['\''] | ['`']) {
-            let doc = self.doc();
-            let mut marks: Vec<(char, usize)> = vim
-                .marks
-                .iter()
-                .filter(|(_, (id, _))| *id == doc.id)
-                .map(|(c, (_, at))| (*c, (*at).min(doc.buffer.len())))
-                .collect();
-            marks.sort();
-            let items = marks
-                .into_iter()
-                .map(|(c, at)| {
-                    let line = doc.line_col(at).0;
-                    let text: String = doc.line_chars(line).into_iter().collect();
-                    WhichKeyItem {
-                        key: c.to_string(),
-                        label: format!("line {}", line + 1),
-                        group: false,
-                        plugin: None,
-                        preview: Some(preview(&text)),
-                    }
-                })
-                .collect();
-            return Some(WhichKeyView {
-                chord,
-                hint,
-                items,
-                columns: 1,
-            });
+            return self.which_marks(vim, chord, hint);
         }
         // An operator waiting: its motions, or text objects after i or a.
         if let Ok(Some((_, n))) = operator(rest) {
@@ -595,11 +399,11 @@ impl Editor {
             let list: Vec<WhichKeyItem> = match after {
                 [] => {
                     let doubled = rest[n - 1].to_string();
-                    std::iter::once(item(&doubled, "The whole line"))
-                        .chain(MOTION_KEYS.iter().map(|(k, l)| item(k, l)))
+                    std::iter::once(which_item(&doubled, "The whole line"))
+                        .chain(MOTION_KEYS.iter().map(|(k, l)| which_item(k, l)))
                         .collect()
                 }
-                ['i' | 'a'] => OBJECT_KEYS.iter().map(|(k, l)| item(k, l)).collect(),
+                ['i' | 'a'] => OBJECT_KEYS.iter().map(|(k, l)| which_item(k, l)).collect(),
                 _ => return None,
             };
             return Some(WhichKeyView {
@@ -615,7 +419,7 @@ impl Editor {
             return Some(WhichKeyView {
                 chord,
                 hint,
-                items: OBJECT_KEYS.iter().map(|(k, l)| item(k, l)).collect(),
+                items: OBJECT_KEYS.iter().map(|(k, l)| which_item(k, l)).collect(),
                 columns: 4,
             });
         }
@@ -624,8 +428,229 @@ impl Editor {
         Some(WhichKeyView {
             chord,
             hint,
-            items: keys.iter().map(|(k, l)| item(k, l)).collect(),
+            items: keys.iter().map(|(k, l)| which_item(k, l)).collect(),
             columns: 3,
         })
+    }
+
+    /// VS Code's chords: what the second key does.
+    fn which_chord(&self, first: Key, hint: String) -> Option<WhichKeyView> {
+        let titles: HashMap<String, String> = self.commands().into_iter().collect();
+        let mut items: Vec<WhichKeyItem> = self
+            .keymap
+            .iter()
+            .filter(|b| b.keys.len() == 2 && b.keys[0] == first && !b.command.is_empty())
+            .map(|b| {
+                let title = titles.get(&b.command).cloned().unwrap_or(b.command.clone());
+                let label = title
+                    .split_once(": ")
+                    .map_or(title.as_str(), |(_, t)| t)
+                    .to_string();
+                let second = b.keys[1];
+                let key = if second.ctrl && first.ctrl {
+                    format!(
+                        "Ctrl {}",
+                        Key {
+                            ctrl: false,
+                            ..second
+                        }
+                    )
+                } else {
+                    second.to_string()
+                };
+                which_item(&key, &label)
+            })
+            .collect();
+        items.dedup_by(|a, b| a.key == b.key);
+        Some(WhichKeyView {
+            chord: first.to_string(),
+            hint,
+            items,
+            columns: 2,
+        })
+    }
+
+    /// The leader's keys, as far as they've been typed.
+    fn which_leader(&self, vim: &Vim, chord: String, hint: String) -> Option<WhichKeyView> {
+        let pending = &vim.pending;
+        let typed: String = pending[1..]
+            .iter()
+            .map(|c| c.to_string())
+            .collect::<Vec<_>>()
+            .join(" ");
+        let depth = if typed.is_empty() {
+            0
+        } else {
+            typed.split(' ').count()
+        };
+        let prefix = if typed.is_empty() {
+            String::new()
+        } else {
+            format!("{typed} ")
+        };
+        let mut items: Vec<WhichKeyItem> = Vec::new();
+        for (key, plugin) in self.leader_keys() {
+            let Some(rest) = key.keys.strip_prefix(&prefix) else {
+                continue;
+            };
+            if rest.split(' ').count() != 1 || key.keys.split(' ').count() != depth + 1 {
+                continue;
+            }
+            let group = key.command.is_none();
+            // A later one with the same key wins, as a plugin's does.
+            items.retain(|i| i.key != rest);
+            items.push(WhichKeyItem {
+                key: rest.to_string(),
+                label: key.label.trim_start_matches("+ ").to_string(),
+                group,
+                plugin,
+                preview: None,
+            });
+        }
+        // Groups first, as the card lists them.
+        items.sort_by_key(|i| !i.group);
+        Some(WhichKeyView {
+            chord,
+            hint,
+            items,
+            columns: 4,
+        })
+    }
+
+    /// Registers, after `"`, with what each holds.
+    fn which_registers(&self, vim: &Vim, chord: String) -> Option<WhichKeyView> {
+        let mut names: Vec<char> = vim.registers.keys().copied().collect();
+        let order = |c: &char| {
+            "\"0123456789-abcdefghijklmnopqrstuvwxyz+/:"
+                .find(*c)
+                .unwrap_or(99)
+        };
+        if vim.search.is_some() && !names.contains(&'/') {
+            names.push('/');
+        }
+        if !vim.history.is_empty() && !names.contains(&':') {
+            names.push(':');
+        }
+        names.sort_by_key(order);
+        let items = names
+            .into_iter()
+            .map(|c| {
+                let text = match c {
+                    '/' => vim.search.as_ref().map(|s| s.0.clone()).unwrap_or_default(),
+                    ':' => vim.history.last().cloned().unwrap_or_default(),
+                    c => vim
+                        .registers
+                        .get(&c)
+                        .map(|r| r.text.clone())
+                        .unwrap_or_default(),
+                };
+                let label = match c {
+                    '"' => "last delete or yank",
+                    '0' => "last yank",
+                    '1' => "last line delete",
+                    '-' => "small delete",
+                    '+' | '*' => "clipboard",
+                    '/' => "last search",
+                    ':' => "last command",
+                    'q' => "macro",
+                    _ => "",
+                };
+                WhichKeyItem {
+                    key: c.to_string(),
+                    label: label.into(),
+                    group: false,
+                    plugin: None,
+                    preview: Some(preview(&text)),
+                }
+            })
+            .collect();
+        Some(WhichKeyView {
+            chord,
+            hint: "' and ` list marks the same way".into(),
+            items,
+            columns: 1,
+        })
+    }
+
+    /// Macros to play, after `@`.
+    fn which_macros(&self, vim: &Vim, chord: String) -> Option<WhichKeyView> {
+        let mut names: Vec<char> = vim
+            .registers
+            .keys()
+            .copied()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .collect();
+        names.sort();
+        let mut items: Vec<WhichKeyItem> = names
+            .into_iter()
+            .map(|c| WhichKeyItem {
+                key: c.to_string(),
+                label: String::new(),
+                group: false,
+                plugin: None,
+                preview: Some(preview(&vim.registers[&c].text)),
+            })
+            .collect();
+        if let Some(r) = self.last_macro_register {
+            items.insert(
+                0,
+                WhichKeyItem {
+                    key: "@".into(),
+                    label: format!("@{r} again"),
+                    group: false,
+                    plugin: None,
+                    preview: None,
+                },
+            );
+        }
+        Some(WhichKeyView {
+            chord,
+            hint: "q and a letter records one".into(),
+            items,
+            columns: 1,
+        })
+    }
+
+    /// Marks, after `'` and `` ` ``, with their lines.
+    fn which_marks(&self, vim: &Vim, chord: String, hint: String) -> Option<WhichKeyView> {
+        let doc = self.doc();
+        let mut marks: Vec<(char, usize)> = vim
+            .marks
+            .iter()
+            .filter(|(_, (id, _))| *id == doc.id)
+            .map(|(c, (_, at))| (*c, (*at).min(doc.buffer.len())))
+            .collect();
+        marks.sort();
+        let items = marks
+            .into_iter()
+            .map(|(c, at)| {
+                let line = doc.line_col(at).0;
+                let text: String = doc.line_chars(line).into_iter().collect();
+                WhichKeyItem {
+                    key: c.to_string(),
+                    label: format!("line {}", line + 1),
+                    group: false,
+                    plugin: None,
+                    preview: Some(preview(&text)),
+                }
+            })
+            .collect();
+        Some(WhichKeyView {
+            chord,
+            hint,
+            items,
+            columns: 1,
+        })
+    }
+}
+
+/// A which-key item: a group when its label starts with `+ `.
+fn which_item(key: &str, label: &str) -> WhichKeyItem {
+    WhichKeyItem {
+        key: key.to_string(),
+        label: label.trim_start_matches("+ ").to_string(),
+        group: label.starts_with("+ "),
+        plugin: None,
+        preview: None,
     }
 }
