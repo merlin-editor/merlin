@@ -1877,7 +1877,7 @@ impl Frame<'_> {
     }
 
     /// Stripes across `r`, as a place still waiting for its picture.
-    fn hatch(&mut self, r: Rect, colour: u32) {
+    pub(super) fn hatch(&mut self, r: Rect, colour: u32) {
         if r.w <= 0.0 || r.h <= 0.0 {
             return;
         }

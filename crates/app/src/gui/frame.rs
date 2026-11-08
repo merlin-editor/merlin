@@ -29,7 +29,9 @@ mod markdown;
 mod palette;
 mod peek;
 mod side;
+mod surface;
 mod widgets;
+pub use surface::SurfaceSeen;
 
 use super::canvas::{Canvas, Face, Pictures, Rect, Text};
 use super::scene::Prim;
@@ -99,6 +101,8 @@ pub enum Hit {
     MaximizePanel,
     /// A part of the Settings tab.
     Settings(SettingsAction),
+    /// A document's pages, where the wheel scrolls and the mouse selects.
+    Surface(u32),
     /// The Settings tab, where the wheel scrolls it.
     SettingsBody,
 }
@@ -189,6 +193,8 @@ pub struct Frame<'a> {
     pub strips: Vec<(f32, usize)>,
     /// Each terminal pane drawn, by session, and the rect its cells go in.
     pub term_panes: Vec<(u64, Rect)>,
+    /// Each document drawn: where its pages went, and what it lacks.
+    pub surfaces: Vec<SurfaceSeen>,
     /// Whether the panel is maximised, for its button.
     pub panel_max: bool,
     /// The side edges' hits, added after the code's so they win.

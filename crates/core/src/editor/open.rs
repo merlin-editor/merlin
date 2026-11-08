@@ -13,6 +13,10 @@ impl Editor {
 
     /// Switches to `path` if it's open, or asks the host to read it.
     pub(super) fn open(&mut self, path: PathBuf, fx: &mut Vec<Effect>) {
+        // A file a plugin draws, such as a PDF, opens as its pages.
+        if let Some(editor) = self.doc_editor_for(&path) {
+            return self.open_surface(path, editor, fx);
+        }
         match self
             .docs
             .iter()

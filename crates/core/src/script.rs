@@ -298,6 +298,9 @@ impl Session {
                 | Effect::LocateDebuggers(_)
                 | Effect::ListProcesses
                 | Effect::PluginClick { .. }
+                | Effect::OpenDocument { .. }
+                | Effect::PageText { .. }
+                | Effect::CloseDocument { .. }
                 | Effect::PluginCancel { .. }
                 | Effect::PluginSubmit { .. }
                 | Effect::PluginPick { .. }

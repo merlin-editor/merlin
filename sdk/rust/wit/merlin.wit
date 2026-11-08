@@ -1,4 +1,4 @@
-package merlin:plugin@0.8.0;
+package merlin:plugin@0.9.0;
 
 interface types {
   /// What a run of text is, for its colour.
@@ -210,6 +210,33 @@ interface types {
     width: u32,
     height: u32,
     pixels: list<u8>,
+  }
+
+  /// A page's size in points, a 72nd of an inch.
+  record page-size {
+    width: f32,
+    height: f32,
+  }
+
+  /// Part of a page to draw: from (x, y), `width` by `height` pixels, at
+  /// `scale` pixels a point.
+  record tile {
+    page: u32,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+    scale: f32,
+  }
+
+  /// Where a word or a run of text is on a page, in points from its top
+  /// left, for selecting, Find and Copy.
+  record text-box {
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    text: string,
   }
 
   /// A picture from `set-image`, fitted to the view's width, and what it
@@ -902,7 +929,7 @@ interface host {
 
 world plugin {
   import host;
-  use types.{command, panel, process-event, buffer-event, token};
+  use types.{command, panel, process-event, buffer-event, token, page-size, tile, text-box, rgba-picture};
 
   /// Called after loading, and again after every hot reload with what
   /// `save-state` returned.
@@ -935,4 +962,16 @@ world plugin {
   export on-terminal: func(id: string, output: string, code: option<s32>);
   /// The user cancelled work started with `start-progress`.
   export on-cancel: func(id: string);
+
+  /// A file of a type one of the plugin's `[[editors]]` opens, by the
+  /// editor's id, and its bytes, as the document numbered `surface`: its
+  /// pages' sizes, or why it can't be shown. The editor scrolls and zooms
+  /// it, and asks for what shows.
+  export open-document: func(surface: u32, editor: string, path: string, data: list<u8>) -> result<list<page-size>, string>;
+  /// Part of a page, as pixels row by row: red, green, blue, alpha.
+  export render-tile: func(surface: u32, tile: tile) -> result<rgba-picture, string>;
+  /// Where the text is on a page.
+  export page-text: func(surface: u32, page: u32) -> list<text-box>;
+  /// The document's tab closed.
+  export close-document: func(surface: u32);
 }

@@ -27,7 +27,7 @@ impl App {
 
     /// Does what the editor asked: at once, or as a job whose events come
     /// back later. Events it makes at once join `queue`.
-    fn run_effect(&mut self, effect: Effect, queue: &mut VecDeque<Event>) {
+    pub(super) fn run_effect(&mut self, effect: Effect, queue: &mut VecDeque<Event>) {
         match effect {
             Effect::Save {
                 doc,
@@ -211,6 +211,39 @@ impl App {
                 queue.extend(self.host.click(&plugin, &button, snapshot));
                 queue.push_back(self.plugin_summaries());
                 self.panels_for = None;
+            }
+            effect @ Effect::OpenDocument { .. } if !self.plugins_loaded => {
+                self.documents_waiting.push(effect);
+            }
+            Effect::OpenDocument {
+                plugin,
+                editor,
+                path,
+                surface,
+            } => {
+                let full = self.root.join(&path);
+                match fs::read(&full) {
+                    Ok(data) => {
+                        let shown = full.display().to_string();
+                        queue.extend(
+                            self.host
+                                .open_document(&plugin, &editor, &shown, data, surface),
+                        );
+                    }
+                    Err(err) => queue.push_back(Event::DocumentOpened {
+                        surface,
+                        pages: Err(format!("Can't read {}: {err}", path.display())),
+                    }),
+                }
+            }
+            Effect::PageText {
+                plugin,
+                surface,
+                page,
+            } => queue.extend(self.host.page_text(&plugin, surface, page)),
+            Effect::CloseDocument { plugin, surface } => {
+                self.host.close_document(&plugin, surface);
+                self.tiles_asked.retain(|(s, _)| *s != surface);
             }
             Effect::PluginCancel { plugin, id } => {
                 let snapshot = self.snapshot();

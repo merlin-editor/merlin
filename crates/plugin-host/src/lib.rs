@@ -40,7 +40,7 @@ use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
 use process::{Output, Processes};
 use secrets::Secrets;
 use state::*;
-use worker::{Finished, Instance, Worker};
+use worker::{Finished, Instance, Ticket, Worker};
 
 pub use manifest::*;
 
@@ -53,7 +53,7 @@ use bindings::merlin::plugin::{host, types};
 
 /// The API version this host implements. A manifest names the version it was
 /// built for and loads only on an exact match while the API is 0.x.
-pub const API_VERSION: &str = "0.11";
+pub const API_VERSION: &str = "0.12";
 
 /// Roughly six billion instructions per call, about a second. It stops a
 /// plugin stuck in a loop, and leaves room for a language plugin to colour
@@ -800,6 +800,24 @@ impl PluginHost {
         f: impl FnOnce(&Bindings, &mut Store<State>) -> wasmtime::Result<R> + Send + 'static,
         then: impl FnOnce(R) -> Vec<Event> + Send + 'static,
     ) -> Vec<Event> {
+        let ticket = match (&self.plugins[index].worker, kind) {
+            (Some(worker), Some(kind)) if self.config.background => Some(worker.ticket(kind)),
+            _ => None,
+        };
+        self.post_ticketed(index, snapshot, ticket, quiet, f, then)
+    }
+
+    /// [`Self::post`] with a ticket already taken, which several calls can
+    /// share.
+    fn post_ticketed<R: Send + 'static>(
+        &mut self,
+        index: usize,
+        snapshot: Snapshot,
+        ticket: Option<Ticket>,
+        quiet: bool,
+        f: impl FnOnce(&Bindings, &mut Store<State>) -> wasmtime::Result<R> + Send + 'static,
+        then: impl FnOnce(R) -> Vec<Event> + Send + 'static,
+    ) -> Vec<Event> {
         if !self.config.background {
             let (result, mut events) = self.call(index, snapshot, f);
             events.extend(result.map(then).unwrap_or_default());
@@ -819,7 +837,7 @@ impl PluginHost {
         let done = self.done_tx.clone();
         let waker = self.waker.clone();
         let woken = self.woken.clone();
-        worker.post(kind, move |i| {
+        worker.post(ticket, move |i| {
             let (result, mut events, failed) = run_call(i, &name, snapshot, f);
             events.extend(result.map(then).unwrap_or_default());
             if events.is_empty() && !failed {
@@ -1125,6 +1143,156 @@ impl PluginHost {
         };
         let (picker, item) = (picker.to_string(), item.to_string());
         self.post_call(i, snapshot, move |b, s| b.call_on_pick(s, &picker, &item))
+    }
+
+    /// Opens a file in a plugin's `[[editors]]` as document `surface`:
+    /// a [`Event::DocumentOpened`] with its pages, or why it can't.
+    pub fn open_document(
+        &mut self,
+        plugin: &str,
+        editor: &str,
+        path: &str,
+        data: Vec<u8>,
+        surface: u32,
+    ) -> Vec<Event> {
+        let Some(i) = self.index(plugin) else {
+            return vec![Event::DocumentOpened {
+                surface,
+                pages: Err(format!("the {plugin} plugin isn't loaded")),
+            }];
+        };
+        // Off, stopped, or waiting to be allowed: it can't draw it.
+        let loaded = &self.plugins[i];
+        let why = if loaded.disabled {
+            Some("is turned off in Settings › Plugins")
+        } else if loaded.failed {
+            Some("stopped; its Output says why")
+        } else if loaded.worker.is_none() && !loaded.dormant {
+            Some("is waiting for you to allow it")
+        } else {
+            None
+        };
+        if let Some(why) = why {
+            return vec![Event::DocumentOpened {
+                surface,
+                pages: Err(format!("The {} plugin {why}.", loaded.manifest.title)),
+            }];
+        }
+        let (editor, path) = (editor.to_string(), path.to_string());
+        self.post(
+            i,
+            Snapshot::default(),
+            None,
+            true,
+            move |b, s| b.call_open_document(s, surface, &editor, &path, &data),
+            move |pages| {
+                vec![Event::DocumentOpened {
+                    surface,
+                    pages: pages.map(|pages| {
+                        pages
+                            .into_iter()
+                            .map(|p| merlin_core::PageSize {
+                                width: p.width,
+                                height: p.height,
+                            })
+                            .collect()
+                    }),
+                }]
+            },
+        )
+    }
+
+    /// Asks for the parts of a document's pages that show, each a
+    /// [`Event::DocumentTile`]. Ones asked for before that haven't started
+    /// are dropped: the view moved on.
+    pub fn render_tiles(
+        &mut self,
+        plugin: &str,
+        surface: u32,
+        tiles: Vec<merlin_core::TileKey>,
+    ) -> Vec<Event> {
+        let Some(i) = self.index(plugin) else {
+            return Vec::new();
+        };
+        let ticket = match &self.plugins[i].worker {
+            Some(worker) if self.config.background => {
+                Some(worker.ticket(format!("tiles {surface}")))
+            }
+            _ => None,
+        };
+        let mut events = Vec::new();
+        for tile in tiles {
+            let asked = types::Tile {
+                page: tile.page,
+                x: tile.x,
+                y: tile.y,
+                width: tile.width,
+                height: tile.height,
+                scale: tile.scale(),
+            };
+            events.extend(self.post_ticketed(
+                i,
+                Snapshot::default(),
+                ticket.clone(),
+                true,
+                move |b, s| b.call_render_tile(s, surface, asked),
+                move |picture| {
+                    let image = picture.and_then(|p| {
+                        let (width, height, pixels) = state::decode(types::Picture::Rgba(p))?;
+                        Ok(Arc::new(merlin_core::PluginImage::new(
+                            width, height, pixels,
+                        )))
+                    });
+                    vec![Event::DocumentTile {
+                        surface,
+                        tile,
+                        image,
+                    }]
+                },
+            ));
+        }
+        events
+    }
+
+    /// Asks where a page's text is: a [`Event::DocumentText`].
+    pub fn page_text(&mut self, plugin: &str, surface: u32, page: u32) -> Vec<Event> {
+        let Some(i) = self.index(plugin) else {
+            return Vec::new();
+        };
+        self.post(
+            i,
+            Snapshot::default(),
+            None,
+            true,
+            move |b, s| b.call_page_text(s, surface, page),
+            move |boxes| {
+                vec![Event::DocumentText {
+                    surface,
+                    page,
+                    boxes: boxes
+                        .into_iter()
+                        .map(|b| merlin_core::TextBox {
+                            x: b.x,
+                            y: b.y,
+                            width: b.width,
+                            height: b.height,
+                            text: b.text,
+                        })
+                        .collect(),
+                }]
+            },
+        )
+    }
+
+    /// A document's tab closed.
+    pub fn close_document(&mut self, plugin: &str, surface: u32) {
+        if let Some(i) = self.index(plugin)
+            && self.plugins[i].worker.is_some()
+        {
+            self.post_call(i, Snapshot::default(), move |b, s| {
+                b.call_close_document(s, surface)
+            });
+        }
     }
 
     /// Asks plugins to draw the views in `shown`, by name. With `all`,

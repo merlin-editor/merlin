@@ -27,7 +27,8 @@ impl Editor {
     /// The breadcrumbs: each part's text, and the line it goes to, if any.
     pub(crate) fn crumbs(&self) -> Vec<(String, Option<usize>)> {
         let doc = self.doc();
-        let Some(path) = &doc.buffer.path else {
+        // A page, a document's included, has a toolbar of its own there.
+        let Some(path) = doc.buffer.path.as_ref().filter(|_| doc.page.is_none()) else {
             return Vec::new();
         };
         let mut parts: Vec<(String, Option<usize>)> = path

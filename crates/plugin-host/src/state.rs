@@ -33,7 +33,7 @@ const PICTURE_BUDGET: usize = 64 << 20;
 const PICTURE_SIDE: u32 = 8192;
 
 /// A picture as premultiplied RGBA, or why it can't be read.
-fn decode(picture: types::Picture) -> Result<(u32, u32, Vec<u8>), String> {
+pub(super) fn decode(picture: types::Picture) -> Result<(u32, u32, Vec<u8>), String> {
     let (width, height, mut pixels) = match picture {
         types::Picture::Rgba(p) => {
             if p.width == 0 || p.height == 0 || p.width > PICTURE_SIDE || p.height > PICTURE_SIDE {

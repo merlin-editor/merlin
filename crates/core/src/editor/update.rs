@@ -84,6 +84,11 @@ impl Editor {
                 self.preedit = (!text.is_empty()).then_some((text, cursor));
             }
             Event::SaveFailed(err) => self.error(format!("Save failed: {err}")),
+            // A file a plugin draws, such as a PDF, opens as its pages.
+            Event::Opened { path, .. } if self.doc_editor_for(&path).is_some() => {
+                let editor = self.doc_editor_for(&path).expect("checked");
+                self.open_surface(path, editor, &mut fx);
+            }
             Event::Opened { path, text } => {
                 self.opened(path.clone(), &text);
                 self.split_opened(&path);
@@ -141,6 +146,22 @@ impl Editor {
                 count,
             } => self.set_view_badge(&plugin, &view, count),
             Event::SetImage { plugin, id, image } => self.set_image(plugin, id, image),
+            Event::RegisterEditors { plugin, editors } => {
+                self.register_editors(&plugin, editors, &mut fx)
+            }
+            Event::DocumentOpened { surface, pages } => {
+                self.document_opened(surface, pages, &mut fx)
+            }
+            Event::DocumentTile {
+                surface,
+                tile,
+                image,
+            } => self.document_tile(surface, tile, image),
+            Event::DocumentText {
+                surface,
+                page,
+                boxes,
+            } => self.document_text(surface, page, boxes),
             Event::FocusView { plugin, view } => {
                 self.show_plugin_view(&super::view_key(&plugin, &view))
             }
@@ -429,7 +450,9 @@ impl Editor {
         self.check_signature();
         // Follow the cursor only when something moved it, so a view scrolled
         // with the wheel stays put while plugins update their panels.
-        if self.view_key() != before {
+        if self.view_key() != before && self.current_surface().is_some() {
+            self.surface_follow();
+        } else if self.view_key() != before {
             // Moving into a folded block opens it.
             let line = self.doc().line_col(self.doc().cursor).0;
             if self.is_hidden(line) {
@@ -438,6 +461,9 @@ impl Editor {
             self.scroll_to_cursor();
         }
         self.share_selection(fx);
+        if !self.surfaces.is_empty() {
+            self.surfaces_tidy(fx);
+        }
         self.save_on_focus_change(was, fx);
         self.note_recent();
         for side in [Side::Left, Side::Right, Side::Bottom] {

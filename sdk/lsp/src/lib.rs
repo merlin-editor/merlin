@@ -12,7 +12,8 @@ mod spec;
 use std::collections::{BTreeMap, BTreeSet};
 
 use merlin_plugin::{
-    BufferEvent, Button, Command, LogLevel, Panel, Plugin, ProcessEvent, StatusItem, Token, host,
+    BufferEvent, Button, Command, LogLevel, PageSize, Panel, Plugin, ProcessEvent, RgbaPicture,
+    StatusItem, TextBox, Tile, Token, host,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -417,6 +418,28 @@ impl<P: Plugin> Plugin for WithLsp<P> {
 
     fn colour_text(&mut self, language: &str, text: &str) -> Vec<Token> {
         self.inner.colour_text(language, text)
+    }
+
+    fn open_document(
+        &mut self,
+        surface: u32,
+        editor: &str,
+        path: &str,
+        data: Vec<u8>,
+    ) -> Result<Vec<PageSize>, String> {
+        self.inner.open_document(surface, editor, path, data)
+    }
+
+    fn render_tile(&mut self, surface: u32, tile: Tile) -> Result<RgbaPicture, String> {
+        self.inner.render_tile(surface, tile)
+    }
+
+    fn page_text(&mut self, surface: u32, page: u32) -> Vec<TextBox> {
+        self.inner.page_text(surface, page)
+    }
+
+    fn close_document(&mut self, surface: u32) {
+        self.inner.close_document(surface)
     }
 
     /// Both states, as a pair.

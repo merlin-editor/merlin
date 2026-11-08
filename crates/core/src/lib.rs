@@ -41,6 +41,10 @@ pub use editor::{
     DebugButton, DebugStart, DebugState, DebugTarget, DebugThread, DebugUpdate, DebugVariable,
     Debugger, FunctionStop, OutputKind, StackFrame, StopFilter,
 };
+pub use editor::{
+    DocEditor, PAGE_GAP, PX_PER_PT, PageSize, Pages, SurfaceAction, SurfaceView, THUMB, TILE,
+    TextBox, TileKey, Tiles, page_layout,
+};
 pub use editor::{LogLevel, OutputBarView, OutputClick, OutputList, OutputRowView};
 pub use editor::{
     MenuItem, MenuPlace, PanelTab, Place, ToolButton, ToolView, ViewIcon, ViewSpec, view_key,

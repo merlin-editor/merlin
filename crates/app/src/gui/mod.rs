@@ -172,6 +172,8 @@ pub fn run(app: &mut App) -> Result<()> {
         term_drawn: 0,
         term_panes: Vec::new(),
         term_drag: None,
+        surfaces: Vec::new(),
+        surface_drag: None,
         pictures: Pictures::default(),
         bitmaps: Bitmaps::default(),
         scene: Scene::default(),
@@ -306,6 +308,10 @@ struct Gui<'a> {
     term_panes: Vec<(u64, canvas::Rect)>,
     /// The terminal the left button went down in, to select in.
     term_drag: Option<u64>,
+    /// Each document drawn, for the mouse; and the one being dragged
+    /// across to select.
+    surfaces: Vec<frame::SurfaceSeen>,
+    surface_drag: Option<u32>,
     pictures: Pictures,
     /// The glyphs and pictures drawn so far, as scenes name them.
     bitmaps: Bitmaps,
@@ -757,6 +763,8 @@ impl ApplicationHandler for Gui<'_> {
                 };
                 if state == ElementState::Pressed {
                     self.press(at);
+                } else if self.surface_drag.take().is_some() {
+                    // The selection stays; nothing more to do.
                 } else if let Some(id) = self.term_drag.take() {
                     // What's selected goes to the selection clipboard, as
                     // in any terminal.

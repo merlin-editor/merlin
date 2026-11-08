@@ -45,6 +45,9 @@ pub(crate) struct Finished {
 
 type Job = Box<dyn FnOnce(&mut Instance) + Send>;
 
+/// A kind of request and its number: see [`Worker::ticket`].
+pub(crate) type Ticket = (String, u64);
+
 pub(crate) struct Worker {
     jobs: Sender<Job>,
     stats: Arc<Mutex<Stats>>,
@@ -94,15 +97,19 @@ impl Worker {
         rx.recv().ok()
     }
 
-    /// Queues `f` without waiting. Given a `kind`, a newer request of the
-    /// same kind makes this one do nothing if it hasn't started.
-    pub fn post(&self, kind: Option<String>, f: impl FnOnce(&mut Instance) + Send + 'static) {
-        let ticket = kind.map(|kind| {
-            let mut latest = self.latest.lock().unwrap();
-            let n = latest.entry(kind.clone()).or_default();
-            *n += 1;
-            (kind, *n)
-        });
+    /// A new ticket for requests of `kind`: jobs posted with an older one
+    /// do nothing once they come up. Requests posted together, as the
+    /// tiles a view shows, share one.
+    pub fn ticket(&self, kind: String) -> Ticket {
+        let mut latest = self.latest.lock().unwrap();
+        let n = latest.entry(kind.clone()).or_default();
+        *n += 1;
+        (kind, *n)
+    }
+
+    /// Queues `f` without waiting. Given a ticket, a newer one of the same
+    /// kind makes this do nothing if it hasn't started.
+    pub fn post(&self, ticket: Option<Ticket>, f: impl FnOnce(&mut Instance) + Send + 'static) {
         let latest = self.latest.clone();
         let _ = self.jobs.send(Box::new(move |i| {
             if let Some((kind, n)) = &ticket

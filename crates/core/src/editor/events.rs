@@ -197,6 +197,28 @@ pub enum Event {
         plugin: String,
         items: Vec<super::MenuItem>,
     },
+    /// The file types a plugin opens as documents.
+    RegisterEditors {
+        plugin: String,
+        editors: Vec<super::DocEditor>,
+    },
+    /// A plugin read a document: its pages, or why it couldn't.
+    DocumentOpened {
+        surface: u32,
+        pages: Result<Vec<super::PageSize>, String>,
+    },
+    /// A part of a document's page, drawn, or why it couldn't be.
+    DocumentTile {
+        surface: u32,
+        tile: super::TileKey,
+        image: Result<std::sync::Arc<crate::PluginImage>, String>,
+    },
+    /// Where a document page's words are.
+    DocumentText {
+        surface: u32,
+        page: u32,
+        boxes: Vec<super::TextBox>,
+    },
     /// A plugin's picture for its views' `Image` nodes, by its id; none
     /// forgets it.
     SetImage {
@@ -731,6 +753,25 @@ pub enum Effect {
     PluginClick {
         plugin: String,
         button: String,
+    },
+    /// Reads a file and hands its bytes to the plugin that opens its type,
+    /// as document `surface`.
+    OpenDocument {
+        plugin: String,
+        editor: String,
+        path: PathBuf,
+        surface: u32,
+    },
+    /// Asks where a document page's words are.
+    PageText {
+        plugin: String,
+        surface: u32,
+        page: u32,
+    },
+    /// A document's tab closed.
+    CloseDocument {
+        plugin: String,
+        surface: u32,
     },
     /// The user cancelled a plugin's work under way.
     PluginCancel {

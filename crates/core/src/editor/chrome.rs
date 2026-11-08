@@ -223,6 +223,27 @@ impl Editor {
         let rope = doc.buffer.rope();
         let crlf = rope.len_lines() > 1 && rope.line(0).to_string().ends_with("\r\n");
         let indent = self.indent().label();
+        // A document's page and zoom, and its type, instead of the text's.
+        if let Some((page, zoom, kind)) = self.surface_status() {
+            let right = [page, zoom, kind].into_iter().filter(|t| !t.is_empty());
+            return left
+                .into_iter()
+                .map(|(text, style, action)| StatusItem {
+                    text,
+                    style,
+                    action,
+                    mark: None,
+                    right: false,
+                })
+                .chain(right.map(|text| StatusItem {
+                    text: format!(" {text}  "),
+                    style: Style::Status,
+                    action: None,
+                    mark: None,
+                    right: true,
+                }))
+                .collect();
+        }
         let mut right: Vec<(String, Option<Action>)> = vec![
             (position, Some(Action::Run("go.line"))),
             (indent, None),

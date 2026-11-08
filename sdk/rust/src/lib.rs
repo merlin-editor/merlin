@@ -42,7 +42,8 @@ pub use bindings::merlin::plugin::types::{
     ActionKind, Breakpoint, BreakpointState, BufferEvent, Button, Chip, ChipRow, CodeAction,
     Command, Completion, DebugLaunch, EditCard, EmptyState, Message, Progress, Row, DebugPause, DebugState, DebugTarget, DebugThread, DebugVariable,
     DetailedDiagnostic, Diagnostic, DocSymbol, FileEdit, FoldRange, Framing, FunctionStop,
-    Image, InlayHint, InlayKind, InlineValue, Input, Item, Picture, RgbaPicture, LineRange, Location, LogLevel, Node,
+    Image, InlayHint, InlayKind, InlineValue, Input, Item, PageSize, Picture, RgbaPicture,
+    TextBox, Tile, LineRange, Location, LogLevel, Node,
     OutputKind, Panel, PickItem, Position, ProcessEvent, ProjectSymbol, RenameInfo, Selection,
     Setting, Severity, Signature, StackFrame, StatusItem, StatusState, StopFilter, Styled, Task,
     TaskGroup, TestItem, TestOutcome, TestResult, TextChange, Token, TokenKind, TokenLayer, Tone,
@@ -112,7 +113,7 @@ pub mod prelude {
         ActionKind, Breakpoint, BreakpointState, BufferEvent, Button, Chip, CodeAction, Command, EditCard, Message, Progress, Row,
         Completion, DebugLaunch, DebugPause, DebugState, DebugTarget, DebugThread, DebugVariable,
         DetailedDiagnostic, Diagnostic, DocSymbol, FileEdit, FoldRange, Framing, FunctionStop,
-        Picture, InlayHint, InlayKind, InlineValue, LineRange, Location, LogLevel, Node, OutputKind, Panel,
+        Picture, PageSize, RgbaPicture, TextBox, Tile, InlayHint, InlayKind, InlineValue, LineRange, Location, LogLevel, Node, OutputKind, Panel,
         PickItem, Plugin, Position, ProcessEvent, ProjectSymbol, RenameInfo, Selection, Severity,
         Signature, StackFrame, StatusItem, StatusState, StopFilter, Task, TaskGroup, TestItem,
         TestOutcome, TestResult, TextChange, Token, TokenKind, TokenLayer, Tone, host, settings,
@@ -172,6 +173,33 @@ pub trait Plugin: 'static {
     fn colour_text(&mut self, _language: &str, _text: &str) -> Vec<Token> {
         Vec::new()
     }
+
+    /// A file one of the manifest's `[[editors]]` opens, by the editor's
+    /// id, with its bytes, as the document numbered `surface`: its pages'
+    /// sizes in points. The editor owns scrolling and zoom, and asks
+    /// [`Plugin::render_tile`] for what comes into view.
+    fn open_document(
+        &mut self,
+        _surface: u32,
+        _editor: &str,
+        _path: &str,
+        _data: Vec<u8>,
+    ) -> Result<Vec<PageSize>, String> {
+        Err("this plugin opens no documents".into())
+    }
+
+    /// Part of a page, as RGBA row by row.
+    fn render_tile(&mut self, _surface: u32, _tile: Tile) -> Result<RgbaPicture, String> {
+        Err("this plugin draws no documents".into())
+    }
+
+    /// Where a page's text is, for selecting, Find and Copy.
+    fn page_text(&mut self, _surface: u32, _page: u32) -> Vec<TextBox> {
+        Vec::new()
+    }
+
+    /// A document's tab closed: what it kept can go.
+    fn close_document(&mut self, _surface: u32) {}
 
     /// State to keep across a hot reload. Returning some also keeps the
     /// plugin's processes running.
@@ -591,6 +619,35 @@ macro_rules! export {
             fn on_cancel(id: String) {
                 $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
                     $crate::Plugin::cancel(p, &id)
+                })
+            }
+
+            fn open_document(
+                surface: u32,
+                editor: String,
+                path: String,
+                data: Vec<u8>,
+            ) -> Result<Vec<$crate::PageSize>, String> {
+                $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
+                    $crate::Plugin::open_document(p, surface, &editor, &path, data)
+                })
+            }
+
+            fn render_tile(surface: u32, tile: $crate::Tile) -> Result<$crate::RgbaPicture, String> {
+                $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
+                    $crate::Plugin::render_tile(p, surface, tile)
+                })
+            }
+
+            fn page_text(surface: u32, page: u32) -> Vec<$crate::TextBox> {
+                $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
+                    $crate::Plugin::page_text(p, surface, page)
+                })
+            }
+
+            fn close_document(surface: u32) {
+                $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
+                    $crate::Plugin::close_document(p, surface)
                 })
             }
 

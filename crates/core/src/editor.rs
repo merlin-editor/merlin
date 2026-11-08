@@ -130,6 +130,11 @@ use crate::panel::{Panel, PickItem};
 
 pub use events::*;
 pub use plugin_views::{MenuItem, MenuPlace, Place, ToolButton, ViewIcon, ViewSpec, view_key};
+mod surface;
+pub use surface::{
+    DocEditor, PAGE_GAP, PX_PER_PT, PageSize, Pages, SurfaceAction, SurfaceView, THUMB, TILE,
+    TextBox, TileKey, Tiles, page_layout,
+};
 pub use views::SearchHit;
 
 /// Most matches the palette keeps, so a big project stays fast.
@@ -309,6 +314,10 @@ pub struct Editor {
     /// Cursor positions in panel inputs, by plugin and input id.
     input_cursors: HashMap<(String, String), usize>,
     plugins: Vec<Plugin>,
+    /// Documents plugins draw, open in tabs, and the file types they
+    /// open.
+    surfaces: Vec<surface::Surface>,
+    doc_editors: Vec<DocEditor>,
     /// Plugins' pictures, by plugin and id.
     images: HashMap<(String, String), std::sync::Arc<crate::PluginImage>>,
     message: Option<Message>,
@@ -606,6 +615,8 @@ impl Editor {
             input_cursors: HashMap::new(),
             plugins: Vec::new(),
             images: HashMap::new(),
+            surfaces: Vec::new(),
+            doc_editors: Vec::new(),
             message: None,
             dialog: None,
             preedit: None,

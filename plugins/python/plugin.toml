@@ -3,7 +3,7 @@ title = "Python"
 description = "Python syntax, pytest & pyright"
 badge = "PY"
 hue = "cyan"
-api = "0.11"
+api = "0.12"
 component = "target/wasm32-wasip2/release/python_language.wasm"
 # Starts when one of its files opens, or the project has one.
 activate-on = ["language:python", "file:pyproject.toml", "file:setup.py"]

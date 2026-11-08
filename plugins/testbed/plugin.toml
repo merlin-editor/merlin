@@ -1,6 +1,6 @@
 name = "testbed"
 title = "Testbed"
-api = "0.11"
+api = "0.12"
 component = "target/wasm32-wasip2/release/testbed.wasm"
 
 [permissions]

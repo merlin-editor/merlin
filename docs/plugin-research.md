@@ -259,3 +259,12 @@ The PDF viewer is the test: it's `PluginDocument.dc.html` in
    or RGBA, decoded on the plugin's thread into its 64 MB budget, and an
    `image` node fits it to the view, its corners rounded, scaled once per
    size; until it's there, a hatched box with its words.
+   **Document surfaces built**, with API 0.12: `[[editors]]`, and
+   `open-document`, `render-tile`, `page-text` and `close-document`
+   exports. The bundled `pdf` plugin draws with hayro in wasm. The tab
+   has the mock-up's toolbar, thumbnails, tiles with the thumbnail
+   standing in (hatched until that comes), and the status bar's page and
+   zoom; the words are the tab's text, so Find, selection and Copy are the
+   editor's own. Still to come from the mock-up: its right-click menu
+   (Copy Page as Image needs an image clipboard) and picture memory on the
+   plugin's page.

@@ -281,7 +281,7 @@ merlin comes with:
 # plugin.toml
 name = "my-looks"
 title = "My Looks"
-api = "0.11"
+api = "0.12"
 
 [[themes]]          # shows in the colour or icon theme picker
 label = "My Theme"
@@ -694,7 +694,7 @@ title = "Word Count"
 # Its tile in the plugin lists: two letters and a colour.
 badge = "WC"
 hue = "green"
-api = "0.11"
+api = "0.12"
 component = "target/wasm32-wasip2/release/word_count.wasm"
 
 [permissions]
@@ -864,6 +864,18 @@ What else plugins get, besides commands and panels:
     side.
 
   Clicks on rows, chips and buttons all arrive at `click`.
+- **Documents.** `[[editors]]` in the manifest (`id`, `title`,
+  `extensions`) opens files of those types in a tab of pages rather than
+  as text: PDFs, with the bundled `pdf` plugin. The plugin's
+  `open_document` gets the file's bytes and gives its pages' sizes; the
+  editor scrolls and zooms (Fit Width, Ctrl + and −, the toolbar and the
+  thumbnails) and asks `render_tile` for the parts in view, drawn at the
+  screen's resolution on the plugin's own thread, with each page's
+  thumbnail standing in meanwhile. `page_text` says where the words are,
+  and they become the tab's text, so Find, selecting with the mouse,
+  Ctrl+C and Ctrl+A work as in a code tab. A document's tiles take at most
+  64 MB, the oldest dropped first, and a hidden tab keeps only its
+  thumbnails.
 
 Other languages work too: anything that builds a WASI 0.2 component for
 [`sdk/rust/wit/merlin.wit`](sdk/rust/wit/merlin.wit).

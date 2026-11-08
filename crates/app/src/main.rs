@@ -246,6 +246,12 @@ struct App {
     icon_previews: Vec<(String, packs::Icons, String)>,
     /// The plugin whose Uninstall was pressed once.
     uninstall_armed: Option<String>,
+    /// Whether plugins have loaded, and documents opened before then, to
+    /// hand them once they have.
+    plugins_loaded: bool,
+    documents_waiting: Vec<merlin_core::Effect>,
+    /// The tiles last asked of each document's plugin, still to come.
+    tiles_asked: Vec<(u32, std::collections::HashSet<merlin_core::TileKey>)>,
     /// Programs' memory, for the Plugins page.
     memory: prefs::Memory,
     /// The desktop asks for light colours, for Follow the system.
@@ -426,6 +432,13 @@ impl App {
         let path = relative_to(&self.root, path);
         let full = self.root.join(&path);
         self.disk.insert(path.clone(), modified(&full));
+        // A document a plugin draws isn't read as text: its plugin reads it.
+        if self.editor.opens_as_document(&path) {
+            return vec![Event::Opened {
+                path,
+                text: String::new(),
+            }];
+        }
         match read_file(&full) {
             Ok(text) => vec![
                 Event::Opened {
@@ -742,6 +755,32 @@ impl App {
             self.editor.update(event);
         }
         self.panels_for = Some(key);
+    }
+
+    /// The tiles a document shows and doesn't have. Asks its plugin for
+    /// them when any weren't asked for already, which drops the ones
+    /// asked for before that the view has moved on from.
+    pub(crate) fn want_tiles(
+        &mut self,
+        surface: u32,
+        plugin: &str,
+        wanted: Vec<merlin_core::TileKey>,
+    ) {
+        let asked = match self.tiles_asked.iter_mut().find(|(s, _)| *s == surface) {
+            Some((_, asked)) => asked,
+            None => {
+                self.tiles_asked.push((surface, Default::default()));
+                &mut self.tiles_asked.last_mut().unwrap().1
+            }
+        };
+        if wanted.iter().all(|t| asked.contains(t)) {
+            return;
+        }
+        *asked = wanted.iter().copied().collect();
+        let events = self.host.render_tiles(plugin, surface, wanted);
+        for event in events {
+            self.dispatch(event);
+        }
     }
 
     /// Hands queued process output to plugins, and applies what their
@@ -1160,6 +1199,9 @@ fn main() -> Result<()> {
         previews: Vec::new(),
         icon_previews: Vec::new(),
         uninstall_armed: None,
+        tiles_asked: Vec::new(),
+        plugins_loaded: false,
+        documents_waiting: Vec::new(),
         memory: prefs::Memory::default(),
         system_light: false,
     };
@@ -1181,6 +1223,15 @@ fn main() -> Result<()> {
     }
     let root = app.root.clone();
     app.editor.set_root(root);
+    // The file types plugins open, such as PDFs, known before any file
+    // opens, so those open as their documents once the plugin loads.
+    for dir in plugin_dirs(&args) {
+        if let Ok(manifest) = merlin_plugins::manifest(&dir)
+            && let Some(event) = merlin_plugins::editors_event(&manifest)
+        {
+            app.dispatch(event);
+        }
+    }
     for file in &args.files {
         for event in app.open(file) {
             if let Event::Error(err) = event {
@@ -1262,6 +1313,13 @@ fn main() -> Result<()> {
     }
     loaded.extend(app.host.check_depends());
     loaded.into_iter().for_each(|e| app.dispatch(e));
+    // Documents that opened before their plugin had loaded.
+    app.plugins_loaded = true;
+    for effect in std::mem::take(&mut app.documents_waiting) {
+        let mut queue = VecDeque::new();
+        app.run_effect(effect, &mut queue);
+        app.run_events(queue);
+    }
     let summaries = app.plugin_summaries();
     app.dispatch(summaries);
     // Plugins' packs are known now, so the ones the settings ask for can be

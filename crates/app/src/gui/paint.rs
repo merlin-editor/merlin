@@ -127,6 +127,7 @@ impl Gui<'_> {
             tabs_end: None,
             strips: std::mem::take(&mut self.strips),
             term_panes: Vec::new(),
+            surfaces: Vec::new(),
             panel_max: self.sizes.bottom_before.is_some(),
         };
         f.base(&view, &areas, &mut self.state, w, h);
@@ -211,9 +212,28 @@ impl Gui<'_> {
             );
             f.side(sv, merlin_core::Side::Tab, r, &mut self.state, None);
         }
+        // Documents plugins draw, in editor tabs.
+        for (g, group) in view.groups.iter().enumerate() {
+            let Some(page) = &group.page else { continue };
+            let (Some(area), Some((_, sv))) = (
+                areas.groups.get(g),
+                view.surfaces.iter().find(|(name, _)| name == page),
+            ) else {
+                continue;
+            };
+            let r = Rect::new(
+                area.tabs.x,
+                area.tabs.bottom(),
+                area.tabs.w,
+                (area.text.bottom() - area.tabs.bottom()).max(0.0),
+            );
+            let seen = f.surface(sv, r);
+            f.surfaces.push(seen);
+        }
         let cell = (grid.cell_w as f32 / s, grid.cell_h as f32 / s);
         f.floating(&view, &areas, cell, self.context_at, w, h);
         f.overlays(&view, &areas, w, h);
+        let surfaces = std::mem::take(&mut f.surfaces);
         self.hits = std::mem::take(&mut f.hits);
         self.strips = std::mem::take(&mut f.strips);
         self.tips = std::mem::take(&mut f.tips);
@@ -264,6 +284,22 @@ impl Gui<'_> {
         self.drawn_text = texts;
         self.bars_drawn = bars;
         self.caret_drawn = caret_on;
+        // Documents: the editor hears how much room their pages have, and
+        // their plugins are asked for what they showed without having.
+        for seen in &surfaces {
+            if !seen.sized {
+                self.app.dispatch(Event::Ui(UiEvent::SurfaceArea {
+                    id: seen.id,
+                    w: seen.area.w,
+                    h: seen.area.h,
+                }));
+                self.redraw();
+            } else if !seen.wanted.is_empty() {
+                self.app
+                    .want_tiles(seen.id, &seen.plugin, seen.wanted.clone());
+            }
+        }
+        self.surfaces = surfaces;
         if fading {
             self.redraw();
         }

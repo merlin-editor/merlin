@@ -73,6 +73,21 @@ pub struct Manifest {
     /// Its commands in right-click menus: see [`ManifestMenu`].
     #[serde(default)]
     pub menus: Vec<ManifestMenu>,
+    /// File types it opens in a tab of its own: see [`ManifestEditor`].
+    #[serde(default)]
+    pub editors: Vec<ManifestEditor>,
+}
+
+/// A file type a plugin opens as a document, as `[[editors]]` declares
+/// it: the editor scrolls and zooms its pages, and the plugin draws them.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct ManifestEditor {
+    pub id: String,
+    /// What the tab and the status bar call the file's type.
+    pub title: String,
+    /// The extensions it opens, without the dot.
+    pub extensions: Vec<String>,
 }
 
 /// One of a plugin's commands in a right-click menu, as `[[menus]]`
@@ -310,6 +325,7 @@ pub(super) fn manifest_events(manifest: &Manifest) -> Vec<Event> {
             items: menus,
         });
     }
+    events.extend(editors_event(manifest));
     if let Some(command) = &manifest.symbols {
         events.push(Event::RegisterSymbolSearch {
             plugin: plugin.clone(),
@@ -797,6 +813,29 @@ pub(super) fn save_grant(data_dir: &Path, dir: &str, permissions: &Permissions) 
 }
 
 /// Reads a plugin's manifest.
+/// The file types a plugin opens as documents, for the editor to know
+/// before any file opens.
+pub fn editors_event(manifest: &Manifest) -> Option<Event> {
+    let plugin = &manifest.name;
+    (!manifest.editors.is_empty() && manifest.component.is_some()).then(|| Event::RegisterEditors {
+        plugin: plugin.clone(),
+        editors: manifest
+            .editors
+            .iter()
+            .map(|e| merlin_core::DocEditor {
+                plugin: plugin.clone(),
+                id: e.id.clone(),
+                title: e.title.clone(),
+                extensions: e
+                    .extensions
+                    .iter()
+                    .map(|x| x.trim_start_matches('.').to_ascii_lowercase())
+                    .collect(),
+            })
+            .collect(),
+    })
+}
+
 pub fn manifest(dir: &Path) -> Result<Manifest> {
     let path = dir.join("plugin.toml");
     let manifest: Manifest = toml::from_str(
@@ -842,6 +881,14 @@ pub fn manifest(dir: &Path) -> Result<Manifest> {
 fn check_views(manifest: &Manifest) -> Result<()> {
     if !manifest.views.is_empty() && manifest.component.is_none() {
         bail!("views need a component to draw them");
+    }
+    if !manifest.editors.is_empty() && manifest.component.is_none() {
+        bail!("editors need a component to draw them");
+    }
+    for editor in &manifest.editors {
+        if editor.extensions.is_empty() {
+            bail!("editor {:?} opens no extensions", editor.id);
+        }
     }
     let mut ids = Vec::new();
     for view in &manifest.views {

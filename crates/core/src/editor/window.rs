@@ -18,6 +18,31 @@ use crate::style::Hue;
 pub enum UiEvent {
     /// An activity rail item, by its index in [`WindowView::rail`].
     Rail(usize),
+    /// How much room a document's pages have, in logical pixels.
+    SurfaceArea {
+        id: u32,
+        w: f32,
+        h: f32,
+    },
+    /// The wheel over a document, in logical pixels: down, or across.
+    SurfaceScroll {
+        id: u32,
+        by: f32,
+        across: bool,
+    },
+    /// A document's toolbar or thumbnails.
+    Surface {
+        id: u32,
+        action: super::SurfaceAction,
+    },
+    /// A press, or a drag with it held, on a document's page, in points.
+    SurfacePoint {
+        id: u32,
+        page: u32,
+        x: f32,
+        y: f32,
+        drag: bool,
+    },
     /// A right click on one: a plugin view's menu.
     RailMenu(usize),
     /// A plugin view dragged to another place.
@@ -179,6 +204,8 @@ pub struct WindowView {
     pub bottom: Option<SideView>,
     /// Plugin views open in editor tabs, by their page names.
     pub pages: Vec<(String, SideView)>,
+    /// Documents plugins draw, by the page name of each group showing one.
+    pub surfaces: Vec<(String, super::SurfaceView)>,
     /// Whether each side shows, for the title bar's layout buttons:
     /// left, bottom, right.
     pub shown: [bool; 3],
@@ -749,6 +776,7 @@ impl Editor {
             right: self.side_view(Side::Right),
             bottom: self.side_view(Side::Bottom),
             pages: self.page_views(),
+            surfaces: self.surface_views(),
             shown: [
                 self.bar(Side::Left).visible,
                 self.bar(Side::Bottom).visible,
@@ -878,6 +906,16 @@ impl Editor {
                 }
             }
             UiEvent::MoveView { name, place } => self.move_view(&name, place),
+            UiEvent::SurfaceArea { id, w, h } => self.surface_area(id, w, h),
+            UiEvent::SurfaceScroll { id, by, across } => self.surface_scroll(id, by, across),
+            UiEvent::Surface { id, action } => self.surface_ui(id, action),
+            UiEvent::SurfacePoint {
+                id,
+                page,
+                x,
+                y,
+                drag,
+            } => self.surface_point(id, page, x, y, drag),
             UiEvent::RailMenu(i) => {
                 if let Some((_, Action::Plugin(name))) = self.rail_items().into_iter().nth(i) {
                     self.open_view_menu(name);

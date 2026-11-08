@@ -240,6 +240,10 @@ impl Gui<'_> {
                 self.press_bar(group, what, at);
             }
             Hit::Minimap(group) => self.press_bar(group, Bar::Map, at),
+            Hit::Surface(id) => {
+                self.surface_point(id, at, false);
+                self.surface_drag = Some(id);
+            }
             Hit::Terminal(id) => {
                 self.dispatch(Event::Ui(UiEvent::Terminal(id)));
                 if !self.app.terminals.wants_mouse(id)
@@ -642,6 +646,13 @@ impl Gui<'_> {
             self.redraw();
             return;
         }
+        // Over a document, its pages scroll.
+        if let Some(Hit::Surface(id)) = over {
+            let by = -(lines as f32) * 60.0 * self.sensitivity();
+            let across = sideways || self.modifiers.shift_key();
+            self.dispatch(Event::Ui(UiEvent::SurfaceScroll { id, by, across }));
+            return;
+        }
         // Over a terminal, it scrolls back through the history.
         if let Some(Hit::Terminal(id)) = over {
             let lines = (lines * 3.0).round() as i32;
@@ -690,6 +701,22 @@ impl Gui<'_> {
             (-steps * 3.0, 0.0)
         };
         self.dispatch(Event::Scroll { group, rows, cols });
+    }
+
+    /// A press or drag at `at` on a document's pages: where on which page.
+    pub(super) fn surface_point(&mut self, id: u32, at: (f32, f32), drag: bool) {
+        let Some(seen) = self.surfaces.iter().find(|s| s.id == id) else {
+            return;
+        };
+        if let Some((page, x, y)) = seen.point(at.0, at.1) {
+            self.dispatch(Event::Ui(UiEvent::SurfacePoint {
+                id,
+                page,
+                x,
+                y,
+                drag,
+            }));
+        }
     }
 
     /// A touchpad moved the text by (`dx`, `dy`) physical pixels: the text
@@ -812,6 +839,10 @@ impl Gui<'_> {
                 });
                 self.redraw();
             }
+            return;
+        }
+        if let Some(id) = self.surface_drag {
+            self.surface_point(id, at, true);
             return;
         }
         if let Some(id) = self.term_drag {

@@ -1,0 +1,12 @@
+name = "pdf"
+title = "PDF"
+description = "Opens PDF files in a tab: pages drawn as you scroll, with text to select, find and copy."
+badge = "PDF"
+hue = "red"
+api = "0.12"
+component = "target/wasm32-wasip2/release/pdf.wasm"
+
+[[editors]]
+id = "pdf"
+title = "PDF"
+extensions = ["pdf"]

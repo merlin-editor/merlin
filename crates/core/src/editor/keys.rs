@@ -185,6 +185,10 @@ impl Editor {
         {
             return;
         }
+        // A document's pages scroll and zoom with their own keys.
+        if self.chord.is_none() && self.surface_key(key, fx) {
+            return;
+        }
         // Vim's keys in the text, before merlin's bindings.
         if self.chord.is_none() && self.vim_key(key, fx) {
             return;
