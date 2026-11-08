@@ -3,6 +3,8 @@
 //! rounded islands on a darker ground, and a thin status bar. Drawing also
 //! records what each clickable part does.
 
+use std::collections::HashMap;
+
 use merlin_core::editor::{
     BlameCardView, ChangeView, DiffBarView, MergeBarView, MergeRow, MergeSide, MergeView, PeekItem,
     PeekView, RenameView,
@@ -26,6 +28,7 @@ mod palette;
 mod peek;
 mod side;
 mod widgets;
+pub(in crate::gui) use side::plugin_badge;
 
 use super::canvas::{Canvas, Face, Pictures, Rect, Text};
 use super::scene::Prim;
@@ -150,6 +153,8 @@ pub struct State {
     pub scroll: [f32; 3],
     /// The selection each side last showed, to scroll to it when it moves.
     selected: [Option<usize>; 3],
+    /// How far each multi-line input has scrolled.
+    pub input_scroll: HashMap<String, f32>,
 }
 
 fn side_index(side: Side) -> usize {

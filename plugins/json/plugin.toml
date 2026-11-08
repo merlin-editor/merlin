@@ -1,5 +1,6 @@
 name = "json"
 title = "JSON"
+description = "Syntax highlighting & code folding"
 api = "0.8"
 component = "target/wasm32-wasip2/release/json_language.wasm"
 

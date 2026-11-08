@@ -263,6 +263,7 @@ fn chat_panel(permission: bool) -> Event {
         id: "prompt".into(),
         placeholder: "Ask…".into(),
         secret: false,
+        multiline: false,
     });
     Event::SetPanel {
         plugin: "chat".into(),
@@ -322,6 +323,7 @@ fn footer_stays_at_the_bottom_and_the_body_follows_new_content() {
                 id: "p".into(),
                 placeholder: "Ask…".into(),
                 secret: false,
+                multiline: false,
             },
         ])
         .collect();
@@ -390,6 +392,7 @@ fn focus_returns_to_the_input_when_the_focused_button_goes_away() {
                     id: "prompt".into(),
                     placeholder: "Ask…".into(),
                     secret: false,
+                    multiline: false,
                 },
             ],
         }),
@@ -416,6 +419,7 @@ fn focus_returns_to_the_input_when_the_focused_button_goes_away() {
                     id: "prompt".into(),
                     placeholder: "Ask…".into(),
                     secret: false,
+                    multiline: false,
                 },
             ],
         }),
@@ -491,6 +495,7 @@ fn secret_inputs_show_dots() {
                 id: "key".into(),
                 placeholder: "API key".into(),
                 secret: true,
+                multiline: false,
             }],
         }),
     });
@@ -504,6 +509,40 @@ fn secret_inputs_show_dots() {
             plugin: "p".into(),
             input: "key".into(),
             text: "hunter2".into()
+        })
+    );
+}
+
+#[test]
+fn multiline_input_editing_and_cursor_movement() {
+    let mut s = Session::new("", None, 60, 10);
+    s.send(Event::SetPanel {
+        plugin: "p".into(),
+        panel: Some(Panel {
+            title: "Notes".into(),
+            nodes: vec![Node::Input {
+                id: "note".into(),
+                placeholder: "Note".into(),
+                secret: false,
+                multiline: true,
+            }],
+        }),
+    });
+    s.run("key ctrl+alt+b");
+    s.run("type hello; key enter; type world");
+    s.run("key up");
+    s.run("type !");
+    s.run("key home; type >");
+    s.run("key down");
+    s.run("key end; type .");
+    s.run("key left left left; key delete");
+    s.run("key ctrl+enter");
+    assert_eq!(
+        s.effects.last(),
+        Some(&Effect::PluginSubmit {
+            plugin: "p".into(),
+            input: "note".into(),
+            text: ">hello!\nword.".into()
         })
     );
 }

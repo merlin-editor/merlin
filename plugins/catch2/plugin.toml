@@ -1,0 +1,15 @@
+name = "catch2"
+title = "Catch2"
+description = "Catch2 test discovery & runner for C++"
+api = "0.8"
+component = "target/wasm32-wasip2/release/catch2.wasm"
+
+[permissions]
+editor-read = true
+
+[[languages]]
+id = "cpp"
+name = "C++"
+extensions = ["cpp", "cc", "cxx", "c++", "hpp", "hh", "hxx"]
+line-comment = "//"
+block-comment = ["/*", "*/"]

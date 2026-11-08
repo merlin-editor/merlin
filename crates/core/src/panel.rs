@@ -51,6 +51,7 @@ pub enum Node {
         id: String,
         placeholder: String,
         secret: bool,
+        multiline: bool,
     },
     Divider,
     /// Nodes after this stay at the bottom; the ones before it scroll.

@@ -100,7 +100,7 @@ impl Frame<'_> {
         let mut rows = Vec::with_capacity(sv.nodes.len());
         let mut y = 0.0;
         for node in &sv.nodes {
-            let h = self.node_height(node, inner);
+            let h = self.node_height(node, sv, inner);
             rows.push((y, h));
             y += h;
         }
@@ -130,7 +130,7 @@ impl Frame<'_> {
             let r = Rect::new(area.x, top, area.w, rh);
             let target = sv.targets[i];
             let selected = target.is_some() && target == Some(sv.selected);
-            self.node(node, sv, side, r, target, selected, body);
+            self.node(node, sv, side, r, target, selected, body, state);
         }
     }
 
@@ -273,7 +273,7 @@ impl Frame<'_> {
         }
     }
 
-    pub(super) fn node_height(&mut self, node: &Node, inner: f32) -> f32 {
+    pub(super) fn node_height(&mut self, node: &Node, sv: &SideView, inner: f32) -> f32 {
         match node {
             Node::Heading(_) => 30.0,
             Node::Text(t) | Node::Styled(t, _) => {
@@ -282,12 +282,40 @@ impl Frame<'_> {
             Node::Markdown(t) => self.text.wrapped_height(&plain(t), Face::ui(12.5), inner) + 8.0,
             Node::Button(_) | Node::Buttons(_) => 38.0,
             Node::Tools(_) => 32.0,
+            Node::Entry(e) if e.id.starts_with("plugin:") => {
+                if self.compact {
+                    44.0
+                } else {
+                    50.0
+                }
+            }
             Node::Item { .. } | Node::Entry(_) => {
                 if self.compact {
                     22.0
                 } else {
                     ROW_H
                 }
+            }
+            Node::Input {
+                id,
+                multiline: true,
+                ..
+            } => {
+                let typed = sv
+                    .inputs
+                    .iter()
+                    .find(|(i, _)| i == id)
+                    .map(|(_, t)| t.as_str())
+                    .unwrap_or_default();
+                let text_w = (inner - 12.0).max(40.0);
+                let face = Face::ui(13.0);
+                let text_h = if typed.is_empty() {
+                    self.text.height("M", face)
+                } else {
+                    self.text.wrapped_height(typed, face, text_w)
+                };
+                let box_h = (text_h + 12.0).clamp(30.0, 120.0);
+                box_h + 10.0
             }
             Node::Input { .. } => 40.0,
             Node::Divider => 13.0,
@@ -308,6 +336,7 @@ impl Frame<'_> {
         target: Option<usize>,
         selected: bool,
         clip: Rect,
+        state: &mut State,
     ) {
         let p = self.p;
         let inner = r.w - 28.0;
@@ -478,47 +507,128 @@ impl Frame<'_> {
                 id,
                 placeholder,
                 secret,
+                multiline,
             } => {
-                let b = Rect::new(r.x + 10.0, r.y + 5.0, r.w - 20.0, 30.0);
-                let focused = selected && sv.focused;
-                let border = if focused { p.accent } else { p.border };
-                self.canvas.outline(b, 7.0, 1.0, border, p.raised);
                 let typed = sv
                     .inputs
                     .iter()
                     .find(|(i, _)| i == id)
                     .map(|(_, t)| t.as_str())
                     .unwrap_or_default();
+                let face = Face::ui(13.0);
+                let (box_h, text_w) = if *multiline {
+                    let tw = (r.w - 40.0).max(40.0);
+                    let th = if typed.is_empty() {
+                        self.text.height("M", face)
+                    } else {
+                        self.text.wrapped_height(typed, face, tw)
+                    };
+                    ((th + 12.0).clamp(30.0, 120.0), tw)
+                } else {
+                    (30.0, (r.w - 40.0).max(40.0))
+                };
+                let b = Rect::new(r.x + 10.0, r.y + 5.0, r.w - 20.0, box_h);
+                let focused = selected && sv.focused;
+                let border = if focused { p.accent } else { p.border };
+                self.canvas.outline(b, 7.0, 1.0, border, p.raised);
+
+                let cursor_byte = sv
+                    .input_cursors
+                    .iter()
+                    .find(|(i, _)| i == id)
+                    .map(|(_, c)| *c)
+                    .unwrap_or(typed.len())
+                    .min(typed.len());
+
                 let shown = if *secret {
                     "•".repeat(typed.chars().count())
                 } else {
                     typed.to_string()
                 };
-                let face = Face::ui(13.0);
-                let (label, colour) = if shown.is_empty() {
-                    (placeholder.as_str(), p.muted)
-                } else {
-                    (shown.as_str(), p.text)
-                };
-                let tw = self.text.draw_in_row(
-                    &mut self.canvas,
-                    label,
-                    face,
-                    b.x + 10.0,
-                    b.y,
-                    b.h,
-                    colour,
-                    b.inset(1.0),
-                );
-                if focused {
-                    let cx = if shown.is_empty() {
-                        b.x + 10.0
+
+                let text_clip = b.inset(1.0).intersect(clip);
+
+                if *multiline {
+                    if shown.is_empty() {
+                        self.text.draw_in_row(
+                            &mut self.canvas,
+                            placeholder.as_str(),
+                            face,
+                            b.x + 10.0,
+                            b.y,
+                            30.0,
+                            p.muted,
+                            text_clip,
+                        );
+                        if focused {
+                            self.canvas
+                                .fill(Rect::new(b.x + 10.0, b.y + 7.0, 1.5, 16.0), p.accent);
+                        }
                     } else {
-                        b.x + 10.0 + tw
+                        let (cx, cy, line_h) =
+                            self.text
+                                .cursor_pos(&shown, face, Some(text_w), cursor_byte);
+                        let text_h = self.text.wrapped_height(&shown, face, text_w);
+                        let visible_h = b.h - 12.0;
+                        let scroll_y = state.input_scroll.entry(id.clone()).or_default();
+                        if text_h > visible_h {
+                            if cy < *scroll_y {
+                                *scroll_y = cy;
+                            } else if cy + line_h > *scroll_y + visible_h {
+                                *scroll_y = cy + line_h - visible_h;
+                            }
+                            *scroll_y = scroll_y.clamp(0.0, text_h - visible_h);
+                        } else {
+                            *scroll_y = 0.0;
+                        }
+                        self.text.draw(
+                            &mut self.canvas,
+                            &shown,
+                            face,
+                            b.x + 10.0,
+                            b.y + 6.0 - *scroll_y,
+                            p.text,
+                            text_clip,
+                            Some(text_w),
+                        );
+                        if focused {
+                            let cx_draw = b.x + 10.0 + cx;
+                            let cy_draw = b.y + 6.0 + cy - *scroll_y;
+                            let caret = Rect::new(cx_draw, cy_draw, 1.5, line_h.max(14.0))
+                                .intersect(b.inset(2.0));
+                            if caret.w > 0.0 && caret.h > 0.0 {
+                                self.canvas.fill(caret, p.accent);
+                            }
+                        }
+                    }
+                } else {
+                    let (label, colour) = if shown.is_empty() {
+                        (placeholder.as_str(), p.muted)
+                    } else {
+                        (shown.as_str(), p.text)
                     };
-                    self.canvas
-                        .fill(Rect::new(cx, b.y + 7.0, 1.5, b.h - 14.0), p.accent);
+                    let _tw = self.text.draw_in_row(
+                        &mut self.canvas,
+                        label,
+                        face,
+                        b.x + 10.0,
+                        b.y,
+                        b.h,
+                        colour,
+                        text_clip,
+                    );
+                    if focused {
+                        let cx = if shown.is_empty() {
+                            b.x + 10.0
+                        } else {
+                            let prefix = &shown[..cursor_byte.min(shown.len())];
+                            b.x + 10.0 + self.text.width(prefix, face)
+                        };
+                        self.canvas
+                            .fill(Rect::new(cx, b.y + 7.0, 1.5, b.h - 14.0), p.accent);
+                    }
                 }
+
                 if let Some(index) = target {
                     self.hit(b, pick(side, index));
                 }
@@ -752,6 +862,9 @@ impl Frame<'_> {
     /// and a badge and buttons at the end. Returns where its checkbox,
     /// arrow and buttons are, to click.
     pub(super) fn entry(&mut self, e: &Entry, row: Rect, clip: Rect) -> EntryHits {
+        if let Some(plugin_name) = e.id.strip_prefix("plugin:") {
+            return self.plugin_entry(plugin_name, e, row, clip);
+        }
         let p = self.p;
         let mut x = row.x + 8.0 + e.depth as f32 * 14.0;
         let mid = row.y + row.h / 2.0;
@@ -1040,6 +1153,135 @@ impl Frame<'_> {
             self.centred(&g, Face::mono(13.0), a, p.bright, clip);
         }
         hits
+    }
+
+    /// A two-line card for a plugin in the Plugins sidebar: a tinted monogram
+    /// badge on the left, bold title and status pill on the first line, and
+    /// full-width description on the second line.
+    fn plugin_entry(&mut self, plugin_name: &str, e: &Entry, row: Rect, clip: Rect) -> EntryHits {
+        let p = self.p;
+        let mid = row.y + row.h / 2.0;
+        let tile_size = if self.compact { 28.0 } else { 32.0 };
+        let tile = Rect::new(row.x + 8.0, mid - tile_size / 2.0, tile_size, tile_size);
+        let (letters, hue) = plugin_badge(plugin_name, &e.label);
+        let accent = if e.badge_tone == Tone::Muted {
+            p.muted
+        } else {
+            e.icon
+                .map_or_else(|| theme::hue(&p, hue), |(_, h)| theme::hue(&p, h))
+        };
+        self.canvas.round(tile, 7.0, mix(accent, p.island, 0.16));
+        let mark_face = Face::ui((tile_size * 0.38).round()).bold();
+        let mw = self.text.width(&letters, mark_face);
+        self.text.draw_in_row(
+            &mut self.canvas,
+            &letters,
+            mark_face,
+            tile.x + (tile.w - mw) / 2.0,
+            tile.y,
+            tile.h,
+            accent,
+            clip,
+        );
+
+        let text_x = tile.right() + 10.0;
+        let right = row.right() - 8.0;
+        let top_y = row.y + if self.compact { 5.0 } else { 7.0 };
+        let bot_y = row.y + if self.compact { 22.0 } else { 25.0 };
+
+        let mut badge_left = right;
+        if !e.badge.is_empty() {
+            let b_face = Face::ui(10.5).bold();
+            let bw = self.text.width(&e.badge, b_face);
+            let pill = Rect::new(right - bw - 10.0, top_y + 1.0, bw + 10.0, 16.0);
+            let (bg, fg) = match e.badge_tone {
+                Tone::Badge | Tone::Normal => (p.chip, p.muted),
+                Tone::Muted => (p.chip, p.muted),
+                tone => {
+                    let c = tone_colour(&p, tone);
+                    (mix(c, p.island, 0.18), c)
+                }
+            };
+            self.canvas.round(pill, 5.0, bg);
+            self.text.draw_in_row(
+                &mut self.canvas,
+                &e.badge,
+                b_face,
+                pill.x + 5.0,
+                pill.y,
+                pill.h,
+                fg,
+                clip,
+            );
+            badge_left = pill.x - 6.0;
+        }
+
+        let title_face = Face::ui(13.0).bold();
+        let title_room = (badge_left - text_x).max(0.0);
+        let title = self.text.fit(&e.label, title_face, title_room);
+        let title_fg = if e.badge_tone == Tone::Muted {
+            p.muted
+        } else {
+            p.bright
+        };
+        self.text.draw_in_row(
+            &mut self.canvas,
+            &title,
+            title_face,
+            text_x,
+            top_y,
+            18.0,
+            title_fg,
+            clip,
+        );
+
+        if !e.detail.is_empty() {
+            let desc_face = Face::ui(11.5);
+            let desc_room = (right - text_x).max(0.0);
+            let detail = self.text.fit(&e.detail, desc_face, desc_room);
+            self.text.draw_in_row(
+                &mut self.canvas,
+                &detail,
+                desc_face,
+                text_x,
+                bot_y,
+                18.0,
+                p.muted,
+                clip,
+            );
+        }
+
+        EntryHits::default()
+    }
+}
+
+/// A plugin's two-letter monogram and accent hue for its icon tile.
+pub(in crate::gui) fn plugin_badge(name: &str, title: &str) -> (String, merlin_core::style::Hue) {
+    use merlin_core::style::Hue;
+    match name {
+        "rust" => ("RS".into(), Hue::Orange),
+        "cpp" => ("C+".into(), Hue::Blue),
+        "python" => ("PY".into(), Hue::Cyan),
+        "javascript" => ("JS".into(), Hue::Yellow),
+        "json" => ("{}".into(), Hue::Green),
+        "toml" => ("TM".into(), Hue::Cyan),
+        "catch2" => ("C2".into(), Hue::Green),
+        "dap" => ("DB".into(), Hue::Orange),
+        "merlin-themes" => ("TH".into(), Hue::Purple),
+        "merlin-icons" => ("IC".into(), Hue::Purple),
+        "merlin-layouts" => ("UI".into(), Hue::Purple),
+        _ => {
+            let mut letters: String = title
+                .split_whitespace()
+                .filter_map(|w| w.chars().next())
+                .take(2)
+                .collect::<String>()
+                .to_uppercase();
+            if letters.chars().count() < 2 {
+                letters = title.chars().take(2).collect::<String>().to_uppercase();
+            }
+            (letters, Hue::Blue)
+        }
     }
 }
 

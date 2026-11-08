@@ -8,6 +8,7 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+merlin-lsp = { path = "../../sdk/lsp" }
 merlin-plugin = { path = "../../sdk/rust" }
 
 [profile.release]

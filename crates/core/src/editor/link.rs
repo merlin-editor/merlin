@@ -107,15 +107,17 @@ impl Editor {
         }
         if let Some(link) = self.link.as_mut().filter(|l| l.tick == tick && !l.asked) {
             link.asked = true;
-            Self::ask_link(fx);
+            self.ask_link(fx);
         }
     }
 
-    fn ask_link(fx: &mut Vec<Effect>) {
-        fx.push(Effect::PluginCommand {
-            plugin: "lsp".into(),
-            command: "definition-link".into(),
-        });
+    fn ask_link(&self, fx: &mut Vec<Effect>) {
+        if let Some(plugin) = self.lsp_plugin("definition") {
+            fx.push(Effect::PluginCommand {
+                plugin,
+                command: "definition-link".into(),
+            });
+        }
     }
 
     /// Where plugins see the cursor while the link is asked about: on
@@ -184,7 +186,7 @@ impl Editor {
             jump: Some(side),
             retry: false,
         });
-        Self::ask_link(fx);
+        self.ask_link(fx);
     }
 
     /// Goes to the link's definition: the one place, or the peek view for

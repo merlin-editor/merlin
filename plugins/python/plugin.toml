@@ -1,10 +1,14 @@
 name = "python"
 title = "Python"
+description = "Python syntax, pytest & pyright"
 api = "0.8"
 component = "target/wasm32-wasip2/release/python_language.wasm"
+symbols = "project-symbols"
 
 [permissions]
 editor-read = true
+editor-write = true
+processes = ["pyright-langserver"]
 
 [[languages]]
 id = "python"

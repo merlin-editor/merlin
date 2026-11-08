@@ -186,3 +186,85 @@ fn a_review_asks_for_its_files_colours() {
     assert_eq!(syntax_at(&s, "int b"), Syntax::Keyword);
     assert!(s.editor.colour_requests().is_empty(), "asked once");
 }
+
+fn plugin(s: &mut Session, name: &str, language: Option<&str>, key: &str) {
+    if let Some(ext) = language {
+        s.send(Event::RegisterLanguages {
+            plugin: name.into(),
+            languages: vec![Language {
+                id: ext.into(),
+                name: ext.into(),
+                extensions: vec![ext.into()],
+                line_comment: None,
+                block_comment: None,
+            }],
+        });
+    }
+    s.send(Event::RegisterPlugin {
+        plugin: name.into(),
+        commands: vec![merlin_core::Command {
+            id: "hover".into(),
+            title: format!("{name}: Show Hover"),
+            key: Some(key.into()),
+        }],
+    });
+}
+
+fn ran(s: &Session) -> Vec<(String, String)> {
+    s.effects
+        .iter()
+        .filter_map(|e| match e {
+            merlin_core::Effect::PluginCommand { plugin, command } => {
+                Some((plugin.clone(), command.clone()))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_language_plugins_key_runs_with_the_plugin_for_the_file() {
+    let mut s = session();
+    plugin(&mut s, "python", Some("py"), "alt+k");
+    plugin(&mut s, "cpp", None, "alt+k");
+    s.effects.clear();
+    s.run("key alt+k");
+    assert_eq!(ran(&s), [("cpp".into(), "hover".into())]);
+}
+
+#[test]
+fn another_plugins_key_runs_its_own_command_of_the_same_name() {
+    let mut s = session();
+    plugin(&mut s, "cpp", None, "alt+k");
+    plugin(&mut s, "lsp", None, "alt+l");
+    plugin(&mut s, "notes", None, "alt+j");
+    s.effects.clear();
+    s.run("key alt+j");
+    assert_eq!(ran(&s), [("notes".into(), "hover".into())]);
+    s.effects.clear();
+    s.run("key alt+l");
+    assert_eq!(
+        ran(&s),
+        [("cpp".into(), "hover".into())],
+        "but the general client's is for cpp's"
+    );
+}
+
+#[test]
+fn the_palette_lists_a_language_command_once_for_the_file() {
+    let mut s = session();
+    plugin(&mut s, "python", Some("py"), "alt+k");
+    plugin(&mut s, "cpp", None, "alt+k");
+    s.run("key ctrl+shift+p");
+    s.run("type Show Hover");
+    let screen = s.screen();
+    let rows: Vec<_> = screen
+        .lines()
+        .filter(|l| l.trim_start_matches([' ', '›']).split("  ").next() == Some("Show Hover"))
+        .collect();
+    assert_eq!(rows.len(), 1, "{screen}");
+    assert!(
+        rows[0].ends_with("Alt+K"),
+        "with the key that runs it: {screen}"
+    );
+}

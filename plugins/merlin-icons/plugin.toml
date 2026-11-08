@@ -1,6 +1,7 @@
 # merlin's icon packs. Data only: no component, and nothing to allow.
 name = "merlin-icons"
 title = "merlin Icons"
+description = "File and UI icon themes"
 api = "0.8"
 
 # Icon themes, for Preferences: File Icon Theme.

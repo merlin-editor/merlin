@@ -692,19 +692,32 @@ fn is_ui_only(p: &Pack) -> bool {
 
 /// What a plugin adds, in a few words.
 fn describe(p: &PluginInfo) -> String {
+    if let Some(desc) = p.description.as_deref().filter(|d| !d.is_empty()) {
+        return desc.to_string();
+    }
     let mut parts = Vec::new();
     if !p.languages.is_empty() {
-        parts.push(p.languages.join(", "));
+        if p.permissions.processes.is_empty() {
+            parts.push("Syntax highlighting & folding".into());
+        } else {
+            parts.push(p.languages.join(", "));
+        }
     }
     if !p.looks.is_empty() {
         let n = p.looks.len();
         parts.push(format!("{n} look{}", if n == 1 { "" } else { "s" }));
     }
     if !p.permissions.processes.is_empty() {
-        parts.push("language servers".into());
+        let servers: Vec<&str> = p
+            .permissions
+            .processes
+            .iter()
+            .map(|s| s.rsplit('/').next().unwrap_or(s.as_str()))
+            .collect();
+        parts.push(servers.join(", "));
     }
     if parts.is_empty() {
-        "commands and panels".into()
+        "Commands and panels".into()
     } else {
         parts.join(" · ")
     }

@@ -282,6 +282,8 @@ pub struct Editor {
     git: views::Git,
     /// Text typed into panel inputs, by plugin and input id.
     inputs: HashMap<(String, String), String>,
+    /// Cursor positions in panel inputs, by plugin and input id.
+    input_cursors: HashMap<(String, String), usize>,
     plugins: Vec<Plugin>,
     message: Option<Message>,
     /// A question that needs an answer first.
@@ -562,6 +564,7 @@ impl Editor {
             search: Default::default(),
             git: Default::default(),
             inputs: HashMap::new(),
+            input_cursors: HashMap::new(),
             plugins: Vec::new(),
             message: None,
             dialog: None,

@@ -392,12 +392,53 @@ impl Editor {
 
     /// The Plugins view: each plugin, how it runs, and what it adds.
     fn plugins_nodes(&self) -> Vec<Node> {
-        use crate::icons::{Icon, icon};
-        let mut nodes = vec![Node::Heading(format!(
-            "Installed · {}",
-            self.plugin_list.len()
-        ))];
-        for p in &self.plugin_list {
+        use crate::icons::{Icon, file_icon, icon};
+        let filter = self
+            .inputs
+            .get(&(PLUGINS.to_string(), "filter".to_string()))
+            .map(|s| s.trim().to_ascii_lowercase())
+            .unwrap_or_default();
+        let shown: Vec<_> = self
+            .plugin_list
+            .iter()
+            .filter(|p| {
+                filter.is_empty()
+                    || p.title.to_ascii_lowercase().contains(&filter)
+                    || p.name.to_ascii_lowercase().contains(&filter)
+                    || p.what.to_ascii_lowercase().contains(&filter)
+                    || p.tag.to_ascii_lowercase().contains(&filter)
+            })
+            .collect();
+        let heading = if filter.is_empty() {
+            format!("Installed · {}", self.plugin_list.len())
+        } else {
+            format!("Installed · {} of {}", shown.len(), self.plugin_list.len())
+        };
+        let mut nodes = vec![
+            Node::Input {
+                id: "filter".into(),
+                placeholder: "Filter installed plugins…".into(),
+                secret: false,
+                multiline: false,
+            },
+            Node::Heading(heading),
+        ];
+        if shown.is_empty() && !filter.is_empty() {
+            nodes.push(Node::Styled("No matching plugins.".into(), Tone::Muted));
+        }
+        for p in shown {
+            let icon = match p.name.as_str() {
+                "rust" => file_icon("lib.rs", self.nerd),
+                "cpp" => file_icon("main.cpp", self.nerd),
+                "python" => (file_icon("main.py", self.nerd).0, Hue::Cyan),
+                "javascript" => file_icon("index.js", self.nerd),
+                "json" => (file_icon("data.json", self.nerd).0, Hue::Green),
+                "toml" => (file_icon("Cargo.toml", self.nerd).0, Hue::Cyan),
+                "catch2" => (icon(Icon::Testing, self.nerd), Hue::Green),
+                "dap" => (icon(Icon::Debug, self.nerd), Hue::Orange),
+                n if n.starts_with("merlin-") => (icon(Icon::Plugin, self.nerd), Hue::Purple),
+                _ => (icon(Icon::Plugin, self.nerd), Hue::Blue),
+            };
             nodes.push(Node::Entry(crate::panel::Entry {
                 id: format!("plugin:{}", p.name),
                 label: p.title.clone(),
@@ -406,7 +447,7 @@ impl Editor {
                     gives if p.what.is_empty() => gives,
                     gives => format!("{} · {gives}", p.what),
                 },
-                icon: Some((icon(Icon::Plugin, self.nerd), crate::style::Hue::Blue)),
+                icon: Some(icon),
                 badge: p.tag.clone(),
                 badge_tone: p.tone,
                 ..Default::default()
@@ -507,6 +548,7 @@ impl Editor {
                     id: NAME_INPUT.into(),
                     placeholder: placeholder.into(),
                     secret: false,
+                    multiline: false,
                 };
                 match at {
                     Some(i) if replace => nodes[i] = input,
@@ -531,6 +573,7 @@ impl Editor {
             id: "query".into(),
             placeholder: "Search".into(),
             secret: false,
+            multiline: false,
         }];
         let files = {
             let mut seen: Vec<&str> = search.hits.iter().map(|h| h.path.as_str()).collect();
@@ -599,8 +642,9 @@ impl Editor {
             None => vec![
                 Node::Input {
                     id: "message".into(),
-                    placeholder: format!("Message (Enter to commit on {branch})"),
+                    placeholder: format!("Message (Ctrl+Enter to commit on {branch})"),
                     secret: false,
+                    multiline: true,
                 },
                 Node::Buttons(
                     std::iter::once(Button {
@@ -991,6 +1035,8 @@ impl Editor {
             return self.error("Nothing staged: stage changes with + or Stage All".into());
         }
         self.inputs
+            .remove(&(CHANGES.to_string(), "message".to_string()));
+        self.input_cursors
             .remove(&(CHANGES.to_string(), "message".to_string()));
         fx.push(Effect::Git(GitAction::Commit(message.trim().to_string())));
     }

@@ -21,6 +21,19 @@ impl Editor {
             .collect()
     }
 
+    /// Whether `id` is a language plugin's command another plugin runs for
+    /// this file, such as Python's Show Hover in a Rust file: the palette
+    /// lists only the one that would run.
+    pub(crate) fn run_elsewhere(&self, id: &str) -> bool {
+        self.plugins.iter().any(|p| {
+            id.strip_prefix(&p.name)
+                .and_then(|c| c.strip_prefix('.'))
+                .is_some_and(|c| {
+                    p.commands.iter().any(|k| k.id == c) && self.key_plugin(&p.name, c) != p.name
+                })
+        })
+    }
+
     /// The palette's items that match the query, best first.
     pub(crate) fn palette_items(&self) -> Vec<(String, String)> {
         let Some(palette) = &self.palette else {

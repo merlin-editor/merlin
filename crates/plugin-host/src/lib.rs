@@ -23,6 +23,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, SystemTime};
 
@@ -150,6 +151,22 @@ struct Loaded {
     disabled: bool,
     /// Time spent in the plugin's calls since it loaded.
     busy: Duration,
+    /// Adds languages only: no commands, processes, debugger or symbol
+    /// search, so it has no panel and only cares about files of its own
+    /// languages.
+    pure_language: bool,
+}
+
+impl Loaded {
+    fn handles_path(&self, path: Option<&str>) -> bool {
+        let Some((_, ext)) = path.and_then(|p| p.rsplit_once('.')) else {
+            return false;
+        };
+        self.manifest
+            .languages
+            .iter()
+            .any(|l| l.extensions.iter().any(|e| e.eq_ignore_ascii_case(ext)))
+    }
 }
 
 /// What a plugin's page shows about it.
@@ -157,6 +174,7 @@ struct Loaded {
 pub struct PluginInfo {
     pub name: String,
     pub title: String,
+    pub description: Option<String>,
     /// Where it was loaded from.
     pub dir: PathBuf,
     pub api: String,
@@ -190,6 +208,8 @@ pub struct PluginHost {
     /// Called from background threads when process output is queued, so a
     /// frontend that sleeps between events knows to poll.
     waker: Option<Waker>,
+    /// Coalesces wakeups across process reader threads until the next poll.
+    woken: Arc<AtomicBool>,
     config: Config,
     secrets: Arc<Secrets>,
     /// `[plugins]` from the user's and the workspace's settings.
@@ -230,6 +250,7 @@ impl PluginHost {
             output_tx,
             output_rx,
             waker: None,
+            woken: Arc::new(AtomicBool::new(false)),
             config,
             secrets,
             settings: toml::Table::new(),
@@ -287,17 +308,14 @@ impl PluginHost {
                 failed: false,
                 disabled: false,
                 busy: Duration::ZERO,
+                pure_language: false,
             });
             return Ok(events);
         };
         let wasm = folder.join(component);
         let ask = self.config.ask
             && !manifest.permissions.is_empty()
-            && !self
-                .grants()
-                .plugins
-                .get(&dir)
-                .is_some_and(|g| g.covers(&manifest.permissions));
+            && !self.grants().covers(&dir, &manifest.permissions);
         let off = self.disabled.contains(&manifest.name);
         let instance = if ask || off {
             None
@@ -314,6 +332,7 @@ impl PluginHost {
             failed: false,
             disabled: off,
             busy: Duration::ZERO,
+            pure_language: false,
         });
         let index = self.plugins.len() - 1;
         if off {
@@ -393,8 +412,9 @@ impl PluginHost {
     /// Compiles a component, or loads it compiled from the cache in the
     /// data folder, since compiling every plugin at every start is slow.
     /// The cache is keyed by the component's bytes and this build of the
-    /// editor, so a rebuilt plugin or editor compiles afresh.
-    fn compile(&self, wasm: &Path) -> Result<Component> {
+    /// editor, so a rebuilt plugin or editor compiles afresh and drops its
+    /// older cached builds.
+    fn compile(&self, name: &str, wasm: &Path) -> Result<Component> {
         use std::hash::{Hash, Hasher};
         let bytes = fs::read(wasm)?;
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -404,8 +424,11 @@ impl PluginHost {
             .ok()
             .and_then(|e| fs::metadata(e).ok()?.modified().ok())
             .hash(&mut hasher);
+        let hash = hasher.finish();
         let dir = self.config.data_dir.join("compiled");
-        let cached = dir.join(format!("{:016x}.cwasm", hasher.finish()));
+        let prefix = format!("{name}-");
+        let cached_name = format!("{prefix}{hash:016x}.cwasm");
+        let cached = dir.join(&cached_name);
         if cached.exists() {
             // Safe as long as the file is what `serialize` wrote for this
             // engine: it's in the user's own data folder, named by the
@@ -418,21 +441,28 @@ impl PluginHost {
         // Written aside and renamed into place: another editor may have the
         // file mapped, and changing it under them would crash them.
         if let Ok(compiled) = component.serialize() {
-            let aside = dir.join(format!(
-                "{:016x}.{}.tmp",
-                hasher.finish(),
-                std::process::id()
-            ));
-            let _ = fs::create_dir_all(&dir)
+            let aside = dir.join(format!("{prefix}{hash:016x}.{}.tmp", std::process::id()));
+            if fs::create_dir_all(&dir)
                 .and_then(|()| fs::write(&aside, compiled))
-                .and_then(|()| fs::rename(&aside, &cached));
+                .and_then(|()| fs::rename(&aside, &cached))
+                .is_ok()
+                && let Ok(entries) = fs::read_dir(&dir)
+            {
+                for entry in entries.flatten() {
+                    let file = entry.file_name();
+                    let file = file.to_string_lossy();
+                    if file != cached_name && stale_build(&file, name) {
+                        let _ = fs::remove_file(entry.path());
+                    }
+                }
+            }
         }
         Ok(component)
     }
 
     fn instantiate(&self, manifest: &Manifest, wasm: &Path, generation: u64) -> Result<Instance> {
         let component = self
-            .compile(wasm)
+            .compile(&manifest.name, wasm)
             .with_context(|| format!("loading {}", wasm.display()))?;
         let state = State {
             wasi: WasiCtx::builder().build(),
@@ -446,6 +476,7 @@ impl PluginHost {
                 generation,
                 self.output_tx.clone(),
                 self.waker.clone(),
+                self.woken.clone(),
             ),
             secrets: self.secrets.clone(),
             settings: plugin_settings(manifest, &self.settings),
@@ -469,6 +500,12 @@ impl PluginHost {
             b.call_activate(s, state.as_deref())
         });
         if let Some(commands) = commands {
+            let m = &self.plugins[index].manifest;
+            self.plugins[index].pure_language = !m.languages.is_empty()
+                && commands.is_empty()
+                && m.permissions.processes.is_empty()
+                && !m.permissions.debugger
+                && m.symbols.is_none();
             events.insert(
                 0,
                 Event::RegisterPlugin {
@@ -624,10 +661,33 @@ impl PluginHost {
         };
         let mut events = Vec::new();
         for i in 0..self.plugins.len() {
+            if self.plugins[i].pure_language
+                && (matches!(event, types::BufferEvent::Saved(_))
+                    || !self.plugins[i].handles_path(snapshot.path.as_deref()))
+            {
+                continue;
+            }
+            if !self.plugins[i].manifest.languages.is_empty()
+                && snapshot.path.is_some()
+                && !self.plugins[i].handles_path(snapshot.path.as_deref())
+            {
+                continue;
+            }
+            if self.plugins[i].manifest.fallback && self.claimed(snapshot.path.as_deref()) {
+                continue;
+            }
             let (_, mut more) = self.call(i, snapshot.clone(), |b, s| b.call_on_buffer(s, &event));
             events.append(&mut more);
         }
         events
+    }
+
+    /// Whether a running language plugin with features of its own adds the
+    /// file at `path`, for a fallback plugin to leave it be.
+    fn claimed(&self, path: Option<&str>) -> bool {
+        self.plugins
+            .iter()
+            .any(|p| p.instance.is_some() && !p.pure_language && p.handles_path(path))
     }
 
     pub fn submit(
@@ -666,17 +726,29 @@ impl PluginHost {
         text: &str,
     ) -> Option<Vec<merlin_core::lang::PluginToken>> {
         let name = language.trim_start_matches('.').to_ascii_lowercase();
-        let i = self.plugins.iter().position(|p| {
-            p.instance.is_some()
-                && p.manifest
+        let mut fallback = None;
+        for i in 0..self.plugins.len() {
+            let matches = self.plugins[i].instance.is_some()
+                && self.plugins[i]
+                    .manifest
                     .languages
                     .iter()
-                    .any(|l| l.id == name || l.extensions.contains(&name))
-        })?;
-        let (tokens, _) = self.call(i, Snapshot::default(), |b, s| {
-            b.call_colour_text(s, &name, text)
-        });
-        Some(tokens?.into_iter().map(plugin_token).collect())
+                    .any(|l| l.id == name || l.extensions.contains(&name));
+            if !matches {
+                continue;
+            }
+            let (tokens, _) = self.call(i, Snapshot::default(), |b, s| {
+                b.call_colour_text(s, &name, text)
+            });
+            if let Some(tokens) = tokens {
+                let converted: Vec<_> = tokens.into_iter().map(plugin_token).collect();
+                if !converted.is_empty() {
+                    return Some(converted);
+                }
+                fallback = Some(converted);
+            }
+        }
+        fallback
     }
 
     pub fn pick(
@@ -708,6 +780,9 @@ impl PluginHost {
                 });
                 continue;
             }
+            if self.plugins[i].pure_language {
+                continue;
+            }
             let (panel, mut more) = self.call(i, snapshot.clone(), |b, s| b.call_render_panel(s));
             events.append(&mut more);
             if let Some(panel) = panel {
@@ -724,10 +799,12 @@ impl PluginHost {
     /// is only called if there is output to deliver. Returns the events the
     /// plugins asked for, and whether anything was delivered.
     pub fn poll_processes(&mut self, snapshot: impl Fn() -> Snapshot) -> (Vec<Event>, bool) {
+        self.woken.store(false, Ordering::Release);
         let pending: Vec<Output> = self.output_rx.try_iter().take(MESSAGES_PER_POLL).collect();
         if pending.is_empty() {
             return (Vec::new(), false);
         }
+        let more_waiting = pending.len() == MESSAGES_PER_POLL;
         let snapshot = snapshot();
         let mut events = Vec::new();
         for output in pending {
@@ -746,6 +823,12 @@ impl PluginHost {
                 b.call_on_process(s, output.process, &output.event)
             });
             events.append(&mut more);
+        }
+        if more_waiting
+            && !self.woken.swap(true, Ordering::AcqRel)
+            && let Some(wake) = &self.waker
+        {
+            wake();
         }
         (events, true)
     }
@@ -905,6 +988,7 @@ impl PluginHost {
                 PluginInfo {
                     name: m.name.clone(),
                     title: m.title.clone(),
+                    description: m.description.clone(),
                     dir: PathBuf::from(&p.dir),
                     api: m.api.clone(),
                     data_only: m.component.is_none(),
@@ -978,6 +1062,21 @@ fn permission_card(manifest: &Manifest) -> Panel {
 
 fn modified(path: &Path) -> Option<SystemTime> {
     fs::metadata(path).and_then(|m| m.modified()).ok()
+}
+
+/// Whether `file` in the compile cache is a build of the plugin `name`,
+/// `{name}-{hash}.cwasm`, or of a plugin before builds were named, and so
+/// replaced by the one just compiled. Exactly, so `rust` doesn't take
+/// `rust-tools`'s.
+fn stale_build(file: &str, name: &str) -> bool {
+    let Some(hash) = file.strip_suffix(".cwasm") else {
+        return false;
+    };
+    let hash = hash
+        .strip_prefix(name)
+        .and_then(|h| h.strip_prefix('-'))
+        .unwrap_or(hash);
+    hash.len() == 16 && hash.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
 fn wt(err: wasmtime::Error) -> anyhow::Error {

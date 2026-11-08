@@ -47,8 +47,8 @@ pub struct Grammar {
     parser: Parser,
     query: Option<Query>,
     extensions: &'static [&'static str],
-    /// The file last coloured, its text and its tree.
-    last: Option<(String, String, Tree)>,
+    /// The file last coloured, its version, its text and its tree.
+    last: Option<(String, Option<u64>, String, Tree)>,
 }
 
 /// The colour of a highlight query's capture, such as `function.method`.
@@ -150,6 +150,14 @@ impl Grammar {
         if !self.handles(&path) {
             return;
         }
+        let version = host::active_version().ok();
+        if let Some((last_path, last_version, _, _)) = &self.last
+            && *last_path == path
+            && version.is_some()
+            && *last_version == version
+        {
+            return;
+        }
         let Ok(text) = host::active_text() else {
             return;
         };
@@ -157,19 +165,19 @@ impl Grammar {
             self.last = None;
             return;
         }
-        self.colour(path, text);
+        self.colour(path, version, text);
     }
 
-    fn colour(&mut self, path: String, text: String) {
+    fn colour(&mut self, path: String, version: Option<u64>, text: String) {
         // The same file again: reparse from the old tree, and colour only
         // what changed.
         let mut changed: Option<Range<usize>> = None;
         let mut old_tree = None;
-        if let Some((last_path, last_text, mut tree)) = self.last.take()
+        if let Some((last_path, _, last_text, mut tree)) = self.last.take()
             && last_path == path
         {
             if last_text == text {
-                self.last = Some((last_path, last_text, tree));
+                self.last = Some((last_path, version, last_text, tree));
                 return;
             }
             let edit = edit_between(&last_text, &text);
@@ -197,12 +205,13 @@ impl Grammar {
             _ => None,
         };
         let tokens = self.tokens(&text, &tree, bytes.clone());
-        let lines = bytes.map(|b| LineRange {
-            start: text[..b.start].matches('\n').count() as u32,
-            end: (text[..b.end].matches('\n').count() + 1) as u32,
+        let lines = bytes.map(|b| {
+            let start = text[..b.start].matches('\n').count() as u32;
+            let end = start + text[b.start..b.end].matches('\n').count() as u32 + 1;
+            LineRange { start, end }
         });
         host::set_tokens(&path, TokenLayer::Base, lines, &tokens);
-        self.last = Some((path, text, tree));
+        self.last = Some((path, version, text, tree));
     }
 
     /// Colours a piece of text, such as a diff or a code block, apart from
@@ -229,6 +238,8 @@ impl Grammar {
         let names = query.capture_names();
         let mut captures = cursor.captures(query, tree.root_node(), text.as_bytes());
         let mut found: Vec<(Range<usize>, TokenKind)> = Vec::new();
+        let mut min_byte = text.len();
+        let mut max_byte = 0;
         while let Some((m, index)) = captures.next() {
             let capture = m.captures()[*index];
             let range = capture.node.byte_range();
@@ -238,10 +249,15 @@ impl Grammar {
                 continue;
             }
             if let Some(kind) = classify(names[capture.index as usize]) {
+                min_byte = min_byte.min(range.start);
+                max_byte = max_byte.max(range.end);
                 found.push((range, kind));
             }
         }
-        let mut lines = Lines::new(text);
+        if found.is_empty() {
+            return Vec::new();
+        }
+        let mut lines = Lines::new_in(text, min_byte..max_byte);
         found
             .into_iter()
             .map(|(r, kind)| Token {
@@ -253,30 +269,54 @@ impl Grammar {
     }
 }
 
+impl merlin_plugin::Plugin for Grammar {
+    fn buffer(&mut self, event: BufferEvent) {
+        Grammar::buffer(self, event);
+    }
+
+    fn colour_text(&mut self, _language: &str, text: &str) -> Vec<Token> {
+        Grammar::colour_text(self, text)
+    }
+}
+
 /// Turns byte offsets into lines and UTF-16 columns, as positions count
-/// them.
+/// them, indexing only the slice of `text` that holds the tokens.
 struct Lines<'a> {
     text: &'a str,
+    base_line: usize,
     starts: Vec<usize>,
 }
 
 impl<'a> Lines<'a> {
-    fn new(text: &'a str) -> Self {
-        let starts = std::iter::once(0)
-            .chain(text.match_indices('\n').map(|(i, _)| i + 1))
+    fn new_in(text: &'a str, span: Range<usize>) -> Self {
+        let first_start = text[..span.start].rfind('\n').map_or(0, |i| i + 1);
+        let base_line = text[..first_start].matches('\n').count();
+        let end = span.end.min(text.len());
+        let starts = std::iter::once(first_start)
+            .chain(
+                text[first_start..end]
+                    .match_indices('\n')
+                    .map(|(i, _)| first_start + i + 1),
+            )
             .collect();
-        Self { text, starts }
+        Self {
+            text,
+            base_line,
+            starts,
+        }
     }
 
     fn position(&mut self, byte: usize) -> Position {
-        let line = self.starts.partition_point(|&s| s <= byte) - 1;
-        let start = self.starts[line];
-        let column = self.text[start..byte]
-            .chars()
-            .map(|c| c.len_utf16() as u32)
-            .sum();
+        let rel = self.starts.partition_point(|&s| s <= byte) - 1;
+        let start = self.starts[rel];
+        let slice = &self.text[start..byte];
+        let column = if slice.is_ascii() {
+            slice.len() as u32
+        } else {
+            slice.chars().map(|c| c.len_utf16() as u32).sum()
+        };
         Position {
-            line: line as u32,
+            line: (self.base_line + rel) as u32,
             column,
         }
     }
@@ -296,5 +336,18 @@ mod tests {
         assert_eq!(e.old_end_position, Point { row: 2, column: 0 });
         let e = edit_between("é", "è");
         assert_eq!((e.start_byte, e.old_end_byte, e.new_end_byte), (0, 2, 2));
+    }
+
+    #[test]
+    fn lines_index_only_the_requested_span() {
+        let text = "zero\none\ntwo é\nthree\n";
+        let span_start = text.find("two").unwrap();
+        let span_end = span_start + "two é".len();
+        let mut lines = Lines::new_in(text, span_start..span_end);
+        assert_eq!(lines.starts.len(), 1);
+        let p0 = lines.position(span_start);
+        let p1 = lines.position(span_end);
+        assert_eq!((p0.line, p0.column), (2, 0));
+        assert_eq!((p1.line, p1.column), (2, 5));
     }
 }

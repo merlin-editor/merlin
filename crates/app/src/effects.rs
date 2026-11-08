@@ -199,6 +199,7 @@ impl App {
             Effect::PluginClick { plugin, button } => {
                 let snapshot = self.snapshot();
                 queue.extend(self.host.click(&plugin, &button, snapshot));
+                queue.push_back(self.plugin_summaries());
                 self.panels_for = None;
             }
             Effect::PluginSubmit {

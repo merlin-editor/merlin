@@ -26,13 +26,21 @@ impl Frame<'_> {
             } else if self.s_hovered(r, clip) {
                 self.s_round(r, 6.0, clip, p.hover);
             }
-            self.plugin_mark(&row.title, r.x + 10.0, r.y + 10.0, 22.0, row.on, clip);
+            self.plugin_mark(
+                &row.name,
+                &row.title,
+                r.x + 10.0,
+                r.y + 8.0,
+                26.0,
+                row.on,
+                clip,
+            );
             let name_clip = Rect::new(r.x, r.y, r.w - 64.0, r.h).intersect(clip);
             let fg = if row.on { p.bright } else { p.muted };
             self.s_row_text(
                 &row.title,
-                Face::ui(12.5),
-                r.x + 42.0,
+                Face::ui(12.5).bold(),
+                r.x + 44.0,
                 r.y + 4.0,
                 18.0,
                 fg,
@@ -41,7 +49,7 @@ impl Frame<'_> {
             self.s_row_text(
                 &row.name,
                 Face::ui(11.0),
-                r.x + 42.0,
+                r.x + 44.0,
                 r.y + 21.0,
                 16.0,
                 p.muted,
@@ -114,9 +122,10 @@ impl Frame<'_> {
         c.y = list_bottom.max(d.y);
     }
 
-    /// A plugin's mark: its title's first letters on a tinted square.
+    /// A plugin's mark: its monogram on a tinted square in its accent hue.
     pub(super) fn plugin_mark(
         &mut self,
+        name: &str,
         title: &str,
         x: f32,
         y: f32,
@@ -125,16 +134,15 @@ impl Frame<'_> {
         clip: Rect,
     ) {
         let p = self.p;
-        let letters: String = title
-            .split_whitespace()
-            .filter_map(|w| w.chars().next())
-            .take(2)
-            .collect::<String>()
-            .to_uppercase();
-        let colour = if on { p.accent } else { p.muted };
+        let (letters, hue) = crate::gui::frame::plugin_badge(name, title);
+        let colour = if on {
+            crate::theme::hue(&p, hue)
+        } else {
+            p.muted
+        };
         let r = Rect::new(x, y, size, size);
         self.s_round(r, 6.0, clip, mix(colour, p.island, 0.18));
-        let face = Face::ui(size * 0.42).bold();
+        let face = Face::ui((size * 0.39).round()).bold();
         let lw = self.text.width(&letters, face);
         self.s_row_text(&letters, face, x + (size - lw) / 2.0, y, size, colour, clip);
     }
@@ -142,7 +150,7 @@ impl Frame<'_> {
     pub(super) fn plugin_detail(&mut self, page: &PageView, c: &mut Ctx) {
         let p = self.p;
         let clip = c.clip;
-        self.plugin_mark(&page.title, c.x, c.y, 34.0, page.enabled, clip);
+        self.plugin_mark(&page.name, &page.title, c.x, c.y, 34.0, page.enabled, clip);
         let right = c.x + c.w;
         // Its switch, then Reload and Output.
         let sw = Rect::new(right - 34.0, c.y + 7.0, 34.0, 20.0);

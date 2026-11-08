@@ -470,7 +470,16 @@ impl Editor {
             Focus::Panel | Focus::SideBar | Focus::Bottom => {
                 let side = self.focused_side().unwrap_or(Side::Right);
                 if let Some(input) = self.focused_input(side) {
-                    self.inputs.entry(input).or_default().push_str(first_line);
+                    let is_multi = self.is_focused_input_multiline(side);
+                    let to_insert = if is_multi { text } else { first_line };
+                    let entry = self.inputs.entry(input.clone()).or_default();
+                    let cur = self.input_cursors.entry(input).or_insert(entry.len());
+                    *cur = (*cur).min(entry.len());
+                    while !entry.is_char_boundary(*cur) {
+                        *cur = cur.saturating_sub(1);
+                    }
+                    entry.insert_str(*cur, to_insert);
+                    *cur += to_insert.len();
                 }
             }
             Focus::Menu => {}

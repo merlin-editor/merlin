@@ -56,11 +56,11 @@ impl Editor {
     }
 
     fn ask_format(&mut self, command: &str, fx: &mut Vec<Effect>) {
-        if !self.has_lsp("format") {
+        let Some(plugin) = self.lsp_plugin("format") else {
             return;
-        }
+        };
         fx.push(Effect::PluginCommand {
-            plugin: "lsp".into(),
+            plugin,
             command: command.into(),
         });
     }
@@ -76,6 +76,9 @@ impl Editor {
         let (Some(command), true) = (command, self.can_format()) else {
             return self.save_current(fx);
         };
+        let Some(plugin) = self.lsp_plugin("format") else {
+            return self.save_current(fx);
+        };
         let doc = self.doc();
         let Some(path) = doc.buffer.path.clone() else {
             return self.save_current(fx);
@@ -86,7 +89,7 @@ impl Editor {
             revision: doc.buffer.revision(),
         });
         fx.push(Effect::PluginCommand {
-            plugin: "lsp".into(),
+            plugin,
             command: command.into(),
         });
     }

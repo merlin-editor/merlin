@@ -60,6 +60,7 @@ impl Editor {
             // Aborted: git's message goes with it, unless it was edited.
             (Some(m), None) if self.inputs.get(&key) == Some(&m.message) => {
                 self.inputs.remove(&key);
+                self.input_cursors.remove(&key);
             }
             _ => {}
         }
@@ -108,8 +109,9 @@ impl Editor {
         if merge.kind == MergeKind::Merge {
             nodes.push(Node::Input {
                 id: "message".into(),
-                placeholder: "Message".into(),
+                placeholder: "Message (Ctrl+Enter to commit)".into(),
                 secret: false,
+                multiline: true,
             });
         }
         nodes.push(Node::Wide {
@@ -154,6 +156,7 @@ impl Editor {
             return self.error("Type a commit message first".into());
         }
         self.inputs.remove(&key);
+        self.input_cursors.remove(&key);
         fx.push(Effect::Git(GitAction::Commit(message)));
     }
 }

@@ -217,6 +217,6 @@ fn a_rest_with_ctrl_shows_the_definition_in_a_card() {
 fn a_rest_without_ctrl_is_the_usual_hover() {
     let mut s = linking();
     mouse(&mut s, MouseKind::Rest, (5, 6), false, false);
-    assert!(asked(&s, "hover"));
+    assert!(asked(&s, "hover-rest"));
     assert!(!asked(&s, "definition-link"));
 }

@@ -1,12 +1,14 @@
-//! Python, as a language plugin: the language, and colours from its
-//! tree-sitter grammar.
+//! Python language plugin: tree-sitter syntax highlighting, folding,
+//! `debugpy` target registration, and `pyright-langserver` configured with
+//! `diagnosticMode = "openFilesOnly"` for low CPU and memory usage.
 
 use merlin_grammar::Grammar;
+use merlin_lsp::{PYTHON_SERVER, WithLsp};
 use merlin_plugin::prelude::*;
 
-struct Language(Grammar);
+struct Python(Grammar);
 
-impl Default for Language {
+impl Default for Python {
     fn default() -> Self {
         Self(Grammar::new(
             tree_sitter_python::LANGUAGE.into(),
@@ -16,7 +18,7 @@ impl Default for Language {
     }
 }
 
-impl Plugin for Language {
+impl Plugin for Python {
     fn buffer(&mut self, event: BufferEvent) {
         // The file in front can be debugged as it is.
         if matches!(event, BufferEvent::Switched)
@@ -43,4 +45,8 @@ impl Plugin for Language {
     }
 }
 
-merlin_plugin::export!(Language);
+merlin_plugin::export!(WithLsp<Python> => WithLsp::new(
+    Python::default(),
+    "Python",
+    &[PYTHON_SERVER],
+));

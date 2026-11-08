@@ -738,6 +738,8 @@ impl App {
             for event in events {
                 self.dispatch(event);
             }
+            let summaries = self.plugin_summaries();
+            self.dispatch(summaries);
         }
     }
 }
@@ -1198,15 +1200,21 @@ fn main() -> Result<()> {
         // The Explorer's tree, and the folders to watch.
         app.list_tree_later();
     }
+    // Every plugin loads before any hears of the open file, so a fallback
+    // already sees the language plugins it leaves their files to.
+    let mut loaded = Vec::new();
     for dir in plugin_dirs(&args) {
         match app.host.load(&dir) {
-            Ok(events) => events.into_iter().for_each(|e| app.dispatch(e)),
-            Err(err) => app.dispatch(Event::PluginFailed {
+            Ok(events) => loaded.extend(events),
+            Err(err) => loaded.push(Event::PluginFailed {
                 plugin: dir.display().to_string(),
                 message: format!("{err:#}"),
             }),
         }
     }
+    loaded.into_iter().for_each(|e| app.dispatch(e));
+    let summaries = app.plugin_summaries();
+    app.dispatch(summaries);
     // Plugins' packs are known now, so the ones the settings ask for can be
     // stacked.
     for event in app.refresh_looks() {

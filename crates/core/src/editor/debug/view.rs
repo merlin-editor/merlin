@@ -270,6 +270,7 @@ impl Editor {
                     id: "watch".into(),
                     placeholder: "An expression to watch, then Enter".into(),
                     secret: false,
+                    multiline: false,
                 });
                 nodes.push(heading("Call Stack"));
                 self.stack_nodes(session, &mut nodes);
@@ -363,6 +364,7 @@ impl Editor {
                     id: "set".into(),
                     placeholder: format!("A new value for {}, then Enter", v.name),
                     secret: false,
+                    multiline: false,
                 });
             }
             nodes.push(Node::Entry(Entry {
@@ -507,6 +509,7 @@ impl Editor {
                 id: "console".into(),
                 placeholder: "Evaluate while paused".into(),
                 secret: false,
+                multiline: false,
             });
         }
         nodes
@@ -731,6 +734,8 @@ impl Editor {
     /// variable's new value.
     pub(crate) fn debug_submit(&mut self, input: &str, text: &str, fx: &mut Vec<Effect>) {
         self.inputs.remove(&(DEBUG.to_string(), input.to_string()));
+        self.input_cursors
+            .remove(&(DEBUG.to_string(), input.to_string()));
         match input {
             "watch" => {
                 self.debug.watches.push(text.trim().to_string());

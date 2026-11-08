@@ -2,6 +2,7 @@
 # Preferences: Theme Packs over any theme. Data only.
 name = "merlin-layouts"
 title = "merlin Layouts"
+description = "UI density, chrome & font presets"
 api = "0.8"
 
 [[packs]]

@@ -363,12 +363,13 @@ impl Editor {
             });
         }
         if let Some(word) = word
-            && self.has_lsp("hover")
+            && let Some(plugin) = self.lsp_plugin("hover")
         {
             self.probe = Some(word);
+            // Its own command, so an empty answer stays quiet.
             fx.push(Effect::PluginCommand {
-                plugin: "lsp".into(),
-                command: "hover".into(),
+                plugin,
+                command: "hover-rest".into(),
             });
         }
         // And what would fix them, for the card's buttons.
@@ -391,9 +392,9 @@ impl Editor {
             span: None,
             fixes: Vec::new(),
         });
-        if self.has_lsp("hover") {
+        if let Some(plugin) = self.lsp_plugin("hover") {
             fx.push(Effect::PluginCommand {
-                plugin: "lsp".into(),
+                plugin,
                 command: "hover".into(),
             });
         }
@@ -498,9 +499,9 @@ impl Editor {
 
     /// Asks the language server where the word at the cursor is defined.
     pub(crate) fn go_to_definition(&mut self, fx: &mut Vec<Effect>) {
-        if self.has_lsp("definition") {
+        if let Some(plugin) = self.lsp_plugin("definition") {
             fx.push(Effect::PluginCommand {
-                plugin: "lsp".into(),
+                plugin,
                 command: "definition".into(),
             });
         }
@@ -553,10 +554,61 @@ impl Editor {
         out
     }
 
-    pub(crate) fn has_lsp(&self, command: &str) -> bool {
+    /// The plugin that handles `command` for the active file's language,
+    /// falling back to any language-agnostic plugin (such as `lsp`) that
+    /// registers `command`.
+    pub(crate) fn lsp_plugin(&self, command: &str) -> Option<String> {
+        let has_cmd = |name: &str| {
+            self.plugins
+                .iter()
+                .any(|p| p.name == name && p.commands.iter().any(|c| c.id == command))
+        };
+        if let Some(ext) = self
+            .doc()
+            .buffer
+            .path
+            .as_ref()
+            .and_then(|p| p.extension())
+            .and_then(|e| e.to_str())
+        {
+            for (plugin, lang) in &self.languages {
+                if lang.extensions.iter().any(|e| e.eq_ignore_ascii_case(ext)) && has_cmd(plugin) {
+                    return Some(plugin.clone());
+                }
+            }
+        }
+        self.general_lsp_plugin(command)
+    }
+
+    /// The plugin adding no language that has `command`: a client for
+    /// every language server, for files no language plugin serves.
+    fn general_lsp_plugin(&self, command: &str) -> Option<String> {
         self.plugins
             .iter()
-            .any(|p| p.name == "lsp" && p.commands.iter().any(|c| c.id == command))
+            .find(|p| {
+                !self.languages.iter().any(|(lp, _)| lp == &p.name)
+                    && p.commands.iter().any(|c| c.id == command)
+            })
+            .map(|p| p.name.clone())
+    }
+
+    /// Who runs `command` from a key `bound` binds. Language plugins and
+    /// the general client share their commands' ids, so Alt+K bound by
+    /// Python's plugin is for whichever of them serves the file. Any other
+    /// plugin's key runs its own command.
+    pub(crate) fn key_plugin(&self, bound: &str, command: &str) -> String {
+        let serves = |name: &str| {
+            self.languages.iter().any(|(p, _)| p == name)
+                || self.general_lsp_plugin(command).as_deref() == Some(name)
+        };
+        match self.lsp_plugin(command) {
+            Some(target) if serves(bound) => target,
+            _ => bound.to_string(),
+        }
+    }
+
+    pub(crate) fn has_lsp(&self, command: &str) -> bool {
+        self.lsp_plugin(command).is_some()
     }
 
     /// The mouse moved: a hover it brought up goes once it leaves the word

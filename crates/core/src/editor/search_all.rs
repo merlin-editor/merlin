@@ -803,6 +803,7 @@ impl Editor {
         let mut ranked: Vec<(i64, usize)> = commands
             .iter()
             .enumerate()
+            .filter(|(_, (id, _))| !self.run_elsewhere(id))
             .filter_map(|(i, (_, title))| Some((ranked_score(query, title)?, i)))
             .collect();
         ranked.sort_by_key(|&(score, i)| (Reverse(score), i));
@@ -817,6 +818,7 @@ impl Editor {
         self.recent_commands
             .iter()
             .filter_map(|id| commands.iter().find(|(c, _)| c == id))
+            .filter(|(id, _)| !self.run_elsewhere(id))
             .map(|(id, title)| self.command_row(id, title))
             .collect()
     }

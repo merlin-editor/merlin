@@ -380,3 +380,168 @@ fn plugin_pages_count_memory_and_time_and_plugins_turn_off_and_on() {
     assert!(host.unload("testbed").len() == 2);
     assert!(host.plugins().is_empty());
 }
+
+#[test]
+fn compiled_cache_drops_stale_files_for_the_same_plugin() {
+    let (dir, mut config) = setup("cache-prune");
+    config.ask = false;
+    let compiled = config.data_dir.join("compiled");
+    fs::create_dir_all(&compiled).unwrap();
+    let stale = compiled.join("testbed-0000000000000000.cwasm");
+    let other = compiled.join("other-0000000000000000.cwasm");
+    fs::write(&stale, b"old").unwrap();
+    fs::write(&other, b"keep").unwrap();
+
+    let mut host = PluginHost::new(config).unwrap();
+    host.load(&dir).unwrap();
+
+    assert!(!stale.exists(), "stale cache for testbed should be removed");
+    assert!(other.exists(), "other plugins' caches are untouched");
+    let entries: Vec<_> = fs::read_dir(&compiled)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with("testbed-") && n.ends_with(".cwasm"))
+        .collect();
+    assert_eq!(entries.len(), 1, "{entries:?}");
+}
+
+#[test]
+fn pure_language_plugins_skip_unrelated_files_and_panel_renders() {
+    let (_, mut config) = setup("pure-lang");
+    config.ask = false;
+    let json_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/json");
+    let mut host = PluginHost::new(config).unwrap();
+    host.load(&json_dir).unwrap();
+    let after_load = host.plugins()[0].busy;
+
+    let mut rs = snapshot();
+    rs.path = Some("src/main.rs".into());
+    rs.text = "fn main() {}\n".into();
+    assert!(host.buffer_event(&BufferEvent::Switched, &rs).is_empty());
+    assert!(host.buffer_event(&BufferEvent::Changed, &rs).is_empty());
+    assert!(
+        host.buffer_event(&BufferEvent::Saved("a.json".into()), &rs)
+            .is_empty()
+    );
+    assert!(host.render_panels(&rs).is_empty());
+    assert_eq!(
+        host.plugins()[0].busy,
+        after_load,
+        "pure language plugin should not enter Wasm for unrelated files or panel renders"
+    );
+
+    let mut json = snapshot();
+    json.path = Some("package.json".into());
+    json.text = merlin_core::buffer::Buffer::new("{\"a\": 1}\n", None).snapshot();
+    let first = host.buffer_event(&BufferEvent::Switched, &json);
+    assert!(
+        first.iter().any(|e| matches!(e, Event::SetTokens { .. })),
+        "{first:?}"
+    );
+    let second = host.buffer_event(&BufferEvent::Changed, &json);
+    assert!(
+        second.is_empty(),
+        "unchanged (path, version) should short-circuit without re-colouring: {second:?}"
+    );
+}
+
+#[test]
+fn language_plugins_route_lsp_commands_per_language_without_key_conflicts() {
+    use merlin_core::{Editor, Effect, Key};
+
+    let (_, mut config) = setup("per-lang-lsp");
+    config.ask = false;
+    let plugins_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins");
+    let mut host = PluginHost::new(config).unwrap();
+
+    let mut editor = Editor::new("fn main() {}\n", Some("src/main.rs".into()));
+    for name in ["rust", "cpp"] {
+        for event in host.load(&plugins_dir.join(name)).unwrap() {
+            editor.update(event);
+        }
+    }
+    assert!(
+        editor.window_view().toast.is_none(),
+        "shared language shortcuts should not report key conflicts: {:?}",
+        editor.window_view().toast
+    );
+
+    let fx = editor.update(Event::Key(Key::parse("alt+d").unwrap()));
+    assert!(
+        fx.iter().any(|e| matches!(
+            e,
+            Effect::PluginCommand { plugin, command }
+                if plugin == "rust" && command == "definition"
+        )),
+        "expected alt+d in .rs file to route to rust plugin: {fx:?}"
+    );
+
+    editor.update(Event::Opened {
+        path: "src/main.cpp".into(),
+        text: "int main() { return 0; }\n".into(),
+    });
+    let fx = editor.update(Event::Key(Key::parse("alt+d").unwrap()));
+    assert!(
+        fx.iter().any(|e| matches!(
+            e,
+            Effect::PluginCommand { plugin, command }
+                if plugin == "cpp" && command == "definition"
+        )),
+        "expected alt+d in .cpp file to route to cpp plugin: {fx:?}"
+    );
+}
+
+#[test]
+fn catch2_plugin_discovers_cpp_tests_and_skips_other_languages() {
+    let (_, mut config) = setup("catch2");
+    config.ask = false;
+    let catch2_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/catch2");
+    let mut host = PluginHost::new(config).unwrap();
+    host.load(&catch2_dir).unwrap();
+    let after_load = host.plugins()[0].busy;
+
+    let mut rs = snapshot();
+    rs.path = Some("src/lib.rs".into());
+    rs.text = "#[test]\nfn it_works() {}\n".into();
+    assert!(host.buffer_event(&BufferEvent::Switched, &rs).is_empty());
+    assert_eq!(
+        host.plugins()[0].busy,
+        after_load,
+        "catch2 plugin should skip non-C++ files without entering Wasm"
+    );
+
+    let mut cpp = snapshot();
+    cpp.path = Some("/workspace/tests/math_test.cpp".into());
+    cpp.text = merlin_core::buffer::Buffer::new(
+        "#include <catch2/catch_test_macros.hpp>\n\
+         TEST_CASE(\"addition works\", \"[math]\") {\n\
+             REQUIRE(1 + 1 == 2);\n\
+         }\n\
+         SCENARIO(\"subtraction works\", \"[math]\") {\n\
+             REQUIRE(2 - 1 == 1);\n\
+         }\n",
+        None,
+    )
+    .snapshot();
+    let events = host.buffer_event(&BufferEvent::Switched, &cpp);
+    let Some(Event::SetTests {
+        plugin,
+        path,
+        tests,
+    }) = events.iter().find(|e| matches!(e, Event::SetTests { .. }))
+    else {
+        panic!("expected SetTests from catch2 plugin, got: {events:?}");
+    };
+    assert_eq!(plugin, "catch2");
+    assert_eq!(path, "/workspace/tests/math_test.cpp");
+    assert_eq!(tests.len(), 2);
+    assert_eq!(tests[0].id, "addition works");
+    assert_eq!(tests[0].line, 1);
+    assert_eq!(
+        tests[0].command.as_deref(),
+        Some("ctest --output-on-failure -R 'addition works'")
+    );
+    assert_eq!(tests[1].label, "Scenario: subtraction works");
+    assert_eq!(tests[1].line, 4);
+}

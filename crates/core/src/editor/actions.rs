@@ -43,12 +43,12 @@ impl Editor {
     /// Asks the language server for the actions at the cursor, or at the
     /// hovered problem. Returns whether there's one to ask.
     pub(crate) fn ask_actions(&mut self, purpose: ActionsFor, fx: &mut Vec<Effect>) -> bool {
-        if !self.has_lsp("code-actions") {
+        let Some(plugin) = self.lsp_plugin("code-actions") else {
             return false;
-        }
+        };
         self.actions.asked.push_back(purpose);
         fx.push(Effect::PluginCommand {
-            plugin: "lsp".into(),
+            plugin,
             command: "code-actions".into(),
         });
         true
@@ -110,8 +110,11 @@ impl Editor {
             FORMAT_SELECTION => return self.format_selection(fx),
             _ => {}
         }
+        let Some(plugin) = self.lsp_plugin("code-actions") else {
+            return;
+        };
         fx.push(Effect::PluginPick {
-            plugin: "lsp".into(),
+            plugin,
             picker: "code-actions".into(),
             item: id,
         });

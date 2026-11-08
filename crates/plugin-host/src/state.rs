@@ -24,8 +24,13 @@ pub(super) struct State {
     pub(super) symbol_query: String,
 }
 
-/// Counts the memory an instance grows to. It allows any growth: fuel and
-/// the user's eyes are the limits.
+/// Most memory one plugin instance may grow to: 128 MB is plenty for
+/// colouring a 512 KB file or holding a language server's symbols, and
+/// stops a runaway allocation from taking the machine's RAM before fuel
+/// runs out.
+const MAX_MEMORY: usize = 128 * 1024 * 1024;
+
+/// Counts the memory an instance grows to, up to [`MAX_MEMORY`].
 #[derive(Default)]
 pub(super) struct Limits {
     pub(super) memory: usize,
@@ -38,6 +43,9 @@ impl wasmtime::ResourceLimiter for Limits {
         desired: usize,
         _maximum: Option<usize>,
     ) -> wasmtime::Result<bool> {
+        if desired > MAX_MEMORY {
+            return Ok(false);
+        }
         self.memory = self.memory + desired - current.min(desired);
         Ok(true)
     }
@@ -762,6 +770,7 @@ pub(super) fn convert_panel(panel: types::Panel) -> Panel {
                     id: i.id,
                     placeholder: i.placeholder,
                     secret: i.secret,
+                    multiline: false,
                 },
                 types::Node::Divider => Node::Divider,
                 types::Node::Footer => Node::Footer,

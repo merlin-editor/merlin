@@ -12,23 +12,27 @@ impl App {
             .into_iter()
             .map(|p| {
                 let (tag, tone) = if p.failed {
-                    ("failed", Tone::Error)
+                    ("failed".to_string(), Tone::Error)
                 } else if !p.enabled {
-                    ("off", Tone::Muted)
+                    ("disabled".to_string(), Tone::Muted)
                 } else if p.waiting {
-                    ("needs your OK", Tone::Warning)
-                } else if p.data_only {
-                    ("data only", Tone::Badge)
+                    ("needs OK".to_string(), Tone::Warning)
+                } else if !p.looks.is_empty() {
+                    let n = p.looks.len();
+                    (
+                        format!("{n} pack{}", if n == 1 { "" } else { "s" }),
+                        Tone::Badge,
+                    )
                 } else if !p.permissions.processes.is_empty() {
-                    ("runs programs", Tone::Warning)
+                    ("LSP".to_string(), Tone::Badge)
                 } else {
-                    ("sandboxed", Tone::Success)
+                    (String::new(), Tone::Normal)
                 };
                 PluginSummary {
                     what: describe(&p),
                     name: p.name,
                     title: p.title,
-                    tag: tag.into(),
+                    tag,
                     tone,
                 }
             })

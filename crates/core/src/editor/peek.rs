@@ -150,9 +150,9 @@ fn char_column(line: &str, column: u32) -> usize {
 impl Editor {
     /// Shift+F12: asks where the name at the cursor is used.
     pub(crate) fn find_references(&mut self, fx: &mut Vec<Effect>) {
-        if !self.has_lsp("references") {
+        let Some(plugin) = self.lsp_plugin("references") else {
             return;
-        }
+        };
         let doc = self.doc();
         let at = doc.cursor;
         let name = doc.slice(doc.word_start_at(at), doc.word_end_at(at));
@@ -163,7 +163,7 @@ impl Editor {
         self.peek = None;
         self.peek_asked = Some(asked);
         fx.push(Effect::PluginCommand {
-            plugin: "lsp".into(),
+            plugin,
             command: "references".into(),
         });
     }

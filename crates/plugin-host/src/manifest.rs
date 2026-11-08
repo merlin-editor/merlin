@@ -7,6 +7,8 @@ use super::*;
 pub struct Manifest {
     pub name: String,
     pub title: String,
+    #[serde(default)]
+    pub description: Option<String>,
     pub api: String,
     /// The component file, relative to the plugin folder. A plugin that
     /// only adds data, such as colour themes, has none.
@@ -40,6 +42,11 @@ pub struct Manifest {
     /// `show-project-symbols`.
     #[serde(default)]
     pub symbols: Option<String>,
+    /// Steps aside for files a language plugin with features of its own
+    /// adds: a client for every language server, say, beside plugins that
+    /// bring their own.
+    #[serde(default)]
+    pub fallback: bool,
 }
 
 /// A debugger, as `[[debuggers]]` in a manifest declares it.
@@ -270,6 +277,14 @@ impl Permissions {
 pub(super) struct Grants {
     #[serde(default)]
     pub(super) plugins: BTreeMap<String, Permissions>,
+}
+
+impl Grants {
+    /// Whether the user allowed the plugin in `dir` everything `wanted`
+    /// asks for. Each plugin asks for itself: one never borrows another's.
+    pub(super) fn covers(&self, dir: &str, wanted: &Permissions) -> bool {
+        self.plugins.get(dir).is_some_and(|g| g.covers(wanted))
+    }
 }
 
 /// A plugin's settings: its manifest's defaults, with what the user set

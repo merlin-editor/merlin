@@ -478,12 +478,13 @@ fn source_control_stages_unstages_and_commits() {
         s.effects
             .contains(&Effect::Git(GitAction::Stage("new.txt".into())))
     );
-    // Enter in the message commits what's staged, and clears it.
+    // Ctrl+Enter in the message commits what's staged, and clears it; Enter inserts a newline.
     click(&mut s, 0);
-    s.run("type Fix things; key enter");
+    s.run("type Fix things; key enter; type detailed description; key ctrl+enter");
     assert!(
-        s.effects
-            .contains(&Effect::Git(GitAction::Commit("Fix things".into()))),
+        s.effects.contains(&Effect::Git(GitAction::Commit(
+            "Fix things\ndetailed description".into()
+        ))),
         "{:?}",
         s.effects
     );
@@ -497,7 +498,7 @@ fn source_control_stages_unstages_and_commits() {
     });
     s.effects.clear();
     click(&mut s, 0);
-    s.run("type More; key enter");
+    s.run("type More; key ctrl+enter");
     assert!(s.effects.iter().all(|e| !matches!(e, Effect::Git(_))));
     assert!(s.screen().contains("Nothing staged"), "{}", s.screen());
 }

@@ -263,12 +263,24 @@ impl Editor {
 
     /// The keys that run `command`, as people read them, for menus: the
     /// first binding to it that nothing ahead of it takes.
+    /// The command a binding runs: a language plugin's key may run another
+    /// plugin's command of the same name, for the file.
+    fn binding_runs(&self, binding: &Binding) -> String {
+        match &binding.from {
+            From::Plugin(plugin) if !binding.command.is_empty() => {
+                let command = &binding.command[plugin.len() + 1..];
+                format!("{}.{command}", self.key_plugin(plugin, command))
+            }
+            _ => binding.command.clone(),
+        }
+    }
+
     pub(crate) fn key_hint(&self, command: &str) -> Option<String> {
         self.keymap
             .iter()
             .enumerate()
             .find(|(i, b)| {
-                b.command == command
+                self.binding_runs(b) == command
                     && !self.keymap[..*i]
                         .iter()
                         .any(|e| e.keys == b.keys && e.when == b.when)

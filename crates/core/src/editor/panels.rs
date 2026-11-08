@@ -5,7 +5,7 @@
 use super::{Editor, Effect, Focus, Plugin, Side};
 use crate::editor::Command;
 use crate::key::{Key, KeyCode};
-use crate::panel::{Panel, Target};
+use crate::panel::{Node, Panel, Target};
 
 /// One side bar's state.
 #[derive(Default)]
@@ -65,7 +65,7 @@ impl Editor {
                         .plugins
                         .iter()
                         .filter(|p| p.name != plugin)
-                        .any(|p| p.keys.iter().any(|(k, _)| *k == key))
+                        .any(|p| p.keys.iter().any(|(k, id)| *k == key && id != &command.id))
             };
             match Key::parse(spec) {
                 Some(key) if !(key.ctrl || key.alt) || !matches!(key.code, KeyCode::Char(_)) => {
@@ -154,6 +154,21 @@ impl Editor {
             Target::Input(id) => Some((plugin.to_string(), id)),
             Target::Button(_) => None,
         }
+    }
+
+    /// Whether the focused element is a multi-line input.
+    pub(crate) fn is_focused_input_multiline(&self, side: Side) -> bool {
+        let Some((_, panel)) = self.active(side) else {
+            return false;
+        };
+        let Some(Target::Input(id)) = panel.targets().into_iter().nth(self.selected_index(side))
+        else {
+            return false;
+        };
+        panel
+            .nodes
+            .iter()
+            .any(|node| matches!(node, Node::Input { id: i, multiline: true, .. } if *i == id))
     }
 
     /// The focused element's index. If it went away (a permission was
@@ -247,33 +262,142 @@ impl Editor {
         let page = self.text_height().saturating_sub(2).max(1);
         let input = self.focused_input(side);
         let index = self.selected_index(side);
+        let is_multiline = self.is_focused_input_multiline(side);
         match key.code {
             KeyCode::Esc => self.focus = Focus::Editor,
-            KeyCode::Up | KeyCode::BackTab => self.select(side, index.saturating_sub(1)),
-            KeyCode::Down | KeyCode::Tab => {
-                self.select(side, (index + 1).min(count.saturating_sub(1)))
+            KeyCode::BackTab => self.select(side, index.saturating_sub(1)),
+            KeyCode::Tab => self.select(side, (index + 1).min(count.saturating_sub(1))),
+            KeyCode::Up => {
+                if is_multiline && let Some(key) = &input {
+                    let text = self.inputs.get(key).map(|s| s.as_str()).unwrap_or("");
+                    let cur = self.input_cursors.entry(key.clone()).or_insert(text.len());
+                    *cur = (*cur).min(text.len());
+                    let line_start = text[..*cur].rfind('\n').map(|i| i + 1).unwrap_or(0);
+                    if line_start > 0 {
+                        let col = *cur - line_start;
+                        let prev_line_end = line_start - 1;
+                        let prev_line_start = text[..prev_line_end]
+                            .rfind('\n')
+                            .map(|i| i + 1)
+                            .unwrap_or(0);
+                        let prev_line_len = prev_line_end - prev_line_start;
+                        let mut new_cur = prev_line_start + col.min(prev_line_len);
+                        while !text.is_char_boundary(new_cur) {
+                            new_cur -= 1;
+                        }
+                        *cur = new_cur;
+                        return;
+                    }
+                }
+                self.select(side, index.saturating_sub(1));
+            }
+            KeyCode::Down => {
+                if is_multiline && let Some(key) = &input {
+                    let text = self.inputs.get(key).map(|s| s.as_str()).unwrap_or("");
+                    let cur = self.input_cursors.entry(key.clone()).or_insert(text.len());
+                    *cur = (*cur).min(text.len());
+                    if let Some(nl) = text[*cur..].find('\n').map(|i| *cur + i) {
+                        let line_start = text[..*cur].rfind('\n').map(|i| i + 1).unwrap_or(0);
+                        let col = *cur - line_start;
+                        let next_line_start = nl + 1;
+                        let next_line_end = text[next_line_start..]
+                            .find('\n')
+                            .map(|i| next_line_start + i)
+                            .unwrap_or(text.len());
+                        let next_line_len = next_line_end - next_line_start;
+                        let mut new_cur = next_line_start + col.min(next_line_len);
+                        while !text.is_char_boundary(new_cur) {
+                            new_cur -= 1;
+                        }
+                        *cur = new_cur;
+                        return;
+                    }
+                }
+                self.select(side, (index + 1).min(count.saturating_sub(1)));
             }
             KeyCode::PageUp => self.select(side, index.saturating_sub(page)),
             KeyCode::PageDown => self.select(side, (index + page).min(count.saturating_sub(1))),
+            KeyCode::Left => {
+                if let Some(key) = &input {
+                    let text = self.inputs.get(key).map(|s| s.as_str()).unwrap_or("");
+                    let cur = self.input_cursors.entry(key.clone()).or_insert(text.len());
+                    *cur = (*cur).min(text.len());
+                    while !text.is_char_boundary(*cur) {
+                        *cur = cur.saturating_sub(1);
+                    }
+                    if *cur > 0 {
+                        let prev = text[..*cur].chars().next_back().map_or(1, |c| c.len_utf8());
+                        *cur -= prev;
+                    }
+                }
+            }
+            KeyCode::Right => {
+                if let Some(key) = &input {
+                    let text = self.inputs.get(key).map(|s| s.as_str()).unwrap_or("");
+                    let cur = self.input_cursors.entry(key.clone()).or_insert(text.len());
+                    *cur = (*cur).min(text.len());
+                    while !text.is_char_boundary(*cur) {
+                        *cur = cur.saturating_sub(1);
+                    }
+                    if *cur < text.len() {
+                        let next = text[*cur..].chars().next().map_or(1, |c| c.len_utf8());
+                        *cur += next;
+                    }
+                }
+            }
+            KeyCode::Home => {
+                if let Some(key) = &input {
+                    let text = self.inputs.get(key).map(|s| s.as_str()).unwrap_or("");
+                    let cur = self.input_cursors.entry(key.clone()).or_insert(text.len());
+                    *cur = (*cur).min(text.len());
+                    let line_start = text[..*cur].rfind('\n').map(|i| i + 1).unwrap_or(0);
+                    *cur = line_start;
+                }
+            }
+            KeyCode::End => {
+                if let Some(key) = &input {
+                    let text = self.inputs.get(key).map(|s| s.as_str()).unwrap_or("");
+                    let cur = self.input_cursors.entry(key.clone()).or_insert(text.len());
+                    *cur = (*cur).min(text.len());
+                    let line_end = text[*cur..]
+                        .find('\n')
+                        .map(|i| *cur + i)
+                        .unwrap_or(text.len());
+                    *cur = line_end;
+                }
+            }
             KeyCode::Enter => match input {
-                Some(key) => {
+                Some(input_key) => {
+                    let should_submit = !is_multiline || key.ctrl;
+                    if !should_submit {
+                        let text = self.inputs.entry(input_key.clone()).or_default();
+                        let cur = self.input_cursors.entry(input_key).or_insert(text.len());
+                        *cur = (*cur).min(text.len());
+                        while !text.is_char_boundary(*cur) {
+                            *cur = cur.saturating_sub(1);
+                        }
+                        text.insert(*cur, '\n');
+                        *cur += 1;
+                        return;
+                    }
                     // The built-in views keep what was typed, as a query.
                     let text = if side != Side::Right {
-                        self.inputs.get(&key).cloned().unwrap_or_default()
+                        self.inputs.get(&input_key).cloned().unwrap_or_default()
                     } else {
-                        self.inputs.remove(&key).unwrap_or_default()
+                        self.inputs.remove(&input_key).unwrap_or_default()
                     };
+                    self.input_cursors.remove(&input_key);
                     if !text.trim().is_empty() {
                         if side != Side::Right {
-                            if key.0 == super::debug::DEBUG {
-                                self.debug_submit(&key.1, &text, fx);
+                            if input_key.0 == super::debug::DEBUG {
+                                self.debug_submit(&input_key.1, &text, fx);
                             } else {
-                                self.view_submit(&key.0, &text, fx);
+                                self.view_submit(&input_key.0, &text, fx);
                             }
                         } else {
                             fx.push(Effect::PluginSubmit {
-                                plugin: key.0,
-                                input: key.1,
+                                plugin: input_key.0,
+                                input: input_key.1,
                                 text,
                             });
                         }
@@ -283,12 +407,55 @@ impl Editor {
             },
             KeyCode::Backspace => {
                 if let Some(key) = input {
-                    self.inputs.entry(key).or_default().pop();
+                    let is_plugins = key.0 == super::views::PLUGINS;
+                    let text = self.inputs.entry(key.clone()).or_default();
+                    let cur = self.input_cursors.entry(key).or_insert(text.len());
+                    *cur = (*cur).min(text.len());
+                    while !text.is_char_boundary(*cur) {
+                        *cur = cur.saturating_sub(1);
+                    }
+                    if *cur > 0 {
+                        let prev = text[..*cur].chars().next_back().map_or(1, |c| c.len_utf8());
+                        text.drain((*cur - prev)..*cur);
+                        *cur -= prev;
+                    }
+                    if is_plugins {
+                        self.build_views();
+                    }
+                }
+            }
+            KeyCode::Delete => {
+                if let Some(key) = input {
+                    let is_plugins = key.0 == super::views::PLUGINS;
+                    let text = self.inputs.entry(key.clone()).or_default();
+                    let cur = self.input_cursors.entry(key).or_insert(text.len());
+                    *cur = (*cur).min(text.len());
+                    while !text.is_char_boundary(*cur) {
+                        *cur = cur.saturating_sub(1);
+                    }
+                    if *cur < text.len() {
+                        let next = text[*cur..].chars().next().map_or(1, |c| c.len_utf8());
+                        text.drain(*cur..(*cur + next));
+                    }
+                    if is_plugins {
+                        self.build_views();
+                    }
                 }
             }
             KeyCode::Char(c) if !key.ctrl && !key.alt => {
                 if let Some(key) = input {
-                    self.inputs.entry(key).or_default().push(c);
+                    let is_plugins = key.0 == super::views::PLUGINS;
+                    let text = self.inputs.entry(key.clone()).or_default();
+                    let cur = self.input_cursors.entry(key).or_insert(text.len());
+                    *cur = (*cur).min(text.len());
+                    while !text.is_char_boundary(*cur) {
+                        *cur = cur.saturating_sub(1);
+                    }
+                    text.insert(*cur, c);
+                    *cur += c.len_utf8();
+                    if is_plugins {
+                        self.build_views();
+                    }
                 }
             }
             _ => {}

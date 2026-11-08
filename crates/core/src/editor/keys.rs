@@ -220,10 +220,13 @@ impl Editor {
             return;
         }
         match &binding.from {
-            From::Plugin(plugin) => fx.push(Effect::PluginCommand {
-                plugin: plugin.clone(),
-                command: binding.command[plugin.len() + 1..].to_string(),
-            }),
+            From::Plugin(plugin) => {
+                let command = binding.command[plugin.len() + 1..].to_string();
+                fx.push(Effect::PluginCommand {
+                    plugin: self.key_plugin(plugin, &command),
+                    command,
+                })
+            }
             _ => self.run(&binding.command, fx),
         }
     }

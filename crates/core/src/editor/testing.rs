@@ -371,7 +371,7 @@ impl Editor {
                 .collect();
             let found = if !from_plugin.is_empty() {
                 from_plugin
-            } else if path.ends_with(".rs") {
+            } else if path.ends_with(".rs") && self.has_rust_tests() {
                 rust_tests(&doc.buffer.text())
             } else {
                 Vec::new()
@@ -510,10 +510,20 @@ impl Editor {
         }
     }
 
+    /// Whether built-in Rust test discovery is enabled: when language
+    /// plugins are loaded, only if the Rust language plugin is installed.
+    fn has_rust_tests(&self) -> bool {
+        self.languages.is_empty() || self.languages.iter().any(|(_, l)| l.id == "rust")
+    }
+
     /// Finds the project's tests, the first time the view shows: the
     /// project's files are listed, then its crates' and Rust files read.
     pub(crate) fn find_tests(&mut self, fx: &mut Vec<Effect>) {
-        if self.tests.found || self.tests.listing || self.tests.reading.is_some() {
+        if !self.has_rust_tests()
+            || self.tests.found
+            || self.tests.listing
+            || self.tests.reading.is_some()
+        {
             return;
         }
         self.tests.listing = true;
@@ -681,6 +691,23 @@ impl Editor {
                 }
             }
             return;
+        }
+        if let Scope::File(path) = &scope {
+            let keys: Vec<String> = self
+                .tests
+                .plugin_files
+                .iter()
+                .filter(|f| f.path == *path)
+                .flat_map(|f| f.tests.iter().map(|t| test_key(&f.path, &t.label)))
+                .collect();
+            if !keys.is_empty() {
+                for key in keys {
+                    if let Some((plugin, test)) = self.plugin_test(&key) {
+                        self.run_plugin_test(&plugin, &test, false, fx);
+                    }
+                }
+                return;
+            }
         }
         // The crate's target for a file: an integration test's own, or
         // the crate's unit tests with the file's tests named.

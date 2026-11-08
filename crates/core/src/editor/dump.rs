@@ -436,6 +436,7 @@ fn dump_side(o: &mut String, which: &str, side: &SideView) {
                 id,
                 placeholder,
                 secret,
+                ..
             } => {
                 let typed = side
                     .inputs

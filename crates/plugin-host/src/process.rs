@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -36,17 +37,25 @@ pub(crate) struct Processes {
     generation: u64,
     tx: Sender<Output>,
     wake: Option<Waker>,
+    woken: Arc<AtomicBool>,
     running: HashMap<u32, Process>,
     next_id: u32,
 }
 
 impl Processes {
-    pub fn new(plugin: String, generation: u64, tx: Sender<Output>, wake: Option<Waker>) -> Self {
+    pub fn new(
+        plugin: String,
+        generation: u64,
+        tx: Sender<Output>,
+        wake: Option<Waker>,
+        woken: Arc<AtomicBool>,
+    ) -> Self {
         Self {
             plugin,
             generation,
             tx,
             wake,
+            woken,
             running: HashMap::new(),
             next_id: 0,
         }
@@ -127,6 +136,7 @@ impl Processes {
     fn sender(&self, process: u32) -> impl Fn(ProcessEvent) + Send + 'static {
         let (tx, plugin, generation) = (self.tx.clone(), self.plugin.clone(), self.generation);
         let wake = self.wake.clone();
+        let woken = self.woken.clone();
         move |event| {
             let _ = tx.send(Output {
                 plugin: plugin.clone(),
@@ -134,7 +144,9 @@ impl Processes {
                 process,
                 event,
             });
-            if let Some(wake) = &wake {
+            if !woken.swap(true, Ordering::AcqRel)
+                && let Some(wake) = &wake
+            {
                 wake();
             }
         }

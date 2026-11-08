@@ -251,6 +251,99 @@ impl Text {
         self.shape(text, face, Some(width)).height
     }
 
+    /// Logical height of a single line of `text`.
+    pub fn height(&mut self, text: &str, face: Face) -> f32 {
+        self.shape(text, face, None).height
+    }
+
+    /// The cursor position (x, y, line_height) for `cursor` (byte offset) in `text`.
+    pub fn cursor_pos(
+        &mut self,
+        text: &str,
+        face: Face,
+        wrap: Option<f32>,
+        cursor: usize,
+    ) -> (f32, f32, f32) {
+        let wrap_px = wrap.map(|w| (w * self.scale) as u32);
+        let size = face.size as f32 / 10.0 * self.scale;
+        let line = (size * 1.4).round();
+        let mut buffer = Buffer::new(&mut self.system, Metrics::new(size, line));
+        buffer.set_size(wrap_px.map(|w| w as f32), None);
+        let family = match (face.mono, &self.ui, &self.mono) {
+            (false, Some(name), _) => Family::Name(name),
+            (true, _, Some(name)) => Family::Name(name),
+            (false, None, _) => Family::SansSerif,
+            (true, _, None) => Family::Monospace,
+        };
+        let mut attrs = Attrs::new().family(family).weight(Weight(face.weight));
+        if face.italic {
+            attrs = attrs.style(FontStyle::Italic);
+        }
+        buffer.set_text(text, &attrs, Shaping::Advanced, None);
+        buffer.shape_until_scroll(&mut self.system, false);
+
+        let s = self.scale;
+        let cursor = cursor.min(text.len());
+        let target_line = text[..cursor].chars().filter(|c| *c == '\n').count();
+        let line_start = text[..cursor].rfind('\n').map(|i| i + 1).unwrap_or(0);
+        let line_cursor = cursor - line_start;
+
+        let mut fallback_top = 0.0;
+        let mut fallback_height = line;
+        let mut fallback_x = 0.0;
+
+        for run in buffer.layout_runs() {
+            fallback_top = run.line_top;
+            fallback_height = run.line_height;
+            fallback_x = run.line_w;
+
+            if run.line_i < target_line {
+                continue;
+            }
+            if run.line_i > target_line {
+                break;
+            }
+
+            if run.glyphs.is_empty() {
+                return (0.0, run.line_top / s, run.line_height / s);
+            }
+
+            let first_start = run.glyphs.first().unwrap().start;
+            let last_end = run.glyphs.last().unwrap().end;
+
+            if line_cursor < first_start {
+                return (0.0, run.line_top / s, run.line_height / s);
+            }
+
+            if line_cursor <= last_end {
+                for g in run.glyphs {
+                    if line_cursor <= g.start {
+                        return (g.x / s, run.line_top / s, run.line_height / s);
+                    }
+                    if line_cursor <= g.end {
+                        let ratio =
+                            (line_cursor - g.start) as f32 / (g.end - g.start).max(1) as f32;
+                        return (
+                            (g.x + g.w * ratio) / s,
+                            run.line_top / s,
+                            run.line_height / s,
+                        );
+                    }
+                }
+                let last_g = run.glyphs.last().unwrap();
+                return (
+                    (last_g.x + last_g.w) / s,
+                    run.line_top / s,
+                    run.line_height / s,
+                );
+            }
+            let last_g = run.glyphs.last().unwrap();
+            fallback_x = last_g.x + last_g.w;
+        }
+
+        (fallback_x / s, fallback_top / s, fallback_height / s)
+    }
+
     /// `text` cut to fit `max`, ending in an ellipsis if it had to be cut.
     pub fn fit(&mut self, text: &str, face: Face, max: f32) -> String {
         if self.width(text, face) <= max {
@@ -575,5 +668,51 @@ impl Pictures {
             kind: Kind::Premul,
             data: pixmap.take(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cursor_pos_multiline_and_wrapped() {
+        let mut text = Text::new(1.0, None, None);
+        let face = Face::ui(13.0);
+
+        // Empty text
+        let (x, y, h) = text.cursor_pos("", face, Some(200.0), 0);
+        assert_eq!(x, 0.0);
+        assert_eq!(y, 0.0);
+        assert!(h > 10.0);
+
+        // Single line
+        let (x0, y0, _) = text.cursor_pos("hello", face, Some(200.0), 0);
+        assert_eq!(x0, 0.0);
+        assert_eq!(y0, 0.0);
+
+        let (x5, y5, _) = text.cursor_pos("hello", face, Some(200.0), 5);
+        assert!(x5 > 0.0);
+        assert_eq!(y5, 0.0);
+
+        // Multi-line with newline
+        let s = "hello\nworld";
+        let (x_end0, y_end0, _) = text.cursor_pos(s, face, Some(200.0), 5);
+        assert_eq!(x_end0, x5);
+        assert_eq!(y_end0, 0.0);
+
+        let (x_start1, y_start1, _) = text.cursor_pos(s, face, Some(200.0), 6);
+        assert_eq!(x_start1, 0.0);
+        assert!(y_start1 > 10.0);
+
+        let (x_end1, y_end1, _) = text.cursor_pos(s, face, Some(200.0), 11);
+        assert!(x_end1 > 0.0);
+        assert_eq!(y_end1, y_start1);
+
+        // Trailing newline
+        let s_trail = "hello\n";
+        let (x_nl, y_nl, _) = text.cursor_pos(s_trail, face, Some(200.0), 6);
+        assert_eq!(x_nl, 0.0);
+        assert!(y_nl > 10.0);
     }
 }

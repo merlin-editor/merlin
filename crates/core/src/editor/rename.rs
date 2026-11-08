@@ -181,9 +181,10 @@ impl Editor {
         if doc.review.is_some() || doc.page.is_some() {
             return;
         }
-        if !self.has_lsp("rename") {
+        let Some(plugin) = self.lsp_plugin("rename") else {
             return;
-        }
+        };
+        let doc = self.doc();
         let at = doc.cursor;
         let (start, end) = (doc.word_start_at(at), doc.word_end_at(at));
         let old = doc.slice(start, end);
@@ -194,7 +195,7 @@ impl Editor {
         self.hover_anchor = None;
         self.open_rename_box((start, end), old);
         fx.push(Effect::PluginCommand {
-            plugin: "lsp".into(),
+            plugin,
             command: "rename".into(),
         });
     }
@@ -318,11 +319,13 @@ impl Editor {
                 if review {
                     self.notify("Finding what the rename changes…".into());
                 }
-                fx.push(Effect::PluginSubmit {
-                    plugin: "lsp".into(),
-                    input: if review { "rename-review" } else { "rename" }.into(),
-                    text: new,
-                });
+                if let Some(plugin) = self.lsp_plugin("rename") {
+                    fx.push(Effect::PluginSubmit {
+                        plugin,
+                        input: if review { "rename-review" } else { "rename" }.into(),
+                        text: new,
+                    });
+                }
             }
             KeyCode::Char('a') if key.ctrl => {
                 b.all = true;

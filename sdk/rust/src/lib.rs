@@ -50,7 +50,11 @@ pub use bindings::merlin::plugin::types::{
 pub mod text {
     /// The UTF-16 column of character `chars` in `line`.
     pub fn utf16_column(line: &str, chars: usize) -> u32 {
-        line.chars().take(chars).map(|c| c.len_utf16() as u32).sum()
+        if line.is_ascii() {
+            chars.min(line.len()) as u32
+        } else {
+            line.chars().take(chars).map(|c| c.len_utf16() as u32).sum()
+        }
     }
 }
 
@@ -101,9 +105,8 @@ pub mod prelude {
 }
 
 /// A plugin. Every method has a default that does nothing, so implement only
-/// what you use. The editor makes one with [`Default`] when it loads the
-/// plugin.
-pub trait Plugin: Default + 'static {
+/// what you use.
+pub trait Plugin: 'static {
     /// Commands for the palette, with optional key bindings.
     fn commands(&self) -> Vec<Command> {
         Vec::new()
@@ -285,19 +288,19 @@ pub mod runtime {
     }
 
     /// Runs `f` on the plugin, making it on first use.
-    pub fn with<P: Plugin, R>(f: impl FnOnce(&mut P) -> R) -> R {
+    pub fn with<P: Plugin, R>(init: fn() -> P, f: impl FnOnce(&mut P) -> R) -> R {
         PLUGIN.with(|slot| {
             let mut slot = slot.borrow_mut();
             let plugin = slot
-                .get_or_insert_with(|| Box::new(P::default()))
+                .get_or_insert_with(|| Box::new(init()))
                 .downcast_mut::<P>()
                 .expect("a component exports one plugin type");
             f(plugin)
         })
     }
 
-    pub fn activate<P: Plugin>(state: Option<Vec<u8>>) -> Vec<Command> {
-        with(|plugin: &mut P| {
+    pub fn activate<P: Plugin>(init: fn() -> P, state: Option<Vec<u8>>) -> Vec<Command> {
+        with(init, |plugin: &mut P| {
             if let Some(state) = state {
                 plugin.restore_state(state);
             }
@@ -306,46 +309,70 @@ pub mod runtime {
     }
 }
 
-/// Exports a [`Plugin`] type as the component's plugin.
+/// Exports a [`Plugin`] type as the component's plugin: either `export!(MyType)`
+/// when `MyType: Default`, or `export!(MyType => init_expr)`.
 #[macro_export]
 macro_rules! export {
     ($plugin:ty) => {
+        $crate::export!($plugin => <$plugin as ::core::default::Default>::default());
+    };
+    ($plugin:ty => $init:expr) => {
         struct __MerlinExports;
+
+        fn __merlin_init() -> $plugin {
+            $init
+        }
 
         impl $crate::bindings::Guest for __MerlinExports {
             fn activate(state: Option<Vec<u8>>) -> Vec<$crate::Command> {
-                $crate::runtime::activate::<$plugin>(state)
+                $crate::runtime::activate::<$plugin>(__merlin_init, state)
             }
             fn save_state() -> Option<Vec<u8>> {
-                $crate::runtime::with(|p: &mut $plugin| $crate::Plugin::save_state(p))
+                $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
+                    $crate::Plugin::save_state(p)
+                })
             }
             fn run_command(id: String) {
-                $crate::runtime::with(|p: &mut $plugin| $crate::Plugin::run_command(p, &id))
+                $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
+                    $crate::Plugin::run_command(p, &id)
+                })
             }
             fn render_panel() -> Option<$crate::Panel> {
-                $crate::runtime::with(|p: &mut $plugin| $crate::Plugin::panel(p))
+                $crate::runtime::with(__merlin_init, |p: &mut $plugin| $crate::Plugin::panel(p))
             }
             fn on_click(button: String) {
-                $crate::runtime::with(|p: &mut $plugin| $crate::Plugin::click(p, &button))
+                $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
+                    $crate::Plugin::click(p, &button)
+                })
             }
             fn on_submit(input: String, text: String) {
-                $crate::runtime::with(|p: &mut $plugin| $crate::Plugin::submit(p, &input, &text))
+                $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
+                    $crate::Plugin::submit(p, &input, &text)
+                })
             }
             fn on_pick(picker: String, item: String) {
-                $crate::runtime::with(|p: &mut $plugin| $crate::Plugin::pick(p, &picker, &item))
+                $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
+                    $crate::Plugin::pick(p, &picker, &item)
+                })
             }
             fn on_process(process: u32, event: $crate::ProcessEvent) {
-                $crate::runtime::with(|p: &mut $plugin| $crate::Plugin::process(p, process, event))
+                $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
+                    $crate::Plugin::process(p, process, event)
+                })
             }
             fn on_buffer(event: $crate::BufferEvent) {
-                $crate::runtime::with(|p: &mut $plugin| $crate::Plugin::buffer(p, event))
+                $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
+                    $crate::Plugin::buffer(p, event)
+                })
             }
             fn on_review(id: String, accepted: bool) {
-                $crate::runtime::with(|p: &mut $plugin| $crate::Plugin::review(p, &id, accepted))
+                $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
+                    $crate::Plugin::review(p, &id, accepted)
+                })
             }
 
             fn colour_text(language: String, text: String) -> Vec<$crate::Token> {
-                $crate::runtime::with(|p: &mut $plugin| {
+                $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
                     $crate::Plugin::colour_text(p, &language, &text)
                 })
             }

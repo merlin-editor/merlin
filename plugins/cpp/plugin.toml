@@ -1,10 +1,14 @@
 name = "cpp"
 title = "C/C++"
+description = "C & C++ syntax, outlines & clangd"
 api = "0.8"
 component = "target/wasm32-wasip2/release/cpp.wasm"
+symbols = "project-symbols"
 
 [permissions]
 editor-read = true
+editor-write = true
+processes = ["clangd"]
 
 [[languages]]
 id = "c"

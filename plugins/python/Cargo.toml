@@ -10,6 +10,7 @@ crate-type = ["cdylib"]
 [dependencies]
 merlin-plugin = { path = "../../sdk/rust" }
 merlin-grammar = { path = "../../sdk/grammar" }
+merlin-lsp = { path = "../../sdk/lsp" }
 tree-sitter-python = "0.25"
 
 [profile.release]

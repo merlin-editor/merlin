@@ -389,7 +389,7 @@ fn resting_on_a_problem_shows_it_first_and_the_servers_hover_joins_it() {
     assert!(
         s.effects
             .iter()
-            .any(|e| matches!(e, Effect::PluginCommand { command, .. } if command == "hover")),
+            .any(|e| matches!(e, Effect::PluginCommand { command, .. } if command == "hover-rest")),
         "the server is asked about the word too"
     );
     s.send(Event::ShowHover(

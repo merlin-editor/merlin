@@ -245,6 +245,8 @@ pub struct SideView {
     pub focused: bool,
     /// Text typed into each input, by input id.
     pub inputs: Vec<(String, String)>,
+    /// Cursor byte offset in each input, by input id.
+    pub input_cursors: Vec<(String, usize)>,
     /// Tests passed and failed, at the title's right in the Tests view.
     pub counts: Option<(usize, usize)>,
 }
@@ -421,21 +423,25 @@ impl Editor {
                 first
             })
             .collect();
-        let inputs = panel
-            .targets()
-            .into_iter()
-            .filter_map(|t| match t {
-                Target::Input(id) => {
-                    let text = self
-                        .inputs
-                        .get(&(name.to_string(), id.clone()))
-                        .cloned()
-                        .unwrap_or_default();
-                    Some((id, text))
-                }
-                Target::Button(_) => None,
-            })
-            .collect();
+        let mut inputs = Vec::new();
+        let mut input_cursors = Vec::new();
+        for t in panel.targets() {
+            if let Target::Input(id) = t {
+                let text = self
+                    .inputs
+                    .get(&(name.to_string(), id.clone()))
+                    .cloned()
+                    .unwrap_or_default();
+                let cursor = self
+                    .input_cursors
+                    .get(&(name.to_string(), id.clone()))
+                    .copied()
+                    .unwrap_or(text.len())
+                    .min(text.len());
+                inputs.push((id.clone(), text));
+                input_cursors.push((id, cursor));
+            }
+        }
         let active = name.to_string();
         let panels = self
             .panel_names(side)
@@ -454,6 +460,7 @@ impl Editor {
             selected: self.selected_index(side),
             focused: self.focused_side() == Some(side),
             inputs,
+            input_cursors,
             counts: (active == super::testing::TESTS).then(|| self.test_counts()),
         })
     }
