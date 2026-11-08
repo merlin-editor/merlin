@@ -73,6 +73,68 @@ pub struct ImageNode {
     pub image: Option<std::sync::Arc<PluginImage>>,
 }
 
+/// A colour in a drawing: one of the theme's by name, or its own.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DrawColour {
+    Theme(String),
+    Rgb(u32),
+}
+
+/// A shape in a drawing, in the drawing's units.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Shape {
+    Rect {
+        rect: [f32; 4],
+        radius: f32,
+        fill: Option<DrawColour>,
+        stroke: Option<DrawColour>,
+    },
+    Line {
+        from: [f32; 2],
+        to: [f32; 2],
+        width: f32,
+        colour: DrawColour,
+    },
+    /// Cubic Bézier curves end to end: a start, then three points each.
+    Curve {
+        points: Vec<[f32; 2]>,
+        width: f32,
+        colour: DrawColour,
+    },
+    Text {
+        at: [f32; 2],
+        text: String,
+        size: f32,
+        colour: DrawColour,
+        mono: bool,
+    },
+    /// A plugin's picture by its id, stretched to `rect`; the picture is
+    /// filled in as the view is shown.
+    Image {
+        rect: [f32; 4],
+        id: String,
+        image: Option<std::sync::Arc<PluginImage>>,
+    },
+}
+
+/// A shape, and the id a click on it sends; empty for none.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DrawItem {
+    pub id: String,
+    pub shape: Shape,
+}
+
+/// Shapes `width` by `height` units, scaled to the view's width.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Drawing {
+    pub width: f32,
+    pub height: f32,
+    pub items: Vec<DrawItem>,
+}
+
+/// Its sizes are never NaN, which the host sees to.
+impl Eq for Drawing {}
+
 /// One element of a plugin panel. Plugins describe what to show; the editor
 /// owns layout, focus, scrolling and input text, so a re-render can't reset
 /// them.
@@ -158,6 +220,9 @@ pub enum Node {
     },
     /// A plugin's picture, fitted to the view's width.
     Image(Box<ImageNode>),
+    /// Shapes a plugin drew, in the theme's colours and the editor's
+    /// fonts, scaled to the view's width.
+    Drawing(Box<Drawing>),
 }
 
 /// A small label, clicked on its own when it has an id.

@@ -146,6 +146,7 @@ impl Editor {
                 count,
             } => self.set_view_badge(&plugin, &view, count),
             Event::SetImage { plugin, id, image } => self.set_image(plugin, id, image),
+            Event::RequestFrame { plugin } => self.request_frame(&plugin, &mut fx),
             Event::RegisterEditors { plugin, editors } => {
                 self.register_editors(&plugin, editors, &mut fx)
             }

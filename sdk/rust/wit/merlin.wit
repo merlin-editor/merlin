@@ -1,4 +1,4 @@
-package merlin:plugin@0.9.0;
+package merlin:plugin@0.10.0;
 
 interface types {
   /// What a run of text is, for its colour.
@@ -212,6 +212,89 @@ interface types {
     pixels: list<u8>,
   }
 
+  /// A colour in a drawing: one of the theme's, by name (`text`,
+  /// `bright`, `muted`, `faint`, `accent`, `error`, `warning`, `success`,
+  /// `info`, `border`, `chip`, `raised`, `ground`), so it fits any theme,
+  /// or one of its own as 0xRRGGBB.
+  variant colour {
+    theme(string),
+    rgb(u32),
+  }
+
+  record draw-point {
+    x: f32,
+    y: f32,
+  }
+
+  /// A rectangle, its corners rounded, filled or outlined or both.
+  record draw-rect {
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    radius: f32,
+    fill: option<colour>,
+    stroke: option<colour>,
+  }
+
+  record draw-line {
+    start: draw-point,
+    end: draw-point,
+    width: f32,
+    colour: colour,
+  }
+
+  /// Cubic Bézier curves end to end: a start, then three points for each
+  /// curve, the last of each where it ends.
+  record draw-curve {
+    points: list<draw-point>,
+    width: f32,
+    colour: colour,
+  }
+
+  /// Text from (x, y), its top left, in the editor's interface font or its
+  /// code font, `size` units tall.
+  record draw-text {
+    x: f32,
+    y: f32,
+    text: string,
+    size: f32,
+    colour: colour,
+    mono: bool,
+  }
+
+  /// A picture from `set-image`, stretched to the rectangle.
+  record draw-image {
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    id: string,
+  }
+
+  variant shape {
+    rect(draw-rect),
+    line(draw-line),
+    curve(draw-curve),
+    text(draw-text),
+    image(draw-image),
+  }
+
+  /// A shape, and an id that clicks on it arrive at `on-click` with;
+  /// empty for one that isn't clicked.
+  record draw-item {
+    id: string,
+    shape: shape,
+  }
+
+  /// Shapes in units of the plugin's choosing, `width` by `height`,
+  /// scaled to the view's width, so they stay sharp at any size.
+  record drawing {
+    width: f32,
+    height: f32,
+    items: list<draw-item>,
+  }
+
   /// A page's size in points, a 72nd of an inch.
   record page-size {
     width: f32,
@@ -277,6 +360,7 @@ interface types {
     progress(progress),
     empty-state(empty-state),
     image(image),
+    drawing(drawing),
     divider,
     /// Nodes after this stay at the bottom of the panel. The nodes before it
     /// scroll, and keep the newest content in view.
@@ -737,6 +821,11 @@ interface host {
   /// together may take 64 MB, as RGBA. Errs if it can't be read, or is
   /// larger than 8192 pixels a side or the room left.
   set-image: func(id: string, picture: option<picture>) -> result<_, string>;
+
+  /// Draws the plugin's views that show again soon, for something that
+  /// moves: at most 30 times a second, and not while none shows. Ask
+  /// again from `render-view` for the next frame; nothing moves on its own.
+  request-frame: func();
 
   /// Replaces this plugin's diagnostics for a file. The path is relative to
   /// the workspace root, or absolute. They're underlined, and move with

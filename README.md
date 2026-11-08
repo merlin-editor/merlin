@@ -281,7 +281,7 @@ merlin comes with:
 # plugin.toml
 name = "my-looks"
 title = "My Looks"
-api = "0.12"
+api = "0.13"
 
 [[themes]]          # shows in the colour or icon theme picker
 label = "My Theme"
@@ -694,7 +694,7 @@ title = "Word Count"
 # Its tile in the plugin lists: two letters and a colour.
 badge = "WC"
 hue = "green"
-api = "0.12"
+api = "0.13"
 component = "target/wasm32-wasip2/release/word_count.wasm"
 
 [permissions]
@@ -863,7 +863,16 @@ What else plugins get, besides commands and panels:
     A plugin's pictures may take 64 MB together, at most 8192 pixels a
     side.
 
-  Clicks on rows, chips and buttons all arrive at `click`.
+  - `Node::Drawing(Drawing { width, height, items })`: rectangles
+    (rounded, filled or outlined), lines, Bézier curves, text in the
+    editor's fonts and pictures, in units of the plugin's choosing,
+    scaled to the view's width, so a git graph or a flame chart stays
+    sharp. Colours are the theme's by name (`Colour::Theme("accent")`) or
+    the plugin's own. An item with an id is clicked like a button.
+    Nothing moves on its own: `host::request_frame()` from `view` draws
+    the views again, at most 30 times a second, and not while none shows.
+
+  Clicks on rows, chips, buttons and drawn shapes all arrive at `click`.
 - **Documents.** `[[editors]]` in the manifest (`id`, `title`,
   `extensions`) opens files of those types in a tab of pages rather than
   as text: PDFs, with the bundled `pdf` plugin. The plugin's

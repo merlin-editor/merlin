@@ -929,6 +929,19 @@ impl host::Host for State {
         Ok(())
     }
 
+    fn request_frame(&mut self) {
+        // One a call is enough.
+        if !self
+            .events
+            .iter()
+            .any(|e| matches!(e, Event::RequestFrame { .. }))
+        {
+            self.events.push(Event::RequestFrame {
+                plugin: self.name.clone(),
+            });
+        }
+    }
+
     fn set_view_badge(&mut self, view: String, count: u32) {
         self.events.push(Event::ViewBadge {
             plugin: self.name.clone(),
@@ -1140,6 +1153,7 @@ pub(super) fn convert_panel(panel: types::Panel) -> Panel {
                     alt: i.alt,
                     image: None,
                 })),
+                types::Node::Drawing(d) => Node::Drawing(Box::new(drawing(d))),
                 types::Node::Divider => Node::Divider,
                 types::Node::Footer => Node::Footer,
             })
@@ -1208,5 +1222,58 @@ fn debug_target(t: types::DebugTarget) -> merlin_core::DebugTarget {
         detail: t.detail,
         launch: t.launch,
         plugin: None,
+    }
+}
+
+/// A plugin's drawing, its numbers made finite.
+fn drawing(d: types::Drawing) -> merlin_core::Drawing {
+    use merlin_core::{DrawColour, DrawItem, Shape};
+    let n = |v: f32| if v.is_finite() { v } else { 0.0 };
+    let pt = |p: types::DrawPoint| [n(p.x), n(p.y)];
+    let colour = |c: types::Colour| match c {
+        types::Colour::Theme(name) => DrawColour::Theme(name),
+        types::Colour::Rgb(rgb) => DrawColour::Rgb(rgb & 0xff_ffff),
+    };
+    merlin_core::Drawing {
+        width: n(d.width).max(1.0),
+        height: n(d.height).max(0.0),
+        items: d
+            .items
+            .into_iter()
+            .map(|item| DrawItem {
+                id: item.id,
+                shape: match item.shape {
+                    types::Shape::Rect(r) => Shape::Rect {
+                        rect: [n(r.x), n(r.y), n(r.width), n(r.height)],
+                        radius: n(r.radius),
+                        fill: r.fill.map(colour),
+                        stroke: r.stroke.map(colour),
+                    },
+                    types::Shape::Line(l) => Shape::Line {
+                        from: pt(l.start),
+                        to: pt(l.end),
+                        width: n(l.width),
+                        colour: colour(l.colour),
+                    },
+                    types::Shape::Curve(c) => Shape::Curve {
+                        points: c.points.into_iter().map(pt).collect(),
+                        width: n(c.width),
+                        colour: colour(c.colour),
+                    },
+                    types::Shape::Text(t) => Shape::Text {
+                        at: [n(t.x), n(t.y)],
+                        text: t.text,
+                        size: n(t.size),
+                        colour: colour(t.colour),
+                        mono: t.mono,
+                    },
+                    types::Shape::Image(i) => Shape::Image {
+                        rect: [n(i.x), n(i.y), n(i.width), n(i.height)],
+                        id: i.id,
+                        image: None,
+                    },
+                },
+            })
+            .collect(),
     }
 }

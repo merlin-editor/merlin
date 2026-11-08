@@ -507,6 +507,19 @@ fn dump_side(o: &mut String, which: &str, side: &SideView) {
                 ),
                 None => format!("[image {}, not set: {}]", image.id, image.alt),
             },
+            Node::Drawing(d) => format!(
+                "[drawing {}×{}: {} shapes{}]",
+                d.width,
+                d.height,
+                d.items.len(),
+                d.items
+                    .iter()
+                    .filter_map(|i| match &i.shape {
+                        crate::panel::Shape::Text { text, .. } => Some(format!(" {text:?}")),
+                        _ => None,
+                    })
+                    .collect::<String>()
+            ),
             Node::Input {
                 id,
                 placeholder,

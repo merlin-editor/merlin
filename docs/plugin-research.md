@@ -269,3 +269,14 @@ The PDF viewer is the test: it's `PluginDocument.dc.html` in
    This, plugins' items, and Copy Page as Image (a PNG through `wl-copy`
    or `xclip`, as the clipboard library takes only text); a plugin's page
    in Settings shows its pictures' memory beside its own.
+   **Drawing commands built**, with API 0.13: a `drawing` node of
+   rectangles, lines, curves (flattened to lines, so the scene needed
+   nothing new), text and pictures, theme colours by name, clickable by
+   id. The rules: `request-frame` draws a plugin's views again at most 30
+   times a second and only while one shows (about 7% of a core for a
+   moving dot, nothing once hidden); pictures have budgets, 64 MB for a
+   plugin's view pictures and for each document's tiles, the oldest tiles
+   dropped first; their memory shows on the plugin's page; tiles are drawn
+   at the screen's resolution, with the thumbnail standing in while
+   zooming. A drawing is sent whole each time rather than only what
+   changed: cheap at these sizes, and the place to start if one isn't.

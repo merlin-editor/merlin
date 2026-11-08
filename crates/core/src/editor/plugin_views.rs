@@ -412,6 +412,14 @@ impl Editor {
         }
     }
 
+    /// A plugin wants its views drawn again: only when one shows.
+    pub(crate) fn request_frame(&mut self, plugin: &str, fx: &mut Vec<super::Effect>) {
+        let prefix = format!("{plugin}/");
+        if self.visible_views().iter().any(|v| v.starts_with(&prefix)) {
+            fx.push(super::Effect::RequestFrame);
+        }
+    }
+
     /// Forgets all a plugin's pictures, as when it starts again or stops.
     pub(crate) fn drop_images(&mut self, plugin: &str) {
         self.images.retain(|(p, _), _| p != plugin);
@@ -462,12 +470,24 @@ impl Editor {
             },
             Some(view) => {
                 let mut panel = panel.clone();
+                let find = |id: &str| {
+                    self.images
+                        .get(&(view.plugin.clone(), id.to_string()))
+                        .cloned()
+                };
                 for node in &mut panel.nodes {
-                    if let Node::Image(image) = node {
-                        image.image = self
-                            .images
-                            .get(&(view.plugin.clone(), image.id.clone()))
-                            .cloned();
+                    match node {
+                        Node::Image(image) => image.image = find(&image.id),
+                        Node::Drawing(drawing) => {
+                            for item in &mut drawing.items {
+                                if let crate::panel::Shape::Image { id, image, .. } =
+                                    &mut item.shape
+                                {
+                                    *image = find(id);
+                                }
+                            }
+                        }
+                        _ => {}
                     }
                 }
                 panel

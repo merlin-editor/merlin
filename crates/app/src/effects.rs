@@ -246,6 +246,13 @@ impl App {
                 surface,
                 tile,
             } => queue.extend(self.host.page_image(&plugin, surface, tile)),
+            // At most 30 frames a second: due a 30th after the last one.
+            Effect::RequestFrame => {
+                if self.frame_due.is_none() {
+                    let next = self.last_frame + Duration::from_millis(33);
+                    self.frame_due = Some(next.max(Instant::now()));
+                }
+            }
             Effect::CopyImage(image) => {
                 if let Err(err) = copy_image(&image) {
                     queue.push_back(Event::Error(format!("Couldn't copy the page: {err}")));

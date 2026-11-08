@@ -994,6 +994,17 @@ impl Editor {
             UiEvent::ChangeClose => self.change_peek = None,
             UiEvent::BlameButton(b) => self.blame_card_button(&b, fx),
             UiEvent::Press(id) if id.starts_with("run:") => self.run(&id["run:".len()..], fx),
+            // A shape in a plugin's drawing, by its view and its id.
+            UiEvent::Press(id) if id.starts_with("draw:") => {
+                if let Some((view, button)) = id["draw:".len()..].split_once(':')
+                    && let Some(plugin) = self.owner(view)
+                {
+                    fx.push(Effect::PluginClick {
+                        plugin: plugin.to_string(),
+                        button: button.to_string(),
+                    });
+                }
+            }
             UiEvent::Press(id) if id == "views-hidden" => self.list_views(fx),
             UiEvent::Press(id) if id.starts_with("view-menu:") => {
                 self.open_view_menu(id["view-menu:".len()..].to_string())

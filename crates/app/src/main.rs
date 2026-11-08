@@ -246,6 +246,10 @@ struct App {
     icon_previews: Vec<(String, packs::Icons, String)>,
     /// The plugin whose Uninstall was pressed once.
     uninstall_armed: Option<String>,
+    /// When plugins' views that asked for a frame are drawn again, and
+    /// when they last were.
+    frame_due: Option<Instant>,
+    last_frame: Instant,
     /// Whether plugins have loaded, and documents opened before then, to
     /// hand them once they have.
     plugins_loaded: bool,
@@ -1201,6 +1205,8 @@ fn main() -> Result<()> {
         uninstall_armed: None,
         tiles_asked: Vec::new(),
         plugins_loaded: false,
+        frame_due: None,
+        last_frame: Instant::now(),
         documents_waiting: Vec::new(),
         memory: prefs::Memory::default(),
         system_light: false,

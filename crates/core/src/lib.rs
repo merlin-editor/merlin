@@ -53,6 +53,6 @@ pub use key::{Key, KeyCode};
 pub use lang::{Completion, Diagnostic, InlayHint, InlayKind, Severity, Signature};
 pub use merlin_syntax::Syntax;
 pub use panel::{
-    Button, Chip, EditCard, Entry, ImageNode, LogRow, Message, Node, Panel, PickItem, PluginImage,
-    Tone,
+    Button, Chip, DrawColour, DrawItem, Drawing, EditCard, Entry, ImageNode, LogRow, Message, Node,
+    Panel, PickItem, PluginImage, Shape, Tone,
 };

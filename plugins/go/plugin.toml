@@ -3,7 +3,7 @@ title = "Go"
 description = "Go syntax & gopls"
 badge = "GO"
 hue = "cyan"
-api = "0.12"
+api = "0.13"
 component = "target/wasm32-wasip2/release/go_language.wasm"
 # Starts when one of its files opens, or the project has one.
 activate-on = ["language:go", "file:go.mod"]

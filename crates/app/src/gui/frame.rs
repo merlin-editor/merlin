@@ -22,6 +22,7 @@ mod cards;
 mod chat;
 mod chrome;
 mod diff;
+mod draw;
 mod find;
 mod group;
 mod hover;

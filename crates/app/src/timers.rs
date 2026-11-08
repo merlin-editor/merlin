@@ -83,6 +83,7 @@ impl App {
             self.link_wait.at(),
             self.editor.macro_playing().then(Instant::now),
             self.terminals.due(),
+            self.frame_due,
         ]
         .into_iter()
         .flatten()
@@ -123,6 +124,14 @@ impl App {
         }
         if self.editor.macro_playing() {
             self.dispatch(Event::MacroStep);
+            changed = true;
+        }
+        // A plugin's moving view: drawn again, once.
+        if self.frame_due.is_some_and(|at| at <= now) {
+            self.frame_due = None;
+            self.last_frame = now;
+            self.panels_for = None;
+            self.refresh_panels();
             changed = true;
         }
         if self.format_wait.take(now).is_some() {

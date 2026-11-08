@@ -224,6 +224,10 @@ pub enum Event {
         page: u32,
         boxes: Vec<super::TextBox>,
     },
+    /// A plugin wants its views drawn again, for something that moves.
+    RequestFrame {
+        plugin: String,
+    },
     /// A plugin's picture for its views' `Image` nodes, by its id; none
     /// forgets it.
     SetImage {
@@ -773,6 +777,8 @@ pub enum Effect {
         surface: u32,
         page: u32,
     },
+    /// Draws plugins' views again soon, at most 30 times a second.
+    RequestFrame,
     /// Asks for a document's page drawn whole, to copy as a picture.
     PageImage {
         plugin: String,

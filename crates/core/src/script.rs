@@ -303,6 +303,7 @@ impl Session {
                 | Effect::CloseDocument { .. }
                 | Effect::PageImage { .. }
                 | Effect::CopyImage(_)
+                | Effect::RequestFrame
                 | Effect::PluginCancel { .. }
                 | Effect::PluginSubmit { .. }
                 | Effect::PluginPick { .. }

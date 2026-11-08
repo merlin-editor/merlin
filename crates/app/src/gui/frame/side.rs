@@ -459,6 +459,7 @@ impl Frame<'_> {
             Node::Chips { .. } => 32.0,
             Node::Edit(_) => 50.0,
             Node::Image(i) => image_size(i, inner).1 + 10.0,
+            Node::Drawing(d) => inner * d.height / d.width.max(1.0) + 10.0,
             Node::Progress { detail, .. } => {
                 if detail.is_empty() {
                     36.0
@@ -628,6 +629,7 @@ impl Frame<'_> {
             Node::Image(i) => {
                 self.plugin_image(i, Rect::new(r.x + 14.0, r.y + 4.0, inner, r.h), clip)
             }
+            Node::Drawing(d) => self.drawing(d, &sv.name, r.x + 14.0, r.y + 4.0, inner, clip),
             Node::Progress {
                 label,
                 detail,

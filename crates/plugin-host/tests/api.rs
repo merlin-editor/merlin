@@ -1079,3 +1079,53 @@ fn pictures_are_handed_over_once() {
     let said = notices(host.run_command("testbed", "bad-image", snapshot()));
     assert!(said[0].starts_with("not a PNG"), "{said:?}");
 }
+
+/// A drawing comes through as shapes, its clickable ones with ids, and a
+/// view that moves asks for its next frame once a call.
+#[test]
+fn drawings_come_with_their_shapes_and_frames() {
+    let (dir, config) = setup("drawing");
+    let mut host = PluginHost::new(Config {
+        ask: false,
+        ..config
+    })
+    .unwrap();
+    host.load(&dir).unwrap();
+    let drawing = |events: &[Event]| {
+        events.iter().find_map(|e| match e {
+            Event::SetPanel { panel: Some(p), .. } => p.nodes.iter().find_map(|n| match n {
+                Node::Drawing(d) => Some(d.clone()),
+                _ => None,
+            }),
+            _ => None,
+        })
+    };
+    let frames = |events: &[Event]| {
+        events
+            .iter()
+            .filter(|e| matches!(e, Event::RequestFrame { .. }))
+            .count()
+    };
+    let still = host.render_panels(&snapshot(), &shown(), true);
+    let d = drawing(&still).expect("a drawing");
+    assert_eq!((d.width, d.height), (240.0, 120.0));
+    let ids: Vec<&str> = d
+        .items
+        .iter()
+        .map(|i| i.id.as_str())
+        .filter(|i| !i.is_empty())
+        .collect();
+    assert_eq!(ids, ["commit-0", "commit-1", "commit-2"]);
+    assert!(
+        d.items
+            .iter()
+            .any(|i| matches!(i.shape, merlin_core::Shape::Curve { .. }))
+    );
+    assert_eq!(frames(&still), 0, "nothing moves on its own");
+
+    host.run_command("testbed", "animate", snapshot());
+    let moving = host.render_panels(&snapshot(), &shown(), true);
+    assert_eq!(frames(&moving), 1);
+    let more = drawing(&moving).unwrap().items.len();
+    assert_eq!(more, d.items.len() + 1, "the moving dot");
+}

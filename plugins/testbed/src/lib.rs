@@ -2,6 +2,9 @@
 //! across a reload, processes, buffer events and diffs to review.
 
 use merlin_plugin::prelude::*;
+use merlin_plugin::{
+    Colour, DrawCurve, DrawItem, DrawLine, DrawPoint, DrawRect, DrawText, Drawing, Shape,
+};
 
 #[derive(Default)]
 struct Testbed {
@@ -13,6 +16,9 @@ struct Testbed {
     open: bool,
     /// The count its chart was last drawn for.
     plotted: Option<u32>,
+    /// Whether its graph's dot moves, and how far it has.
+    animating: bool,
+    frame: u32,
 }
 
 impl Plugin for Testbed {
@@ -32,6 +38,7 @@ impl Plugin for Testbed {
             "about",
             "slow",
             "bad-image",
+            "animate",
             "colour",
             "log",
             "warn",
@@ -48,6 +55,7 @@ impl Plugin for Testbed {
                 host::set_view_badge("activity", self.clicks);
             }
             "show-chat" => host::focus_view("chat"),
+            "animate" => self.animating = !self.animating,
             "bad-image" => {
                 if let Err(err) = host::set_image("bad", Some(&Picture::Png(vec![1, 2, 3]))) {
                     host::notify(&err);
@@ -222,6 +230,7 @@ impl Testbed {
             .text(format!("clicks: {}", self.clicks))
             .text(log)
             .node(Node::image("chart", "Clicks so far"))
+            .node(Node::Drawing(self.graph()))
             .row(
                 Row::new("toggle", "Counters")
                     .expanded(self.open)
@@ -283,6 +292,89 @@ impl Testbed {
                 vec![Chip::new("selection", "+ selection"), Chip::new("model", "fast ▾")],
                 "Ctrl Enter to send",
             ))
+    }
+}
+
+impl Testbed {
+    /// A small commit graph: a line of commits, a branch off it on a
+    /// curve, their names, and, while animating, a dot along the line.
+    fn graph(&mut self) -> Drawing {
+        let theme = |name: &str| Colour::Theme(name.into());
+        let point = |x, y| DrawPoint { x, y };
+        let mut items = vec![
+            DrawItem {
+                id: String::new(),
+                shape: Shape::Line(DrawLine {
+                    start: point(20.0, 20.0),
+                    end: point(20.0, 100.0),
+                    width: 2.0,
+                    colour: theme("accent"),
+                }),
+            },
+            DrawItem {
+                id: String::new(),
+                shape: Shape::Curve(DrawCurve {
+                    points: vec![
+                        point(20.0, 40.0),
+                        point(20.0, 60.0),
+                        point(60.0, 50.0),
+                        point(60.0, 80.0),
+                    ],
+                    width: 2.0,
+                    colour: theme("success"),
+                }),
+            },
+        ];
+        for (i, (x, y, name)) in [(20.0, 20.0, "main"), (20.0, 100.0, "first"), (60.0, 80.0, "branch")]
+            .into_iter()
+            .enumerate()
+        {
+            items.push(DrawItem {
+                id: format!("commit-{i}"),
+                shape: Shape::Rect(DrawRect {
+                    x: x - 6.0,
+                    y: y - 6.0,
+                    width: 12.0,
+                    height: 12.0,
+                    radius: 6.0,
+                    fill: Some(theme("island")),
+                    stroke: Some(theme(if i == 2 { "success" } else { "accent" })),
+                }),
+            });
+            items.push(DrawItem {
+                id: String::new(),
+                shape: Shape::Text(DrawText {
+                    x: x + 12.0,
+                    y: y - 8.0,
+                    text: name.into(),
+                    size: 12.0,
+                    colour: theme("text"),
+                    mono: i == 2,
+                }),
+            });
+        }
+        if self.animating {
+            self.frame += 1;
+            let y = 20.0 + (self.frame % 80) as f32;
+            items.push(DrawItem {
+                id: String::new(),
+                shape: Shape::Rect(DrawRect {
+                    x: 16.0,
+                    y: y - 4.0,
+                    width: 8.0,
+                    height: 8.0,
+                    radius: 4.0,
+                    fill: Some(Colour::Rgb(0xe6b45c)),
+                    stroke: None,
+                }),
+            });
+            host::request_frame();
+        }
+        Drawing {
+            width: 240.0,
+            height: 120.0,
+            items,
+        }
     }
 }
 
