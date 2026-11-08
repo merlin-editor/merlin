@@ -38,6 +38,17 @@ jobs:
         with:
           targets: wasm32-wasip2
 
+      # The plugin host's tests load real plugins. Grammars' C code needs a
+      # clang that targets wasm, which the Linux runner has.
+      - name: Build the plugins the tests load
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          for dir in plugins/*/; do
+            [ -f "$dir/Cargo.toml" ] || continue
+            (cd "$dir" && cargo build --release --locked --quiet)
+          done
+
       - name: Run workspace tests
         run: cargo test --workspace
 
