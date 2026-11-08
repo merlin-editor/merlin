@@ -49,7 +49,13 @@ impl Plugin for Testbed {
                 self.asked.push(format!("about {target}"));
                 host::focus_view("chat");
             }
-            "spawn" => self.cat = host::spawn("cat", &[], &[], Framing::Lines).ok(),
+            "spawn" => {
+                self.cat = host::spawn("cat", &[], &[], Framing::Lines).ok();
+                if self.cat.is_some() {
+                    host::start_progress("cat", "Running cat", true);
+                    host::report_progress("cat", "waiting for input", None);
+                }
+            }
             "send" => {
                 if let Some(cat) = self.cat {
                     let _ = host::send(cat, &format!("ping {}", self.clicks));
@@ -149,6 +155,17 @@ impl Plugin for Testbed {
             BufferEvent::Changed => "changed".into(),
             BufferEvent::Saved(path) => format!("saved {path}"),
         });
+    }
+
+    /// Cancel on cat's progress: it stops.
+    fn cancel(&mut self, id: &str) {
+        if id == "cat"
+            && let Some(cat) = self.cat.take()
+        {
+            host::kill(cat);
+            host::end_progress("cat");
+            self.log.push("cat cancelled".into());
+        }
     }
 
     fn setting_changed(&mut self, key: &str) {

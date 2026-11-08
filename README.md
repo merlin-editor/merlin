@@ -828,6 +828,10 @@ What else plugins get, besides commands and panels:
   Explorer's or a tab's menu (`where = "editor"`, `"explorer"`, `"tab"`),
   with an optional `title`. `host::menu_target()` says which file the menu
   was on.
+- **Progress.** `host::start_progress(id, title, cancellable)`,
+  `report_progress(id, message, done)` and `end_progress(id)` show work
+  under way in the status bar; a click on it shows how it's going, with
+  Cancel when it can be, which `cancel` hears.
 - **Buffer events**: `buffer` hears when the active file switches, changes or
   is saved.
 - **The selection**: `host::active_selection` gives its text and position.

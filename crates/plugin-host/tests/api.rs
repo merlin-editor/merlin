@@ -957,3 +957,28 @@ fn a_menu_command_knows_which_file_its_menu_was_on() {
         "{events:?}"
     );
 }
+
+#[test]
+fn progress_shows_and_cancel_reaches_the_plugin() {
+    let (dir, mut config) = setup("progress");
+    config.ask = false;
+    let mut host = PluginHost::new(config).unwrap();
+    host.load(&dir).unwrap();
+    let events = host.run_command("testbed", "spawn", snapshot());
+    assert!(events.iter().any(|e| matches!(
+        e,
+        Event::ProgressStart { id, cancellable: true, .. } if id == "cat"
+    )));
+    assert!(events.iter().any(|e| matches!(
+        e,
+        Event::ProgressReport { message, done: None, .. } if message == "waiting for input"
+    )));
+    let events = host.cancel("testbed", "cat", snapshot());
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            Event::ProgressEnd { id: Some(id), .. } if id == "cat"
+        )),
+        "{events:?}"
+    );
+}

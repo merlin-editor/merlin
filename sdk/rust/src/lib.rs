@@ -153,6 +153,9 @@ pub trait Plugin: 'static {
     /// plugin's tests', ended: all it printed, and its exit code.
     fn terminal(&mut self, _id: &str, _output: &str, _code: Option<i32>) {}
 
+    /// The user cancelled work started with [`host::start_progress`].
+    fn cancel(&mut self, _id: &str) {}
+
     /// Colours `text` as `language`, one of the languages in the
     /// manifest, by its id or an extension: for diffs and code blocks.
     fn colour_text(&mut self, _language: &str, _text: &str) -> Vec<Token> {
@@ -562,6 +565,12 @@ macro_rules! export {
             fn on_terminal(id: String, output: String, code: Option<i32>) {
                 $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
                     $crate::Plugin::terminal(p, &id, &output, code)
+                })
+            }
+
+            fn on_cancel(id: String) {
+                $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
+                    $crate::Plugin::cancel(p, &id)
                 })
             }
 

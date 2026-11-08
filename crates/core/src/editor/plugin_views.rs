@@ -193,6 +193,17 @@ pub struct MenuItem {
     pub title: Option<String>,
 }
 
+/// A plugin's work under way.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Progress {
+    pub plugin: String,
+    pub id: String,
+    pub title: String,
+    pub message: String,
+    pub done: Option<u16>,
+    pub cancellable: bool,
+}
+
 /// What a plugin's item in a right-click menu does.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Slot {
@@ -569,6 +580,101 @@ impl Editor {
     /// The file the last right-click menu was opened on.
     pub fn menu_target(&self) -> Option<String> {
         self.menu_target.clone()
+    }
+
+    pub(crate) fn progress_start(
+        &mut self,
+        plugin: String,
+        id: String,
+        title: String,
+        cancellable: bool,
+    ) {
+        self.progress
+            .retain(|p| !(p.plugin == plugin && p.id == id));
+        self.progress.push(Progress {
+            plugin,
+            id,
+            title,
+            message: String::new(),
+            done: None,
+            cancellable,
+        });
+    }
+
+    pub(crate) fn progress_report(
+        &mut self,
+        plugin: &str,
+        id: &str,
+        message: String,
+        done: Option<u16>,
+    ) {
+        if let Some(p) = self
+            .progress
+            .iter_mut()
+            .find(|p| p.plugin == plugin && p.id == id)
+        {
+            p.message = message;
+            p.done = done;
+        }
+    }
+
+    pub(crate) fn progress_end(&mut self, plugin: &str, id: Option<&str>) {
+        self.progress
+            .retain(|p| p.plugin != plugin || id.is_some_and(|id| p.id != id));
+    }
+
+    /// The status bar's line for the newest work under way: what, how
+    /// it's going, how far, and how many more.
+    pub(crate) fn progress_status(&self) -> Option<String> {
+        let p = self.progress.last()?;
+        let mut text = p.title.clone();
+        if !p.message.is_empty() {
+            text += &format!(" · {}", p.message);
+        }
+        if let Some(done) = p.done {
+            text += &format!(" {}%", done / 10);
+        }
+        if self.progress.len() > 1 {
+            text += &format!(" +{}", self.progress.len() - 1);
+        }
+        Some(text)
+    }
+
+    /// The status bar's progress clicked: a notice saying how each is
+    /// going, with Cancel for the newest when it can be.
+    pub(crate) fn show_progress(&mut self) {
+        let Some(p) = self.progress.last().cloned() else {
+            return;
+        };
+        let lines: Vec<String> = self
+            .progress
+            .iter()
+            .rev()
+            .map(|p| {
+                let mut line = p.title.clone();
+                if !p.message.is_empty() {
+                    line += &format!(": {}", p.message);
+                }
+                if let Some(done) = p.done {
+                    line += &format!(" ({}%)", done / 10);
+                }
+                line
+            })
+            .collect();
+        self.notify(lines.join("\n"));
+        if p.cancellable {
+            self.add_action("Cancel", &format!("progress.cancel:{}:{}", p.plugin, p.id));
+        }
+    }
+
+    /// Cancel on a progress notice: the plugin hears.
+    pub(crate) fn cancel_progress(&mut self, which: &str, fx: &mut Vec<super::Effect>) {
+        if let Some((plugin, id)) = which.split_once(':') {
+            fx.push(super::Effect::PluginCancel {
+                plugin: plugin.into(),
+                id: id.into(),
+            });
+        }
     }
 
     /// Runs one of [`VIEW_ITEMS`] on the view whose menu was opened.

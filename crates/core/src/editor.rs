@@ -298,6 +298,8 @@ pub struct Editor {
     menus: Vec<(String, MenuItem)>,
     /// The file the last right-click menu was opened on.
     menu_target: Option<String>,
+    /// Plugins' work under way, oldest first.
+    progress: Vec<plugin_views::Progress>,
     menu: Option<menu::Menu>,
     tree: Option<views::Tree>,
     search: views::Search,
@@ -593,6 +595,7 @@ impl Editor {
             menu_slots: Vec::new(),
             menus: Vec::new(),
             menu_target: None,
+            progress: Vec::new(),
             menu: None,
             tree: None,
             search: Default::default(),

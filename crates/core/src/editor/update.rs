@@ -122,6 +122,19 @@ impl Editor {
             Event::SetPanel { plugin, panel } => self.set_panel(&plugin, panel),
             Event::RegisterViews { plugin, views } => self.register_views(&plugin, views),
             Event::RegisterMenus { plugin, items } => self.register_menus(&plugin, items),
+            Event::ProgressStart {
+                plugin,
+                id,
+                title,
+                cancellable,
+            } => self.progress_start(plugin, id, title, cancellable),
+            Event::ProgressReport {
+                plugin,
+                id,
+                message,
+                done,
+            } => self.progress_report(&plugin, &id, message, done),
+            Event::ProgressEnd { plugin, id } => self.progress_end(&plugin, id.as_deref()),
             Event::ViewBadge {
                 plugin,
                 view,

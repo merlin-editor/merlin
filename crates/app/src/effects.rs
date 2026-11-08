@@ -212,6 +212,11 @@ impl App {
                 queue.push_back(self.plugin_summaries());
                 self.panels_for = None;
             }
+            Effect::PluginCancel { plugin, id } => {
+                let snapshot = self.snapshot();
+                queue.extend(self.host.cancel(&plugin, &id, snapshot));
+                self.panels_for = None;
+            }
             Effect::PluginSubmit {
                 plugin,
                 input,

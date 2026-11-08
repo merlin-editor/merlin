@@ -298,6 +298,7 @@ impl Session {
                 | Effect::LocateDebuggers(_)
                 | Effect::ListProcesses
                 | Effect::PluginClick { .. }
+                | Effect::PluginCancel { .. }
                 | Effect::PluginSubmit { .. }
                 | Effect::PluginPick { .. }
                 | Effect::PluginReview { .. }

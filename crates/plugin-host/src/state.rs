@@ -789,6 +789,33 @@ impl host::Host for State {
         });
     }
 
+    fn start_progress(&mut self, id: String, title: String, cancellable: bool) {
+        self.events.push(Event::ProgressStart {
+            plugin: self.name.clone(),
+            id,
+            title,
+            cancellable,
+        });
+    }
+
+    fn report_progress(&mut self, id: String, message: String, done: Option<f32>) {
+        self.events.push(Event::ProgressReport {
+            plugin: self.name.clone(),
+            id,
+            message,
+            done: done
+                .filter(|d| d.is_finite())
+                .map(|d| (d.clamp(0.0, 1.0) * 1000.0).round() as u16),
+        });
+    }
+
+    fn end_progress(&mut self, id: String) {
+        self.events.push(Event::ProgressEnd {
+            plugin: self.name.clone(),
+            id: Some(id),
+        });
+    }
+
     fn focus_view(&mut self, view: String) {
         self.events.push(Event::FocusView {
             plugin: self.name.clone(),

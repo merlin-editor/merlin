@@ -173,6 +173,25 @@ pub enum Event {
         plugin: String,
         views: Vec<super::ViewSpec>,
     },
+    /// A plugin's work under way, shown in the status bar.
+    ProgressStart {
+        plugin: String,
+        id: String,
+        title: String,
+        cancellable: bool,
+    },
+    /// How it's going: a line, and how far in thousandths.
+    ProgressReport {
+        plugin: String,
+        id: String,
+        message: String,
+        done: Option<u16>,
+    },
+    /// It's over; with no id, all of the plugin's are.
+    ProgressEnd {
+        plugin: String,
+        id: Option<String>,
+    },
     /// A plugin's commands in right-click menus; none once it's gone.
     RegisterMenus {
         plugin: String,
@@ -705,6 +724,11 @@ pub enum Effect {
     PluginClick {
         plugin: String,
         button: String,
+    },
+    /// The user cancelled a plugin's work under way.
+    PluginCancel {
+        plugin: String,
+        id: String,
     },
     PluginSubmit {
         plugin: String,

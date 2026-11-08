@@ -566,3 +566,49 @@ fn a_view_shown_before_it_draws_focuses_its_box_when_it_does() {
     });
     assert_eq!(s.editor.window_view().right.unwrap().selected, 1);
 }
+
+#[test]
+fn work_under_way_shows_in_the_status_bar_and_can_be_cancelled() {
+    let mut s = with_views();
+    s.send(Event::ProgressStart {
+        plugin: "cargo".into(),
+        id: "index".into(),
+        title: "Indexing".into(),
+        cancellable: true,
+    });
+    s.send(Event::ProgressReport {
+        plugin: "cargo".into(),
+        id: "index".into(),
+        message: "crates".into(),
+        done: Some(400),
+    });
+    let status = s.editor.window_view().status;
+    let i = status
+        .iter()
+        .position(|item| item.text == "⟳ Indexing · crates 40%")
+        .expect("it shows");
+    assert!(status[i].clickable);
+    s.send(Event::Ui(UiEvent::Status(i)));
+    let toast = s.editor.window_view().toast.expect("how it's going");
+    assert_eq!(toast.text, "Indexing: crates (40%)");
+    assert_eq!(toast.buttons, ["Cancel"]);
+    s.send(Event::Ui(UiEvent::ToastButton(0)));
+    assert_eq!(
+        s.effects.last(),
+        Some(&Effect::PluginCancel {
+            plugin: "cargo".into(),
+            id: "index".into()
+        })
+    );
+    s.send(Event::ProgressEnd {
+        plugin: "cargo".into(),
+        id: Some("index".into()),
+    });
+    assert!(
+        !s.editor
+            .window_view()
+            .status
+            .iter()
+            .any(|item| item.text.contains("Indexing"))
+    );
+}

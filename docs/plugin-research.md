@@ -245,6 +245,8 @@ The PDF viewer is the test: it's `PluginDocument.dc.html` in
    `on-setting-changed` are plain exports. **Lazy start and depends built**:
    `activate-on` (language, file; any use starts it too, and its commands
    are cached for the palette) and `depends`. **`[[menus]]` built**, with
-   `menu-target` for the file the menu was on.
+   `menu-target` for the file the menu was on. **Progress built**: `start-progress`,
+   `report-progress`, `end-progress` and `on-cancel`, in the status bar.
+   Updates wait for a registry, as Browse does.
 6. Plugin calls off the main thread, then images, then surfaces with
    `[[editors]]` (proved by a PDF viewer), then drawing commands.

@@ -484,6 +484,10 @@ impl Editor {
             "panel.toggle" => self.toggle_plugin_panels(),
             "app.quit" => self.quit_asked(fx),
             other if self.view_menu_command(other) => {}
+            "progress.show" => self.show_progress(),
+            other if other.starts_with("progress.cancel:") => {
+                self.cancel_progress(&other["progress.cancel:".len()..], fx)
+            }
             other if other.starts_with("view.show:") => {
                 self.show_plugin_view(&other["view.show:".len()..]);
             }

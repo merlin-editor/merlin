@@ -670,6 +670,14 @@ interface host {
   /// user keeps it, and focuses its first input.
   focus-view: func(view: string);
 
+  /// Work under way, shown in the status bar until `end-progress`: what
+  /// it is, and whether the user can cancel it, which `on-cancel` hears.
+  /// `id` is the plugin's own, for the other calls.
+  start-progress: func(id: string, title: string, cancellable: bool);
+  /// How it's going: a line, and how far from 0 to 1, or none.
+  report-progress: func(id: string, message: string, done: option<f32>);
+  end-progress: func(id: string);
+
   /// A count on a view's icon and tab, such as updates waiting; 0 for
   /// none.
   set-view-badge: func(view: string, count: u32);
@@ -896,4 +904,6 @@ world plugin {
   /// A command line from `run-in-terminal`, or a test's, ended: all it
   /// printed, and its exit code, if it had one.
   export on-terminal: func(id: string, output: string, code: option<s32>);
+  /// The user cancelled work started with `start-progress`.
+  export on-cancel: func(id: string);
 }

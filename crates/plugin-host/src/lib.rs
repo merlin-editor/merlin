@@ -964,6 +964,14 @@ impl PluginHost {
             .1
     }
 
+    /// The user cancelled a plugin's work under way.
+    pub fn cancel(&mut self, plugin: &str, id: &str, snapshot: Snapshot) -> Vec<Event> {
+        let Some(i) = self.index(plugin) else {
+            return Vec::new();
+        };
+        self.call(i, snapshot, |b, s| b.call_on_cancel(s, id)).1
+    }
+
     /// A command line the plugin ran in a terminal, or one of its tests',
     /// ended: all it printed, and its exit code.
     pub fn terminal(
@@ -1270,6 +1278,10 @@ impl PluginHost {
                     plugin: name.to_string(),
                     views: Vec::new(),
                 },
+                Event::ProgressEnd {
+                    plugin: name.to_string(),
+                    id: None,
+                },
             ];
         }
         let plugin = &self.plugins[i];
@@ -1306,6 +1318,10 @@ impl PluginHost {
             Event::RegisterViews {
                 plugin: name.to_string(),
                 views: Vec::new(),
+            },
+            Event::ProgressEnd {
+                plugin: name.to_string(),
+                id: None,
             },
         ]
     }

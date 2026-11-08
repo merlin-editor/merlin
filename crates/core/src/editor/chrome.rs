@@ -126,6 +126,14 @@ impl Editor {
                 ));
             }
         }
+        // Plugins' work under way, a click away from Cancel.
+        if let Some(text) = self.progress_status() {
+            left.push((
+                format!(" ⟳ {text} "),
+                Style::Status,
+                Some(Action::Run("progress.show")),
+            ));
+        }
         let (_, failed) = self.test_counts();
         if failed > 0 {
             let s = if failed == 1 { "" } else { "s" };
