@@ -11,6 +11,18 @@ processes = ["cat"]
 greeting = "hello"
 style = { loud = false }
 
+[settings.mode]
+type = "choice"
+default = "fast"
+choices = [{ value = "fast", label = "Quickly" }, "careful"]
+description = "How it works."
+
+[settings.server-path]
+type = "path"
+scope = "user-only"
+default = "/usr/bin/cat"
+description = "A program on this computer."
+
 [[languages]]
 id = "notes"
 name = "Notes"

@@ -7,7 +7,7 @@ use super::canvas::{Face, Rect};
 use super::frame::{Frame, Hit};
 use crate::prefs::{
     Category, Control, KeyRow, KeysFilter, PageAction, PageView, Row, SettingsAction, SettingsView,
-    ThemeCard,
+    ThemeCard, option_label,
 };
 use crate::theme::mix;
 
@@ -48,16 +48,6 @@ enum ListOf {
 impl Ctx {
     fn shows(&self, h: f32) -> bool {
         self.y + h >= self.clip.y && self.y <= self.clip.bottom()
-    }
-}
-
-/// A choice's value as people read it: `after_delay` is "After delay".
-fn option_label(o: &str) -> String {
-    let s = o.replace(['_', '-'], " ");
-    let mut c = s.chars();
-    match c.next() {
-        Some(f) => f.to_uppercase().chain(c).collect(),
-        None => s,
     }
 }
 
@@ -162,17 +152,17 @@ impl<'a> Frame<'a> {
                 Category::Appearance => self.appearance(v, &mut c),
                 Category::Editor | Category::Files => {
                     for s in &v.sections {
-                        self.s_heading(s.title, None, &mut c);
+                        self.s_heading(&s.title, None, &mut c);
                         for row in &s.rows {
-                            self.setting_row(row, v.ui.open_choice == Some(row.key), &mut c);
+                            self.setting_row(row, &v.ui, &mut c);
                         }
                     }
                 }
                 Category::Keys => {
                     for s in &v.sections {
-                        self.s_heading(s.title, None, &mut c);
+                        self.s_heading(&s.title, None, &mut c);
                         for row in &s.rows {
-                            self.setting_row(row, v.ui.open_choice == Some(row.key), &mut c);
+                            self.setting_row(row, &v.ui, &mut c);
                         }
                     }
                     self.keys_page(v, &mut c)
@@ -541,7 +531,7 @@ impl<'a> Frame<'a> {
             let title = format!("{} › {}", s.category.title(), s.title);
             self.s_heading(&title, None, c);
             for row in &s.rows {
-                self.setting_row(row, v.ui.open_choice == Some(row.key), c);
+                self.setting_row(row, &v.ui, c);
             }
         }
         if !v.keys.is_empty() {

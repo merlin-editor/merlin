@@ -753,7 +753,24 @@ What else plugins get, besides commands and panels:
 - **Settings.** Defaults go in the manifest's `[settings]`; the user's and
   the workspace's `[plugins.<name>]` override them. Read them with
   `settings::text("server")`, `settings::flag(...)`, `settings::integer(...)`
-  (dotted keys reach into tables), when needed, as they can change.
+  (dotted keys reach into tables), when needed, as they can change, and
+  `setting_changed` hears when one does. Describe a setting and its page in
+  Settings › Plugins shows it as a row, for the user or the workspace:
+
+  ```toml
+  [settings.check-command]
+  type = "choice"        # flag, string, path, integer, float, choice, list
+  title = "Check on save"
+  default = "check"
+  choices = [{ value = "check", label = "cargo check" }, "clippy"]
+  description = "What rust-analyzer runs when you save."
+  scope = "user-only"    # for a program's path: never set by a workspace
+  ```
+
+  Plain values are shown too, typed by their defaults. Every plugin also
+  gets **Notices** (all, errors only, none) and **Log level**. A language
+  server's `Spec::options` hands settings to the server, and restarts it
+  when one changes.
 - **Buffer events**: `buffer` hears when the active file switches, changes or
   is saved.
 - **The selection**: `host::active_selection` gives its text and position.

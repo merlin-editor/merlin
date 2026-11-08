@@ -127,6 +127,37 @@ impl Lsp {
         }
     }
 
+    /// A setting a server gets changed: those servers start again with it.
+    pub fn setting_changed(&mut self, key: &str) {
+        let affected: Vec<&str> = self
+            .specs
+            .iter()
+            .filter(|s| s.options.iter().any(|(k, _)| *k == key))
+            .map(|s| s.program)
+            .collect();
+        if affected.is_empty() {
+            return;
+        }
+        let mut stopped = false;
+        self.servers.retain(|server| {
+            if !affected.contains(&server.program.as_str()) {
+                return true;
+            }
+            if let Some(process) = server.process {
+                host::kill(process);
+            }
+            stopped = true;
+            false
+        });
+        if stopped {
+            host::log(
+                LogLevel::Info,
+                &format!("Restarting {} with the new {key}", affected.join(", ")),
+            );
+            self.buffer(BufferEvent::Switched);
+        }
+    }
+
     pub fn submit(&mut self, input: &str, text: &str) {
         let review = match input {
             "rename" => false,
@@ -156,7 +187,11 @@ impl Lsp {
             return;
         }
         let Some(edit) = self.actions.get(item) else {
-            return host::notice(LogLevel::Info, "That code action is out of date: try again", &[]);
+            return host::notice(
+                LogLevel::Info,
+                "That code action is out of date: try again",
+                &[],
+            );
         };
         let edits = file_edits(edit);
         if edits.is_empty() {
@@ -345,6 +380,12 @@ impl<P: Plugin> Plugin for WithLsp<P> {
 
     fn review(&mut self, id: &str, accepted: bool) {
         self.inner.review(id, accepted);
+    }
+
+    fn setting_changed(&mut self, key: &str) {
+        self.inner.setting_changed(key);
+        self.lsp.setting_changed(key);
+        self.lsp.report_status();
     }
 
     fn terminal(&mut self, id: &str, output: &str, code: Option<i32>) {

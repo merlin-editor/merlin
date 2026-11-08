@@ -8,6 +8,7 @@ const GO_SERVER: Spec = Spec {
     args: &[],
     files: &[("go", "go")],
     settings: None,
+    options: &[],
     install: Some("go install golang.org/x/tools/gopls@latest"),
 };
 

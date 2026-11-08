@@ -21,6 +21,10 @@ const RUST_SERVER: Spec = Spec {
     args: &[],
     files: &[("rs", "rust")],
     settings: None,
+    options: &[
+        ("check-command", "check.command"),
+        ("features", "cargo.features"),
+    ],
     install: Some("rustup component add rust-analyzer"),
 };
 

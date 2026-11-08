@@ -2,6 +2,7 @@
 //! its permissions, settings and what it adds.
 
 use super::*;
+use crate::prefs::{PageTab, SettingsUiView};
 
 impl Frame<'_> {
     pub(super) fn plugins_page(&mut self, v: &SettingsView, c: &mut Ctx) {
@@ -109,7 +110,10 @@ impl Frame<'_> {
             picked: None,
         };
         if let Some(page) = &v.page {
-            self.plugin_detail(page, &mut d);
+            self.plugin_detail(page, &v.ui, &mut d);
+        }
+        if d.list.is_some() {
+            c.list = d.list.take();
         }
         c.y = list_bottom.max(d.y);
     }
@@ -137,7 +141,7 @@ impl Frame<'_> {
         self.s_row_text(letters, face, x + (size - lw) / 2.0, y, size, colour, clip);
     }
 
-    pub(super) fn plugin_detail(&mut self, page: &PageView, c: &mut Ctx) {
+    pub(super) fn plugin_detail(&mut self, page: &PageView, ui: &SettingsUiView, c: &mut Ctx) {
         let p = self.p;
         let clip = c.clip;
         self.plugin_mark(&page.mark, c.x, c.y, 34.0, page.enabled, clip);
@@ -182,21 +186,25 @@ impl Frame<'_> {
             p.bright,
             tclip,
         );
-        let origin = if page.installed {
-            "installed"
-        } else {
-            "bundled"
-        };
-        let state = if page.failed {
-            " · it failed to start"
+        // What it is and what it costs now, in a line.
+        let mut sub = vec![page.name.clone(), format!("API {}", page.api)];
+        if !page.data_only {
+            sub.push(format!("{} in merlin", bytes(page.memory as u64)));
+        }
+        for (prog, _, mem) in &page.running {
+            let name = prog.rsplit('/').next().unwrap_or(prog);
+            sub.push(format!("{name} {}", mem.map_or_else(|| "—".into(), bytes)));
+        }
+        if page.failed {
+            sub.push("it failed to start".into());
         } else if page.waiting {
-            " · waiting for your OK"
+            sub.push("waiting for your OK".into());
         } else if !page.enabled {
-            " · off"
-        } else {
-            ""
-        };
-        let sub = format!("{} · API {} · {origin}{state}", page.name, page.api);
+            sub.push("off".into());
+        }
+        let sub = self
+            .text
+            .fit(&sub.join(" · "), Face::ui(11.5), tclip.w - 46.0);
         self.s_row_text(
             &sub,
             Face::ui(11.5),
@@ -206,189 +214,154 @@ impl Frame<'_> {
             p.muted,
             tclip,
         );
-        c.y += 52.0;
+        c.y += 48.0;
 
-        // What it costs now.
-        let mut stats: Vec<(String, String)> = Vec::new();
-        if !page.data_only {
-            stats.push((bytes(page.memory as u64), "in merlin".into()));
-        }
-        for (prog, pid, mem) in &page.running {
-            let name = prog.rsplit('/').next().unwrap_or(prog);
-            stats.push((
-                mem.map_or_else(|| "—".into(), bytes),
-                format!("{name}, pid {pid}"),
-            ));
-        }
-        if !page.data_only {
-            stats.push((
-                format!("{:.1} s", page.busy.as_secs_f32()),
-                "CPU since it started".into(),
-            ));
-        }
-        stats.push((
-            format!("{} · {}", page.commands.len(), page.languages.len()),
-            "commands · languages".into(),
-        ));
-        let mut sx = c.x;
-        for (value, what) in &stats {
-            let vw = self.s_row_text(value, Face::ui(15.0).bold(), sx, c.y, 20.0, p.bright, clip);
-            let ww = self.s_row_text(what, Face::ui(11.0), sx, c.y + 21.0, 16.0, p.muted, clip);
-            sx += vw.max(ww) + 28.0;
-            if sx > right - 60.0 {
-                break;
-            }
-        }
-        c.y += 44.0;
-
-        // What it may do, and what it adds.
-        let half = (c.w - 24.0) / 2.0;
-        let top = c.y;
-        let mut l = Ctx {
-            x: c.x,
-            w: half,
-            y: top,
-            clip,
-            list: None,
-            picked: None,
-        };
-        self.s_heading("Allowed", None, &mut l);
-        let mut perms: Vec<(bool, String)> = vec![
-            (page.read, "Read the open files".into()),
-            (page.write, "Change files".into()),
+        // Settings first, with what it may do and what it adds beside.
+        let allowed = allowed(page);
+        let adds = page.commands.len() + page.languages.len() + page.looks.len();
+        let tabs = [
+            ("Settings", page.rows.len(), PageTab::Settings),
+            (
+                "Allowed",
+                allowed.iter().filter(|(ok, _)| *ok).count(),
+                PageTab::Allowed,
+            ),
+            ("Adds", adds, PageTab::Adds),
         ];
-        // Only plugins that ask for these say so: most never do.
-        if page.workspace_read {
-            perms.push((true, "Read the project's files".into()));
-        }
-        if page.terminal {
-            perms.push((true, "Run command lines in a terminal".into()));
-        }
-        if page.processes.is_empty() {
-            perms.push((false, "Start programs".into()));
-        } else {
-            perms.push((true, format!("Start {}", page.processes.join(", "))));
-        }
-        if page.data_only {
-            perms = vec![(false, "Nothing: it's only data".into())];
-        }
-        for (ok, what) in perms {
-            let (mark, colour, fg) = if ok {
-                ("✓", p.success, p.text)
-            } else {
-                ("—", p.faint, p.muted)
-            };
-            let face = Face::ui(12.5);
-            let wrap = (l.w - 20.0).max(40.0);
-            let h = self.text.wrapped_height(&what, face, wrap);
-            self.s_row_text(mark, Face::ui(12.0), l.x, l.y, 24.0, colour, clip);
-            self.text.draw(
-                &mut self.canvas,
-                &what,
-                face,
-                l.x + 20.0,
-                l.y + (24.0 - 17.0) / 2.0,
-                fg,
-                clip,
-                Some(wrap),
-            );
-            l.y += (h + 7.0).max(24.0);
-        }
-        let mut a = Ctx {
-            x: c.x + half + 24.0,
-            w: half,
-            y: top,
+        let bar = Rect::new(c.x, c.y, c.w, 30.0);
+        self.s_fill(
+            Rect::new(bar.x, bar.bottom() - 1.0, bar.w, 1.0),
             clip,
-            list: None,
-            picked: None,
-        };
-        self.s_heading("Adds", None, &mut a);
-        // Its commands without its name before each, with their keys.
-        let prefix = format!("{}: ", page.title);
-        for (title, key) in page.commands.iter().take(5) {
-            let title = title.strip_prefix(&prefix).unwrap_or(title);
-            let face = Face::ui(12.5);
-            let key_w = key
-                .as_ref()
-                .map_or(0.0, |k| self.text.width(k, Face::ui(11.5)) + 12.0);
-            let shown = self.text.fit(title, face, (a.w - key_w).max(40.0));
-            let tw = self.s_row_text(&shown, face, a.x, a.y, 24.0, p.text, clip);
-            if let Some(k) = key {
-                self.s_row_text(k, Face::ui(11.5), a.x + tw + 12.0, a.y, 24.0, p.muted, clip);
+            p.line,
+        );
+        let mut x = bar.x;
+        for (label, n, tab) in tabs {
+            let f = Face::ui(12.5);
+            let count = Face::ui(11.0);
+            let lw = self.text.width(label, f);
+            let n = n.to_string();
+            let w = lw + 5.0 + self.text.width(&n, count);
+            let r = Rect::new(x, bar.y, w, bar.h);
+            let on = ui.page_tab == tab;
+            let fg = if on || self.s_hovered(r, clip) {
+                p.bright
+            } else {
+                p.muted
+            };
+            self.s_row_text(label, f, x, bar.y, bar.h - 8.0, fg, clip);
+            self.s_row_text(&n, count, x + lw + 5.0, bar.y, bar.h - 8.0, p.faint, clip);
+            if on {
+                self.s_fill(Rect::new(x, bar.bottom() - 2.0, w, 2.0), clip, p.accent);
             }
-            a.y += 24.0;
+            self.s_hit(r, clip, Hit::Settings(SettingsAction::PageTab(tab)));
+            x += w + 20.0;
         }
-        let mut adds: Vec<String> = Vec::new();
-        if page.commands.len() > 5 {
-            adds.push(format!("and {} more commands", page.commands.len() - 5));
-        }
-        if !page.languages.is_empty() {
-            adds.push(format!("Languages: {}", page.languages.join(", ")));
-        }
-        if !page.looks.is_empty() {
-            adds.push(format!("Looks: {}", page.looks.join(", ")));
-        }
-        if adds.is_empty() && page.commands.is_empty() {
-            adds.push("Nothing to show yet".into());
-        }
-        for line in adds {
-            let line = self.text.fit(&line, Face::ui(12.5), a.w);
-            self.s_row_text(&line, Face::ui(12.5), a.x, a.y, 24.0, p.text, clip);
-            a.y += 24.0;
-        }
-        c.y = l.y.max(a.y);
+        c.y += bar.h + 4.0;
 
-        // Its own settings, as rows.
-        if !page.settings.is_empty() {
-            self.s_heading("Its settings", None, c);
-            for (key, value, changed) in &page.settings {
-                let r = Rect::new(c.x, c.y, c.w, 40.0);
-                let mut x = c.x;
-                x += self.s_row_text(key, Face::ui(13.0).medium(), x, r.y, r.h, p.bright, clip)
-                    + 8.0;
-                if *changed {
-                    self.tag("Modified", x, r.y + r.h / 2.0, clip);
-                }
-                let ctl_right = r.right();
-                match value {
-                    toml::Value::Boolean(on) => {
-                        let s = Rect::new(ctl_right - 34.0, r.y + 10.0, 34.0, 20.0);
-                        let action = PageAction::Setting(
-                            page.name.clone(),
-                            key.clone(),
-                            toml::Value::Boolean(!on),
-                        );
-                        self.switch(*on, s, clip, Hit::Settings(SettingsAction::Page(action)));
-                    }
-                    other => {
-                        let text = match other {
-                            toml::Value::String(s) => s.clone(),
-                            other => other.to_string(),
-                        };
-                        let f = Face::mono(11.5);
-                        let text = self.text.fit(&text, f, c.w * 0.45);
-                        let tw = self.text.width(&text, f);
-                        let b = Rect::new(ctl_right - tw - 20.0, r.y + 6.0, tw + 20.0, 28.0);
-                        self.s_outline(b, 6.0, clip, p.border, p.raised);
-                        self.s_row_text(&text, f, b.x + 10.0, b.y, b.h, p.text, clip);
-                    }
-                }
-                self.s_fill(Rect::new(c.x, r.bottom() - 1.0, c.w, 1.0), clip, p.line);
-                c.y += 40.0;
+        match ui.page_tab {
+            PageTab::Settings if page.rows.is_empty() => {
+                c.y += 8.0;
+                let what = if page.data_only {
+                    "It only adds looks, so it has nothing to set."
+                } else {
+                    "It has nothing to set."
+                };
+                self.s_row_text(what, Face::ui(12.5), c.x, c.y, 24.0, p.muted, clip);
+                c.y += 28.0;
             }
-            self.s_row_text(
-                "Other values are set in settings.toml, under [plugins].",
-                Face::ui(11.5),
-                c.x,
-                c.y + 4.0,
-                20.0,
-                p.muted,
-                clip,
-            );
-            c.y += 28.0;
+            PageTab::Settings => {
+                for row in &page.rows {
+                    self.setting_row(row, ui, c);
+                }
+            }
+            PageTab::Allowed => {
+                c.y += 8.0;
+                for (ok, what) in allowed {
+                    let (mark, colour, fg) = if ok {
+                        ("✓", p.success, p.text)
+                    } else {
+                        ("—", p.faint, p.muted)
+                    };
+                    let face = Face::ui(12.5);
+                    let wrap = (c.w - 20.0).max(40.0);
+                    let h = self.text.wrapped_height(&what, face, wrap);
+                    self.s_row_text(mark, Face::ui(12.0), c.x, c.y, 24.0, colour, clip);
+                    self.text.draw(
+                        &mut self.canvas,
+                        &what,
+                        face,
+                        c.x + 20.0,
+                        c.y + (24.0 - 17.0) / 2.0,
+                        fg,
+                        clip,
+                        Some(wrap),
+                    );
+                    c.y += (h + 7.0).max(24.0);
+                }
+                if !page.data_only {
+                    let cpu = format!("{:.1} s of CPU since it started", page.busy.as_secs_f32());
+                    c.y += 6.0;
+                    self.s_row_text(&cpu, Face::ui(11.5), c.x, c.y, 20.0, p.muted, clip);
+                    c.y += 24.0;
+                }
+            }
+            PageTab::Adds => {
+                c.y += 8.0;
+                // Its commands without its name before each, with their keys.
+                let prefix = format!("{}: ", page.title);
+                for (title, key) in &page.commands {
+                    let title = title.strip_prefix(&prefix).unwrap_or(title);
+                    let face = Face::ui(12.5);
+                    let key_w = key
+                        .as_ref()
+                        .map_or(0.0, |k| self.text.width(k, Face::ui(11.5)) + 12.0);
+                    let shown = self.text.fit(title, face, (c.w - key_w).max(40.0));
+                    if c.shows(24.0) {
+                        self.s_row_text(&shown, face, c.x, c.y, 24.0, p.text, clip);
+                        if let Some(k) = key {
+                            let kw = self.text.width(k, Face::ui(11.5));
+                            self.s_row_text(
+                                k,
+                                Face::ui(11.5),
+                                right - kw,
+                                c.y,
+                                24.0,
+                                p.muted,
+                                clip,
+                            );
+                        }
+                    }
+                    c.y += 24.0;
+                }
+                let mut more: Vec<String> = Vec::new();
+                if !page.languages.is_empty() {
+                    more.push(format!("Languages: {}", page.languages.join(", ")));
+                }
+                if !page.looks.is_empty() {
+                    more.push(format!("Looks: {}", page.looks.join(", ")));
+                }
+                if more.is_empty() && page.commands.is_empty() {
+                    more.push("Nothing to show yet".into());
+                }
+                for line in more {
+                    let face = Face::ui(12.5);
+                    let h = self.text.wrapped_height(&line, face, c.w);
+                    self.text.draw(
+                        &mut self.canvas,
+                        &line,
+                        face,
+                        c.x,
+                        c.y + 4.0,
+                        p.text,
+                        clip,
+                        Some(c.w),
+                    );
+                    c.y += h + 10.0;
+                }
+            }
         }
         if page.installed {
-            c.y += 12.0;
+            c.y += 16.0;
             let label = if page.uninstall_armed {
                 "Uninstall: press again"
             } else {
@@ -413,4 +386,28 @@ impl Frame<'_> {
             c.y += 34.0;
         }
     }
+}
+
+/// What a plugin may do, each allowed or not.
+fn allowed(page: &PageView) -> Vec<(bool, String)> {
+    if page.data_only {
+        return vec![(false, "Nothing: it's only data".into())];
+    }
+    let mut perms: Vec<(bool, String)> = vec![
+        (page.read, "Read the open files".into()),
+        (page.write, "Change files".into()),
+    ];
+    // Only plugins that ask for these say so: most never do.
+    if page.workspace_read {
+        perms.push((true, "Read the project's files".into()));
+    }
+    if page.terminal {
+        perms.push((true, "Run command lines in a terminal".into()));
+    }
+    if page.processes.is_empty() {
+        perms.push((false, "Start programs".into()));
+    } else {
+        perms.push((true, format!("Start {}", page.processes.join(", "))));
+    }
+    perms
 }

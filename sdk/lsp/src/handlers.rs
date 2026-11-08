@@ -4,8 +4,8 @@ use std::collections::BTreeSet;
 
 use merlin_plugin::{
     ActionKind, CodeAction, Completion, DetailedDiagnostic, Diagnostic, FoldRange, InlayHint,
-    Location, LogLevel, Position, ProjectSymbol, RenameInfo, Severity, Task, TaskGroup,
-    TokenLayer, host,
+    Location, LogLevel, Position, ProjectSymbol, RenameInfo, Severity, Task, TaskGroup, TokenLayer,
+    host,
 };
 use serde_json::{Value, json};
 
@@ -44,6 +44,11 @@ impl Lsp {
                         else {
                             return server.settings.clone();
                         };
+                        // A server asking for its own name's section, as
+                        // rust-analyzer does, gets them all.
+                        if section == server.program {
+                            return server.settings.clone();
+                        }
                         section
                             .split('.')
                             .try_fold(&server.settings, |cur, key| cur.get(key))
@@ -162,7 +167,10 @@ impl Lsp {
             // An error the server shows is a notice; the rest of what it
             // says goes to the plugin's Output channel.
             "window/showMessage" | "window/logMessage" => {
-                let text = format!("{program}: {}", params["message"].as_str().unwrap_or_default());
+                let text = format!(
+                    "{program}: {}",
+                    params["message"].as_str().unwrap_or_default()
+                );
                 let level = match params["type"].as_u64() {
                     Some(1) => LogLevel::Error,
                     Some(2) => LogLevel::Warn,
@@ -224,7 +232,10 @@ impl Lsp {
                     | Request::Runnables { .. }
                     | Request::Signature
             );
-            let text = format!("{program}: {}", error["message"].as_str().unwrap_or("error"));
+            let text = format!(
+                "{program}: {}",
+                error["message"].as_str().unwrap_or("error")
+            );
             // Only what the user asked for is a notice; what came by
             // itself is logged.
             if cancelled {

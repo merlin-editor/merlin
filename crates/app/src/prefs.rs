@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use merlin_core::panel::Tone;
 use merlin_core::{Event, Key, KeyBinding, KeyCode, PluginSummary, ThemeKind};
-use merlin_plugins::PluginInfo;
+use merlin_plugins::{PluginInfo, SettingKind};
 
 use crate::packs::{self, Icons, Look, Pack};
 use crate::theme::{self, Palette};
@@ -106,7 +106,11 @@ pub struct SettingsUi {
     /// The plugin whose page shows.
     pub plugin: Option<String>,
     /// The choice whose list is open, by its key.
-    pub open_choice: Option<&'static str>,
+    pub open_choice: Option<String>,
+    /// The plugin page's tab.
+    pub page_tab: PageTab,
+    /// A setting's text being typed.
+    pub editing: Option<Editing>,
     /// The theme card the arrows are on, which the window previews.
     pub card: Option<usize>,
     pub scroll: f32,
@@ -114,19 +118,52 @@ pub struct SettingsUi {
     pub room: f32,
 }
 
+/// A plugin page's tabs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PageTab {
+    #[default]
+    Settings,
+    Allowed,
+    Adds,
+}
+
+/// A setting's text being typed: into its field, or as a new item of a
+/// list.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Editing {
+    pub key: String,
+    pub text: String,
+    /// A new item for a list, rather than the field's value.
+    pub add: bool,
+}
+
 /// What a setting's control is.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Control {
     Toggle(bool),
-    Choice(Vec<&'static str>, String),
+    /// Its values with their labels, and the value now.
+    Choice(Vec<(String, String)>, String),
     Number(f32),
+    /// Text typed into a field.
+    Field(String, FieldKind),
+    /// Strings as chips, with a way to add one.
+    List(Vec<String>),
+}
+
+/// What a field takes.
+#[derive(Clone, Debug, PartialEq)]
+pub enum FieldKind {
+    Text,
+    Path,
+    Integer(Option<i64>, Option<i64>),
+    Float(Option<f64>, Option<f64>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Row {
-    pub label: &'static str,
-    pub about: &'static str,
-    pub key: &'static str,
+    pub label: String,
+    pub about: String,
+    pub key: String,
     pub control: Control,
     /// Set in the file being changed, so not the default there.
     pub changed: bool,
@@ -134,13 +171,31 @@ pub struct Row {
     pub in_workspace: bool,
     /// What the other file says, when the workspace's sets it.
     pub note: Option<String>,
+    /// On the Workspace tab, a row the workspace sets: your own value, to
+    /// go back to.
+    pub yours: Option<String>,
+    /// Only the user sets it, never a workspace.
+    pub user_only: bool,
+    /// Shown, but not set here: a user-only setting on the Workspace tab.
+    pub locked: bool,
+}
+
+impl Row {
+    /// The key as the row shows it: a plugin's own, without
+    /// `plugins.<name>.` before it.
+    pub fn key_shown(&self) -> &str {
+        self.key
+            .strip_prefix("plugins.")
+            .and_then(|rest| rest.split_once('.'))
+            .map_or(&self.key, |(_, key)| key)
+    }
 }
 
 /// A heading's rows, on a page.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Section {
     pub category: Category,
-    pub title: &'static str,
+    pub title: String,
     pub rows: Vec<Row>,
 }
 
@@ -231,7 +286,9 @@ pub struct SettingsUiView {
     pub keys: KeysFilter,
     pub record: bool,
     pub key_row: Option<usize>,
-    pub open_choice: Option<&'static str>,
+    pub open_choice: Option<String>,
+    pub page_tab: PageTab,
+    pub editing: Option<Editing>,
     pub card: Option<usize>,
     pub scroll: f32,
 }
@@ -248,11 +305,16 @@ pub enum SettingsAction {
     PackDown(usize),
     PackOff(usize),
     PackOn(String),
-    Toggle(&'static str),
-    OpenChoice(&'static str),
-    Choose(&'static str, &'static str),
-    Step(&'static str, f32),
-    Reset(&'static str),
+    Toggle(String),
+    OpenChoice(String),
+    Choose(String, String),
+    Step(String, f32),
+    Reset(String),
+    /// Starts typing into a field, or a new item of a list when `true`.
+    Edit(String, bool),
+    /// Takes an item out of a list.
+    Unlist(String, usize),
+    PageTab(PageTab),
     ClearSearch,
     KeysFilter(KeysFilter),
     Record,
@@ -293,8 +355,8 @@ pub struct PageView {
     pub commands: Vec<(String, Option<String>)>,
     pub languages: Vec<String>,
     pub looks: Vec<String>,
-    /// Its settings: key, value, and whether the user changed it.
-    pub settings: Vec<(String, toml::Value, bool)>,
+    /// Its settings, as rows.
+    pub rows: Vec<Row>,
     /// The Uninstall button was pressed once, and waits for a second.
     pub uninstall_armed: bool,
     /// Installed with `merlin plugin install`, so it can be uninstalled.
@@ -308,8 +370,6 @@ pub enum PageAction {
     /// Its channel of the Output panel.
     Output(String),
     Uninstall(String),
-    /// A plugin's setting: plugin, key, new value.
-    Setting(String, String, toml::Value),
 }
 
 /// The settings as last read: merged, then each file on its own, and what
@@ -358,9 +418,30 @@ fn part(key: &str) -> (&str, &str) {
     key.split_once('.').unwrap_or(("editor", key))
 }
 
+/// A setting by its key. A plugin's, `plugins.<name>.<key>`, may reach
+/// into tables with more dots.
 fn get<'a>(table: &'a toml::Table, key: &str) -> Option<&'a toml::Value> {
     let (section, name) = part(key);
-    table.get(section)?.as_table()?.get(name)
+    let table = table.get(section)?.as_table()?;
+    if section != "plugins" {
+        return table.get(name);
+    }
+    let mut parts = name.split('.');
+    let mut value = table.get(parts.next()?)?;
+    for part in parts {
+        value = value.as_table()?.get(part)?;
+    }
+    Some(value)
+}
+
+/// A choice's value as people read it: `after_delay` is "After delay".
+pub(crate) fn option_label(o: &str) -> String {
+    let s = o.replace(['_', '-'], " ");
+    let mut c = s.chars();
+    match c.next() {
+        Some(f) => f.to_uppercase().chain(c).collect(),
+        None => s,
+    }
 }
 
 impl App {
@@ -413,6 +494,9 @@ impl App {
         if !matches!(action, SettingsAction::Choose(..)) {
             ui.open_choice = None;
         }
+        if !matches!(action, SettingsAction::Edit(..)) {
+            ui.editing = None;
+        }
         match action {
             SettingsAction::Category(c) => {
                 ui.category = c;
@@ -461,8 +545,35 @@ impl App {
             SettingsAction::CaptureDone { replace } => self.capture_done(replace),
             SettingsAction::Plugin(name) => {
                 ui.plugin = Some(name);
+                ui.scroll = 0.0;
                 self.uninstall_armed = None;
                 Vec::new()
+            }
+            SettingsAction::PageTab(tab) => {
+                ui.page_tab = tab;
+                Vec::new()
+            }
+            SettingsAction::Edit(key, add) => {
+                let text = if add {
+                    String::new()
+                } else {
+                    match self.find_row(&key).map(|r| r.control) {
+                        Some(Control::Field(text, _)) => text,
+                        _ => String::new(),
+                    }
+                };
+                self.settings_ui.editing = Some(Editing { key, text, add });
+                Vec::new()
+            }
+            SettingsAction::Unlist(key, i) => {
+                let Some(Control::List(mut items)) = self.find_row(&key).map(|r| r.control) else {
+                    return Vec::new();
+                };
+                if i < items.len() {
+                    items.remove(i);
+                }
+                let list = toml::Value::Array(items.into_iter().map(toml::Value::String).collect());
+                self.write(&key, Some(list.to_string()))
             }
             SettingsAction::OpenChoice(key) => {
                 ui.open_choice = Some(key);
@@ -525,35 +636,29 @@ impl App {
             }
             SettingsAction::Toggle(key) => {
                 let on = self
-                    .sections()
-                    .iter()
-                    .flat_map(|s| &s.rows)
-                    .any(|r| r.key == key && r.control == Control::Toggle(true));
-                self.write(key, Some((!on).to_string()))
+                    .find_row(&key)
+                    .is_some_and(|r| r.control == Control::Toggle(true));
+                self.write(&key, Some((!on).to_string()))
             }
             SettingsAction::Choose(key, value) => {
                 self.settings_ui.open_choice = None;
-                // Numbers are written as numbers.
+                // Numbers are written as numbers, but a plugin's choices
+                // are always text.
                 let value = match value.parse::<f64>() {
-                    Ok(_) => value.to_string(),
-                    Err(_) => quote(value),
+                    Ok(_) if !key.starts_with("plugins.") => value,
+                    _ => quote(&value),
                 };
-                self.write(key, Some(value))
+                self.write(&key, Some(value))
             }
             SettingsAction::Step(key, by) => {
-                let now = self
-                    .sections()
-                    .iter()
-                    .flat_map(|s| &s.rows)
-                    .find_map(|r| match r.control {
-                        Control::Number(n) if r.key == key => Some(n),
-                        _ => None,
-                    })
-                    .unwrap_or(FONT_SIZE);
+                let now = match self.find_row(&key).map(|r| r.control) {
+                    Some(Control::Number(n)) => n,
+                    _ => FONT_SIZE,
+                };
                 let next = (now + by).clamp(8.0, 32.0);
-                self.write(key, Some(format!("{next:.1}")))
+                self.write(&key, Some(format!("{next:.1}")))
             }
-            SettingsAction::Reset(key) => self.write(key, None),
+            SettingsAction::Reset(key) => self.write(&key, None),
             SettingsAction::Unbind(command) => self.unbind(&command),
             SettingsAction::ResetKey(command) => self.reset_key(&command),
             SettingsAction::Page(action) => self.page_action(action),
@@ -569,6 +674,24 @@ impl App {
     pub(crate) fn settings_key(&mut self, key: Key) -> Option<Vec<Event>> {
         let plain = !key.ctrl && !key.alt;
         let ui = &mut self.settings_ui;
+        if let Some(edit) = &mut ui.editing {
+            match key.code {
+                KeyCode::Esc => ui.editing = None,
+                KeyCode::Enter => return Some(self.edit_done()),
+                KeyCode::Backspace if key.ctrl => {
+                    let keep = edit.text.trim_end().rfind([' ', '/', '-', '_', '.']);
+                    edit.text.truncate(keep.map_or(0, |i| i + 1));
+                }
+                KeyCode::Backspace => {
+                    edit.text.pop();
+                }
+                KeyCode::Char(c) if !key.ctrl && !key.alt => edit.text.push(c),
+                // Ctrl+P and the like still reach the editor.
+                _ if key.ctrl => return None,
+                _ => {}
+            }
+            return Some(Vec::new());
+        }
         if let Some(c) = &mut ui.capture {
             match key.code {
                 KeyCode::Esc if plain => ui.capture = None,
@@ -683,10 +806,89 @@ impl App {
         Some(events)
     }
 
+    /// Every row that can show: the pages' and the plugins'.
+    fn find_row(&self, key: &str) -> Option<Row> {
+        if let Some(rest) = key.strip_prefix("plugins.") {
+            let name = rest.split('.').next()?;
+            return self.plugin_rows(name).into_iter().find(|r| r.key == key);
+        }
+        self.sections()
+            .into_iter()
+            .flat_map(|s| s.rows)
+            .find(|r| r.key == key)
+    }
+
+    /// Enter in a field: its text saved, as the setting takes it.
+    fn edit_done(&mut self) -> Vec<Event> {
+        let Some(edit) = self.settings_ui.editing.take() else {
+            return Vec::new();
+        };
+        let Some(control) = self.find_row(&edit.key).map(|r| r.control) else {
+            return Vec::new();
+        };
+        match typed(&control, &edit.text) {
+            Ok(Typed::Set(value)) => self.write(&edit.key, Some(value.to_string())),
+            Ok(Typed::Reset) => self.write(&edit.key, None),
+            Ok(Typed::Nothing) => Vec::new(),
+            Err(err) => vec![Event::Error(err)],
+        }
+    }
+
     /// The wheel over the page.
     pub(crate) fn settings_scroll(&mut self, by: f32) {
         let ui = &mut self.settings_ui;
         ui.scroll = (ui.scroll + by).clamp(0.0, ui.room.max(0.0));
+    }
+}
+
+/// What text typed into a setting does.
+#[derive(Debug, PartialEq)]
+enum Typed {
+    Set(toml::Value),
+    /// Nothing typed: the setting goes back to the default.
+    Reset,
+    Nothing,
+}
+
+/// Text typed into a field, or as a list's new item, as the setting's
+/// value: a number clamped to its range, a list with the item added.
+fn typed(control: &Control, text: &str) -> Result<Typed, String> {
+    let text = text.trim();
+    match control {
+        Control::List(items) => {
+            if text.is_empty() || items.iter().any(|i| i == text) {
+                return Ok(Typed::Nothing);
+            }
+            let mut items: Vec<toml::Value> = items
+                .iter()
+                .map(|i| toml::Value::String(i.clone()))
+                .collect();
+            items.push(text.into());
+            Ok(Typed::Set(toml::Value::Array(items)))
+        }
+        Control::Field(..) if text.is_empty() => Ok(Typed::Reset),
+        Control::Field(_, FieldKind::Text | FieldKind::Path) => Ok(Typed::Set(text.into())),
+        Control::Field(_, FieldKind::Integer(min, max)) => text
+            .parse::<i64>()
+            .map(|n| {
+                Typed::Set(
+                    n.clamp(min.unwrap_or(i64::MIN), max.unwrap_or(i64::MAX))
+                        .into(),
+                )
+            })
+            .map_err(|_| format!("{text} isn't a whole number")),
+        Control::Field(_, FieldKind::Float(min, max)) => text
+            .parse::<f64>()
+            .ok()
+            .filter(|n| n.is_finite())
+            .map(|n| {
+                Typed::Set(
+                    n.clamp(min.unwrap_or(f64::MIN), max.unwrap_or(f64::MAX))
+                        .into(),
+                )
+            })
+            .ok_or_else(|| format!("{text} isn't a number")),
+        _ => Ok(Typed::Nothing),
     }
 }
 
@@ -774,6 +976,141 @@ mod tests {
             Some("after_delay")
         );
         assert!(get(&table, "files.hot_exit").is_none());
+    }
+
+    /// A plugin with a choice, a list, a program's path and a number.
+    fn plugin() -> PluginInfo {
+        use merlin_plugins::SettingSpec;
+        let spec = |key: &str, kind: SettingKind, default: toml::Value, user_only| SettingSpec {
+            key: key.into(),
+            title: key.into(),
+            kind,
+            default,
+            description: String::new(),
+            user_only,
+        };
+        PluginInfo {
+            name: "rust".into(),
+            title: "Rust".into(),
+            schema: vec![
+                spec(
+                    "check-command",
+                    SettingKind::Choice(vec![
+                        ("check".into(), "cargo check".into()),
+                        ("clippy".into(), "cargo clippy".into()),
+                    ]),
+                    "check".into(),
+                    false,
+                ),
+                spec(
+                    "features",
+                    SettingKind::List,
+                    toml::Value::Array(Vec::new()),
+                    false,
+                ),
+                spec(
+                    "server-path",
+                    SettingKind::Path,
+                    "rust-analyzer".into(),
+                    true,
+                ),
+                spec(
+                    "jobs",
+                    SettingKind::Integer {
+                        min: Some(1),
+                        max: Some(64),
+                    },
+                    4.into(),
+                    false,
+                ),
+            ],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn plugin_rows_show_each_file_and_lock_what_only_you_set() {
+        let user: toml::Table =
+            "[plugins.rust]\ncheck-command = \"check\"\nserver-path = \"/usr/bin/ra\"\n"
+                .parse()
+                .unwrap();
+        let workspace: toml::Table =
+            "[plugins.rust]\ncheck-command = \"clippy\"\nfeatures = [\"gui\"]\n"
+                .parse()
+                .unwrap();
+        let row =
+            |rows: &[Row], key: &str| rows.iter().find(|r| r.key_shown() == key).unwrap().clone();
+
+        // On the User tab: yours, and the workspace's wins in it.
+        let rows = plugins::rows_of(&plugin(), &user, &workspace, false);
+        let check = row(&rows, "check-command");
+        assert_eq!(check.key, "plugins.rust.check-command");
+        assert!(check.changed && check.in_workspace && check.yours.is_none());
+        assert_eq!(
+            check.control,
+            Control::Choice(
+                vec![
+                    ("check".into(), "cargo check".into()),
+                    ("clippy".into(), "cargo clippy".into())
+                ],
+                "check".into()
+            )
+        );
+        let path = row(&rows, "server-path");
+        assert!(path.user_only && !path.locked && path.changed);
+
+        // On the Workspace tab: the workspace's, with yours to go back to.
+        let rows = plugins::rows_of(&plugin(), &user, &workspace, true);
+        let check = row(&rows, "check-command");
+        assert!(matches!(&check.control, Control::Choice(_, now) if now == "clippy"));
+        assert_eq!(check.yours.as_deref(), Some("cargo check"));
+        assert_eq!(
+            row(&rows, "features").control,
+            Control::List(vec!["gui".into()])
+        );
+        // A program's path is yours, shown but not set here.
+        let path = row(&rows, "server-path");
+        assert!(path.locked && !path.changed);
+        assert_eq!(
+            path.control,
+            Control::Field("/usr/bin/ra".into(), FieldKind::Path)
+        );
+        assert_eq!(
+            row(&rows, "jobs").control,
+            Control::Field("4".into(), FieldKind::Integer(Some(1), Some(64)))
+        );
+    }
+
+    #[test]
+    fn typing_into_a_setting_gives_its_value() {
+        let list = Control::List(vec!["gui".into()]);
+        assert_eq!(
+            typed(&list, " wgpu "),
+            Ok(Typed::Set(toml::Value::Array(vec![
+                "gui".into(),
+                "wgpu".into()
+            ])))
+        );
+        assert_eq!(typed(&list, "gui"), Ok(Typed::Nothing));
+        let jobs = Control::Field("4".into(), FieldKind::Integer(Some(1), Some(64)));
+        assert_eq!(typed(&jobs, "100"), Ok(Typed::Set(64.into())));
+        assert!(typed(&jobs, "lots").is_err());
+        assert_eq!(typed(&jobs, ""), Ok(Typed::Reset));
+        let path = Control::Field(String::new(), FieldKind::Path);
+        assert_eq!(
+            typed(&path, "/usr/bin/ra"),
+            Ok(Typed::Set("/usr/bin/ra".into()))
+        );
+    }
+
+    #[test]
+    fn plugin_settings_are_found_by_their_dotted_keys() {
+        let table: toml::Table = "[plugins.testbed]\nstyle.loud = true\n".parse().unwrap();
+        assert_eq!(
+            get(&table, "plugins.testbed.style.loud"),
+            Some(&toml::Value::Boolean(true))
+        );
+        assert!(get(&table, "plugins.testbed.style.quiet").is_none());
     }
 
     #[test]

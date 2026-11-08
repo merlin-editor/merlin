@@ -804,3 +804,12 @@ world plugin {
   /// printed, and its exit code, if it had one.
   export on-terminal: func(id: string, output: string, code: option<s32>);
 }
+
+/// What the SDK builds: `plugin`, and exports merlin calls only when a
+/// plugin has them, so plugins built before them still load.
+world plugin-sdk {
+  include plugin;
+  /// One of the plugin's settings changed, by its dotted key, after the
+  /// user or a workspace set it. `get-setting` has the new value.
+  export on-setting-changed: func(key: string);
+}

@@ -297,7 +297,12 @@ impl Gui<'_> {
             Hit::Command(command) => self.dispatch(Event::Command(command.into())),
             Hit::Key(key) => self.dispatch(Event::Key(key)),
             Hit::Settings(action) => self.settings_press(action, clicks, at),
-            Hit::SettingsBody => self.focus_page(at),
+            Hit::SettingsBody => {
+                // A click away from a field being typed in leaves it.
+                self.app.settings_ui.editing = None;
+                self.app.settings_ui.open_choice = None;
+                self.focus_page(at);
+            }
             Hit::Sash(side) => self.sash = Some(side),
             // A double click on a strip's empty end opens a new file there.
             Hit::TabStrip(group) if clicks >= 2 => {

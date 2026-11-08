@@ -133,6 +133,8 @@ impl Snapshot {
 struct Instance {
     store: Store<State>,
     bindings: Bindings,
+    /// `on-setting-changed`, which plugins built before it don't export.
+    setting_changed: Option<wasmtime::component::TypedFunc<(String,), ()>>,
 }
 
 struct Loaded {
@@ -172,7 +174,7 @@ impl Loaded {
 }
 
 /// What a plugin's page shows about it.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct PluginInfo {
     pub name: String,
     pub title: String,
@@ -197,6 +199,9 @@ pub struct PluginInfo {
     pub settings: toml::Table,
     /// Its manifest's defaults, to tell what the user changed.
     pub defaults: toml::Table,
+    /// Its settings as the Settings page shows them: the manifest's, then
+    /// the ones every plugin that runs has.
+    pub schema: Vec<SettingSpec>,
     /// Bytes of memory its instance has.
     pub memory: usize,
     pub busy: Duration,
@@ -217,8 +222,9 @@ pub struct PluginHost {
     woken: Arc<AtomicBool>,
     config: Config,
     secrets: Arc<Secrets>,
-    /// `[plugins]` from the user's and the workspace's settings.
-    settings: toml::Table,
+    /// `[plugins]` from the user's settings, and from the workspace's.
+    user_settings: toml::Table,
+    workspace_settings: toml::Table,
     /// Plugins the user turned off, by name, which load without running.
     disabled: Vec<String>,
 }
@@ -258,7 +264,8 @@ impl PluginHost {
             woken: Arc::new(AtomicBool::new(false)),
             config,
             secrets,
-            settings: toml::Table::new(),
+            user_settings: toml::Table::new(),
+            workspace_settings: toml::Table::new(),
             disabled: Vec::new(),
         })
     }
@@ -486,7 +493,7 @@ impl PluginHost {
                 self.woken.clone(),
             ),
             secrets: self.secrets.clone(),
-            settings: plugin_settings(manifest, &self.settings),
+            settings: plugin_settings(manifest, &self.user_settings, &self.workspace_settings),
             limits: Limits::default(),
             debug_start: None,
             breakpoints: Vec::new(),
@@ -495,10 +502,22 @@ impl PluginHost {
         let mut store = Store::new(&self.engine, state);
         store.limiter(|s| &mut s.limits);
         store.set_fuel(FUEL_PER_CALL).map_err(wt)?;
-        let bindings = Bindings::instantiate(&mut store, &component, &self.linker)
+        let instance = self
+            .linker
+            .instantiate(&mut store, &component)
             .map_err(wt)
             .with_context(|| format!("instantiating {}", manifest.name))?;
-        Ok(Instance { store, bindings })
+        let bindings = Bindings::new(&mut store, &instance)
+            .map_err(wt)
+            .with_context(|| format!("instantiating {}", manifest.name))?;
+        let setting_changed = instance
+            .get_typed_func::<(String,), ()>(&mut store, "on-setting-changed")
+            .ok();
+        Ok(Instance {
+            store,
+            bindings,
+            setting_changed,
+        })
     }
 
     fn activate(&mut self, index: usize, state: Option<Vec<u8>>) -> Vec<Event> {
@@ -584,15 +603,41 @@ impl PluginHost {
     }
 
     /// Takes new settings for plugins: the `[plugins]` table of the user's
-    /// settings with the workspace's over it.
-    pub fn set_settings(&mut self, plugins: toml::Table) {
-        self.settings = plugins;
-        for plugin in &mut self.plugins {
-            let settings = plugin_settings(&plugin.manifest, &self.settings);
-            if let Some(instance) = &mut plugin.instance {
-                instance.store.data_mut().settings = settings;
+    /// settings, and the workspace's, which wins except for settings only
+    /// the user sets. A running plugin hears which of its own changed.
+    pub fn set_settings(
+        &mut self,
+        user: toml::Table,
+        workspace: toml::Table,
+        snapshot: &Snapshot,
+    ) -> Vec<Event> {
+        self.user_settings = user;
+        self.workspace_settings = workspace;
+        let mut events = Vec::new();
+        for i in 0..self.plugins.len() {
+            let plugin = &mut self.plugins[i];
+            let settings = plugin_settings(
+                &plugin.manifest,
+                &self.user_settings,
+                &self.workspace_settings,
+            );
+            let Some(instance) = &mut plugin.instance else {
+                continue;
+            };
+            let old = std::mem::replace(&mut instance.store.data_mut().settings, settings);
+            let Some(func) = instance.setting_changed else {
+                continue;
+            };
+            let new = &instance.store.data().settings;
+            let mut changed: Vec<String> = Vec::new();
+            changed_keys(&old, new, "", &mut changed);
+            for key in changed {
+                let (_, mut more) =
+                    self.call(i, snapshot.clone(), |_, store| func.call(store, (key,)));
+                events.append(&mut more);
             }
         }
+        events
     }
 
     /// Gives a debugger plugin what `debug-start` and `breakpoints` read,
@@ -1054,8 +1099,20 @@ impl PluginHost {
                         .chain(&m.packs)
                         .map(|t| t.label.clone())
                         .collect(),
-                    settings: plugin_settings(m, &self.settings),
+                    settings: plugin_settings(m, &self.user_settings, &self.workspace_settings),
                     defaults: m.settings.clone(),
+                    schema: m
+                        .schema
+                        .iter()
+                        .cloned()
+                        .chain(
+                            m.component
+                                .is_some()
+                                .then(common_settings)
+                                .into_iter()
+                                .flatten(),
+                        )
+                        .collect(),
                     memory,
                     busy: p.busy,
                     processes,
@@ -1137,6 +1194,20 @@ fn stale_build(file: &str, name: &str) -> bool {
         .and_then(|h| h.strip_prefix('-'))
         .unwrap_or(hash);
     hash.len() == 16 && hash.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// The dotted keys whose values differ between two settings tables.
+fn changed_keys(old: &toml::Table, new: &toml::Table, prefix: &str, out: &mut Vec<String>) {
+    let keys: std::collections::BTreeSet<&String> = old.keys().chain(new.keys()).collect();
+    for key in keys {
+        match (old.get(key), new.get(key)) {
+            (Some(toml::Value::Table(a)), Some(toml::Value::Table(b))) => {
+                changed_keys(a, b, &format!("{prefix}{key}."), out);
+            }
+            (a, b) if a != b => out.push(format!("{prefix}{key}")),
+            _ => {}
+        }
+    }
 }
 
 fn wt(err: wasmtime::Error) -> anyhow::Error {

@@ -216,8 +216,12 @@ The PDF viewer is the test: it's `PluginDocument.dc.html` in
 ## Order
 
 1. Logs and quieter notices: no UI to agree on beyond the Output picker, and
-   it's the most visible annoyance.
-2. Settings with a schema and scopes: the page and rows exist.
+   it's the most visible annoyance. **Built.**
+2. Settings with a schema and scopes: the page and rows exist. **Built**,
+   except secret settings, which still go through `set-secret`.
+   `on-setting-changed` is in a `plugin-sdk` world that the SDK builds, and
+   the host calls it only when a plugin exports it, so plugins built for
+   0.9 before it still load.
 3. Views from the manifest, left / right / bottom / tab, with icons, and
    the right side bar's own tabs.
 4. One home for plugins (drop the side view), once 3 gives the rail

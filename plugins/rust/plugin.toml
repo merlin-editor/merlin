@@ -16,6 +16,22 @@ workspace-read = true
 # To run cargo test and read how the tests went.
 terminal = true
 
+# Settings on its page in Settings › Plugins, for you or the workspace.
+[settings.check-command]
+type = "choice"
+title = "Check on save"
+default = "check"
+choices = [
+    { value = "check", label = "cargo check" },
+    { value = "clippy", label = "cargo clippy" },
+]
+description = "What rust-analyzer runs when you save."
+
+[settings.features]
+type = "list"
+title = "Features"
+description = "Cargo features rust-analyzer turns on when it checks."
+
 [[languages]]
 id = "rust"
 name = "Rust"

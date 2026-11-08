@@ -3,6 +3,14 @@
 
 use super::*;
 
+/// How many values a table holds, counting inside its tables.
+fn leaves(v: &toml::Value) -> usize {
+    match v {
+        toml::Value::Table(t) => t.values().map(leaves).sum(),
+        _ => 1,
+    }
+}
+
 /// How a setting's value reads in a note.
 pub(super) fn shown(v: &toml::Value) -> String {
     match v {
@@ -21,15 +29,19 @@ impl App {
             user, workspace, ..
         } = &self.loaded;
         let scope = if ui.workspace { workspace } else { user };
-        let row = |label: &'static str, about: &'static str, key: &'static str, kind: Kind| {
+        let row = |label: &str, about: &str, key: &str, kind: Kind| {
             // The file's own value, or on the Workspace tab yours under it.
             let value = get(scope, key).or_else(|| get(user, key).filter(|_| ui.workspace));
             let in_workspace = get(workspace, key).is_some();
             let control = match kind {
                 Kind::Bool(d) => Control::Toggle(value.and_then(|v| v.as_bool()).unwrap_or(d)),
-                Kind::Pick(options, d) => {
-                    Control::Choice(options, value.map_or_else(|| d.to_string(), shown))
-                }
+                Kind::Pick(options, d) => Control::Choice(
+                    options
+                        .iter()
+                        .map(|o| (o.to_string(), option_label(o)))
+                        .collect(),
+                    value.map_or_else(|| d.to_string(), shown),
+                ),
                 Kind::Num(d) => Control::Number(
                     value
                         .and_then(|v| v.as_float().or(v.as_integer().map(|i| i as f64)))
@@ -51,13 +63,16 @@ impl App {
                 _ => None,
             };
             Row {
-                label,
-                about,
-                key,
+                label: label.into(),
+                about: about.into(),
+                key: key.into(),
                 control,
                 changed: get(scope, key).is_some(),
                 in_workspace,
                 note,
+                yours: None,
+                user_only: false,
+                locked: false,
             }
         };
         let on = Kind::Bool;
@@ -66,7 +81,7 @@ impl App {
         let sections = vec![
             Section {
                 category: Category::Editor,
-                title: "Font",
+                title: "Font".into(),
                 rows: vec![
                     row("Font size", "The code's size, in points. Ctrl+= and Ctrl+- change it for now.", "editor.font_size", Kind::Num(FONT_SIZE)),
                     row("Line height", "Each row's height, times the font size.", "editor.line_height", pick(vec!["1.3", "1.55", "1.8"], "1.55")),
@@ -76,7 +91,7 @@ impl App {
             },
             Section {
                 category: Category::Editor,
-                title: "Cursor",
+                title: "Cursor".into(),
                 rows: vec![
                     row("Cursor style", "How the cursor is drawn.", "editor.cursor_style", pick(vec!["line", "line-thin", "block", "block-outline", "underline", "underline-thin"], "line")),
                     row("Cursor blinking", "How the cursor blinks.", "editor.cursor_blinking", pick(vec!["blink", "smooth", "phase", "expand", "solid"], "blink")),
@@ -84,7 +99,7 @@ impl App {
             },
             Section {
                 category: Category::Editor,
-                title: "Text",
+                title: "Text".into(),
                 rows: vec![
                     row("Word wrap", "Long lines wrap at spaces instead of scrolling sideways. Alt+Z", "editor.word_wrap", on(false)),
                     row("Auto-close brackets", "Typing a bracket or quote adds its closer, and wraps a selection in the pair.", "editor.auto_closing_brackets", on(true)),
@@ -95,7 +110,7 @@ impl App {
             },
             Section {
                 category: Category::Editor,
-                title: "Display",
+                title: "Display".into(),
                 rows: vec![
                     row("Minimap", "The file's shape beside the scrollbar, with matches, problems and changes marked.", "editor.minimap", on(false)),
                     row("Minimap scale", "How big the minimap draws the file.", "editor.minimap_scale", pick(vec!["1", "2", "3"], "1")),
@@ -110,7 +125,7 @@ impl App {
             },
             Section {
                 category: Category::Editor,
-                title: "Scrolling",
+                title: "Scrolling".into(),
                 rows: vec![
                     row("Smooth scrolling", "A wheel's steps glide to where they scroll.", "editor.smooth_scrolling", on(true)),
                     row("Scroll beyond last line", "The last line can scroll up to the top of the view.", "editor.scroll_beyond_last_line", on(true)),
@@ -121,7 +136,7 @@ impl App {
             },
             Section {
                 category: Category::Files,
-                title: "Saving",
+                title: "Saving".into(),
                 rows: vec![
                     row("Auto save", "Files save by themselves: a while after each change, when the code loses the keyboard, or when the window does.", "files.auto_save", pick(vec!["off", "after_delay", "on_focus_change", "on_window_change"], "off")),
                     row("Auto save delay", "Milliseconds after the last change, with After delay.", "files.auto_save_delay", pick(vec!["500", "1000", "2000", "5000"], "1000")),
@@ -133,7 +148,7 @@ impl App {
             },
             Section {
                 category: Category::Keys,
-                title: "Keymap",
+                title: "Keymap".into(),
                 rows: vec![
                     row("Keymap", "How keys work in the text. The rest of the window keeps its shortcuts, and the status bar's Keymap item switches.", "editor.keymap", pick(vec!["vscode", "vim"], "vscode")),
                     row("Leader key", "Starts merlin's own commands, listed by which-key.", "vim.leader", pick(vec!["space", ",", "\\"], "space")),
@@ -145,7 +160,7 @@ impl App {
             },
             Section {
                 category: Category::Files,
-                title: "Tabs",
+                title: "Tabs".into(),
                 rows: vec![
                     row("Preview tabs", "A single click in the Explorer opens a tab the next click replaces, in italics.", "editor.preview_tabs", on(true)),
                 ],
@@ -188,9 +203,16 @@ impl App {
         changed[Category::Plugins.index()] = scope
             .get("plugins")
             .and_then(|t| t.as_table())
-            .map_or(0, |t| t.len());
+            .map_or(0, |t| t.values().map(leaves).sum());
+        // A search finds plugins' settings too, under each plugin.
+        let found_plugins = if searching {
+            self.plugin_sections()
+        } else {
+            Vec::new()
+        };
         let sections = all
             .into_iter()
+            .chain(found_plugins)
             .filter(|s| searching || s.category == ui.category)
             .map(|mut s| {
                 if searching {
@@ -342,7 +364,9 @@ impl App {
                 keys: ui.keys,
                 record: ui.record,
                 key_row: ui.key_row,
-                open_choice: ui.open_choice,
+                open_choice: ui.open_choice.clone(),
+                page_tab: ui.page_tab,
+                editing: ui.editing.clone(),
                 card: ui.card,
                 scroll: ui.scroll,
             },

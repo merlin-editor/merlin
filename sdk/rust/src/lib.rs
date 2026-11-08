@@ -29,7 +29,7 @@
 pub mod bindings {
     wit_bindgen::generate!({
         path: "../../wit",
-        world: "plugin",
+        world: "plugin-sdk",
         pub_export_macro: true,
         default_bindings_module: "merlin_plugin::bindings",
     });
@@ -39,11 +39,13 @@ pub mod bindings {
 /// processes and secrets.
 pub use bindings::merlin::plugin::host;
 pub use bindings::merlin::plugin::types::{
-    ActionKind, BufferEvent, Button, CodeAction, Command, Completion, DetailedDiagnostic, Diagnostic, DocSymbol, FileEdit, FoldRange, Framing, InlayHint,
-    InlayKind, Input, Item, LineRange, Location, Node, Panel, PickItem, Position, ProcessEvent, ProjectSymbol, RenameInfo, Selection,
-    Setting, Severity, Signature, Styled, Task, TaskGroup, TestItem, TestOutcome, TestResult, TextChange, Token, TokenKind, TokenLayer, Tone,
-    Breakpoint, BreakpointState, DebugLaunch, FunctionStop, DebugPause, DebugState, DebugTarget, DebugThread, DebugVariable, InlineValue,
-    LogLevel, OutputKind, StackFrame, StatusItem, StatusState, StopFilter,
+    ActionKind, Breakpoint, BreakpointState, BufferEvent, Button, CodeAction, Command, Completion,
+    DebugLaunch, DebugPause, DebugState, DebugTarget, DebugThread, DebugVariable,
+    DetailedDiagnostic, Diagnostic, DocSymbol, FileEdit, FoldRange, Framing, FunctionStop,
+    InlayHint, InlayKind, InlineValue, Input, Item, LineRange, Location, LogLevel, Node,
+    OutputKind, Panel, PickItem, Position, ProcessEvent, ProjectSymbol, RenameInfo, Selection,
+    Setting, Severity, Signature, StackFrame, StatusItem, StatusState, StopFilter, Styled, Task,
+    TaskGroup, TestItem, TestOutcome, TestResult, TextChange, Token, TokenKind, TokenLayer, Tone,
 };
 
 /// UTF-16 columns, which positions count, as LSP does.
@@ -96,11 +98,13 @@ pub mod settings {
 
 pub mod prelude {
     pub use crate::{
-        ActionKind, BufferEvent, Button, CodeAction, Command, Completion, DetailedDiagnostic, Diagnostic, DocSymbol, FileEdit, FoldRange, Framing,
-        InlayHint, InlayKind, LineRange, Location, Node, Panel, PickItem, Plugin, Position, ProcessEvent, ProjectSymbol, RenameInfo,
-        Selection, Severity, Signature, Task, TaskGroup, TestItem, TestOutcome, TestResult, TextChange, Token, TokenKind, TokenLayer, Tone, host,
-        settings, Breakpoint, BreakpointState, DebugLaunch, FunctionStop, DebugPause, DebugState, DebugTarget, DebugThread, DebugVariable,
-        InlineValue, LogLevel, OutputKind, StackFrame, StatusItem, StatusState, StopFilter,
+        ActionKind, Breakpoint, BreakpointState, BufferEvent, Button, CodeAction, Command,
+        Completion, DebugLaunch, DebugPause, DebugState, DebugTarget, DebugThread, DebugVariable,
+        DetailedDiagnostic, Diagnostic, DocSymbol, FileEdit, FoldRange, Framing, FunctionStop,
+        InlayHint, InlayKind, InlineValue, LineRange, Location, LogLevel, Node, OutputKind, Panel,
+        PickItem, Plugin, Position, ProcessEvent, ProjectSymbol, RenameInfo, Selection, Severity,
+        Signature, StackFrame, StatusItem, StatusState, StopFilter, Task, TaskGroup, TestItem,
+        TestOutcome, TestResult, TextChange, Token, TokenKind, TokenLayer, Tone, host, settings,
     };
 }
 
@@ -137,6 +141,10 @@ pub trait Plugin: 'static {
 
     /// The user accepted or rejected a diff shown with [`host::show_diff`].
     fn review(&mut self, _id: &str, _accepted: bool) {}
+
+    /// One of the plugin's settings changed, by its dotted key: the user
+    /// set it, or the workspace did. [`settings`] reads the new value.
+    fn setting_changed(&mut self, _key: &str) {}
 
     /// A command line from [`host::run_in_terminal`], or one of the
     /// plugin's tests', ended: all it printed, and its exit code.
@@ -384,6 +392,12 @@ macro_rules! export {
             fn on_terminal(id: String, output: String, code: Option<i32>) {
                 $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
                     $crate::Plugin::terminal(p, &id, &output, code)
+                })
+            }
+
+            fn on_setting_changed(key: String) {
+                $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
+                    $crate::Plugin::setting_changed(p, &key)
                 })
             }
         }

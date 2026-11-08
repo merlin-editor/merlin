@@ -13,6 +13,7 @@ const PYTHON_SERVER: Spec = Spec {
     args: &["--stdio"],
     files: &[("py", "python"), ("pyi", "python")],
     settings: Some(r#"{"python":{"analysis":{"diagnosticMode":"openFilesOnly"}}}"#),
+    options: &[],
     install: Some("npm install -g pyright"),
 };
 

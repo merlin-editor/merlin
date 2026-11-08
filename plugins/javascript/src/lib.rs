@@ -19,6 +19,7 @@ const JS_SERVER: Spec = Spec {
         ("jsx", "javascriptreact"),
     ],
     settings: Some(r#"{"tsserver":{"maxTsServerMemory":512}}"#),
+    options: &[],
     install: Some("npm install -g typescript-language-server typescript"),
 };
 

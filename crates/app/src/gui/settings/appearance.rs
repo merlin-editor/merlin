@@ -9,19 +9,23 @@ impl<'a> Frame<'a> {
         let more = Hit::Settings(SettingsAction::Category(Category::Plugins));
         self.s_heading("Colour theme", Some(("More themes in Plugins ›", more)), c);
         let follow = Row {
-            label: "Follow the system",
-            about: "One theme for a dark desktop, another for a light one.",
-            key: "editor.theme_follows_system",
+            label: "Follow the system".into(),
+            about: "One theme for a dark desktop, another for a light one.".into(),
+            key: "editor.theme_follows_system".into(),
             control: Control::Toggle(v.follow),
             changed: false,
             in_workspace: false,
             note: None,
+            yours: None,
+            user_only: false,
+            locked: false,
         };
         // The row's switch flips it, rather than writing it as a toggle.
         let at = self.hits.len();
-        self.setting_row(&follow, false, c);
+        self.setting_row(&follow, &v.ui, c);
+        let toggle = Hit::Settings(SettingsAction::Toggle(follow.key.clone()));
         for (_, hit) in &mut self.hits[at..] {
-            if *hit == Hit::Settings(SettingsAction::Toggle("editor.theme_follows_system")) {
+            if *hit == toggle {
                 *hit = Hit::Settings(SettingsAction::Follow);
             }
         }
@@ -87,11 +91,11 @@ impl<'a> Frame<'a> {
         }
         c.y += v.icons.len().div_ceil(cols) as f32 * (52.0 + CARD_GAP);
 
-        let add = Hit::Settings(SettingsAction::OpenChoice("packs.add"));
+        let add = Hit::Settings(SettingsAction::OpenChoice("packs.add".into()));
         let link = (!v.available.is_empty()).then_some(("Add a layout ▾", add));
         let link_at = c.y + 20.0;
         self.s_heading("Layouts", link, c);
-        if v.ui.open_choice == Some("packs.add") {
+        if v.ui.open_choice.as_deref() == Some("packs.add") {
             let under = Rect::new(c.x + c.w - 120.0, link_at - 2.0, 120.0, 18.0);
             c.list = Some((under, ListOf::Packs(v.available.clone())));
         }

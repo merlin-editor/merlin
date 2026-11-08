@@ -1,6 +1,7 @@
 //! Plugins on the Settings tab: their summaries, a plugin's own page, and
 //! what its buttons do.
 
+use super::view::shown;
 use super::*;
 
 impl App {
@@ -43,13 +44,7 @@ impl App {
 
     pub(crate) fn page_view(&self, name: &str) -> Option<PageView> {
         let p = self.host.plugins().into_iter().find(|p| p.name == name)?;
-        let changed = |k: &str| p.defaults.get(k) != p.settings.get(k);
-        let mut settings: Vec<_> = p
-            .settings
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone(), changed(k)))
-            .collect();
-        settings.sort_by(|a, b| a.0.cmp(&b.0));
+        let rows = self.rows_of(&p);
         Some(PageView {
             mark: mark(&p),
             commands: self.editor.plugin_commands(&p.name),
@@ -77,8 +72,40 @@ impl App {
             busy: p.busy,
             languages: p.languages,
             looks: p.looks,
-            settings,
+            rows,
         })
+    }
+
+    /// A plugin's settings as rows, by its name.
+    pub(super) fn plugin_rows(&self, name: &str) -> Vec<Row> {
+        self.host
+            .plugins()
+            .into_iter()
+            .find(|p| p.name == name)
+            .map_or_else(Vec::new, |p| self.rows_of(&p))
+    }
+
+    /// Every plugin's settings, a section each, for a search.
+    pub(super) fn plugin_sections(&self) -> Vec<Section> {
+        self.host
+            .plugins()
+            .into_iter()
+            .map(|p| Section {
+                category: Category::Plugins,
+                rows: self.rows_of(&p),
+                title: p.title,
+            })
+            .filter(|s| !s.rows.is_empty())
+            .collect()
+    }
+
+    /// A plugin's settings as rows: each with its control, and what the
+    /// user's file and the workspace's say.
+    fn rows_of(&self, p: &PluginInfo) -> Vec<Row> {
+        let Loaded {
+            user, workspace, ..
+        } = &self.loaded;
+        rows_of(p, user, workspace, self.settings_ui.workspace)
     }
 
     /// The link `merlin plugin install` made for a plugin, if it has one.
@@ -138,15 +165,6 @@ impl App {
                     ))),
                 }
             }
-            PageAction::Setting(plugin, key, value) => {
-                if !self.scripted {
-                    let path = format!("plugins.{plugin}.{key}");
-                    if let Err(err) = self.settings.set(&path, &value.to_string()) {
-                        events.push(Event::Error(format!("Can't save {path}: {err}")));
-                    }
-                    events.extend(self.load_settings());
-                }
-            }
         }
         events.push(self.plugin_summaries());
         events
@@ -161,4 +179,86 @@ pub(crate) fn mark(p: &merlin_plugins::PluginInfo) -> (String, merlin_core::styl
         p.hue.as_deref(),
         !p.looks.is_empty(),
     )
+}
+
+/// A plugin's settings as rows, from the user's file and the workspace's,
+/// for the User tab or the Workspace tab.
+pub(super) fn rows_of(
+    p: &PluginInfo,
+    user: &toml::Table,
+    workspace: &toml::Table,
+    on_workspace: bool,
+) -> Vec<Row> {
+    p.schema
+        .iter()
+        .map(|spec| {
+            let key = format!("plugins.{}.{}", p.name, spec.key);
+            let locked = spec.user_only && on_workspace;
+            let scope = if on_workspace && !locked {
+                workspace
+            } else {
+                user
+            };
+            let in_workspace = !spec.user_only && get(workspace, &key).is_some();
+            // The file's value, or yours under the workspace's, or the
+            // default.
+            let value = get(scope, &key)
+                .or_else(|| get(user, &key))
+                .unwrap_or(&spec.default);
+            let label_of = |v: &toml::Value| match &spec.kind {
+                SettingKind::Choice(choices) => {
+                    let v = shown(v);
+                    choices
+                        .iter()
+                        .find(|(value, _)| *value == v)
+                        .map_or(v, |(_, label)| label.clone())
+                }
+                _ => match v {
+                    toml::Value::Array(items) if items.is_empty() => "none".into(),
+                    toml::Value::Array(items) => {
+                        items.iter().map(shown).collect::<Vec<_>>().join(", ")
+                    }
+                    toml::Value::String(s) if s.is_empty() => "not set".into(),
+                    _ => shown(v),
+                },
+            };
+            let yours = (on_workspace && in_workspace)
+                .then(|| label_of(get(user, &key).unwrap_or(&spec.default)));
+            let control = match &spec.kind {
+                SettingKind::Flag => Control::Toggle(value.as_bool().unwrap_or(false)),
+                SettingKind::Choice(choices) => Control::Choice(choices.clone(), shown(value)),
+                SettingKind::List => Control::List(
+                    value
+                        .as_array()
+                        .map(|a| a.iter().map(shown).collect())
+                        .unwrap_or_default(),
+                ),
+                SettingKind::Text => Control::Field(shown(value), FieldKind::Text),
+                SettingKind::Path => Control::Field(shown(value), FieldKind::Path),
+                SettingKind::Integer { min, max } => {
+                    Control::Field(shown(value), FieldKind::Integer(*min, *max))
+                }
+                SettingKind::Float { min, max } => {
+                    Control::Field(shown(value), FieldKind::Float(*min, *max))
+                }
+            };
+            let about = if spec.description.is_empty() && spec.user_only {
+                "Set for you, not the workspace.".to_string()
+            } else {
+                spec.description.clone()
+            };
+            Row {
+                label: spec.title.clone(),
+                about,
+                changed: !locked && get(scope, &key).is_some(),
+                in_workspace,
+                note: None,
+                yours,
+                user_only: spec.user_only,
+                locked,
+                control,
+                key,
+            }
+        })
+        .collect()
 }

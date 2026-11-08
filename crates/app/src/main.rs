@@ -350,12 +350,18 @@ impl App {
         {
             self.editor.set_nerd_icons(icons != "plain");
         }
-        self.host.set_settings(settings::plugins(&table));
+        let snapshot = self.snapshot();
+        let heard = self.host.set_settings(
+            settings::plugins(&self.loaded.user),
+            settings::plugins(&self.loaded.workspace),
+            &snapshot,
+        );
         self.panels_for = None;
         self.choice.colours = self.chosen_colours();
         self.choice.icons = settings::editor_text(&table, "icon_theme").map(str::to_string);
         self.choice.packs = settings::editor_list(&table, "packs");
         let mut events = vec![Event::Settings(editor)];
+        events.extend(heard);
         events.extend(self.refresh_looks());
         events.extend(
             errors

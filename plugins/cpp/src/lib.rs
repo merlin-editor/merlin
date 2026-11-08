@@ -37,6 +37,7 @@ const CPP_SERVER: Spec = Spec {
         ("tpp", "cpp"),
     ],
     settings: None,
+    options: &[],
     install: Some("sudo apt install clangd"),
 };
 

@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use merlin_core::{Event, Node};
-use merlin_plugins::{BufferEvent, Config, PluginHost, Snapshot};
+use merlin_plugins::{BufferEvent, Config, PluginHost, SettingKind, Snapshot};
 
 const WASM: &str = "target/wasm32-wasip2/release/testbed.wasm";
 
@@ -285,7 +285,7 @@ fn settings_come_from_the_manifest_and_the_user() {
     );
     let user: toml::Table =
         toml::from_str("[testbed]\ngreeting = \"hi\"\nstyle.loud = true\n").unwrap();
-    host.set_settings(user);
+    host.set_settings(user, toml::Table::new(), &snapshot());
     let events = host.run_command("testbed", "show-setting", snapshot());
     assert_eq!(
         notices(events),
@@ -576,7 +576,7 @@ fn logs_and_notices_follow_the_plugins_settings() {
 
     let user: toml::Table =
         toml::from_str("[testbed]\nnotices = \"errors\"\nlog-level = \"debug\"\n").unwrap();
-    host.set_settings(user);
+    host.set_settings(user, toml::Table::new(), &snapshot());
     let events = host.run_command("testbed", "log", snapshot());
     assert_eq!(logged(events), ["quiet detail", "something to see"]);
     // A warning is logged instead; an error still shows.
@@ -587,4 +587,53 @@ fn logs_and_notices_follow_the_plugins_settings() {
         notices(host.run_command("testbed", "fail", snapshot())),
         ["it broke"]
     );
+}
+
+#[test]
+fn described_settings_have_their_types_and_scopes() {
+    let (dir, mut config) = setup("schema");
+    config.ask = false;
+    let mut host = PluginHost::new(config).unwrap();
+    host.load(&dir).unwrap();
+    let info = host
+        .plugins()
+        .into_iter()
+        .find(|p| p.name == "testbed")
+        .unwrap();
+    let spec = |key: &str| info.schema.iter().find(|s| s.key == key).unwrap().clone();
+    assert_eq!(
+        spec("mode").kind,
+        SettingKind::Choice(vec![
+            ("fast".into(), "Quickly".into()),
+            ("careful".into(), "Careful".into())
+        ])
+    );
+    assert!(spec("server-path").user_only);
+    // Plain values are settings too, typed by their defaults, and every
+    // plugin that runs has Notices and Log level.
+    assert_eq!(spec("style.loud").kind, SettingKind::Flag);
+    assert_eq!(spec("greeting").kind, SettingKind::Text);
+    assert!(info.schema.iter().any(|s| s.key == "notices"));
+    assert_eq!(info.defaults.get("mode"), Some(&"fast".into()));
+
+    // The workspace sets the mode, but not the program's path.
+    let user: toml::Table = toml::from_str("[testbed]\nserver-path = \"/bin/cat\"\n").unwrap();
+    let workspace: toml::Table =
+        toml::from_str("[testbed]\nmode = \"careful\"\nserver-path = \"/tmp/evil\"\n").unwrap();
+    let events = host.set_settings(user, workspace, &snapshot());
+    assert!(
+        events
+            .iter()
+            .all(|e| !matches!(e, Event::PluginFailed { .. })),
+        "{events:?}"
+    );
+    assert_eq!(
+        notices(host.run_command("testbed", "show-path", snapshot())),
+        ["mode: Some(\"careful\"), path: Some(\"/bin/cat\")"]
+    );
+    // It heard which changed.
+    let text = panel_text(&mut host);
+    assert!(text.contains("mode changed"), "{text}");
+    assert!(text.contains("server-path changed"), "{text}");
+    fs::remove_dir_all(dir.parent().unwrap()).ok();
 }

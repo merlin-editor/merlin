@@ -25,9 +25,14 @@ pub struct Manifest {
     #[serde(default)]
     pub permissions: Permissions,
     /// Default settings, which the user's and the workspace's
-    /// `[plugins.<name>]` override.
+    /// `[plugins.<name>]` override. A setting may be a table describing
+    /// it, with `type` and `default`: see [`SettingSpec`]. Once read, this
+    /// has the defaults only.
     #[serde(default)]
     pub settings: toml::Table,
+    /// Its settings as the Settings page shows them, described or not.
+    #[serde(skip)]
+    pub schema: Vec<SettingSpec>,
     /// Languages the plugin adds, as a VS Code extension contributes them.
     #[serde(default)]
     pub languages: Vec<ManifestLanguage>,
@@ -382,14 +387,265 @@ impl Grants {
     }
 }
 
-/// A plugin's settings: its manifest's defaults, with what the user set
-/// over them.
-pub(super) fn plugin_settings(manifest: &Manifest, plugins: &toml::Table) -> toml::Table {
+/// A plugin's settings: its manifest's defaults, with the user's over
+/// them, then the workspace's, except for settings only the user sets.
+pub(super) fn plugin_settings(
+    manifest: &Manifest,
+    user: &toml::Table,
+    workspace: &toml::Table,
+) -> toml::Table {
     let mut settings = manifest.settings.clone();
-    if let Some(toml::Value::Table(set)) = plugins.get(&manifest.name) {
+    if let Some(toml::Value::Table(set)) = user.get(&manifest.name) {
         merge(&mut settings, set);
     }
+    if let Some(toml::Value::Table(set)) = workspace.get(&manifest.name) {
+        let mut set = set.clone();
+        for spec in manifest.schema.iter().filter(|s| s.user_only) {
+            remove_path(&mut set, &spec.key);
+        }
+        merge(&mut settings, &set);
+    }
     settings
+}
+
+/// What a setting holds, as the manifest's `type` says.
+#[derive(Clone, Debug, PartialEq)]
+pub enum SettingKind {
+    Flag,
+    Text,
+    /// A file or program on this computer.
+    Path,
+    Integer {
+        min: Option<i64>,
+        max: Option<i64>,
+    },
+    Float {
+        min: Option<f64>,
+        max: Option<f64>,
+    },
+    /// One of these values, each with its label.
+    Choice(Vec<(String, String)>),
+    /// A list of strings.
+    List,
+}
+
+/// A setting as the Settings page shows it:
+///
+/// ```toml
+/// [settings.check-command]
+/// type = "choice"           # flag, string, path, integer, float, choice, list
+/// default = "check"
+/// title = "Check on save"
+/// choices = [{ value = "check", label = "cargo check" }, "clippy"]
+/// description = "What rust-analyzer runs when you save."
+/// scope = "workspace"       # or user-only
+/// ```
+///
+/// A plain value under `[settings]` is a setting too, its type taken from
+/// its default.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SettingSpec {
+    /// Dotted for a setting inside a table, as `style.loud`.
+    pub key: String,
+    pub title: String,
+    pub kind: SettingKind,
+    pub default: toml::Value,
+    pub description: String,
+    /// Set for the user only, never by a workspace: a program's path, say.
+    pub user_only: bool,
+}
+
+/// The settings every plugin that runs has without declaring them.
+pub fn common_settings() -> Vec<SettingSpec> {
+    let choice = |pairs: &[(&str, &str)]| {
+        SettingKind::Choice(
+            pairs
+                .iter()
+                .map(|(v, l)| (v.to_string(), l.to_string()))
+                .collect(),
+        )
+    };
+    vec![
+        SettingSpec {
+            key: "notices".into(),
+            title: "Notices".into(),
+            kind: choice(&[("all", "All"), ("errors", "Errors only"), ("none", "None")]),
+            default: "all".into(),
+            description: "The rest go to its Output channel.".into(),
+            user_only: false,
+        },
+        SettingSpec {
+            key: "log-level".into(),
+            title: "Log level".into(),
+            kind: choice(&[
+                ("trace", "Trace"),
+                ("debug", "Debug"),
+                ("info", "Info"),
+                ("warn", "Warn"),
+                ("error", "Error"),
+            ]),
+            default: "info".into(),
+            description: "How much it writes to Output.".into(),
+            user_only: false,
+        },
+    ]
+}
+
+/// The described settings in `[settings]`, and every setting's default.
+fn read_schema(table: &toml::Table) -> Result<(Vec<SettingSpec>, toml::Table)> {
+    let mut schema = Vec::new();
+    let mut defaults = toml::Table::new();
+    read_level(table, "", &mut schema, &mut defaults)?;
+    Ok((schema, defaults))
+}
+
+fn read_level(
+    table: &toml::Table,
+    prefix: &str,
+    schema: &mut Vec<SettingSpec>,
+    defaults: &mut toml::Table,
+) -> Result<()> {
+    for (name, value) in table {
+        let key = format!("{prefix}{name}");
+        let described = value
+            .as_table()
+            .filter(|t| t.get("type").is_some_and(toml::Value::is_str));
+        if let Some(t) = described {
+            let spec = described_setting(&key, t).with_context(|| format!("setting {key}"))?;
+            defaults.insert(name.clone(), spec.default.clone());
+            schema.push(spec);
+        } else if let toml::Value::Table(inner) = value {
+            let mut sub = toml::Table::new();
+            read_level(inner, &format!("{key}."), schema, &mut sub)?;
+            defaults.insert(name.clone(), toml::Value::Table(sub));
+        } else {
+            defaults.insert(name.clone(), value.clone());
+            schema.push(SettingSpec {
+                title: title_of(name),
+                kind: kind_of(value),
+                default: value.clone(),
+                description: String::new(),
+                user_only: false,
+                key,
+            });
+        }
+    }
+    Ok(())
+}
+
+fn described_setting(key: &str, t: &toml::Table) -> Result<SettingSpec> {
+    let text = |k: &str| t.get(k).and_then(|v| v.as_str()).map(str::to_string);
+    let int = |k: &str| t.get(k).and_then(toml::Value::as_integer);
+    let float = |k: &str| {
+        t.get(k)
+            .and_then(|v| v.as_float().or(v.as_integer().map(|i| i as f64)))
+    };
+    let ty = text("type").unwrap_or_default();
+    let kind = match ty.as_str() {
+        "flag" | "bool" | "boolean" => SettingKind::Flag,
+        "string" | "text" => SettingKind::Text,
+        "path" => SettingKind::Path,
+        "integer" => SettingKind::Integer {
+            min: int("min"),
+            max: int("max"),
+        },
+        "float" | "number" => SettingKind::Float {
+            min: float("min"),
+            max: float("max"),
+        },
+        "choice" => {
+            let list = t
+                .get("choices")
+                .and_then(|v| v.as_array())
+                .ok_or_else(|| anyhow!("a choice needs `choices`"))?;
+            let choices = list
+                .iter()
+                .map(|c| match c {
+                    toml::Value::String(v) => Some((v.clone(), title_of(v))),
+                    toml::Value::Table(c) => {
+                        let value = c.get("value")?.as_str()?.to_string();
+                        let label = c
+                            .get("label")
+                            .and_then(|l| l.as_str())
+                            .map_or_else(|| title_of(&value), str::to_string);
+                        Some((value, label))
+                    }
+                    _ => None,
+                })
+                .collect::<Option<Vec<_>>>()
+                .ok_or_else(|| anyhow!("each choice is a string or {{ value, label }}"))?;
+            SettingKind::Choice(choices)
+        }
+        "list" => SettingKind::List,
+        other => {
+            bail!("unknown type `{other}`: flag, string, path, integer, float, choice or list")
+        }
+    };
+    let default = match t.get("default") {
+        Some(v) => v.clone(),
+        None => match &kind {
+            SettingKind::Flag => false.into(),
+            SettingKind::Text | SettingKind::Path => "".into(),
+            SettingKind::Integer { min, .. } => min.unwrap_or(0).into(),
+            SettingKind::Float { min, .. } => min.unwrap_or(0.0).into(),
+            SettingKind::Choice(c) => c.first().map_or("", |(v, _)| v.as_str()).into(),
+            SettingKind::List => toml::Value::Array(Vec::new()),
+        },
+    };
+    let user_only = match text("scope").as_deref() {
+        None | Some("workspace") => false,
+        Some("user-only" | "user") => true,
+        Some(other) => bail!("unknown scope `{other}`: workspace or user-only"),
+    };
+    Ok(SettingSpec {
+        key: key.to_string(),
+        title: text("title").unwrap_or_else(|| title_of(key.rsplit('.').next().unwrap_or(key))),
+        kind,
+        default,
+        description: text("description").unwrap_or_default(),
+        user_only,
+    })
+}
+
+/// A setting's type from its default.
+fn kind_of(value: &toml::Value) -> SettingKind {
+    match value {
+        toml::Value::Boolean(_) => SettingKind::Flag,
+        toml::Value::Integer(_) => SettingKind::Integer {
+            min: None,
+            max: None,
+        },
+        toml::Value::Float(_) => SettingKind::Float {
+            min: None,
+            max: None,
+        },
+        toml::Value::Array(_) => SettingKind::List,
+        _ => SettingKind::Text,
+    }
+}
+
+/// `check-command` reads "Check command".
+fn title_of(key: &str) -> String {
+    let s = key.replace(['-', '_'], " ");
+    let mut c = s.chars();
+    match c.next() {
+        Some(f) => f.to_uppercase().chain(c).collect(),
+        None => s,
+    }
+}
+
+/// Takes a dotted key out of a table.
+fn remove_path(table: &mut toml::Table, key: &str) {
+    match key.split_once('.') {
+        Some((head, rest)) => {
+            if let Some(toml::Value::Table(inner)) = table.get_mut(head) {
+                remove_path(inner, rest);
+            }
+        }
+        None => {
+            table.remove(key);
+        }
+    }
 }
 
 /// Puts `over`'s values into `base`, table by table.
@@ -427,6 +683,11 @@ pub fn manifest(dir: &Path) -> Result<Manifest> {
         &fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?,
     )
     .with_context(|| format!("parsing {}", path.display()))?;
+    let mut manifest = manifest;
+    let (schema, defaults) =
+        read_schema(&manifest.settings).with_context(|| format!("in {}", path.display()))?;
+    manifest.schema = schema;
+    manifest.settings = defaults;
     for matcher in &manifest.problem_matchers {
         matcher
             .to_core()

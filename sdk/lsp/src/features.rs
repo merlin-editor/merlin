@@ -66,10 +66,7 @@ impl Lsp {
             found => {
                 let args: Vec<String> = spec.args.iter().map(|a| a.to_string()).collect();
                 let process = host::spawn(spec.program, &args, &[], Framing::ContentLength);
-                let settings = spec
-                    .settings
-                    .and_then(|s| serde_json::from_str::<Value>(s).ok())
-                    .unwrap_or(Value::Null);
+                let settings = server_settings(spec);
                 let server = Server {
                     program: spec.program.into(),
                     process: process.as_ref().ok().copied(),
@@ -537,4 +534,41 @@ impl Lsp {
             self.ask("textDocument/signatureHelp", Request::Signature);
         }
     }
+}
+
+/// The JSON settings a server gets: its spec's, with the plugin's own
+/// settings it names put in.
+pub(crate) fn server_settings(spec: &Spec) -> Value {
+    let mut settings = spec
+        .settings
+        .and_then(|s| serde_json::from_str::<Value>(s).ok())
+        .unwrap_or(Value::Null);
+    for (key, path) in spec.options {
+        let Some(value) = merlin_plugin::host::get_setting(key) else {
+            continue;
+        };
+        let value = match value {
+            merlin_plugin::Setting::Text(s) => Value::String(s),
+            merlin_plugin::Setting::Flag(b) => Value::Bool(b),
+            merlin_plugin::Setting::Integer(i) => Value::from(i),
+            merlin_plugin::Setting::Float(f) => Value::from(f),
+            // Lists of strings come as TOML, which reads as JSON too.
+            merlin_plugin::Setting::Other(text) => {
+                serde_json::from_str(&text).unwrap_or(Value::String(text))
+            }
+        };
+        if !settings.is_object() {
+            settings = Value::Object(Default::default());
+        }
+        let mut at = &mut settings;
+        let parts: Vec<&str> = path.split('.').collect();
+        for part in &parts[..parts.len() - 1] {
+            if !at[*part].is_object() {
+                at[*part] = Value::Object(Default::default());
+            }
+            at = &mut at[*part];
+        }
+        at[parts[parts.len() - 1]] = value;
+    }
+    settings
 }

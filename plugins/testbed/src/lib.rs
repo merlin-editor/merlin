@@ -22,6 +22,7 @@ impl Plugin for Testbed {
             "propose",
             "spawn-forbidden",
             "show-setting",
+            "show-path",
             "colour",
             "log",
             "warn",
@@ -51,6 +52,11 @@ impl Plugin for Testbed {
                 "greeting: {:?}, loud: {:?}",
                 settings::text("greeting"),
                 settings::flag("style.loud")
+            )),
+            "show-path" => host::notify(&format!(
+                "mode: {:?}, path: {:?}",
+                settings::text("mode"),
+                settings::text("server-path")
             )),
             "colour" => {
                 let at = |line, column| Position { line, column };
@@ -103,6 +109,10 @@ impl Plugin for Testbed {
             BufferEvent::Changed => "changed".into(),
             BufferEvent::Saved(path) => format!("saved {path}"),
         });
+    }
+
+    fn setting_changed(&mut self, key: &str) {
+        self.log.push(format!("{key} changed"));
     }
 
     fn review(&mut self, id: &str, accepted: bool) {
