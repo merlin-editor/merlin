@@ -1,6 +1,12 @@
 //! Runs the Rust plugin's language server client against a fake
 //! `rust-analyzer`. Build it first:
 //! `cargo build --release --manifest-path plugins/rust/Cargo.toml`
+//!
+//! Not on Windows: the fake server is a Python script run by its `#!` line,
+//! and Windows only starts `rust-analyzer.exe`. What's tested here is the
+//! plugin's client, the same wasm everywhere; starting processes on Windows
+//! is covered by the testbed's tests in `api.rs`.
+#![cfg(not(windows))]
 
 use std::path::{Path, PathBuf};
 use std::sync::Once;
@@ -24,11 +30,9 @@ fn use_fake_server() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
         let fake = plugin_dir().join("tests/fake");
-        let path = format!(
-            "{}:{}",
-            fake.display(),
-            std::env::var("PATH").unwrap_or_default()
-        );
+        let rest = std::env::var_os("PATH").unwrap_or_default();
+        let path = std::env::join_paths(std::iter::once(fake).chain(std::env::split_paths(&rest)))
+            .unwrap();
         // Safe: set once, before any test in this file spawns a process.
         unsafe { std::env::set_var("PATH", path) };
     });
