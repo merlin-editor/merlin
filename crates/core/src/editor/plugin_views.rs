@@ -179,6 +179,22 @@ pub(crate) fn page_view(page: &str) -> Option<&str> {
     page.strip_prefix("view:")
 }
 
+/// A plugin row's menu items, by place; a row offers up to this many.
+const ROW_ITEMS: &[&str] = &[
+    "row.menu.0",
+    "row.menu.1",
+    "row.menu.2",
+    "row.menu.3",
+    "row.menu.4",
+    "row.menu.5",
+    "row.menu.6",
+    "row.menu.7",
+    "row.menu.8",
+    "row.menu.9",
+    "row.menu.10",
+    "row.menu.11",
+];
+
 /// The right-click menu on a view's icon or tab.
 pub(crate) const VIEW_ITEMS: &[(&str, &str)] = &[
     ("view.move_left", "Move to the Left Side Bar"),
@@ -404,6 +420,59 @@ impl Editor {
             title: Some(format!("{title} · from {plugin_title}")),
         });
         self.focus = Focus::Menu;
+    }
+
+    /// A right-click on a plugin view's row: the menu the row offers.
+    pub(crate) fn plugin_row_menu(&mut self, name: &str, side: Side, index: usize) {
+        let Some(plugin) = self.owner(name).map(str::to_string) else {
+            return;
+        };
+        let Some(crate::panel::Target::Button(id)) =
+            self.panel_targets(side).into_iter().nth(index)
+        else {
+            return;
+        };
+        let menu = self.active(side).and_then(|(_, panel)| {
+            panel.nodes.iter().find_map(|node| match node {
+                Node::Entry(e) if e.id == id && !e.menu.is_empty() => Some(e.menu.clone()),
+                _ => None,
+            })
+        });
+        let Some(menu) = menu else { return };
+        let items = ROW_ITEMS.iter().take(menu.len()).copied().collect();
+        self.popup = None;
+        self.row_menu = Some((plugin, menu));
+        self.context = Some(ContextMenu {
+            items,
+            selected: None,
+            title: None,
+        });
+        self.focus = Focus::Menu;
+    }
+
+    /// A plugin row's menu item's label, by its place.
+    pub(crate) fn row_menu_label(&self, id: &str) -> Option<String> {
+        let i: usize = id.strip_prefix("row.menu.")?.parse().ok()?;
+        Some(self.row_menu.as_ref()?.1.get(i)?.label.clone())
+    }
+
+    /// A plugin row's menu item picked: its click goes to the plugin.
+    pub(crate) fn row_menu_picked(&mut self, id: &str, fx: &mut Vec<super::Effect>) -> bool {
+        let Some(i) = id
+            .strip_prefix("row.menu.")
+            .and_then(|i| i.parse::<usize>().ok())
+        else {
+            return false;
+        };
+        if let Some((plugin, menu)) = self.row_menu.take()
+            && let Some(button) = menu.into_iter().nth(i)
+        {
+            fx.push(super::Effect::PluginClick {
+                plugin,
+                button: button.id,
+            });
+        }
+        true
     }
 
     /// Runs one of [`VIEW_ITEMS`] on the view whose menu was opened.

@@ -3,7 +3,7 @@ title = "JavaScript"
 description = "JS & TypeScript syntax, tasks & tsserver"
 badge = "JS"
 hue = "yellow"
-api = "0.9"
+api = "0.10"
 component = "target/wasm32-wasip2/release/javascript_language.wasm"
 symbols = "project-symbols"
 

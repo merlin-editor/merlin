@@ -372,3 +372,127 @@ fn dragging_a_view_moves_it_and_back_where_it_was_forgets() {
     assert!(s.editor.workspace().view_places.is_empty());
     assert!(rail_labels(&s).contains(&"Crates".to_string()));
 }
+
+#[test]
+fn chips_buttons_and_a_rows_menu_reach_the_plugin() {
+    use merlin_core::{Button, Chip, EditCard, Entry, Message};
+    let mut s = with_views();
+    s.send(Event::FocusView {
+        plugin: "cargo".into(),
+        view: "chat".into(),
+    });
+    let chip = |id: &str| Chip {
+        id: id.into(),
+        label: id.into(),
+        tone: merlin_core::Tone::Normal,
+    };
+    s.send(Event::SetPanel {
+        plugin: view_key("cargo", "chat"),
+        panel: Some(Panel {
+            title: "Chat".into(),
+            nodes: vec![
+                Node::entry(Entry {
+                    id: "dep".into(),
+                    label: "wgpu".into(),
+                    menu: vec![Button {
+                        id: "update:wgpu".into(),
+                        label: "Update".into(),
+                    }],
+                    ..Entry::default()
+                }),
+                Node::Message(Box::new(Message {
+                    author: "Bot".into(),
+                    markdown: "hi".into(),
+                    chips: vec![chip("file"), Chip::default()],
+                    ..Message::default()
+                })),
+                Node::Edit(Box::new(EditCard {
+                    path: "a.rs".into(),
+                    added: 1,
+                    removed: 2,
+                    buttons: vec![Button {
+                        id: "apply".into(),
+                        label: "Apply".into(),
+                    }],
+                })),
+            ],
+        }),
+    });
+    let right = s.editor.window_view().right.unwrap();
+    // The row, the message's one clickable chip, and the edit's button.
+    assert_eq!(right.targets, [Some(0), Some(1), Some(2)]);
+    for (index, id) in [(1, "file"), (2, "apply")] {
+        s.send(Event::Ui(UiEvent::Target {
+            side: merlin_core::Side::Right,
+            index,
+            clicks: 1,
+        }));
+        assert_eq!(
+            s.effects.last(),
+            Some(&Effect::PluginClick {
+                plugin: "cargo".into(),
+                button: id.into()
+            })
+        );
+    }
+    s.send(Event::Ui(UiEvent::TargetMenu {
+        side: merlin_core::Side::Right,
+        index: 0,
+    }));
+    let menu = s.editor.window_view().context.expect("the row's menu");
+    assert_eq!(menu.items[0].label, "Update");
+    s.send(Event::Ui(UiEvent::ContextItem(0)));
+    assert_eq!(
+        s.effects.last(),
+        Some(&Effect::PluginClick {
+            plugin: "cargo".into(),
+            button: "update:wgpu".into()
+        })
+    );
+}
+
+#[test]
+fn a_box_keeps_focus_when_a_reply_comes_in_above_it() {
+    let mut s = with_views();
+    let input = Node::Input {
+        id: "ask".into(),
+        placeholder: "Ask".into(),
+        secret: false,
+        multiline: true,
+    };
+    // Shown before the plugin's first panel, so focus starts by place.
+    s.send(Event::FocusView {
+        plugin: "cargo".into(),
+        view: "chat".into(),
+    });
+    s.send(Event::SetPanel {
+        plugin: view_key("cargo", "chat"),
+        panel: Some(Panel {
+            title: "Chat".into(),
+            nodes: vec![input.clone()],
+        }),
+    });
+    s.run("type why; key ctrl+enter");
+    s.send(Event::SetPanel {
+        plugin: view_key("cargo", "chat"),
+        panel: Some(Panel {
+            title: "Chat".into(),
+            nodes: vec![
+                Node::Button(merlin_core::Button {
+                    id: "copy".into(),
+                    label: "Copy".into(),
+                }),
+                input,
+            ],
+        }),
+    });
+    s.run("type more; key ctrl+enter");
+    assert_eq!(
+        s.effects.last(),
+        Some(&Effect::PluginSubmit {
+            plugin: "cargo".into(),
+            input: "ask".into(),
+            text: "more".into()
+        })
+    );
+}

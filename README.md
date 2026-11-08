@@ -281,7 +281,7 @@ merlin comes with:
 # plugin.toml
 name = "my-looks"
 title = "My Looks"
-api = "0.9"
+api = "0.10"
 
 [[themes]]          # shows in the colour or icon theme picker
 label = "My Theme"
@@ -694,7 +694,7 @@ title = "Word Count"
 # Its tile in the plugin lists: two letters and a colour.
 badge = "WC"
 hue = "green"
-api = "0.9"
+api = "0.10"
 component = "target/wasm32-wasip2/release/word_count.wasm"
 
 [permissions]
@@ -812,21 +812,32 @@ What else plugins get, besides commands and panels:
   icon = "plus"
   ```
 
-  `view(id)` draws one, as `panel` draws the old single panel (it calls
-  `panel` unless the plugin says otherwise), and only while it shows.
-  `host::set_view_badge(id, count)` puts a count on its icon and tab, and
-  `host::focus_view(id)` shows it. Where it goes is a default: drag its
-  icon or tab elsewhere, or use its ⋯ or a right-click to move it, hide it
-  or put it back; the workspace remembers,
-  and View: Show finds any of them in the palette. A plugin without
-  `[[views]]` keeps `panel`'s on the right, as before.
+  `view(id)` draws one, only while it shows; a plugin without `[[views]]`
+  has none. `host::set_view_badge(id, count)` puts a count on its icon and
+  tab, and `host::focus_view(id)` shows it. Where it goes is a default:
+  drag its icon or tab elsewhere, or use its ⋯ or a right-click to move
+  it, hide it or put it back; the workspace remembers, and View: Show
+  finds any of them in the palette.
 - **Buffer events**: `buffer` hears when the active file switches, changes or
   is saved.
 - **The selection**: `host::active_selection` gives its text and position.
 - **Reviews.** `host::show_diff(id, path, old, new)` shows a proposed change
   as a diff in its own tab; the user's answer arrives at `review`.
-- **Richer panels**: `Node::markdown` for formatted text, and
-  `Node::item` for clickable rows drawn as text, such as a list of problems.
+- **What a view shows**: headings, text, buttons and inputs, and:
+  - `Node::markdown`: headings, lists, quotes, bold, italics, inline code,
+    links, and code blocks coloured as their language.
+  - `Row::new(id, label)`: a tree or list row, with `.detail`, `.depth`,
+    `.expanded`, `.icon`, `.chip`, `.count`, and `.menu` buttons for its
+    right-click.
+  - `Node::message(author, markdown)`: a chat message, `.mine()` boxed,
+    with `.chip`s for what it's about and `.streaming(true)` for a caret.
+  - `Node::edit(path, added, removed, buttons)`: a change waiting for an
+    answer, such as Review and Apply.
+  - `Node::multiline_input` (Enter adds a line, Ctrl+Enter sends) and
+    `Node::chips(chips, hint)` under it.
+  - `Node::progress(label, done)` and `Node::empty(title, text, buttons)`.
+
+  Clicks on rows, chips and buttons all arrive at `click`.
 
 Other languages work too: anything that builds a WASI 0.2 component for
 [`sdk/rust/wit/merlin.wit`](sdk/rust/wit/merlin.wit).

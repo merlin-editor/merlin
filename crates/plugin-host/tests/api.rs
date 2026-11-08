@@ -336,7 +336,10 @@ fn data_only_plugins_have_no_panel_and_ask_nothing() {
     fs::create_dir_all(&dir).unwrap();
     fs::write(
         dir.join("plugin.toml"),
-        "name = \"looks\"\ntitle = \"Looks\"\napi = \"0.9\"\n\n[[packs]]\nlabel = \"Flat\"\nfile = \"flat.toml\"\n",
+        format!(
+            "name = \"looks\"\ntitle = \"Looks\"\napi = \"{}\"\n\n[[packs]]\nlabel = \"Flat\"\nfile = \"flat.toml\"\n",
+            merlin_plugins::API_VERSION
+        ),
     )
     .unwrap();
     fs::write(dir.join("flat.toml"), "[layout]\ngap = 0\n").unwrap();
@@ -767,4 +770,82 @@ fn a_secret_setting_is_kept_out_of_the_settings_files() {
         .unwrap();
     assert!(info(&host).secrets.is_empty());
     fs::remove_dir_all(dir.parent().unwrap()).ok();
+}
+
+#[test]
+fn views_draw_rows_messages_edits_chips_progress_and_empty_states() {
+    use merlin_core::Tone;
+    let (dir, mut config) = setup("rich");
+    config.ask = false;
+    let mut host = PluginHost::new(config).unwrap();
+    host.load(&dir).unwrap();
+    let draw = |host: &mut PluginHost, view: &str| -> Vec<Node> {
+        let key = merlin_core::view_key("testbed", view);
+        host.render_panels(&snapshot(), &[key], false)
+            .into_iter()
+            .find_map(|e| match e {
+                Event::SetPanel { panel: Some(p), .. } => Some(p.nodes),
+                _ => None,
+            })
+            .expect("the view draws")
+    };
+
+    // A tree row that opens, with its count, chips and menu.
+    host.click("testbed", "toggle", snapshot());
+    let rows: Vec<_> = draw(&mut host, "activity")
+        .into_iter()
+        .filter_map(|n| match n {
+            Node::Entry(e) => Some(*e),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(rows[0].twisty, Some('▾'));
+    assert_eq!(rows[0].badge, "0");
+    let clicks = &rows[1];
+    assert_eq!((clicks.depth, clicks.badge.as_str()), (1, "→ more"));
+    assert_eq!(clicks.badge_tone, Tone::Warning);
+    let menu: Vec<_> = clicks.menu.iter().map(|b| b.label.as_str()).collect();
+    assert_eq!(menu, ["Count Again", "Reset"]);
+
+    // A conversation: messages, a change to review, and a box to ask in.
+    host.submit("testbed", "ask", "why", snapshot());
+    let chat = draw(&mut host, "chat");
+    let messages: Vec<_> = chat
+        .iter()
+        .filter_map(|n| match n {
+            Node::Message(m) => Some(m),
+            _ => None,
+        })
+        .collect();
+    assert!(messages[0].mine && messages[0].chips[0].label == "notes.txt 1–3");
+    assert!(messages[1].markdown.contains("```rust"));
+    assert!(
+        chat.iter()
+            .any(|n| matches!(n, Node::Edit(e) if e.added == 1))
+    );
+    assert!(chat.iter().any(|n| matches!(
+        n,
+        Node::Input {
+            multiline: true,
+            ..
+        }
+    )));
+    assert!(chat.iter().any(|n| matches!(
+        n,
+        Node::Chips { hint, .. } if hint == "Ctrl Enter to send"
+    )));
+
+    // Runs: empty, then under way.
+    assert!(matches!(
+        &draw(&mut host, "runs")[..],
+        [Node::Empty { title, .. }] if title == "No runs yet"
+    ));
+    host.click("testbed", "spawn", snapshot());
+    assert!(matches!(
+        &draw(&mut host, "runs")[..],
+        [
+            Node::Progress { done: None, .. },
+            Node::Progress { done: Some(0), .. }
+        ]
+    ));
 }

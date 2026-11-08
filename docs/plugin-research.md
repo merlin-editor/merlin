@@ -238,6 +238,10 @@ The PDF viewer is the test: it's `PluginDocument.dc.html` in
    and Browse, a filter, and a menu on each row that turns a plugin off
    everywhere or in this workspace only (`editor.disabled_plugins` in
    either settings file, read at startup, which it wasn't before).
-5. Rich nodes for chat views, then the smaller gaps.
+5. Rich nodes for chat views, then the smaller gaps. **Rich nodes built**,
+   with API 0.10: rows with chips and a right-click menu, messages, edit
+   cards, chips under a multi-line box, progress, empty states, and real
+   Markdown with coloured code. `render-panel` is gone; `render-view` and
+   `on-setting-changed` are plain exports.
 6. Plugin calls off the main thread, then images, then surfaces with
    `[[editors]]` (proved by a PDF viewer), then drawing commands.

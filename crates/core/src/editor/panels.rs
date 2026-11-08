@@ -279,6 +279,11 @@ impl Editor {
         let input = self.focused_input(side);
         let index = self.selected_index(side);
         let is_multiline = self.is_focused_input_multiline(side);
+        // Keys in a box keep it focused by its id, so nodes the plugin
+        // adds above it, as a reply, don't move focus off it.
+        if let Some((_, id)) = &input {
+            self.bar_mut(side).target = Some(Target::Input(id.clone()));
+        }
         match key.code {
             KeyCode::Esc => self.focus = Focus::Editor,
             KeyCode::BackTab => self.select(side, index.saturating_sub(1)),

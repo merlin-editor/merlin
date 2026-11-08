@@ -51,7 +51,7 @@ use bindings::merlin::plugin::{host, types};
 
 /// The API version this host implements. A manifest names the version it was
 /// built for and loads only on an exact match while the API is 0.x.
-pub const API_VERSION: &str = "0.9";
+pub const API_VERSION: &str = "0.10";
 
 /// Roughly six billion instructions per call, about a second. It stops a
 /// plugin stuck in a loop, and leaves room for a language plugin to colour
@@ -62,9 +62,6 @@ const FUEL_PER_CALL: u64 = 6_000_000_000;
 /// Process messages delivered per poll, so a chatty process can't starve
 /// the editor of input.
 const MESSAGES_PER_POLL: usize = 256;
-
-/// The interface that holds `render-view`, as the SDK exports it.
-const VIEWS: &str = "merlin:plugin/views@0.6.0";
 
 pub struct Config {
     /// Where remembered permissions and file-backed secrets are kept.
@@ -136,13 +133,7 @@ impl Snapshot {
 struct Instance {
     store: Store<State>,
     bindings: Bindings,
-    /// `on-setting-changed`, which plugins built before it don't export.
-    setting_changed: Option<wasmtime::component::TypedFunc<(String,), ()>>,
-    /// `render-view`, which plugins built before it don't export.
-    render_view: Option<RenderView>,
 }
-
-type RenderView = wasmtime::component::TypedFunc<(String,), (Option<types::Panel>,)>;
 
 struct Loaded {
     manifest: Manifest,
@@ -519,19 +510,7 @@ impl PluginHost {
         let bindings = Bindings::new(&mut store, &instance)
             .map_err(wt)
             .with_context(|| format!("instantiating {}", manifest.name))?;
-        let setting_changed = instance
-            .get_typed_func::<(String,), ()>(&mut store, "on-setting-changed")
-            .ok();
-        let render_view = instance
-            .get_export_index(&mut store, None, VIEWS)
-            .and_then(|views| instance.get_export_index(&mut store, Some(&views), "render-view"))
-            .and_then(|func| instance.get_typed_func(&mut store, func).ok());
-        Ok(Instance {
-            store,
-            bindings,
-            setting_changed,
-            render_view,
-        })
+        Ok(Instance { store, bindings })
     }
 
     fn activate(&mut self, index: usize, state: Option<Vec<u8>>) -> Vec<Event> {
@@ -648,15 +627,13 @@ impl PluginHost {
                 continue;
             };
             let old = std::mem::replace(&mut instance.store.data_mut().settings, settings);
-            let Some(func) = instance.setting_changed else {
-                continue;
-            };
             let new = &instance.store.data().settings;
             let mut changed: Vec<String> = Vec::new();
             changed_keys(&old, new, "", &mut changed);
             for key in changed {
-                let (_, mut more) =
-                    self.call(i, snapshot.clone(), |_, store| func.call(store, (key,)));
+                let (_, mut more) = self.call(i, snapshot.clone(), |b, s| {
+                    b.call_on_setting_changed(s, &key)
+                });
                 events.append(&mut more);
             }
         }
@@ -677,16 +654,10 @@ impl PluginHost {
             Some(value) => self.secrets.set(plugin, key, value)?,
             None => self.secrets.delete(plugin, key),
         }
-        let Some(func) = self.plugins[i]
-            .instance
-            .as_ref()
-            .and_then(|i| i.setting_changed)
-        else {
-            return Ok(Vec::new());
-        };
-        let key = key.to_string();
         Ok(self
-            .call(i, snapshot.clone(), |_, store| func.call(store, (key,)))
+            .call(i, snapshot.clone(), |b, s| {
+                b.call_on_setting_changed(s, key)
+            })
             .1)
     }
 
@@ -873,9 +844,9 @@ impl PluginHost {
             .1
     }
 
-    /// Asks plugins for what shows: the views in `shown`, by name, and,
-    /// when `all` is set, every working plugin's panel from
-    /// `render-panel`, so the right side bar knows which plugins have one.
+    /// Asks plugins to draw the views in `shown`, by name. With `all`,
+    /// a plugin waiting for its permissions shows what it asks for, on the
+    /// right.
     pub fn render_panels(
         &mut self,
         snapshot: &Snapshot,
@@ -884,7 +855,7 @@ impl PluginHost {
     ) -> Vec<Event> {
         let mut events = Vec::new();
         for i in 0..self.plugins.len() {
-            // Data only or turned off: no panel, and nothing to allow.
+            // Data only or turned off: no views, and nothing to allow.
             if self.plugins[i].manifest.component.is_none() || self.plugins[i].disabled {
                 continue;
             }
@@ -903,46 +874,18 @@ impl PluginHost {
                 .views
                 .iter()
                 .map(|v| v.id.clone())
+                .filter(|id| shown.contains(&merlin_core::view_key(&name, id)))
                 .collect();
-            if !views.is_empty() {
-                for id in views {
-                    let key = merlin_core::view_key(&name, &id);
-                    if !shown.contains(&key) {
-                        continue;
-                    }
-                    let render = self.plugins[i]
-                        .instance
-                        .as_ref()
-                        .and_then(|i| i.render_view);
-                    let (panel, mut more) = match render {
-                        Some(func) => {
-                            let (panel, more) = self.call(i, snapshot.clone(), |_, store| {
-                                func.call(store, (id,)).map(|(p,)| p)
-                            });
-                            (panel, more)
-                        }
-                        None => self.call(i, snapshot.clone(), |b, s| b.call_render_panel(s)),
-                    };
-                    events.append(&mut more);
-                    if let Some(panel) = panel {
-                        events.push(Event::SetPanel {
-                            plugin: key,
-                            panel: panel.map(convert_panel),
-                        });
-                    }
+            for id in views {
+                let (panel, mut more) =
+                    self.call(i, snapshot.clone(), |b, s| b.call_render_view(s, &id));
+                events.append(&mut more);
+                if let Some(panel) = panel {
+                    events.push(Event::SetPanel {
+                        plugin: merlin_core::view_key(&name, &id),
+                        panel: panel.map(convert_panel),
+                    });
                 }
-                continue;
-            }
-            if self.plugins[i].pure_language || !(all || shown.contains(&name)) {
-                continue;
-            }
-            let (panel, mut more) = self.call(i, snapshot.clone(), |b, s| b.call_render_panel(s));
-            events.append(&mut more);
-            if let Some(panel) = panel {
-                events.push(Event::SetPanel {
-                    plugin: name,
-                    panel: panel.map(convert_panel),
-                });
             }
         }
         events

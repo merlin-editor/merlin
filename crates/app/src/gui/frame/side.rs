@@ -30,6 +30,7 @@ impl Frame<'_> {
         } else {
             header.right()
         };
+        let tools_x = self.tabs_end.map_or(tools_x, |end| tools_x.min(end));
         if tabs {
             let clip = Rect::new(header.x, header.y, tools_x - header.x, header.h);
             self.panel_tabs(sv, side, header, clip);
@@ -453,7 +454,22 @@ impl Frame<'_> {
             Node::Text(t) | Node::Styled(t, _) => {
                 self.text.wrapped_height(t, Face::ui(12.5), inner) + 8.0
             }
-            Node::Markdown(t) => self.text.wrapped_height(&plain(t), Face::ui(12.5), inner) + 8.0,
+            Node::Markdown(t) => self.md_layout(t, inner).1 + 8.0,
+            Node::Message(m) => self.message_layout(m, inner).height,
+            Node::Chips { .. } => 32.0,
+            Node::Edit(_) => 50.0,
+            Node::Progress { detail, .. } => {
+                if detail.is_empty() {
+                    36.0
+                } else {
+                    52.0
+                }
+            }
+            Node::Empty { text, .. } => {
+                let w = (inner - 24.0).max(60.0);
+                let lines = self.wrap_words(text, Face::ui(12.5), w).len() as f32;
+                40.0 + 24.0 + lines * 18.0 + 16.0 + 30.0 + 32.0
+            }
             // One line each, never wrapped: a long log costs no shaping.
             Node::Log(_) => LOG_ROW_H,
             Node::Button(_) | Node::Buttons(_) => 38.0,
@@ -568,16 +584,160 @@ impl Frame<'_> {
                 );
             }
             Node::Markdown(t) => {
-                self.text.draw(
+                let (ops, _) = self.md_layout(t, inner);
+                let colours = node_colours(sv, node);
+                self.md_draw(&ops, r.x + 14.0, r.y + 4.0, inner, colours, p.text, clip);
+            }
+            Node::Message(m) => {
+                let colours = node_colours(sv, node);
+                self.message(m, colours, sv, side, r, target, clip);
+            }
+            Node::Chips { chips, hint } => {
+                let mut x = r.x + 14.0;
+                let mut k = 0;
+                for c in chips {
+                    let index = (!c.id.is_empty()).then(|| target.map(|t| t + k)).flatten();
+                    k += usize::from(!c.id.is_empty());
+                    let focused = sv.focused && index.is_some() && index == Some(sv.selected);
+                    let w = self.panel_chip(c, x, r.y + 5.0, focused, clip);
+                    if let Some(index) = index {
+                        self.hit(Rect::new(x, r.y + 5.0, w, 22.0), pick(side, index));
+                    }
+                    x += w + 6.0;
+                }
+                if !hint.is_empty() {
+                    let f = Face::ui(11.0);
+                    let hw = self.text.width(hint, f);
+                    let hx = r.right() - 14.0 - hw;
+                    if hx > x {
+                        self.text.draw_in_row(
+                            &mut self.canvas,
+                            hint,
+                            f,
+                            hx,
+                            r.y + 5.0,
+                            22.0,
+                            p.muted,
+                            clip,
+                        );
+                    }
+                }
+            }
+            Node::Edit(e) => self.edit_card(e, sv, side, r, target, clip),
+            Node::Progress {
+                label,
+                detail,
+                done,
+            } => {
+                let f = Face::ui(12.5);
+                let pct = done.map(|d| format!("{}%", d / 10));
+                let mut x = r.x + 14.0;
+                x += self.text.draw_in_row(
                     &mut self.canvas,
-                    &plain(t),
-                    Face::ui(12.5),
-                    r.x + 14.0,
-                    r.y + 4.0,
+                    label,
+                    f,
+                    x,
+                    r.y + 2.0,
+                    20.0,
                     p.text,
                     clip,
-                    Some(inner),
                 );
+                if let Some(pct) = &pct {
+                    let pw = self.text.width(pct, Face::ui(11.5));
+                    self.text.draw_in_row(
+                        &mut self.canvas,
+                        pct,
+                        Face::ui(11.5),
+                        (r.right() - 14.0 - pw).max(x + 8.0),
+                        r.y + 2.0,
+                        20.0,
+                        p.muted,
+                        clip,
+                    );
+                }
+                let bar = Rect::new(r.x + 14.0, r.y + 25.0, inner, 4.0);
+                self.canvas.round(bar, 2.0, p.chip);
+                // How far, or a short stretch while it can't say.
+                let (from, to) = match done {
+                    Some(d) => (0.0, *d as f32 / 1000.0),
+                    None => (0.0, 0.3),
+                };
+                let fill = Rect::new(
+                    bar.x + bar.w * from,
+                    bar.y,
+                    (bar.w * (to - from)).max(4.0),
+                    bar.h,
+                );
+                self.canvas.round(fill, 2.0, p.accent);
+                if !detail.is_empty() {
+                    let d = self.text.fit(detail, Face::ui(11.5), inner);
+                    self.text.draw_in_row(
+                        &mut self.canvas,
+                        &d,
+                        Face::ui(11.5),
+                        r.x + 14.0,
+                        r.y + 32.0,
+                        18.0,
+                        p.muted,
+                        clip,
+                    );
+                }
+            }
+            Node::Empty {
+                title,
+                text,
+                buttons,
+            } => {
+                // In the middle: its title, a sentence, then its buttons.
+                let mid = r.x + r.w / 2.0;
+                let mut y = r.y + 40.0;
+                let tf = Face::ui(14.0).bold();
+                let tw = self.text.width(title, tf);
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    title,
+                    tf,
+                    mid - tw / 2.0,
+                    y,
+                    24.0,
+                    p.bright,
+                    clip,
+                );
+                y += 24.0;
+                let w = (inner - 24.0).max(60.0);
+                let f = Face::ui(12.5);
+                for line in self.wrap_words(text, f, w) {
+                    let lw = self.text.width(&line, f);
+                    self.text.draw_in_row(
+                        &mut self.canvas,
+                        &line,
+                        f,
+                        mid - lw / 2.0,
+                        y,
+                        18.0,
+                        p.muted,
+                        clip,
+                    );
+                    y += 18.0;
+                }
+                y += 16.0;
+                let face = Face::ui(13.0).medium();
+                let widths: Vec<f32> = buttons
+                    .iter()
+                    .map(|b| self.text.width(&b.label, face) + 28.0)
+                    .collect();
+                let total =
+                    widths.iter().sum::<f32>() + 8.0 * widths.len().saturating_sub(1) as f32;
+                let mut x = mid - total / 2.0;
+                for (k, (b, bw)) in buttons.iter().zip(&widths).enumerate() {
+                    let index = target.map(|t| t + k);
+                    let focused = sv.focused && index == Some(sv.selected);
+                    self.button(&b.label, x, y, focused, k == 0);
+                    if let Some(index) = index {
+                        self.hit(Rect::new(x, y, *bw, 30.0), pick(side, index));
+                    }
+                    x += bw + 8.0;
+                }
             }
             Node::Item { label, tone, .. } => {
                 let row = Rect::new(r.x + 6.0, r.y, r.w - 12.0, r.h);
@@ -1435,6 +1595,15 @@ impl Frame<'_> {
 }
 
 /// A click on a side bar's row `index`.
+/// A node's code colours, found by where it is in its view.
+fn node_colours<'s>(sv: &'s SideView, node: &Node) -> &'s [Spans] {
+    sv.nodes
+        .iter()
+        .position(|n| std::ptr::eq(n, node))
+        .and_then(|i| sv.colours.get(i))
+        .map_or(&[], |c| c.as_slice())
+}
+
 fn pick(side: Side, index: usize) -> Hit {
     Hit::Ui(UiEvent::Target {
         side,
@@ -1479,6 +1648,17 @@ impl Frame<'_> {
     /// The Output panel's choices at the right of its tabs: the channel,
     /// with its plugin's tile, and how much to show. Returns where the
     /// controls are, for the open list to hang from.
+    /// How wide the Output bar's choices are, from the panel's right.
+    pub(super) fn output_bar_width(&mut self, bar: &merlin_core::OutputBarView) -> f32 {
+        let face = Face::ui(12.0);
+        let mut w = 10.0 + 26.0 + 6.0;
+        for (label, mark) in [(&bar.level, false), (&bar.channel, bar.mark.is_some())] {
+            let tile = if mark { 20.0 } else { 0.0 };
+            w += self.text.width(label, face) + tile + 34.0 + 6.0;
+        }
+        w
+    }
+
     pub(super) fn output_bar(&mut self, bar: &merlin_core::OutputBarView, panel: Rect) -> Rect {
         let p = self.p;
         let face = Face::ui(12.0);

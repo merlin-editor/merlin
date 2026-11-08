@@ -124,6 +124,7 @@ impl Gui<'_> {
                 Some(Landing::Body { zone, .. } | Landing::View { zone, .. }) => Some(zone),
                 _ => None,
             },
+            tabs_end: None,
             strips: std::mem::take(&mut self.strips),
             term_panes: Vec::new(),
             panel_max: self.sizes.bottom_before.is_some(),

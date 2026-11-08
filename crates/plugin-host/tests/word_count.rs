@@ -29,7 +29,8 @@ fn copy_with_manifest(name: &str, permissions: &str) -> PathBuf {
     fs::write(
         dir.join("plugin.toml"),
         format!(
-            "name = \"{name}\"\ntitle = \"Test\"\napi = \"0.9\"\ncomponent = \"plugin.wasm\"\n\n[permissions]\n{permissions}\n"
+            "name = \"{name}\"\ntitle = \"Test\"\napi = \"{api}\"\ncomponent = \"plugin.wasm\"\n\n[permissions]\n{permissions}\n",
+            api = merlin_plugins::API_VERSION
         ),
     )
     .unwrap();
@@ -128,10 +129,13 @@ fn rejects_other_api_versions() {
     let manifest = fs::read_to_string(dir.join("plugin.toml")).unwrap();
     fs::write(
         dir.join("plugin.toml"),
-        manifest.replace("api = \"0.9\"", "api = \"0.10\""),
+        manifest.replace(
+            &format!("api = \"{}\"", merlin_plugins::API_VERSION),
+            "api = \"99.0\"",
+        ),
     )
     .unwrap();
     let err = PluginHost::new(config()).unwrap().load(&dir).unwrap_err();
-    assert!(err.to_string().contains("needs plugin API 0.10"), "{err}");
+    assert!(err.to_string().contains("needs plugin API 99.0"), "{err}");
     fs::remove_dir_all(dir).unwrap();
 }

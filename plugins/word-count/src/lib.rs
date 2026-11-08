@@ -1,4 +1,4 @@
-//! Example plugin: counts words, and shows a panel with a button.
+//! Example plugin: counts words, and shows a view with a button.
 
 use merlin_plugin::prelude::*;
 
@@ -26,7 +26,7 @@ impl Plugin for WordCount {
         }
     }
 
-    fn panel(&mut self) -> Option<Panel> {
+    fn view(&mut self, _id: &str) -> Option<Panel> {
         let text = host::active_text().ok()?;
         let words = format!("{} words", text.split_whitespace().count());
         let size = format!(

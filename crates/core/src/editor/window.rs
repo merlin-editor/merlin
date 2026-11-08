@@ -289,6 +289,9 @@ pub struct SideView {
     pub toolbar: Vec<ToolView>,
     /// Plugin views the user hid, which the right side bar's + lists.
     pub hidden: usize,
+    /// For each node of Markdown, or a message, its code blocks' colours,
+    /// a line at a time; empty for the rest.
+    pub colours: Vec<Vec<Vec<(usize, usize, crate::Syntax)>>>,
     pub nodes: Vec<Node>,
     /// For each node, the index of its first focusable element, if it has
     /// one: what a click on it sends as [`UiEvent::Target`].
@@ -575,6 +578,17 @@ impl Editor {
             from: view.map(|v| self.plugin_title(&v.plugin)),
             toolbar,
             hidden: self.hidden_views.len(),
+            colours: panel
+                .nodes
+                .iter()
+                .map(|node| match node {
+                    Node::Markdown(t) if t.contains("```") => self.markdown_colours(t),
+                    Node::Message(m) if m.markdown.contains("```") => {
+                        self.markdown_colours(&m.markdown)
+                    }
+                    _ => Vec::new(),
+                })
+                .collect(),
             nodes: panel.nodes,
             targets,
             selected: self.selected_index(side),
@@ -854,6 +868,8 @@ impl Editor {
                         _ => None,
                     };
                     self.debug_row_menu(row);
+                } else if let Some(name) = self.active_panel_name(side) {
+                    self.plugin_row_menu(&name, side, index);
                 }
             }
             UiEvent::SideMenu(side) => {
@@ -995,6 +1011,10 @@ fn target_count(node: &Node) -> usize {
         Node::Button(_) | Node::Item { .. } | Node::Input { .. } | Node::Wide { .. } => 1,
         Node::Buttons(bs) | Node::Tools(bs) | Node::Banner { buttons: bs, .. } => bs.len(),
         Node::Entry(e) => 1 + e.action.is_some() as usize + e.links.len(),
+        Node::Chips { chips, .. } => chips.iter().filter(|c| !c.id.is_empty()).count(),
+        Node::Message(m) => m.chips.iter().filter(|c| !c.id.is_empty()).count(),
+        Node::Edit(e) => e.buttons.len(),
+        Node::Empty { buttons, .. } => buttons.len(),
         _ => 0,
     }
 }

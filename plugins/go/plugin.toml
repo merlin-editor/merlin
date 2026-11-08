@@ -3,7 +3,7 @@ title = "Go"
 description = "Go syntax & gopls"
 badge = "GO"
 hue = "cyan"
-api = "0.9"
+api = "0.10"
 component = "target/wasm32-wasip2/release/go_language.wasm"
 symbols = "project-symbols"
 

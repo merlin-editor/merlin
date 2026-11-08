@@ -291,6 +291,8 @@ pub struct Editor {
     hidden_views: Vec<String>,
     /// The view whose right-click menu is open.
     view_menu: Option<String>,
+    /// A plugin row's right-click menu: the plugin, and what it offers.
+    row_menu: Option<(String, Vec<crate::panel::Button>)>,
     menu: Option<menu::Menu>,
     tree: Option<views::Tree>,
     search: views::Search,
@@ -583,6 +585,7 @@ impl Editor {
             view_places: Vec::new(),
             hidden_views: Vec::new(),
             view_menu: None,
+            row_menu: None,
             menu: None,
             tree: None,
             search: Default::default(),

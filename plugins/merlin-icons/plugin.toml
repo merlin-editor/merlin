@@ -4,7 +4,7 @@ title = "merlin Icons"
 description = "File and UI icon themes"
 badge = "IC"
 hue = "purple"
-api = "0.9"
+api = "0.10"
 
 # Icon themes, for Preferences: File Icon Theme.
 [[packs]]

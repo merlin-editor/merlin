@@ -785,10 +785,6 @@ impl host::Host for State {
         });
     }
 
-    fn focus_panel(&mut self) {
-        self.events.push(Event::FocusPanel(self.name.clone()));
-    }
-
     fn focus_view(&mut self, view: String) {
         self.events.push(Event::FocusView {
             plugin: self.name.clone(),
@@ -901,6 +897,8 @@ impl State {
 }
 
 pub(super) fn convert_panel(panel: types::Panel) -> Panel {
+    use merlin_core::style::Hue;
+    use merlin_core::{Chip, EditCard, Entry, Message};
     let button = |b: types::Button| Button {
         id: b.id,
         label: b.label,
@@ -911,6 +909,40 @@ pub(super) fn convert_panel(panel: types::Panel) -> Panel {
         types::Tone::Strong => Tone::Strong,
         types::Tone::Warning => Tone::Warning,
         types::Tone::Error => Tone::Error,
+    };
+    let chip = |c: types::Chip| Chip {
+        id: c.id,
+        label: c.label,
+        tone: tone(c.tone),
+    };
+    // A row of a tree: its arrow, its glyph, and at its right its count,
+    // or its first chip; the other chips follow its label.
+    let row = |r: types::Row| {
+        let mut chips = r.chips.into_iter().map(chip);
+        let (badge, badge_tone) = if r.count.is_empty() {
+            chips
+                .next()
+                .map_or((String::new(), Tone::Normal), |c| (c.label, c.tone))
+        } else {
+            (r.count, Tone::Muted)
+        };
+        let rest: Vec<Chip> = chips.collect();
+        Node::entry(Entry {
+            id: r.id,
+            label: r.label,
+            detail: r.detail,
+            depth: r.depth.min(16) as usize,
+            twisty: r.expanded.map(|open| if open { '▾' } else { '▸' }),
+            icon: r.icon.chars().next().map(|c| (c, Hue::Grey)),
+            badge,
+            badge_tone,
+            note: rest.first().map(|c| {
+                let labels: Vec<&str> = rest.iter().map(|c| c.label.as_str()).collect();
+                (labels.join(" · "), c.tone)
+            }),
+            menu: r.menu.into_iter().map(button).collect(),
+            ..Entry::default()
+        })
     };
     Panel {
         title: panel.title,
@@ -933,7 +965,38 @@ pub(super) fn convert_panel(panel: types::Panel) -> Panel {
                     id: i.id,
                     placeholder: i.placeholder,
                     secret: i.secret,
-                    multiline: false,
+                    multiline: i.multiline,
+                },
+                types::Node::Chips(row) => Node::Chips {
+                    chips: row.chips.into_iter().map(chip).collect(),
+                    hint: row.hint,
+                },
+                types::Node::Row(r) => row(r),
+                types::Node::Message(m) => Node::Message(Box::new(Message {
+                    author: m.author,
+                    mine: m.mine,
+                    markdown: m.markdown,
+                    chips: m.chips.into_iter().map(chip).collect(),
+                    streaming: m.streaming,
+                })),
+                types::Node::EditCard(e) => Node::Edit(Box::new(EditCard {
+                    path: e.path,
+                    added: e.added,
+                    removed: e.removed,
+                    buttons: e.buttons.into_iter().map(button).collect(),
+                })),
+                types::Node::Progress(p) => Node::Progress {
+                    label: p.label,
+                    detail: p.detail,
+                    done: p
+                        .done
+                        .filter(|d| d.is_finite())
+                        .map(|d| (d.clamp(0.0, 1.0) * 1000.0).round() as u16),
+                },
+                types::Node::EmptyState(e) => Node::Empty {
+                    title: e.title,
+                    text: e.text,
+                    buttons: e.buttons.into_iter().map(button).collect(),
                 },
                 types::Node::Divider => Node::Divider,
                 types::Node::Footer => Node::Footer,

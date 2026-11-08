@@ -407,10 +407,6 @@ impl<P: Plugin> Plugin for WithLsp<P> {
     /// The inner plugin's panel, if it has one, over the client's.
     /// The inner plugin's panel: the client's servers are in the
     /// language card instead.
-    fn panel(&mut self) -> Option<Panel> {
-        self.inner.panel()
-    }
-
     fn view(&mut self, id: &str) -> Option<Panel> {
         self.inner.view(id)
     }

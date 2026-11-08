@@ -69,6 +69,14 @@ title = "{title}"
 api = "{api}"
 component = "target/wasm32-wasip2/release/{crate_name}.wasm"
 
+# Its view: left (in the rail), right, bottom (in the panel), or tab.
+[[views]]
+id = "main"
+title = "{title}"
+icon = "star"
+where = "right"
+empty = "Nothing to show yet."
+
 # What the plugin may do. merlin asks you before granting these.
 [permissions]
 editor-read = true
@@ -99,10 +107,10 @@ impl Plugin for {type_name} {{
     fn run_command(&mut self, _id: &str) {{
         self.greetings += 1;
         host::notify("Hello from {name}!");
-        host::focus_panel();
+        host::focus_view("main");
     }}
 
-    fn panel(&mut self) -> Option<Panel> {{
+    fn view(&mut self, _id: &str) -> Option<Panel> {{
         let words = host::active_text().map_or(0, |text| text.split_whitespace().count());
         let panel = Panel::new("{title}")
             .heading("Hello!")

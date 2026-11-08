@@ -218,6 +218,10 @@ impl Editor {
                     label: String::new(),
                     key: None,
                 },
+                _ if id.starts_with("row.menu.") => ContextItem {
+                    label: self.row_menu_label(id).unwrap_or_default(),
+                    key: None,
+                },
                 // Compare with the file Select for Compare chose, by name.
                 "explorer.compare_with" => ContextItem {
                     label: format!(
@@ -270,6 +274,9 @@ impl Editor {
             return;
         }
         self.close_context();
+        if self.row_menu_picked(id, fx) {
+            return;
+        }
         match id.split_once('.') {
             Some((plugin, command)) if self.plugins.iter().any(|p| p.name == plugin) => {
                 fx.push(Effect::PluginCommand {
@@ -507,6 +514,13 @@ impl Editor {
     /// language its fence names, or else as the file's, coloured by the
     /// plugin that adds that language. Asked for the first time they're
     /// wanted, so they come a frame later.
+    /// Markdown's code blocks coloured as their languages, a line at a
+    /// time, as a panel draws them.
+    pub(crate) fn markdown_colours(&self, text: &str) -> Vec<Vec<(usize, usize, Syntax)>> {
+        let lines: Vec<String> = text.lines().map(str::to_string).collect();
+        self.hover_colours(&lines)
+    }
+
     fn hover_colours(&self, lines: &[String]) -> Vec<Vec<(usize, usize, Syntax)>> {
         let mut out = vec![Vec::new(); lines.len()];
         let file = self

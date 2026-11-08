@@ -19,11 +19,13 @@ use merlin_core::{
 };
 
 mod cards;
+mod chat;
 mod chrome;
 mod diff;
 mod find;
 mod group;
 mod hover;
+mod markdown;
 mod palette;
 mod peek;
 mod side;
@@ -180,6 +182,8 @@ pub struct Frame<'a> {
     pub tab_drag: Option<(String, Option<(char, merlin_core::style::Hue)>)>,
     /// Where it would land, shaded.
     pub drop_zone: Option<Rect>,
+    /// Where a side's tabs must end, for what's drawn over their right.
+    pub tabs_end: Option<f32>,
     /// Each group's tab strip: how far it's scrolled, and the active tab
     /// it last scrolled to. Drawing keeps them in range.
     pub strips: Vec<(f32, usize)>,
@@ -519,7 +523,14 @@ impl Frame<'_> {
             if let (Some(area), Some(sv)) = (area, sv) {
                 self.canvas.round(area, self.radius, p.island);
                 let term = view.terminal.as_ref().filter(|_| side == Side::Bottom);
+                // The Output panel's choices sit over the tabs' right end.
+                self.tabs_end = view
+                    .output_bar
+                    .as_ref()
+                    .filter(|_| side == Side::Bottom)
+                    .map(|bar| area.right() - self.output_bar_width(bar) - 8.0);
                 self.side(sv, side, area, state, term);
+                self.tabs_end = None;
             }
         }
         self.canvas.round(a.editor, self.radius, p.island);
@@ -665,18 +676,6 @@ fn title_case(title: &str) -> String {
         start = !c.is_alphanumeric();
     }
     out
-}
-
-/// Markdown as plain text, for panels until it gets its own drawing.
-fn plain(markdown: &str) -> String {
-    markdown
-        .lines()
-        .map(|l| l.trim_start_matches('#').trim_start())
-        .filter(|l| !l.starts_with("```"))
-        .collect::<Vec<_>>()
-        .join("\n")
-        .replace("**", "")
-        .replace('`', "")
 }
 
 /// Cuts what was drawn to between physical `left` and `right`.

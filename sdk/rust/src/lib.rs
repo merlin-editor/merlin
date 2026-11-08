@@ -29,7 +29,7 @@
 pub mod bindings {
     wit_bindgen::generate!({
         path: "wit",
-        world: "plugin-sdk",
+        world: "plugin",
         pub_export_macro: true,
         default_bindings_module: "merlin_plugin::bindings",
     });
@@ -39,8 +39,8 @@ pub mod bindings {
 /// processes and secrets.
 pub use bindings::merlin::plugin::host;
 pub use bindings::merlin::plugin::types::{
-    ActionKind, Breakpoint, BreakpointState, BufferEvent, Button, CodeAction, Command, Completion,
-    DebugLaunch, DebugPause, DebugState, DebugTarget, DebugThread, DebugVariable,
+    ActionKind, Breakpoint, BreakpointState, BufferEvent, Button, Chip, ChipRow, CodeAction,
+    Command, Completion, DebugLaunch, EditCard, EmptyState, Message, Progress, Row, DebugPause, DebugState, DebugTarget, DebugThread, DebugVariable,
     DetailedDiagnostic, Diagnostic, DocSymbol, FileEdit, FoldRange, Framing, FunctionStop,
     InlayHint, InlayKind, InlineValue, Input, Item, LineRange, Location, LogLevel, Node,
     OutputKind, Panel, PickItem, Position, ProcessEvent, ProjectSymbol, RenameInfo, Selection,
@@ -98,7 +98,7 @@ pub mod settings {
 
 pub mod prelude {
     pub use crate::{
-        ActionKind, Breakpoint, BreakpointState, BufferEvent, Button, CodeAction, Command,
+        ActionKind, Breakpoint, BreakpointState, BufferEvent, Button, Chip, CodeAction, Command, EditCard, Message, Progress, Row,
         Completion, DebugLaunch, DebugPause, DebugState, DebugTarget, DebugThread, DebugVariable,
         DetailedDiagnostic, Diagnostic, DocSymbol, FileEdit, FoldRange, Framing, FunctionStop,
         InlayHint, InlayKind, InlineValue, LineRange, Location, LogLevel, Node, OutputKind, Panel,
@@ -118,20 +118,14 @@ pub trait Plugin: 'static {
 
     fn run_command(&mut self, _id: &str) {}
 
-    /// The plugin's side panel, if it has one. Called when the panel is
-    /// visible and something may have changed. The editor keeps focus,
-    /// scrolling and typed text, so returning a new panel resets none of it.
-    fn panel(&mut self) -> Option<Panel> {
-        None
-    }
-
     /// One of the views `[[views]]` in the manifest declares, by its id,
-    /// when it shows and something may have changed. Each shows
-    /// [`Plugin::panel`]'s unless the plugin says otherwise.
-    /// [`host::set_view_badge`] puts a count on its icon, and
+    /// when it shows and something may have changed. The editor keeps
+    /// focus, scrolling and typed text, so returning a new panel resets
+    /// none of it. With nothing to show, the view says its manifest's
+    /// `empty`. [`host::set_view_badge`] puts a count on its icon, and
     /// [`host::focus_view`] shows it.
     fn view(&mut self, _id: &str) -> Option<Panel> {
-        self.panel()
+        None
     }
 
     fn click(&mut self, _button: &str) {}
@@ -218,6 +212,69 @@ impl Node {
             id: id.into(),
             placeholder: placeholder.into(),
             secret: false,
+            multiline: false,
+        })
+    }
+
+    /// A box that grows to several lines, as a chat's: Enter adds a line,
+    /// Ctrl+Enter sends it to [`Plugin::submit`].
+    pub fn multiline_input(id: impl Into<String>, placeholder: impl Into<String>) -> Self {
+        Node::Input(Input {
+            id: id.into(),
+            placeholder: placeholder.into(),
+            secret: false,
+            multiline: true,
+        })
+    }
+
+    /// Chips in a row, and a hint at its end.
+    pub fn chips(chips: Vec<Chip>, hint: impl Into<String>) -> Self {
+        Node::Chips(ChipRow {
+            chips,
+            hint: hint.into(),
+        })
+    }
+
+    /// A message: who from, its Markdown, and chips for what it's about.
+    pub fn message(author: impl Into<String>, markdown: impl Into<String>) -> Message {
+        Message {
+            author: author.into(),
+            mine: false,
+            markdown: markdown.into(),
+            chips: Vec::new(),
+            streaming: false,
+        }
+    }
+
+    /// Work under way, `done` from 0 to 1, or none while it can't say.
+    pub fn progress(label: impl Into<String>, done: Option<f32>) -> Self {
+        Node::Progress(Progress {
+            label: label.into(),
+            detail: String::new(),
+            done,
+        })
+    }
+
+    /// What a view says while it's empty, with buttons.
+    pub fn empty(
+        title: impl Into<String>,
+        text: impl Into<String>,
+        buttons: Vec<Button>,
+    ) -> Self {
+        Node::EmptyState(EmptyState {
+            title: title.into(),
+            text: text.into(),
+            buttons,
+        })
+    }
+
+    /// A change to a file waiting for an answer, with its buttons.
+    pub fn edit(path: impl Into<String>, added: u32, removed: u32, buttons: Vec<Button>) -> Self {
+        Node::EditCard(EditCard {
+            path: path.into(),
+            added,
+            removed,
+            buttons,
         })
     }
 
@@ -240,7 +297,101 @@ impl Node {
             id: id.into(),
             placeholder: placeholder.into(),
             secret: true,
+            multiline: false,
         })
+    }
+}
+
+impl Chip {
+    /// A chip that's clicked, its click arriving at [`Plugin::click`].
+    pub fn new(id: impl Into<String>, label: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+            tone: Tone::Normal,
+        }
+    }
+
+    /// A chip that's only a label.
+    pub fn label(label: impl Into<String>, tone: Tone) -> Self {
+        Self {
+            id: String::new(),
+            label: label.into(),
+            tone,
+        }
+    }
+}
+
+impl Message {
+    /// Yours, so boxed.
+    pub fn mine(mut self) -> Self {
+        self.mine = true;
+        self
+    }
+
+    pub fn chip(mut self, chip: Chip) -> Self {
+        self.chips.push(chip);
+        self
+    }
+
+    /// Still coming: a caret follows it.
+    pub fn streaming(mut self, on: bool) -> Self {
+        self.streaming = on;
+        self
+    }
+}
+
+impl Row {
+    /// A row of a tree or list; its clicks arrive at [`Plugin::click`].
+    pub fn new(id: impl Into<String>, label: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+            detail: String::new(),
+            depth: 0,
+            expanded: None,
+            icon: String::new(),
+            chips: Vec::new(),
+            count: String::new(),
+            menu: Vec::new(),
+        }
+    }
+
+    pub fn detail(mut self, detail: impl Into<String>) -> Self {
+        self.detail = detail.into();
+        self
+    }
+
+    pub fn depth(mut self, depth: u32) -> Self {
+        self.depth = depth;
+        self
+    }
+
+    /// It has rows under it: open or closed.
+    pub fn expanded(mut self, open: bool) -> Self {
+        self.expanded = Some(open);
+        self
+    }
+
+    pub fn icon(mut self, glyph: impl Into<String>) -> Self {
+        self.icon = glyph.into();
+        self
+    }
+
+    pub fn chip(mut self, chip: Chip) -> Self {
+        self.chips.push(chip);
+        self
+    }
+
+    pub fn count(mut self, count: impl Into<String>) -> Self {
+        self.count = count.into();
+        self
+    }
+
+    /// What its right-click offers.
+    pub fn menu(mut self, button: Button) -> Self {
+        self.menu.push(button);
+        self
     }
 }
 
@@ -289,6 +440,14 @@ impl Panel {
 
     pub fn divider(self) -> Self {
         self.node(Node::Divider)
+    }
+
+    pub fn row(self, row: Row) -> Self {
+        self.node(Node::Row(row))
+    }
+
+    pub fn message(self, message: Message) -> Self {
+        self.node(Node::Message(message))
     }
 
     /// Nodes after this stay at the bottom of the panel.
@@ -358,8 +517,10 @@ macro_rules! export {
                     $crate::Plugin::run_command(p, &id)
                 })
             }
-            fn render_panel() -> Option<$crate::Panel> {
-                $crate::runtime::with(__merlin_init, |p: &mut $plugin| $crate::Plugin::panel(p))
+            fn render_view(view: String) -> Option<$crate::Panel> {
+                $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
+                    $crate::Plugin::view(p, &view)
+                })
             }
             fn on_click(button: String) {
                 $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
@@ -407,14 +568,6 @@ macro_rules! export {
             fn on_setting_changed(key: String) {
                 $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
                     $crate::Plugin::setting_changed(p, &key)
-                })
-            }
-        }
-
-        impl $crate::bindings::exports::merlin::plugin::views::Guest for __MerlinExports {
-            fn render_view(view: String) -> Option<$crate::Panel> {
-                $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
-                    $crate::Plugin::view(p, &view)
                 })
             }
         }

@@ -899,7 +899,7 @@ NameError: name 'nme' is not defined\n";
         fs::create_dir_all(&dir).unwrap();
         fs::write(
             dir.join("plugin.toml"),
-            "name = \"bad\"\ntitle = \"Bad\"\napi = \"0.9\"\n\
+            "name = \"bad\"\ntitle = \"Bad\"\napi = \"0.10\"\n\
              [[problem-matchers]]\nlines = [{ regex = '(', file = 1 }]\n",
         )
         .unwrap();

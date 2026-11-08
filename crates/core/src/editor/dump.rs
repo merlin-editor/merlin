@@ -460,6 +460,46 @@ fn dump_side(o: &mut String, which: &str, side: &SideView) {
                 let dim = if *ready { "" } else { " (waiting)" };
                 format!("[{}]{dim}", button.label)
             }
+            Node::Chips { chips, hint } => {
+                let chips: Vec<String> = chips.iter().map(|c| format!("({})", c.label)).collect();
+                format!("{}  {hint}", chips.join(" "))
+                    .trim_end()
+                    .to_string()
+            }
+            Node::Message(m) => {
+                let who = if m.mine { "You" } else { m.author.as_str() };
+                let chips: String = m.chips.iter().map(|c| format!(" ({})", c.label)).collect();
+                let caret = if m.streaming { "▌" } else { "" };
+                format!("{who}:{chips}\n{}{caret}", m.markdown)
+            }
+            Node::Edit(e) => {
+                let buttons: Vec<String> =
+                    e.buttons.iter().map(|b| format!("[{}]", b.label)).collect();
+                format!(
+                    "✎ {} +{} −{}  {}",
+                    e.path,
+                    e.added,
+                    e.removed,
+                    buttons.join(" ")
+                )
+            }
+            Node::Progress {
+                label,
+                detail,
+                done,
+            } => {
+                let at = done.map_or("…".to_string(), |d| format!("{}%", d / 10));
+                format!("{label} {at} {detail}").trim_end().to_string()
+            }
+            Node::Empty {
+                title,
+                text,
+                buttons,
+            } => {
+                let buttons: Vec<String> =
+                    buttons.iter().map(|b| format!("[{}]", b.label)).collect();
+                format!("{title}\n{text}\n{}", buttons.join(" "))
+            }
             Node::Input {
                 id,
                 placeholder,

@@ -9,6 +9,8 @@ struct Testbed {
     cat: Option<u32>,
     log: Vec<String>,
     asked: Vec<String>,
+    /// Whether the Counters row is open.
+    open: bool,
 }
 
 impl Plugin for Testbed {
@@ -94,26 +96,32 @@ impl Plugin for Testbed {
         }
     }
 
-    fn panel(&mut self) -> Option<Panel> {
-        let log = format!("log: {}", self.log.join(", "));
-        Some(
-            Panel::new("Testbed")
-                .text(format!("clicks: {}", self.clicks))
-                .text(log),
-        )
-    }
-
-    /// Activity shows the panel; Chat asks something; Runs has nothing,
-    /// so it shows its empty text.
+    /// Activity, Chat and Runs each show the nodes a view can have.
     fn view(&mut self, id: &str) -> Option<Panel> {
         match id {
-            "activity" => self.panel(),
-            "chat" => Some(
-                Panel::new("Chat")
-                    .text(format!("asked: {}", self.asked.join(", ")))
-                    .input("ask", "Ask something"),
+            "activity" => Some(self.activity()),
+            "chat" => Some(self.chat()),
+            "runs" if self.cat.is_some() => Some(
+                Panel::new("Runs")
+                    .node(Node::progress("cat is running", None))
+                    .node(Node::progress("Counted", Some(self.clicks.min(10) as f32 / 10.0))),
             ),
+            "runs" => Some(Panel::new("Runs").node(Node::empty(
+                "No runs yet",
+                "Start cat to see one here.",
+                vec![Button::new("spawn", "Start cat")],
+            ))),
             _ => None,
+        }
+    }
+
+    /// Rows, chips and buttons: what they do, or a line in the log.
+    fn click(&mut self, button: &str) {
+        match button {
+            "toggle" => self.open = !self.open,
+            "count" | "spawn" => self.run_command(button),
+            "reset" => self.clicks = 0,
+            other => self.log.push(format!("clicked {other}")),
         }
     }
 
@@ -156,6 +164,77 @@ impl Plugin for Testbed {
         let mut parts = state.split(' ');
         self.clicks = parts.next().and_then(|n| n.parse().ok()).unwrap_or(0);
         self.cat = parts.next().and_then(|n| n.parse().ok());
+    }
+}
+
+impl Testbed {
+    /// Counts and the log, then a tree with chips and a right-click menu.
+    fn activity(&self) -> Panel {
+        let log = format!("log: {}", self.log.join(", "));
+        let mut panel = Panel::new("Testbed")
+            .text(format!("clicks: {}", self.clicks))
+            .text(log)
+            .row(
+                Row::new("toggle", "Counters")
+                    .expanded(self.open)
+                    .count(self.clicks.to_string()),
+            );
+        if self.open {
+            panel = panel
+                .row(
+                    Row::new("count", "clicks")
+                        .depth(1)
+                        .icon("#")
+                        .detail(self.clicks.to_string())
+                        .chip(Chip::label("→ more", Tone::Warning))
+                        .menu(Button::new("count", "Count Again"))
+                        .menu(Button::new("reset", "Reset")),
+                )
+                .row(
+                    Row::new("log-row", "log lines")
+                        .depth(1)
+                        .detail(self.log.len().to_string())
+                        .chip(Chip::label("live", Tone::Muted)),
+                );
+        }
+        panel
+    }
+
+    /// The conversation: each question and its answer, an edit to review,
+    /// then a box to ask in.
+    fn chat(&self) -> Panel {
+        let mut panel = Panel::new("Chat").text(format!("asked: {}", self.asked.join(", ")));
+        for (i, q) in self.asked.iter().enumerate() {
+            let last = i + 1 == self.asked.len();
+            panel = panel
+                .message(
+                    Node::message("You", q.clone())
+                        .mine()
+                        .chip(Chip::new("file", "notes.txt 1–3")),
+                )
+                .message(
+                    Node::message(
+                        "Testbed",
+                        format!("You asked **{q}**. Here's some code:\n\n```rust\nfn main() {{\n    println!(\"{q}\");\n}}\n```"),
+                    )
+                    .streaming(last && self.clicks % 2 == 1),
+                );
+        }
+        if !self.asked.is_empty() {
+            panel = panel.node(Node::edit(
+                "notes.txt",
+                1,
+                0,
+                vec![Button::new("review", "Review"), Button::new("apply", "Apply")],
+            ));
+        }
+        panel
+            .footer()
+            .node(Node::multiline_input("ask", "Ask something"))
+            .node(Node::chips(
+                vec![Chip::new("selection", "+ selection"), Chip::new("model", "fast ▾")],
+                "Ctrl Enter to send",
+            ))
     }
 }
 

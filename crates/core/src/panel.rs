@@ -91,6 +91,59 @@ pub enum Node {
         button: Button,
         ready: bool,
     },
+    /// Chips in a row, each clicked on its own, and a quiet hint at the
+    /// row's right end.
+    Chips {
+        chips: Vec<Chip>,
+        hint: String,
+    },
+    /// A message in a conversation.
+    Message(Box<Message>),
+    /// A change to a file waiting for an answer.
+    Edit(Box<EditCard>),
+    /// Work under way: what, a line more, and how far in thousandths;
+    /// none while it can't say.
+    Progress {
+        label: String,
+        detail: String,
+        done: Option<u16>,
+    },
+    /// What a view says while it's empty, in its middle: a title, a
+    /// sentence, and buttons, the first the main one.
+    Empty {
+        title: String,
+        text: String,
+        buttons: Vec<Button>,
+    },
+}
+
+/// A small label, clicked on its own when it has an id.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct Chip {
+    pub id: String,
+    pub label: String,
+    pub tone: Tone,
+}
+
+/// A message: who from, its Markdown, and chips for what it's about.
+/// Yours are boxed; one still coming has a caret after it.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct Message {
+    pub author: String,
+    pub mine: bool,
+    pub markdown: String,
+    pub chips: Vec<Chip>,
+    pub streaming: bool,
+}
+
+/// A change to a file: its path, lines added and removed, and buttons,
+/// the last the main one.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct EditCard {
+    pub path: String,
+    pub added: u32,
+    pub removed: u32,
+    pub buttons: Vec<Button>,
 }
 
 impl Node {
@@ -168,6 +221,9 @@ pub struct Entry {
     /// A short note after the label in its tone, as a conflicted file's
     /// `2 left`.
     pub note: Option<(String, Tone)>,
+    /// What a right-click on it offers, each a button whose click goes
+    /// where the row's does.
+    pub menu: Vec<Button>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -180,6 +236,15 @@ pub struct Panel {
 pub struct PickItem {
     pub id: String,
     pub label: String,
+}
+
+/// The chips that can be clicked, as targets.
+fn chip_targets(chips: &[Chip]) -> Vec<Target> {
+    chips
+        .iter()
+        .filter(|c| !c.id.is_empty())
+        .map(|c| Target::Button(c.id.clone()))
+        .collect()
 }
 
 /// Something in a panel that can take focus.
@@ -207,6 +272,10 @@ impl Panel {
                     .chain(e.links.iter().map(|(_, id)| Target::Button(id.clone())))
                     .collect(),
                 Node::Input { id, .. } => vec![Target::Input(id.clone())],
+                Node::Chips { chips, .. } => chip_targets(chips),
+                Node::Message(m) => chip_targets(&m.chips),
+                Node::Edit(e) => e.buttons.iter().map(button).collect(),
+                Node::Empty { buttons, .. } => buttons.iter().map(button).collect(),
                 _ => Vec::new(),
             })
             .collect()

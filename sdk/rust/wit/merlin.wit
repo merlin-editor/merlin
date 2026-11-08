@@ -1,4 +1,4 @@
-package merlin:plugin@0.6.0;
+package merlin:plugin@0.7.0;
 
 interface types {
   /// What a run of text is, for its colour.
@@ -123,6 +123,78 @@ interface types {
     placeholder: string,
     /// Shows dots instead of the text, for passwords and API keys.
     secret: bool,
+    /// Grows to several lines: Enter adds a line, Ctrl+Enter sends.
+    multiline: bool,
+  }
+
+  /// A small label that can be clicked, such as a file a message is
+  /// about. Clicks arrive at `on-click` with its id; an empty id isn't
+  /// clickable.
+  record chip {
+    id: string,
+    label: string,
+    tone: tone,
+  }
+
+  /// Chips in a row, such as what a message box will send with it, and a
+  /// quiet hint at the row's right end ("Ctrl Enter to send").
+  record chip-row {
+    chips: list<chip>,
+    hint: string,
+  }
+
+  /// A row of a tree or list: its label and dimmed detail, how deep it
+  /// is, an arrow when it has rows under it, and chips and a count at its
+  /// right. A click on it, or its arrow, arrives at `on-click` with its
+  /// id; a right-click shows `menu`, whose clicks arrive the same way.
+  record row {
+    id: string,
+    label: string,
+    detail: string,
+    depth: u32,
+    /// Open or closed, for a row with rows under it.
+    expanded: option<bool>,
+    /// A glyph before the label.
+    icon: string,
+    chips: list<chip>,
+    count: string,
+    menu: list<button>,
+  }
+
+  /// A message in a conversation: who it's from, its Markdown, and chips
+  /// for what it's about. Yours are boxed. While `streaming`, a caret
+  /// follows the text.
+  record message {
+    author: string,
+    mine: bool,
+    markdown: string,
+    chips: list<chip>,
+    streaming: bool,
+  }
+
+  /// A change to a file waiting for an answer: its path, lines added and
+  /// removed, and buttons such as Review and Apply, the last the main one.
+  record edit-card {
+    path: string,
+    added: u32,
+    removed: u32,
+    buttons: list<button>,
+  }
+
+  /// Work under way: what, a line more, and how far, 0 to 1; none while
+  /// it can't say.
+  record progress {
+    label: string,
+    detail: string,
+    done: option<f32>,
+  }
+
+  /// What a view says while there's nothing in it yet: a title, a
+  /// sentence, and buttons, the first the main one. Drawn in its middle.
+  record empty-state {
+    title: string,
+    text: string,
+    buttons: list<button>,
   }
 
   /// A row that can be focused and clicked like a button, drawn as text:
@@ -149,6 +221,12 @@ interface types {
     /// inline code, links, and fenced code blocks with syntax colours.
     markdown(string),
     input(input),
+    chips(chip-row),
+    row(row),
+    message(message),
+    edit-card(edit-card),
+    progress(progress),
+    empty-state(empty-state),
     divider,
     /// Nodes after this stay at the bottom of the panel. The nodes before it
     /// scroll, and keep the newest content in view.
@@ -583,9 +661,6 @@ interface host {
   /// for the plugin (all, errors, none) may log it instead.
   notice: func(level: log-level, message: string, buttons: list<button>);
 
-  /// Shows this plugin's panel and focuses its first input.
-  focus-panel: func();
-
   /// Shows one of the views the plugin's manifest declares, where the
   /// user keeps it, and focuses its first input.
   focus-view: func(view: string);
@@ -795,8 +870,13 @@ world plugin {
   /// stopped.
   export save-state: func() -> option<list<u8>>;
   export run-command: func(id: string);
-  /// Called when the panel is visible and something may have changed.
-  export render-panel: func() -> option<panel>;
+  /// One of the views `[[views]]` in the manifest declares, by its id,
+  /// when it shows and something may have changed. The editor keeps focus,
+  /// scrolling and typed text, so a new panel resets none of it.
+  export render-view: func(view: string) -> option<panel>;
+  /// One of the plugin's settings changed, by its dotted key, after the
+  /// user or a workspace set it. `get-setting` has the new value.
+  export on-setting-changed: func(key: string);
   export on-click: func(button: string);
   export on-submit: func(input: string, text: string);
   export on-pick: func(picker: string, item: string);
@@ -811,22 +891,4 @@ world plugin {
   /// A command line from `run-in-terminal`, or a test's, ended: all it
   /// printed, and its exit code, if it had one.
   export on-terminal: func(id: string, output: string, code: option<s32>);
-}
-
-/// Views a plugin draws, beyond `render-panel`'s one.
-interface views {
-  use types.{panel};
-  /// One of the views `[[views]]` in the manifest declares, by its id,
-  /// when it shows and something may have changed.
-  render-view: func(view: string) -> option<panel>;
-}
-
-/// What the SDK builds: `plugin`, and exports merlin calls only when a
-/// plugin has them, so plugins built before them still load.
-world plugin-sdk {
-  include plugin;
-  /// One of the plugin's settings changed, by its dotted key, after the
-  /// user or a workspace set it. `get-setting` has the new value.
-  export on-setting-changed: func(key: string);
-  export views;
 }
