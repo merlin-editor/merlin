@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Plugin views</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.board{width:1620px;height:800px;display:flex;background:#08090a;font-family:Inter,sans-serif}
+.w{width:1280px;height:800px;background:#0f1012;color:#d4d5da;display:flex;flex-direction:column;font-size:13px;overflow:hidden;position:relative;flex-shrink:0}
+.notes{flex:1;padding:28px 24px;display:flex;flex-direction:column;gap:18px;color:#8e9099;font-size:12.5px;line-height:1.5}
+.notes h3{margin:0 0 4px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#7c9cff}
+.notes b{color:#d4d5da;font-weight:600}
+.notes p{margin:0}
+.bar{height:40px;display:flex;align-items:center;gap:10px;padding:0 12px;flex-shrink:0}
+.logo{width:20px;height:20px;border-radius:5px;background:#7c9cff;color:#0f1012;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
+.search{margin:0 auto;width:400px;height:26px;border-radius:7px;background:#1c1d21;border:1px solid #2c2d33;color:#8e9099;display:flex;align-items:center;gap:8px;padding:0 10px;font-size:12.5px;box-sizing:border-box}
+.kbd{font-size:11px;background:#26272c;border-radius:4px;padding:1px 6px;color:#b4b6bd}
+.mid{flex:1;display:flex;gap:6px;padding-right:6px;min-height:0}
+.rail{width:44px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:6px;padding-top:6px}
+.ri{width:30px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:#7a7d86;font-size:14px;position:relative}
+.ri.on{background:#1c1d21;color:#eef0f3}
+.ri.on::before{content:"";position:absolute;left:-7px;top:7px;width:2px;height:16px;border-radius:1px;background:#7c9cff}
+.rsep{width:20px;height:1px;background:#2c2d33;margin:2px 0}
+.badge{position:absolute;right:-3px;bottom:-2px;min-width:14px;height:14px;border-radius:7px;background:#7c9cff;color:#0f1012;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 3px;box-sizing:border-box}
+.island{background:#17181b;border-radius:10px;display:flex;flex-direction:column;min-width:0;overflow:hidden;position:relative}
+.vh{height:34px;display:flex;align-items:center;gap:6px;padding:0 8px 0 12px;flex-shrink:0}
+.vt{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#b4b6bd}
+.from{font-size:11px;color:#7a7d86}
+.tool{margin-left:auto;display:flex;gap:2px}
+.tb{width:22px;height:22px;border-radius:5px;display:flex;align-items:center;justify-content:center;color:#8e9099;font-size:12px}
+.tr{height:24px;display:flex;align-items:center;gap:6px;padding-right:10px;font-size:12.5px;color:#d4d5da;white-space:nowrap}
+.tr.sel{background:#1d2130}
+.tw{width:12px;color:#7a7d86;font-size:9px;text-align:center;flex-shrink:0}
+.tr .d{color:#7a7d86;font-size:11.5px}
+.tr .r{margin-left:auto;font-size:11px;color:#8e9099}
+.chip{font-size:10.5px;border-radius:4px;padding:1px 6px;font-weight:500;background:#1f2638;color:#7c9cff;white-space:nowrap}
+.chip.a{background:#2e2618;color:#e6b45c}
+.chip.m{background:#24252a;color:#8e9099}
+.tabs{height:32px;display:flex;align-items:center;gap:3px;padding:0 6px;flex-shrink:0}
+.tab{height:24px;padding:0 10px;border-radius:6px;display:flex;align-items:center;gap:6px;color:#8e9099;font-size:12.5px;white-space:nowrap}
+.tab.on{background:#26272c;color:#eef0f3;box-shadow:inset 0 0 0 1px #2c2d33}
+.ic{width:14px;height:14px;border-radius:3px;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;background:#3a2a1e;color:#f5a97f}
+.code{font-family:'JetBrains Mono',monospace;font-size:13px;line-height:22px;white-space:pre;padding:4px 0}
+.ln{display:inline-block;width:40px;text-align:right;padding-right:20px;color:#5d6068}
+.k{color:#c4a7e7}.s{color:#a6d189}.f{color:#f0c674}.t{color:#9ccfd8}.c{color:#7f8794}.n{color:#f5a97f}
+.status{height:24px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px;color:#8e9099;flex-shrink:0}
+.menu{position:absolute;background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.45);padding:5px;width:236px;box-sizing:border-box}
+.mh{padding:5px 8px 6px;font-size:11.5px;color:#7a7d86}
+.mi{height:26px;display:flex;align-items:center;gap:8px;padding:0 8px;border-radius:5px;font-size:12.5px;color:#d4d5da}
+.mi.on{background:#262b3d;color:#eef0f3}
+.mi .k2{margin-left:auto;font-size:11px;color:#7a7d86}
+.msep{height:1px;background:#2c2d33;margin:4px 2px}
+.rtabs{height:36px;display:flex;align-items:center;gap:2px;padding:0 6px;flex-shrink:0;border-bottom:1px solid #222328}
+.rt{height:26px;padding:0 9px;border-radius:6px;display:flex;align-items:center;gap:6px;font-size:12px;color:#8e9099;white-space:nowrap}
+.rt.on{background:#26272c;color:#eef0f3}
+.msg{padding:10px 14px;font-size:12.5px;line-height:1.55}
+.who{font-size:11px;font-weight:600;color:#8e9099;margin-bottom:4px;display:flex;align-items:center;gap:6px}
+.you{background:#1c1d21;border-radius:8px;padding:8px 10px;color:#eef0f3}
+.fc{display:inline-flex;align-items:center;gap:4px;font-family:'JetBrains Mono',monospace;font-size:11px;background:#24252a;border-radius:4px;padding:1px 6px;color:#b4b6bd}
+.cb{font-family:'JetBrains Mono',monospace;font-size:11.5px;line-height:18px;background:#111214;border:1px solid #222328;border-radius:6px;padding:8px 10px;white-space:pre;margin-top:6px;color:#d4d5da}
+.edit{margin:4px 14px;border:1px solid #2c2d33;border-radius:8px;padding:8px 10px;display:flex;align-items:center;gap:8px;font-size:12px}
+.add{color:#6cc070}.del{color:#f0807a}
+.btn{height:24px;border-radius:6px;padding:0 9px;font-size:12px;display:inline-flex;align-items:center;gap:6px;border:1px solid #2c2d33;background:#1f2024;color:#d4d5da;white-space:nowrap;box-sizing:border-box;font-family:Inter,sans-serif}
+.btn.p{background:#7c9cff;border-color:#7c9cff;color:#0f1012;font-weight:600}
+.caret{display:inline-block;width:7px;height:14px;background:#7c9cff;vertical-align:-2px;margin-left:2px}
+.compose{margin:8px 10px 10px;border:1px solid #3a4466;border-radius:8px;background:#1c1d21;padding:8px 10px}
+.compose .txt{font-size:12.5px;color:#eef0f3;min-height:36px;line-height:1.5}
+.compose .row{display:flex;align-items:center;gap:6px;margin-top:6px}
+.hint{font-size:11px;color:#7a7d86;margin-left:auto}
+</style>
+</helmet>
+<div class="board">
+<div class="w">
+  <div class="bar"><div class="logo">m</div><span style="font-weight:600;color:#eef0f3">merlin</span><span style="font-size:12px;color:#8e9099">⑂ editor-rework</span><div class="search">⌕ Search files, commands, symbols and text <span class="kbd" style="margin-left:auto">Ctrl Shift P</span></div></div>
+  <div class="mid">
+    <div class="rail">
+      <div class="ri">❐</div><div class="ri">⌕</div><div class="ri">⑂</div><div class="ri">⚗</div><div class="ri">▷</div><div class="ri">☰</div>
+      <div class="rsep"></div>
+      <div class="ri on"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M8 1.8 13.5 5v6L8 14.2 2.5 11V5z"></path><path d="M2.5 5 8 8.2 13.5 5M8 8.2v6"></path></svg><span class="badge">2</span></div>
+      <div class="ri"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M3 4h2M3 8h2M3 12h2M7 4h6M7 8h6M7 12h4"></path></svg></div>
+    </div>
+
+    <div class="island" style="width:270px;flex-shrink:0">
+      <div class="vh"><span class="vt">Cargo</span><span class="from">· Rust</span>
+        <div class="tool"><div class="tb">↻</div><div class="tb">⇣</div><div class="tb">⋯</div></div></div>
+      <div class="tr" style="padding-left:6px"><span class="tw">▾</span><span style="font-weight:600">merlin-app</span><span class="r">crates/app</span></div>
+      <div class="tr" style="padding-left:20px"><span class="tw">▾</span>Dependencies<span class="r">14</span></div>
+      <div class="tr sel" style="padding-left:34px"><span class="tw"></span>wgpu<span class="d">23.0.1</span><span class="chip a" style="margin-left:auto">→ 24.0.0</span></div>
+      <div class="tr" style="padding-left:34px"><span class="tw"></span>toml<span class="d">0.8.19</span></div>
+      <div class="tr" style="padding-left:34px"><span class="tw"></span>toml_edit<span class="d">0.22.22</span></div>
+      <div class="tr" style="padding-left:34px"><span class="tw"></span>merlin-core<span class="chip m" style="margin-left:auto">path</span></div>
+      <div class="tr" style="padding-left:34px"><span class="tw"></span>merlin-plugins<span class="chip m" style="margin-left:auto">path</span></div>
+      <div class="tr" style="padding-left:20px"><span class="tw">▸</span>Dev dependencies<span class="r">3</span></div>
+      <div class="tr" style="padding-left:6px"><span class="tw">▾</span><span style="font-weight:600">merlin-plugins</span><span class="r">crates/plugin-host</span></div>
+      <div class="tr" style="padding-left:20px"><span class="tw">▾</span>Dependencies<span class="r">9</span></div>
+      <div class="tr" style="padding-left:34px"><span class="tw"></span>wasmtime<span class="d">26.0.1</span><span class="chip a" style="margin-left:auto">→ 27.0.0</span></div>
+      <div class="tr" style="padding-left:34px"><span class="tw"></span>keyring<span class="d">3.6.1</span></div>
+      <div class="tr" style="padding-left:6px"><span class="tw">▸</span><span style="font-weight:600">merlin-core</span><span class="r">crates/core</span></div>
+    </div>
+
+    <div class="island" style="flex:1">
+      <div class="tabs"><div class="tab"><span class="ic">RS</span>state.rs</div><div class="tab on"><span class="ic">RS</span>palette.rs</div></div>
+      <div class="code"><span class="ln">38</span><span class="k">impl</span> <span class="t">Palette</span> {
+<span class="ln">39</span>    <span class="c">/// Lays out the rows for the window's width.</span>
+<span class="ln">40</span>    <span class="k">pub fn</span> <span class="f">layout</span>(&amp;<span class="k">mut</span> self, width: <span class="t">f32</span>) {
+<span class="ln">41</span>        <span class="k">let</span> rows = self.<span class="f">rows</span>();
+<span class="ln">42</span>        self.cache.<span class="f">clear</span>();
+<span class="ln">43</span>        <span class="k">for</span> row <span class="k">in</span> rows {
+<span class="ln">44</span>            <span class="k">let</span> h = row.<span class="f">height</span>(width);
+<span class="ln">45</span>            self.cache.<span class="f">push</span>(h);
+<span class="ln">46</span>        }
+<span class="ln">47</span>    }
+<span class="ln">48</span>
+<span class="ln">49</span>    <span class="k">fn</span> <span class="f">rows</span>(&amp;self) -&gt; <span class="t">Vec</span>&lt;<span class="t">Row</span>&gt; {
+<span class="ln">50</span>        self.items.<span class="f">iter</span>().<span class="f">map</span>(<span class="t">Row</span>::<span class="f">from</span>).<span class="f">collect</span>()
+<span class="ln">51</span>    }
+<span class="ln">52</span>}</div>
+    </div>
+
+    <div class="island" style="width:372px;flex-shrink:0">
+      <div class="rtabs">
+        <div class="rt on"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"></path></svg>OpenCode</div>
+        <div class="rt"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M8 2v12M2 8h12M3.8 3.8l8.4 8.4M12.2 3.8l-8.4 8.4"></path></svg>Claude Code</div>
+        <div class="tool"><div class="tb">+</div><div class="tb">⋯</div></div>
+      </div>
+      <div style="flex:1;overflow:hidden">
+        <div class="msg"><div class="who">You</div><div class="you">Why does the palette flicker when the window resizes? <span class="fc">palette.rs 40–47</span></div></div>
+        <div class="msg"><div class="who"><span style="color:#7c9cff">●</span> OpenCode</div>
+          <span style="color:#d4d5da"><b style="color:#eef0f3">layout</b> clears the cache before the new heights are in, so a frame drawn in between sees no rows. Build the heights first, then swap them in:</span>
+          <div class="cb"><span class="k">let</span> heights = rows.<span class="f">iter</span>()
+    .<span class="f">map</span>(|r| r.<span class="f">height</span>(width))
+    .<span class="f">collect</span>();
+self.cache = heights;<span class="caret"></span></div>
+        </div>
+        <div class="edit"><span class="ic">RS</span>palette.rs<span class="add">+4</span><span class="del">−5</span><span style="margin-left:auto;display:flex;gap:6px"><span class="btn">Review</span><span class="btn p">Apply</span></span></div>
+      </div>
+      <div class="compose">
+        <div class="txt">and the same in <span class="fc">@frame.rs</span>?</div>
+        <div class="row"><span class="fc">+ selection</span><span class="fc">claude-sonnet ▾</span><span class="hint">Ctrl Enter to send</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="status"><span>⑂ editor-rework</span><span>⊘ 0  ⚠ 2</span><span style="margin-left:auto">Ln 42, Col 9</span><span>Spaces: 4</span><span>UTF-8</span><span>{ } Rust</span></div>
+
+  <div class="menu" style="left:52px;top:118px">
+    <div class="mh">Cargo · from the Rust plugin</div>
+    <div class="mi on">Move to the Right Side Bar</div>
+    <div class="mi">Move to the Panel</div>
+    <div class="mi">Open as an Editor Tab</div>
+    <div class="msep"></div>
+    <div class="mi">Hide from the Activity Bar</div>
+    <div class="mi">Reset Location</div>
+  </div>
+</div>
+
+<div class="notes">
+  <div><h3>Left: a plugin's own view</h3><p>The Rust plugin declares a <b>Cargo</b> view with <b>where = "left"</b> and its own icon, so it sits in the rail after the built-in views, below a thin line. The <b>2</b> is its badge (<b>set-view-badge</b>): crates with updates.</p></div>
+  <div><h3>A view's header</h3><p>Its title, then which plugin it's from. The ↻ ⇣ ⋯ buttons are the plugin's commands from <b>[[views.toolbar]]</b>. Rows are a tree with expanders and chips, a new node kind.</p></div>
+  <div><h3>Moving it</h3><p>Right-click a rail icon, or drag it, to move the view. The plugin's <b>where</b> is only the default; merlin remembers where you put it, per window.</p></div>
+  <div><h3>Right: its own tab row</h3><p>The secondary side bar gets tabs along its top instead of sharing the left rail. Chat plugins such as OpenCode and Claude Code default here. <b>+</b> adds one that's hidden.</p></div>
+  <div><h3>What chat needs</h3><p>Markdown that streams in, file chips, an edit card with Review and Apply (the diff tab you have now), and a multi-line box with Ctrl+Enter. All drawn by merlin, so it matches the window.</p></div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1620,"height":800}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

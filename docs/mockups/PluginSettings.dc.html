@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Plugin settings</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.board{width:1620px;height:800px;display:flex;background:#08090a;font-family:Inter,sans-serif}
+.w{width:1280px;height:800px;background:#0f1012;color:#d4d5da;display:flex;flex-direction:column;font-size:13px;overflow:hidden;position:relative;flex-shrink:0}
+.notes{flex:1;padding:28px 24px;display:flex;flex-direction:column;gap:16px;color:#8e9099;font-size:12.5px;line-height:1.5;min-width:0}
+.notes h3{margin:0 0 4px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#7c9cff}
+.notes b{color:#d4d5da;font-weight:600}
+.notes p{margin:0}
+.toml{font-family:'JetBrains Mono',monospace;font-size:11px;line-height:17px;background:#111214;border:1px solid #222328;border-radius:6px;padding:8px 10px;white-space:pre;color:#d4d5da;overflow:hidden}
+.bar{height:40px;display:flex;align-items:center;gap:10px;padding:0 12px;flex-shrink:0}
+.logo{width:20px;height:20px;border-radius:5px;background:#7c9cff;color:#0f1012;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
+.search{margin:0 auto;width:400px;height:26px;border-radius:7px;background:#1c1d21;border:1px solid #2c2d33;color:#8e9099;display:flex;align-items:center;gap:8px;padding:0 10px;font-size:12.5px;box-sizing:border-box}
+.kbd{font-size:11px;background:#26272c;border-radius:4px;padding:1px 6px;color:#b4b6bd}
+.mid{flex:1;display:flex;gap:6px;padding-right:6px;min-height:0}
+.rail{width:44px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:6px;padding-top:6px}
+.ri{width:30px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:#7a7d86;font-size:14px}
+.island{background:#17181b;border-radius:10px;display:flex;flex-direction:column;min-width:0;overflow:hidden;position:relative}
+.tabs{height:32px;display:flex;align-items:center;gap:3px;padding:0 6px;flex-shrink:0}
+.tab{height:24px;padding:0 10px;border-radius:6px;display:flex;align-items:center;gap:6px;color:#8e9099;font-size:12.5px;white-space:nowrap}
+.tab.on{background:#26272c;color:#eef0f3;box-shadow:inset 0 0 0 1px #2c2d33}
+.ic{width:14px;height:14px;border-radius:3px;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;background:#3a2a1e;color:#f5a97f;flex-shrink:0}
+.split{flex:1;display:flex;min-height:0}
+.nav{width:176px;padding:12px 8px;display:flex;flex-direction:column;gap:2px;flex-shrink:0}
+.nv{height:30px;display:flex;align-items:center;gap:10px;padding:0 10px;border-radius:6px;font-size:13px;color:#b4b6bd}
+.nv.on{background:#26272c;color:#eef0f3}
+.nv .c{margin-left:auto;font-size:11px;color:#8e9099}
+.body{flex:1;overflow:hidden;padding:14px 22px 0 18px;min-width:0;display:flex;flex-direction:column}
+.find{height:32px;border:1px solid #2c2d33;border-radius:7px;background:#1f2024;display:flex;align-items:center;gap:8px;padding:0 10px;font-size:13px;color:#8e9099;box-sizing:border-box;flex-shrink:0}
+.scope{display:flex;gap:18px;font-size:12.5px;margin-top:12px;border-bottom:1px solid #222328;flex-shrink:0}
+.scope span{padding-bottom:8px;color:#8e9099}
+.scope span.on{color:#eef0f3;box-shadow:inset 0 -2px 0 #7c9cff}
+.cols{flex:1;display:flex;min-height:0;margin-top:12px}
+.plist{width:220px;flex-shrink:0;padding-right:8px;border-right:1px solid #222328;display:flex;flex-direction:column;gap:2px}
+.pi{height:40px;display:flex;align-items:center;gap:10px;padding:0 10px;border-radius:6px}
+.pi.on{background:#26272c}
+.pn{font-size:12.5px;color:#eef0f3;line-height:1.25}
+.pn div{font-size:11px;color:#8e9099}
+.pm{margin-left:auto;font-size:11px;color:#8e9099;text-align:right;line-height:1.3}
+.pico{width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0}
+.page{flex:1;padding:0 0 0 14px;min-width:0;overflow:hidden}
+.ph{display:flex;align-items:center;gap:10px}
+.ph .big{width:34px;height:34px;border-radius:8px;background:#3a2a1e;color:#f5a97f;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
+.ph .t1{font-size:15px;font-weight:600;color:#eef0f3}
+.ph .t2{font-size:11.5px;color:#8e9099}
+.btn{height:26px;border-radius:6px;padding:0 10px;font-size:12px;display:inline-flex;align-items:center;gap:6px;border:1px solid #2c2d33;background:#1f2024;color:#d4d5da;white-space:nowrap;box-sizing:border-box;font-family:Inter,sans-serif}
+.sw{width:34px;height:20px;border-radius:10px;background:#2c2d33;position:relative;flex-shrink:0}
+.sw::after{content:"";position:absolute;left:3px;top:3px;width:14px;height:14px;border-radius:50%;background:#8e9099}
+.sw.on{background:#7c9cff}
+.sw.on::after{left:17px;background:#0f1012}
+.ptabs{display:flex;gap:18px;font-size:12.5px;margin-top:14px;border-bottom:1px solid #222328}
+.ptabs span{padding-bottom:8px;color:#8e9099}
+.ptabs span.on{color:#eef0f3;box-shadow:inset 0 -2px 0 #7c9cff}
+.ptabs .n{font-size:11px;color:#7a7d86;margin-left:4px}
+.row{display:flex;align-items:center;gap:18px;padding:9px 0;border-bottom:1px solid #222328}
+.row .l{flex:1;min-width:0}
+.row .t{font-size:13px;color:#eef0f3;font-weight:500;display:flex;align-items:center;gap:8px}
+.row .a{font-size:12px;color:#8e9099;margin-top:2px;line-height:1.4}
+.row.off .t,.row.off .a{opacity:.55}
+.key{font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#7a7d86;font-weight:400}
+.mod{font-size:10.5px;color:#7c9cff;background:#1f2638;border-radius:4px;padding:1px 6px;font-weight:500}
+.uo{font-size:10.5px;color:#8e9099;background:#24252a;border-radius:4px;padding:1px 6px;font-weight:500}
+.yours{font-size:11.5px;color:#8e9099;margin-top:3px}
+.yours b{color:#d4d5da;font-weight:500}
+.yours .rs{color:#7c9cff}
+.sel{min-width:140px;height:28px;border:1px solid #2c2d33;border-radius:6px;background:#1f2024;display:flex;align-items:center;justify-content:space-between;padding:0 10px;font-size:12.5px;box-sizing:border-box;gap:12px;flex-shrink:0;color:#d4d5da}
+.seg{display:flex;background:#1f2024;border:1px solid #2c2d33;border-radius:7px;padding:2px;flex-shrink:0}
+.seg span{height:22px;padding:0 10px;display:flex;align-items:center;border-radius:5px;font-size:12px;color:#b4b6bd}
+.seg span.on{background:#2c3a5e;color:#eef0f3}
+.chips{display:flex;gap:6px;flex-shrink:0;align-items:center}
+.ch{height:24px;border-radius:5px;background:#24252a;padding:0 8px;display:flex;align-items:center;gap:6px;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#d4d5da}
+.ch .x{color:#7a7d86;font-family:Inter,sans-serif}
+.txt{width:220px;height:28px;border:1px solid #2c2d33;border-radius:6px;background:#1a1b1e;display:flex;align-items:center;padding:0 10px;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#7a7d86;box-sizing:border-box;flex-shrink:0}
+.status{height:24px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px;color:#8e9099;flex-shrink:0}
+</style>
+</helmet>
+<div class="board">
+<div class="w">
+  <div class="bar"><div class="logo">m</div><span style="font-weight:600;color:#eef0f3">merlin</span><span style="font-size:12px;color:#8e9099">⑂ editor-rework</span><div class="search">⌕ Search files, commands, symbols and text <span class="kbd" style="margin-left:auto">Ctrl Shift P</span></div></div>
+  <div class="mid">
+    <div class="rail"><div class="ri">❐</div><div class="ri">⌕</div><div class="ri">⑂</div><div class="ri">⚗</div><div class="ri">▷</div><div class="ri">☰</div></div>
+    <div class="island" style="flex:1">
+      <div class="tabs"><div class="tab"><span class="ic">RS</span>state.rs</div><div class="tab on">⚙ Settings</div></div>
+      <div class="split">
+        <div class="nav">
+          <div class="nv">◉ Appearance<span class="c">5</span></div>
+          <div class="nv">☰ Text Editor<span class="c">2</span></div>
+          <div class="nv">▯ Files</div>
+          <div class="nv">⌨ Keyboard Shortcuts</div>
+          <div class="nv on">⧉ Plugins<span class="c">3</span></div>
+        </div>
+        <div class="body">
+          <div class="find">⌕ Search settings</div>
+          <div class="scope"><span>User</span><span class="on">Workspace · merlin</span></div>
+          <div class="cols">
+            <div class="plist">
+              <div class="pi"><span class="pico" style="background:#1d2a33;color:#7cc4e6">C+</span><div class="pn">C/C++<div>cpp</div></div><div class="pm">1.1 MB</div></div>
+              <div class="pi"><span class="pico" style="background:#1d2a33;color:#7cc4e6">GO</span><div class="pn">Go<div>go</div></div><div class="pm">2.4 MB</div></div>
+              <div class="pi"><span class="pico" style="background:#2e2c18;color:#e6d45c">JS</span><div class="pn">JavaScript<div>javascript</div></div><div class="pm">2.8 MB</div></div>
+              <div class="pi"><span class="pico" style="background:#262b3d;color:#9ab0ff">OC</span><div class="pn">OpenCode<div>opencode</div></div><div class="pm">5.0 MB</div></div>
+              <div class="pi"><span class="pico" style="background:#1d2a33;color:#7cc4e6">PY</span><div class="pn">Python<div>python</div></div><div class="pm">3.3 MB</div></div>
+              <div class="pi on"><span class="pico" style="background:#3a2a1e;color:#f5a97f">RS</span><div class="pn">Rust<div>rust</div></div><div class="pm">3826 MB<br/><span style="color:#6cc070">● on</span></div></div>
+              <div class="pi"><span class="pico" style="background:#1d2a33;color:#7cc4e6">TM</span><div class="pn">TOML<div>toml</div></div><div class="pm">1.6 MB</div></div>
+            </div>
+            <div class="page">
+              <div class="ph"><span class="big">RS</span><div><div class="t1">Rust</div><div class="t2">rust · API 0.10 · 4.6 MB in merlin · rust-analyzer 3822 MB</div></div>
+                <div style="margin-left:auto;display:flex;gap:6px;align-items:center"><span class="btn">Reload</span><span class="btn">Output</span><span class="sw on"></span></div></div>
+              <div class="ptabs"><span class="on">Settings<span class="n">7</span></span><span>Allowed<span class="n">5</span></span><span>Adds<span class="n">12</span></span></div>
+
+              <div class="row"><div class="l"><div class="t">Check on save <span class="key">check-command</span><span class="mod">Workspace</span></div><div class="a">What rust-analyzer runs when you save.</div><div class="yours">Yours: <b>cargo check</b> <span class="rs">↺ Use yours</span></div></div><div class="sel">cargo clippy <span>▾</span></div></div>
+              <div class="row"><div class="l"><div class="t">Features <span class="key">features</span><span class="mod">Workspace</span></div><div class="a">Cargo features to turn on when checking and testing.</div></div><div class="chips"><span class="ch">gui <span class="x">×</span></span><span class="ch">wgpu <span class="x">×</span></span><span class="ch" style="background:transparent;border:1px dashed #2c2d33">+ Add</span></div></div>
+              <div class="row"><div class="l"><div class="t">Run tests with <span class="key">test-runner</span></div><div class="a">nextest runs them in parallel and reports each one.</div></div><div class="seg"><span class="on">cargo test</span><span>cargo nextest</span></div></div>
+              <div class="row"><div class="l"><div class="t">Inlay hints <span class="key">inlay-hints</span></div><div class="a">Types and parameter names shown in the code.</div></div><span class="sw on"></span></div>
+              <div class="row off"><div class="l"><div class="t">rust-analyzer <span class="key">server-path</span><span class="uo">User only</span></div><div class="a">A program on this computer, so it's set for you, not the workspace.</div></div><div class="txt">/usr/bin/rust-analyzer</div></div>
+              <div class="row"><div class="l"><div class="t">Notices <span class="key">notices</span></div><div class="a">The rest go to its Output channel.</div></div><div class="seg"><span>All</span><span class="on">Errors only</span><span>None</span></div></div>
+              <div class="row"><div class="l"><div class="t">Log level <span class="key">log-level</span></div><div class="a">How much it writes to Output.</div></div><div class="sel">Info <span>▾</span></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="status"><span>⑂ editor-rework</span><span>⊘ 0  ⚠ 2</span><span style="margin-left:auto">Workspace settings: .merlin/settings.toml</span></div>
+</div>
+
+<div class="notes">
+  <div><h3>Settings first</h3><p>A plugin's page puts <b>Settings</b> first, with <b>Allowed</b> and <b>Adds</b> as tabs beside it, so the page isn't mostly stats. The count beside Plugins in the nav is how many plugin settings you've changed.</p></div>
+  <div><h3>Typed rows</h3><p>The same rows as merlin's own settings: a choice, a list of chips, a segmented choice, a switch, a path. Each has a description and its key. <b>Notices</b> and <b>Log level</b> every plugin gets, without declaring them.</p></div>
+  <div><h3>Both scopes</h3><p>On the <b>Workspace</b> tab a row set here says so and shows yours, with <b>↺ Use yours</b>. A <b>user-only</b> setting, like a program's path or anything secret, is greyed here and set on User.</p></div>
+  <div><h3>The manifest</h3>
+<div class="toml">[settings.check-command]
+type = "choice"
+default = "check"
+choices = [
+  { value = "check", label = "cargo check" },
+  { value = "clippy", label = "cargo clippy" },
+]
+description = "What rust-analyzer runs when you save."
+
+[settings.server-path]
+type = "path"
+scope = "user-only"</div><p style="margin-top:6px"><b>on-setting-changed(key)</b> tells the plugin, so lsp can restart its server.</p></div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1620,"height":800}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

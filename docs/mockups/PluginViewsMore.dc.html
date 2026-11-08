@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Views elsewhere</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.board{width:1620px;height:800px;display:flex;background:#08090a;font-family:Inter,sans-serif}
+.w{width:1280px;height:800px;background:#0f1012;color:#d4d5da;display:flex;flex-direction:column;font-size:13px;overflow:hidden;position:relative;flex-shrink:0}
+.notes{flex:1;padding:28px 24px;display:flex;flex-direction:column;gap:16px;color:#8e9099;font-size:12.5px;line-height:1.5;min-width:0}
+.notes h3{margin:0 0 4px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#7c9cff}
+.notes b{color:#d4d5da;font-weight:600}
+.notes p{margin:0}
+.toml{font-family:'JetBrains Mono',monospace;font-size:11px;line-height:17px;background:#111214;border:1px solid #222328;border-radius:6px;padding:8px 10px;white-space:pre;color:#d4d5da;overflow:hidden}
+.bar{height:40px;display:flex;align-items:center;gap:10px;padding:0 12px;flex-shrink:0}
+.logo{width:20px;height:20px;border-radius:5px;background:#7c9cff;color:#0f1012;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
+.search{margin:0 auto;width:400px;height:26px;border-radius:7px;background:#1c1d21;border:1px solid #2c2d33;color:#8e9099;display:flex;align-items:center;gap:8px;padding:0 10px;font-size:12.5px;box-sizing:border-box}
+.kbd{font-size:11px;background:#26272c;border-radius:4px;padding:1px 6px;color:#b4b6bd}
+.mid{flex:1;display:flex;gap:6px;padding-right:6px;min-height:0}
+.rail{width:44px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:6px;padding-top:6px}
+.ri{width:30px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:#7a7d86;font-size:14px;position:relative}
+.rsep{width:20px;height:1px;background:#2c2d33;margin:2px 0}
+.col{flex:1;display:flex;flex-direction:column;gap:6px;min-width:0}
+.groups{flex:1;display:flex;gap:6px;min-height:0}
+.island{background:#17181b;border-radius:10px;display:flex;flex-direction:column;min-width:0;overflow:hidden;position:relative}
+.tabs{height:32px;display:flex;align-items:center;gap:3px;padding:0 6px;flex-shrink:0}
+.tab{height:24px;padding:0 10px;border-radius:6px;display:flex;align-items:center;gap:6px;color:#8e9099;font-size:12.5px;white-space:nowrap}
+.tab.on{background:#26272c;color:#eef0f3;box-shadow:inset 0 0 0 1px #2c2d33}
+.tab .x{color:#7a7d86;font-size:11px}
+.ic{width:14px;height:14px;border-radius:3px;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;background:#3a2a1e;color:#f5a97f}
+.code{font-family:'JetBrains Mono',monospace;font-size:13px;line-height:22px;white-space:pre;padding:4px 0}
+.ln{display:inline-block;width:40px;text-align:right;padding-right:20px;color:#5d6068}
+.k{color:#c4a7e7}.s{color:#a6d189}.f{color:#f0c674}.t{color:#9ccfd8}.c{color:#7f8794}.n{color:#f5a97f}
+.status{height:24px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px;color:#8e9099;flex-shrink:0}
+.btn{height:28px;border-radius:6px;padding:0 12px;font-size:12.5px;display:inline-flex;align-items:center;gap:6px;border:1px solid #2c2d33;background:#1f2024;color:#d4d5da;white-space:nowrap;box-sizing:border-box;font-family:Inter,sans-serif}
+.btn.p{background:#7c9cff;border-color:#7c9cff;color:#0f1012;font-weight:600}
+.empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:0 40px;text-align:center}
+.empty .big{width:44px;height:44px;border-radius:10px;background:#1f2024;display:flex;align-items:center;justify-content:center;color:#b4b6bd}
+.empty h4{margin:0;font-size:15px;color:#eef0f3;font-weight:600}
+.empty p{margin:0;font-size:12.5px;color:#8e9099;line-height:1.5;max-width:300px}
+.ptabs{height:32px;display:flex;align-items:center;gap:16px;padding:0 14px;flex-shrink:0;font-size:12px;color:#8e9099}
+.ptabs .on{color:#eef0f3;box-shadow:inset 0 -2px 0 #7c9cff;padding:8px 0}
+.ptabs .tool{margin-left:auto;display:flex;gap:10px;color:#8e9099}
+.from{font-size:11px;color:#7a7d86}
+.prow{height:24px;display:flex;align-items:center;gap:8px;padding:0 14px;font-size:12.5px;white-space:nowrap}
+.prow .p2{color:#8e9099;font-size:12px}
+.dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.prog{height:3px;background:#26272c;border-radius:2px;overflow:hidden;width:120px}
+.prog i{display:block;height:100%;width:62%;background:#7c9cff}
+</style>
+</helmet>
+<div class="board">
+<div class="w">
+  <div class="bar"><div class="logo">m</div><span style="font-weight:600;color:#eef0f3">merlin</span><span style="font-size:12px;color:#8e9099">⑂ editor-rework</span><div class="search">⌕ Search files, commands, symbols and text <span class="kbd" style="margin-left:auto">Ctrl Shift P</span></div></div>
+  <div class="mid">
+    <div class="rail">
+      <div class="ri">❐</div><div class="ri">⌕</div><div class="ri">⑂</div><div class="ri">⚗</div><div class="ri">▷</div><div class="ri">☰</div>
+      <div class="rsep"></div>
+      <div class="ri"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M8 1.8 13.5 5v6L8 14.2 2.5 11V5z"></path><path d="M2.5 5 8 8.2 13.5 5M8 8.2v6"></path></svg></div>
+    </div>
+    <div class="col">
+      <div class="groups">
+        <div class="island" style="flex:1">
+          <div class="tabs"><div class="tab on"><span class="ic">RS</span>palette.rs</div><div class="tab"><span class="ic">RS</span>frame.rs</div></div>
+          <div class="code"><span class="ln">40</span>    <span class="k">pub fn</span> <span class="f">layout</span>(&amp;<span class="k">mut</span> self, width: <span class="t">f32</span>) {
+<span class="ln">41</span>        <span class="k">let</span> rows = self.<span class="f">rows</span>();
+<span class="ln">42</span>        <span class="k">let</span> heights = rows.<span class="f">iter</span>()
+<span class="ln">43</span>            .<span class="f">map</span>(|r| r.<span class="f">height</span>(width))
+<span class="ln">44</span>            .<span class="f">collect</span>();
+<span class="ln">45</span>        self.cache = heights;
+<span class="ln">46</span>    }
+<span class="ln">47</span>
+<span class="ln">48</span>    <span class="k">fn</span> <span class="f">rows</span>(&amp;self) -&gt; <span class="t">Vec</span>&lt;<span class="t">Row</span>&gt; {
+<span class="ln">49</span>        self.items.<span class="f">iter</span>().<span class="f">map</span>(<span class="t">Row</span>::<span class="f">from</span>).<span class="f">collect</span>()
+<span class="ln">50</span>    }</div>
+        </div>
+        <div class="island" style="width:470px;flex-shrink:0">
+          <div class="tabs"><div class="tab on"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M8 2v12M2 8h12M3.8 3.8l8.4 8.4M12.2 3.8l-8.4 8.4"></path></svg>Claude Code <span class="x">×</span></div></div>
+          <div class="empty">
+            <div class="big"><svg width="22" height="22" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M8 2v12M2 8h12M3.8 3.8l8.4 8.4M12.2 3.8l-8.4 8.4"></path></svg></div>
+            <h4>Claude Code isn't signed in</h4>
+            <p>Sign in with your Claude account, or give it an API key. The key is kept in the system keyring, not in settings.toml.</p>
+            <div style="display:flex;gap:8px"><button class="btn p">Sign In</button><button class="btn">Use an API Key</button></div>
+            <p style="font-size:11.5px;color:#7a7d86">Or move this view: right-click its tab</p>
+          </div>
+        </div>
+      </div>
+      <div class="island" style="height:220px;flex-shrink:0">
+        <div class="ptabs"><span>Problems</span><span>Output</span><span>Terminal</span><span class="on">Bacon</span><span class="from" style="margin-left:-10px">· bacon</span>
+          <span class="tool"><span>clippy ▾</span><span>↻</span><span>⤢</span><span>×</span></span></div>
+        <div class="prow" style="color:#8e9099;font-size:12px"><span>cargo clippy · watching</span><div class="prog"><i></i></div><span>checking merlin-app…</span></div>
+        <div class="prow"><span class="dot" style="background:#e6b45c"></span>warning: this <span style="font-family:'JetBrains Mono',monospace;font-size:12px">let</span> binding is unnecessary <span class="p2">crates/app/src/gui/frame.rs:212</span></div>
+        <div class="prow"><span class="dot" style="background:#e6b45c"></span>warning: redundant clone <span class="p2">crates/core/src/editor/views.rs:418</span></div>
+        <div class="prow"><span class="dot" style="background:#6cc070"></span>merlin-core, merlin-plugins: clean <span class="p2">2.1 s</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="status"><span>⑂ editor-rework</span><span>⊘ 0  ⚠ 2</span><span style="margin-left:auto">Ln 45, Col 30</span><span>Spaces: 4</span><span>UTF-8</span><span>{ } Rust</span></div>
+</div>
+
+<div class="notes">
+  <div><h3>As an editor tab</h3><p><b>where = "tab"</b> opens the view in an editor group, so it can go side by side with code, be split or dragged like any tab, and come back next time. Here it's Claude Code before it's signed in, with the view's <b>empty</b> text and buttons.</p></div>
+  <div><h3>In the panel</h3><p><b>where = "bottom"</b> adds a tab after Problems, Output and Terminal, marked with the plugin it's from. Its toolbar holds the plugin's commands and a choice; the progress bar is a node.</p></div>
+  <div><h3>The manifest</h3>
+<div class="toml">[[views]]
+id = "chat"
+title = "OpenCode"
+icon = "icons/chat.svg"  # or a glyph name
+where = "right"          # left · right · bottom · tab
+empty = "Ask about this file, or @ another."
+
+[[views.toolbar]]
+command = "new-chat"
+icon = "plus"</div></div>
+  <div><h3>The host calls</h3><p><b>render-view(id)</b> replaces <b>render-panel</b>; <b>set-view-badge</b>, <b>focus-view</b>. New nodes: tree rows, chips, progress, Markdown that streams, a multi-line input and file chips. A plugin with no <b>[[views]]</b> has no rail icon.</p></div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1620,"height":800}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

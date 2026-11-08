@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>One home for plugins</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.board{width:1620px;height:800px;display:flex;background:#08090a;font-family:Inter,sans-serif}
+.w{width:1280px;height:800px;background:#0f1012;color:#d4d5da;display:flex;flex-direction:column;font-size:13px;overflow:hidden;position:relative;flex-shrink:0}
+.notes{flex:1;padding:28px 24px;display:flex;flex-direction:column;gap:16px;color:#8e9099;font-size:12.5px;line-height:1.5;min-width:0}
+.notes h3{margin:0 0 4px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#7c9cff}
+.notes b{color:#d4d5da;font-weight:600}
+.notes p{margin:0}
+.ways{background:#17181b;border-radius:8px;padding:6px}
+.way{height:26px;display:flex;align-items:center;gap:8px;padding:0 8px;font-size:12px;color:#d4d5da}
+.way .k2{margin-left:auto;font-size:11px;color:#7a7d86}
+.bar{height:40px;display:flex;align-items:center;gap:10px;padding:0 12px;flex-shrink:0}
+.logo{width:20px;height:20px;border-radius:5px;background:#7c9cff;color:#0f1012;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
+.search{margin:0 auto;width:400px;height:26px;border-radius:7px;background:#1c1d21;border:1px solid #2c2d33;color:#8e9099;display:flex;align-items:center;gap:8px;padding:0 10px;font-size:12.5px;box-sizing:border-box}
+.kbd{font-size:11px;background:#26272c;border-radius:4px;padding:1px 6px;color:#b4b6bd}
+.mid{flex:1;display:flex;gap:6px;padding-right:6px;min-height:0}
+.rail{width:44px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:6px;padding-top:6px;position:relative}
+.ri{width:30px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:#7a7d86;font-size:14px;position:relative}
+.rsep{width:20px;height:1px;background:#2c2d33;margin:2px 0}
+.gone{width:30px;height:30px;border-radius:7px;border:1px dashed #5a3a3a;display:flex;align-items:center;justify-content:center;color:#5a3a3a;font-size:14px}
+.island{background:#17181b;border-radius:10px;display:flex;flex-direction:column;min-width:0;overflow:hidden;position:relative}
+.tabs{height:32px;display:flex;align-items:center;gap:3px;padding:0 6px;flex-shrink:0}
+.tab{height:24px;padding:0 10px;border-radius:6px;display:flex;align-items:center;gap:6px;color:#8e9099;font-size:12.5px;white-space:nowrap}
+.tab.on{background:#26272c;color:#eef0f3;box-shadow:inset 0 0 0 1px #2c2d33}
+.ic{width:14px;height:14px;border-radius:3px;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;background:#3a2a1e;color:#f5a97f;flex-shrink:0}
+.split{flex:1;display:flex;min-height:0}
+.nav{width:176px;padding:12px 8px;display:flex;flex-direction:column;gap:2px;flex-shrink:0}
+.nv{height:30px;display:flex;align-items:center;gap:10px;padding:0 10px;border-radius:6px;font-size:13px;color:#b4b6bd}
+.nv.on{background:#26272c;color:#eef0f3}
+.nv .c{margin-left:auto;font-size:11px;color:#8e9099}
+.body{flex:1;overflow:hidden;padding:14px 22px 0 18px;min-width:0;display:flex;flex-direction:column;position:relative}
+.find{height:32px;border:1px solid #2c2d33;border-radius:7px;background:#1f2024;display:flex;align-items:center;gap:8px;padding:0 10px;font-size:13px;color:#8e9099;box-sizing:border-box;flex-shrink:0}
+.scope{display:flex;gap:18px;font-size:12.5px;margin-top:12px;border-bottom:1px solid #222328;flex-shrink:0}
+.scope span{padding-bottom:8px;color:#8e9099}
+.scope span.on{color:#eef0f3;box-shadow:inset 0 -2px 0 #7c9cff}
+.cols{flex:1;display:flex;min-height:0;margin-top:12px}
+.plist{width:300px;flex-shrink:0;padding-right:10px;border-right:1px solid #222328;display:flex;flex-direction:column;gap:2px}
+.lt{display:flex;gap:4px;margin-bottom:8px;background:#1f2024;border:1px solid #2c2d33;border-radius:7px;padding:2px}
+.lt span{flex:1;height:24px;display:flex;align-items:center;justify-content:center;gap:6px;border-radius:5px;font-size:12px;color:#b4b6bd}
+.lt span.on{background:#2c3a5e;color:#eef0f3}
+.lt .n{font-size:11px;color:#8e9099}
+.lfind{height:28px;border:1px solid #2c2d33;border-radius:6px;background:#1a1b1e;display:flex;align-items:center;padding:0 10px;font-size:12px;color:#7a7d86;margin-bottom:6px}
+.pi{height:44px;display:flex;align-items:center;gap:10px;padding:0 10px;border-radius:6px}
+.pi.on{background:#26272c}
+.pn{font-size:12.5px;color:#eef0f3;line-height:1.3;min-width:0}
+.pn div{font-size:11px;color:#8e9099;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pm{margin-left:auto;display:flex;align-items:center;gap:8px;flex-shrink:0}
+.pico{width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0}
+.sw{width:30px;height:18px;border-radius:9px;background:#2c2d33;position:relative;flex-shrink:0}
+.sw::after{content:"";position:absolute;left:3px;top:3px;width:12px;height:12px;border-radius:50%;background:#8e9099}
+.sw.on{background:#7c9cff}
+.sw.on::after{left:15px;background:#0f1012}
+.sw.ring{box-shadow:0 0 0 2px #0f1012,0 0 0 3px #7c9cff}
+.chip{font-size:10.5px;border-radius:4px;padding:1px 6px;font-weight:500;background:#24252a;color:#8e9099;white-space:nowrap}
+.chip.a{background:#2e2618;color:#e6b45c}
+.page{flex:1;padding:0 0 0 16px;min-width:0;color:#8e9099;font-size:12.5px}
+.ph{display:flex;align-items:center;gap:10px}
+.ph .big{width:34px;height:34px;border-radius:8px;background:#1d2a33;color:#7cc4e6;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
+.ph .t1{font-size:15px;font-weight:600;color:#eef0f3}
+.ph .t2{font-size:11.5px;color:#8e9099}
+.banner{margin-top:14px;border:1px solid #3a3320;background:#221f16;border-radius:8px;padding:10px 12px;display:flex;align-items:center;gap:10px;color:#e6d4a8;font-size:12.5px}
+.btn{height:26px;border-radius:6px;padding:0 10px;font-size:12px;display:inline-flex;align-items:center;gap:6px;border:1px solid #2c2d33;background:#1f2024;color:#d4d5da;white-space:nowrap;box-sizing:border-box;font-family:Inter,sans-serif}
+.menu{position:absolute;background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.45);padding:5px;box-sizing:border-box;width:250px}
+.mh{padding:5px 8px 6px;font-size:11.5px;color:#7a7d86}
+.mi{height:26px;display:flex;align-items:center;gap:8px;padding:0 8px;border-radius:5px;font-size:12.5px;color:#d4d5da}
+.mi.on{background:#262b3d;color:#eef0f3}
+.mi .k2{margin-left:auto;font-size:11px;color:#7a7d86}
+.mi.d{color:#f0807a}
+.msep{height:1px;background:#2c2d33;margin:4px 2px}
+.status{height:24px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px;color:#8e9099;flex-shrink:0}
+</style>
+</helmet>
+<div class="board">
+<div class="w">
+  <div class="bar"><div class="logo">m</div><span style="font-weight:600;color:#eef0f3">merlin</span><span style="font-size:12px;color:#8e9099">⑂ editor-rework</span><div class="search">⌕ Search files, commands, symbols and text <span class="kbd" style="margin-left:auto">Ctrl Shift P</span></div></div>
+  <div class="mid">
+    <div class="rail">
+      <div class="ri">❐</div><div class="ri">⌕</div><div class="ri">⑂</div><div class="ri">⚗</div><div class="ri">▷</div><div class="ri">☰</div>
+      <div class="gone" title="The Plugins view goes">⧉</div>
+      <div class="rsep"></div>
+      <div class="ri"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M8 1.8 13.5 5v6L8 14.2 2.5 11V5z"></path><path d="M2.5 5 8 8.2 13.5 5M8 8.2v6"></path></svg></div>
+      <div class="ri"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M3 4h2M3 8h2M3 12h2M7 4h6M7 8h6M7 12h4"></path></svg></div>
+    </div>
+    <div class="island" style="flex:1">
+      <div class="tabs"><div class="tab"><span class="ic">RS</span>state.rs</div><div class="tab on">⚙ Settings</div></div>
+      <div class="split">
+        <div class="nav">
+          <div class="nv">◉ Appearance<span class="c">5</span></div>
+          <div class="nv">☰ Text Editor<span class="c">2</span></div>
+          <div class="nv">▯ Files</div>
+          <div class="nv">⌨ Keyboard Shortcuts</div>
+          <div class="nv on">⧉ Plugins<span class="c">3</span></div>
+        </div>
+        <div class="body">
+          <div class="find">⌕ Search settings</div>
+          <div class="scope"><span class="on">User</span><span>Workspace · merlin</span></div>
+          <div class="cols">
+            <div class="plist">
+              <div class="lt"><span class="on">Installed <span class="n">11</span></span><span>Browse</span></div>
+              <div class="lfind">Filter installed plugins…</div>
+              <div class="pi"><span class="pico" style="background:#1d2a33;color:#7cc4e6">C+</span><div class="pn">C/C++<div>C &amp; C++ syntax, outlines &amp; clangd</div></div><div class="pm"><span class="sw on"></span></div></div>
+              <div class="pi"><span class="pico" style="background:#1d2a33;color:#7cc4e6">GO</span><div class="pn">Go<div>Go syntax &amp; gopls</div></div><div class="pm"><span class="sw on"></span></div></div>
+              <div class="pi"><span class="pico" style="background:#2e2c18;color:#e6d45c">JS</span><div class="pn">JavaScript<div>JS &amp; TypeScript syntax, tasks</div></div><div class="pm"><span class="sw on"></span></div></div>
+              <div class="pi"><span class="pico" style="background:#262b3d;color:#9ab0ff">OC</span><div class="pn">OpenCode<div>Chat, edits to review</div></div><div class="pm"><span class="chip a">update</span><span class="sw on"></span></div></div>
+              <div class="pi on"><span class="pico" style="background:#1d2a33;color:#7cc4e6">PY</span><div class="pn">Python<div>Python syntax, pytest &amp; pyright</div></div><div class="pm"><span class="chip">off here</span><span class="sw ring"></span></div></div>
+              <div class="pi"><span class="pico" style="background:#3a2a1e;color:#f5a97f">RS</span><div class="pn">Rust<div>Syntax, tests, Cargo &amp; rust-analyzer</div></div><div class="pm"><span class="sw on"></span></div></div>
+              <div class="pi"><span class="pico" style="background:#1d2a33;color:#7cc4e6">TM</span><div class="pn">TOML<div>Syntax highlighting &amp; folding</div></div><div class="pm"><span class="sw on"></span></div></div>
+              <div class="pi"><span class="pico" style="background:#2a2238;color:#c4a7e7">TH</span><div class="pn">merlin Themes<div>16 dark and light themes</div></div><div class="pm"><span class="sw on"></span></div></div>
+            </div>
+            <div class="page">
+              <div class="ph"><span class="big">PY</span><div><div class="t1">Python</div><div class="t2">python · API 0.9 · installed</div></div></div>
+              <div class="banner">Off in this workspace, on everywhere else. pyright isn't running.<span class="btn" style="margin-left:auto">Turn On Here</span></div>
+              <p style="margin:14px 0 0;line-height:1.5">Its settings, what it's allowed and what it adds, as on the other pages.</p>
+            </div>
+          </div>
+          <div class="menu" style="left:146px;top:340px">
+            <div class="mh">Python</div>
+            <div class="mi">Turn Off Everywhere</div>
+            <div class="mi on">Turn Off in This Workspace</div>
+            <div class="msep"></div>
+            <div class="mi">Reload<span class="k2">from disk</span></div>
+            <div class="mi">Open Output</div>
+            <div class="mi">Show Its Folder</div>
+            <div class="msep"></div>
+            <div class="mi d">Uninstall</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="status"><span>⑂ editor-rework</span><span>⊘ 0  ⚠ 2</span><span style="margin-left:auto">Spaces: 4</span><span>UTF-8</span><span>{ } Rust</span></div>
+</div>
+
+<div class="notes">
+  <div><h3>The rule</h3><p>The activity rail is for places you <b>work</b>; Settings is where you <b>set things up</b>. Plugins are set up, so the Plugins side view and its rail icon go (dashed here). The rail is left for plugins' own views, below the line.</p></div>
+  <div><h3>One list</h3><p>Settings › Plugins is the only list, now with what each plugin does and its switch on every row, as the side view had. <b>Browse</b> waits for a registry; until then it says how to install with <b>merlin plugin install</b>.</p></div>
+  <div><h3>Per workspace</h3><p>The switch's menu (right-click, or ⋯) can turn a plugin off <b>in this workspace</b> only. The row says <b>off here</b>, and its page says why it isn't running.</p></div>
+  <div><h3>Ways in</h3>
+    <div class="ways">
+      <div class="way">Plugins: Manage<span class="k2">palette</span></div>
+      <div class="way">Rust plugin…<span class="k2">language card</span></div>
+      <div class="way">Open Output, Settings…<span class="k2">a notice's link</span></div>
+      <div class="way">Settings search<span class="k2">finds plugin settings</span></div>
+    </div></div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1620,"height":800}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

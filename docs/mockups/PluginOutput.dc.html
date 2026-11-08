@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Plugin logs</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.board{width:1620px;height:800px;display:flex;background:#08090a;font-family:Inter,sans-serif}
+.w{width:1280px;height:800px;background:#0f1012;color:#d4d5da;display:flex;flex-direction:column;font-size:13px;overflow:hidden;position:relative;flex-shrink:0}
+.notes{flex:1;padding:28px 24px;display:flex;flex-direction:column;gap:16px;color:#8e9099;font-size:12.5px;line-height:1.5;min-width:0}
+.notes h3{margin:0 0 4px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#7c9cff}
+.notes b{color:#d4d5da;font-weight:600}
+.notes p{margin:0}
+.tbl{width:100%;border-collapse:collapse;font-size:12px}
+.tbl td{padding:4px 0;border-bottom:1px solid #1f2024;vertical-align:top}
+.tbl td:last-child{text-align:right;white-space:nowrap;padding-left:8px}
+.bar{height:40px;display:flex;align-items:center;gap:10px;padding:0 12px;flex-shrink:0}
+.logo{width:20px;height:20px;border-radius:5px;background:#7c9cff;color:#0f1012;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
+.search{margin:0 auto;width:400px;height:26px;border-radius:7px;background:#1c1d21;border:1px solid #2c2d33;color:#8e9099;display:flex;align-items:center;gap:8px;padding:0 10px;font-size:12.5px;box-sizing:border-box}
+.kbd{font-size:11px;background:#26272c;border-radius:4px;padding:1px 6px;color:#b4b6bd}
+.mid{flex:1;display:flex;gap:6px;padding-right:6px;min-height:0}
+.rail{width:44px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:6px;padding-top:6px}
+.ri{width:30px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:#7a7d86;font-size:14px}
+.col{flex:1;display:flex;flex-direction:column;gap:6px;min-width:0}
+.island{background:#17181b;border-radius:10px;display:flex;flex-direction:column;min-width:0;overflow:hidden;position:relative}
+.tabs{height:32px;display:flex;align-items:center;gap:3px;padding:0 6px;flex-shrink:0}
+.tab{height:24px;padding:0 10px;border-radius:6px;display:flex;align-items:center;gap:6px;color:#8e9099;font-size:12.5px;white-space:nowrap}
+.tab.on{background:#26272c;color:#eef0f3;box-shadow:inset 0 0 0 1px #2c2d33}
+.ic{width:14px;height:14px;border-radius:3px;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;background:#3a2a1e;color:#f5a97f;flex-shrink:0}
+.code{font-family:'JetBrains Mono',monospace;font-size:13px;line-height:22px;white-space:pre;padding:4px 0}
+.ln{display:inline-block;width:40px;text-align:right;padding-right:20px;color:#5d6068}
+.k{color:#c4a7e7}.f{color:#f0c674}.t{color:#9ccfd8}.c{color:#7f8794}
+.ptabs{height:34px;display:flex;align-items:center;gap:16px;padding:0 14px;flex-shrink:0;font-size:12px;color:#8e9099}
+.ptabs .on{color:#eef0f3;box-shadow:inset 0 -2px 0 #7c9cff;padding:9px 0}
+.ptabs .tool{margin-left:auto;display:flex;gap:8px;align-items:center;color:#8e9099}
+.sel{height:24px;border:1px solid #2c2d33;border-radius:6px;background:#1f2024;display:flex;align-items:center;gap:8px;padding:0 8px;font-size:12px;color:#d4d5da;white-space:nowrap}
+.sel.on{border-color:#7c9cff}
+.filter{height:24px;width:150px;border:1px solid #2c2d33;border-radius:6px;background:#1f2024;display:flex;align-items:center;padding:0 8px;font-size:12px;color:#7a7d86;box-sizing:border-box}
+.log{font-family:'JetBrains Mono',monospace;font-size:12px;line-height:21px;padding:4px 0;overflow:hidden}
+.ll{display:flex;gap:12px;padding:0 14px;white-space:nowrap}
+.ll .tm{color:#5d6068}
+.ll .lv{width:44px;flex-shrink:0}
+.lv.i{color:#7c9cff}.lv.w{color:#e6b45c}.lv.e{color:#f0807a}.lv.d{color:#7a7d86}.lv.o{color:#9ccfd8}
+.ll .tx{color:#d4d5da;overflow:hidden;text-overflow:ellipsis}
+.ll.err{background:#2a1a1b}
+.was{font-family:Inter,sans-serif;font-size:10.5px;border-radius:4px;padding:0 6px;background:#24252a;color:#8e9099;margin-left:4px}
+.menu{position:absolute;background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.45);padding:5px;box-sizing:border-box}
+.mh{padding:6px 8px 4px;font-size:10.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#7a7d86}
+.mi{height:26px;display:flex;align-items:center;gap:8px;padding:0 8px;border-radius:5px;font-size:12.5px;color:#d4d5da}
+.mi.on{background:#262b3d;color:#eef0f3}
+.mi .n{margin-left:auto;font-size:11px;color:#7a7d86}
+.dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.msep{height:1px;background:#2c2d33;margin:4px 2px}
+.mk{width:16px;height:16px;border-radius:4px;font-size:7.5px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.toast{position:absolute;right:16px;bottom:36px;width:360px;background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.45);padding:10px 12px;box-sizing:border-box}
+.toast .t1{display:flex;align-items:center;gap:8px;font-size:12.5px;color:#eef0f3}
+.toast .t2{font-size:12px;color:#8e9099;margin:4px 0 8px 18px}
+.toast .bt{display:flex;gap:6px;align-items:center;margin-left:18px}
+.btn{height:24px;border-radius:6px;padding:0 9px;font-size:12px;display:inline-flex;align-items:center;border:1px solid #2c2d33;background:#1f2024;color:#d4d5da;white-space:nowrap;box-sizing:border-box;font-family:Inter,sans-serif}
+.btn.p{background:#7c9cff;border-color:#7c9cff;color:#0f1012;font-weight:600}
+.lnk{font-size:11.5px;color:#7c9cff;margin-left:auto}
+.status{height:24px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px;color:#8e9099;flex-shrink:0}
+</style>
+</helmet>
+<div class="board">
+<div class="w">
+  <div class="bar"><div class="logo">m</div><span style="font-weight:600;color:#eef0f3">merlin</span><span style="font-size:12px;color:#8e9099">⑂ editor-rework</span><div class="search">⌕ Search files, commands, symbols and text <span class="kbd" style="margin-left:auto">Ctrl Shift P</span></div></div>
+  <div class="mid">
+    <div class="rail"><div class="ri">❐</div><div class="ri">⌕</div><div class="ri">⑂</div><div class="ri">⚗</div><div class="ri">▷</div><div class="ri">☰</div></div>
+    <div class="col">
+      <div class="island" style="flex:1">
+        <div class="tabs"><div class="tab on"><span class="ic">RS</span>state.rs</div></div>
+        <div class="code"><span class="ln">86</span>    <span class="k">fn</span> <span class="f">snapshot</span>(&amp;self) -&gt; <span class="t">State</span> {
+<span class="ln">87</span>        <span class="c">// Taken before the plugins run.</span>
+<span class="ln">88</span>        <span class="t">State</span> { tabs: self.tabs.<span class="f">clone</span>(), ..<span class="t">Default</span>::<span class="f">default</span>() }
+<span class="ln">89</span>    }</div>
+      </div>
+      <div class="island" style="height:430px;flex-shrink:0">
+        <div class="ptabs"><span>Problems</span><span class="on">Output</span><span>Terminal</span>
+          <span class="tool"><span class="sel on"><span class="ic">RS</span>Rust ▾</span><span class="sel">Info and up ▾</span><span class="filter">Filter</span><span>⇩</span><span>⊘</span><span>×</span></span></div>
+        <div class="log">
+          <div class="ll"><span class="tm">09:41:02.118</span><span class="lv i">info</span><span class="tx">Started rust-analyzer 2026-11-02, pid 295265</span></div>
+          <div class="ll"><span class="tm">09:41:05.402</span><span class="lv i">info</span><span class="tx">rust-analyzer: indexing 128 of 412 crates</span></div>
+          <div class="ll"><span class="tm">09:41:12.880</span><span class="lv w">warn</span><span class="tx">rust-analyzer: textDocument/inlayHint failed: content modified<span class="was">was a notice</span></span></div>
+          <div class="ll"><span class="tm">09:41:20.031</span><span class="lv i">info</span><span class="tx">Hover at state.rs:88: nothing to show<span class="was">was a notice</span></span></div>
+          <div class="ll"><span class="tm">09:41:47.660</span><span class="lv w">warn</span><span class="tx">rust-analyzer: Failed to load workspace "tools/xtask": no Cargo.toml<span class="was">was a notice</span></span></div>
+          <div class="ll"><span class="tm">09:42:30.551</span><span class="lv i">info</span><span class="tx">Reloaded the plugin (API 0.9), kept 1 process<span class="was">was a notice</span></span></div>
+          <div class="ll"><span class="tm">09:43:01.214</span><span class="lv o">stderr</span><span class="tx">thread 'main' panicked at crates/flycheck/src/lib.rs:412: cargo metadata failed</span></div>
+          <div class="ll"><span class="tm">09:43:01.215</span><span class="lv o">stderr</span><span class="tx">note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</span></div>
+          <div class="ll err"><span class="tm">09:43:01.226</span><span class="lv e">error</span><span class="tx">rust-analyzer exited with code 101</span></div>
+          <div class="ll"><span class="tm">09:43:01.227</span><span class="lv i">info</span><span class="tx">Showed a notice: rust-analyzer stopped</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="status"><span>⑂ editor-rework</span><span>⊘ 0  ⚠ 2</span><span style="margin-left:auto">Ln 88, Col 9</span><span>Spaces: 4</span><span>UTF-8</span><span style="color:#f0807a">{ } Rust</span></div>
+
+  <div class="menu" style="left:745px;top:404px;width:240px">
+    <div class="mi">merlin<span class="n">42</span></div>
+    <div class="msep"></div>
+    <div class="mh">Plugins</div>
+    <div class="mi"><span class="mk" style="background:#1d2a33;color:#7cc4e6">C+</span>C/C++<span class="n">8</span></div>
+    <div class="mi"><span class="mk" style="background:#1d2a33;color:#7cc4e6">GO</span>Go<span class="n">3</span></div>
+    <div class="mi"><span class="mk" style="background:#262b3d;color:#9ab0ff">OC</span>OpenCode<span class="n">117</span></div>
+    <div class="mi"><span class="mk" style="background:#1d2a33;color:#7cc4e6">PY</span>Python<span class="n">5</span></div>
+    <div class="mi on"><span class="mk" style="background:#3a2a1e;color:#f5a97f">RS</span>Rust<span class="dot" style="background:#f0807a;margin-left:auto"></span><span class="n" style="margin-left:6px">10</span></div>
+    <div class="mi"><span class="mk" style="background:#1d2a33;color:#7cc4e6">TM</span>TOML<span class="n">1</span></div>
+  </div>
+
+  <div class="toast">
+    <div class="t1"><span class="dot" style="background:#f0807a"></span>rust-analyzer stopped</div>
+    <div class="t2">It exited with code 101 after a panic in flycheck.</div>
+    <div class="bt"><span class="btn p">Restart</span><span class="btn">Open Output</span><span class="lnk">Notices from Rust…</span></div>
+  </div>
+</div>
+
+<div class="notes">
+  <div><h3>A channel per plugin</h3><p>The picker lists <b>merlin</b>, then each plugin with a log, with how many lines it has. A red dot marks one with an error since you last looked. A plugin page's <b>Output</b> button opens its own channel.</p></div>
+  <div><h3>What goes in it</h3><p><b>log(level, text)</b> at trace, debug, info, warn or error, and the stderr of the plugin's processes, marked <b>stderr</b>. A language server's panic is finally somewhere you can read it.</p></div>
+  <div><h3>What stops being a notice</h3>
+<table class="tbl">
+<tr><td>A server's error reply to a request</td><td>log</td></tr>
+<tr><td>showMessage below error</td><td>log</td></tr>
+<tr><td>"Nothing to show here", "No definition found"</td><td>log + status bar</td></tr>
+<tr><td>Reloaded a plugin</td><td>log</td></tr>
+<tr><td>A server stopped or wouldn't start</td><td>notice</td></tr>
+<tr><td>Something you asked for failed</td><td>notice</td></tr>
+</table></div>
+  <div><h3>The notice that's left</h3><p>Says what happened and what you can do, with buttons. <b>Notices from Rust…</b> sets that plugin's Notices to All, Errors only or None, the same setting as on its page.</p></div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1620,"height":800}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

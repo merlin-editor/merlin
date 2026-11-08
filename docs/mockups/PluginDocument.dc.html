@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>A PDF from a plugin</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;family=Source+Serif+4:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.board{width:1620px;height:800px;display:flex;background:#08090a;font-family:Inter,sans-serif}
+.w{width:1280px;height:800px;background:#0f1012;color:#d4d5da;display:flex;flex-direction:column;font-size:13px;overflow:hidden;position:relative;flex-shrink:0}
+.notes{flex:1;padding:28px 24px;display:flex;flex-direction:column;gap:15px;color:#8e9099;font-size:12.5px;line-height:1.5;min-width:0}
+.notes h3{margin:0 0 4px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#7c9cff}
+.notes b{color:#d4d5da;font-weight:600}
+.notes p{margin:0}
+.toml{font-family:'JetBrains Mono',monospace;font-size:11px;line-height:17px;background:#111214;border:1px solid #222328;border-radius:6px;padding:8px 10px;white-space:pre;color:#d4d5da;overflow:hidden}
+.bar{height:40px;display:flex;align-items:center;gap:10px;padding:0 12px;flex-shrink:0}
+.logo{width:20px;height:20px;border-radius:5px;background:#7c9cff;color:#0f1012;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
+.search{margin:0 auto;width:400px;height:26px;border-radius:7px;background:#1c1d21;border:1px solid #2c2d33;color:#8e9099;display:flex;align-items:center;gap:8px;padding:0 10px;font-size:12.5px;box-sizing:border-box}
+.kbd{font-size:11px;background:#26272c;border-radius:4px;padding:1px 6px;color:#b4b6bd}
+.mid{flex:1;display:flex;gap:6px;padding-right:6px;min-height:0}
+.rail{width:44px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:6px;padding-top:6px}
+.ri{width:30px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:#7a7d86;font-size:14px}
+.island{background:#17181b;border-radius:10px;display:flex;flex-direction:column;min-width:0;overflow:hidden;position:relative}
+.tabs{height:32px;display:flex;align-items:center;gap:3px;padding:0 6px;flex-shrink:0}
+.tab{height:24px;padding:0 10px;border-radius:6px;display:flex;align-items:center;gap:6px;color:#8e9099;font-size:12.5px;white-space:nowrap}
+.tab.on{background:#26272c;color:#eef0f3;box-shadow:inset 0 0 0 1px #2c2d33}
+.ic{width:14px;height:14px;border-radius:3px;font-size:7px;font-weight:700;display:flex;align-items:center;justify-content:center;background:#3a2a1e;color:#f5a97f;flex-shrink:0}
+.ic.pdf{background:#3a1e20;color:#f0807a}
+.tbar{height:34px;display:flex;align-items:center;gap:10px;padding:0 10px;border-bottom:1px solid #222328;flex-shrink:0;font-size:12px;color:#b4b6bd}
+.tb{height:24px;min-width:24px;border-radius:5px;display:flex;align-items:center;justify-content:center;color:#8e9099;font-size:12px;padding:0 6px;box-sizing:border-box}
+.tb.on{background:#26272c;color:#eef0f3}
+.num{height:24px;border:1px solid #2c2d33;border-radius:5px;background:#1f2024;display:flex;align-items:center;padding:0 8px;font-size:12px;color:#eef0f3}
+.vsep{width:1px;height:16px;background:#2c2d33}
+.from{font-size:11px;color:#7a7d86}
+.view{flex:1;display:flex;min-height:0}
+.thumbs{width:112px;flex-shrink:0;border-right:1px solid #222328;padding:10px 0;display:flex;flex-direction:column;align-items:center;gap:10px;overflow:hidden}
+.th{width:64px;height:84px;background:#f4f2ec;border-radius:2px;position:relative;box-shadow:0 0 0 1px #2c2d33;padding:8px 7px;box-sizing:border-box;display:flex;flex-direction:column;gap:3px}
+.th.on{box-shadow:0 0 0 2px #7c9cff}
+.th i{display:block;height:2px;background:#c9c6be;border-radius:1px}
+.th i.h{height:4px;width:60%;background:#8a877f}
+.thn{font-size:10.5px;color:#7a7d86;margin-top:-6px}
+.pages{flex:1;position:relative;overflow:hidden;background:#111214}
+.sheet{position:absolute;left:50%;transform:translateX(-50%);width:560px;background:#faf9f5;color:#24221e;box-shadow:0 2px 12px rgba(0,0,0,.5);font-family:'Source Serif 4',Georgia,serif;font-size:12.5px;line-height:19px;padding:44px 56px;box-sizing:border-box}
+.sheet h1{font-size:20px;line-height:26px;margin:0 0 4px;font-weight:600}
+.sheet h2{font-size:14.5px;margin:16px 0 6px;font-weight:600}
+.sheet p{margin:0 0 9px;text-align:justify}
+.sheet .cap{font-size:11px;color:#6d6a63;font-family:Inter,sans-serif}
+.selx{background:rgba(124,156,255,.35)}
+.hit{background:rgba(230,180,92,.55);border-radius:1px}
+.hit.cur{background:#e6b45c;box-shadow:0 0 0 1px #b8860b}
+.fig{height:96px;border:1px solid #d8d5cc;border-radius:3px;margin:6px 0 8px;display:flex;align-items:flex-end;gap:10px;padding:10px 16px;box-sizing:border-box}
+.fig b{display:block;width:26px;background:#7c9cff;border-radius:2px 2px 0 0}
+.tile{position:absolute;left:50%;transform:translateX(-50%);width:560px;height:150px;background:repeating-linear-gradient(135deg,#e9e7e0 0 10px,#efede6 10px 20px);display:flex;align-items:center;justify-content:center}
+.tile span{font-family:Inter,sans-serif;font-size:11.5px;color:#6d6a63;background:#faf9f5;border-radius:4px;padding:3px 8px}
+.findw{position:absolute;right:14px;top:8px;height:32px;background:#1c1d21;border:1px solid #2c2d33;border-radius:7px;box-shadow:0 8px 24px rgba(0,0,0,.45);display:flex;align-items:center;gap:8px;padding:0 6px 0 10px;font-size:12.5px;color:#eef0f3}
+.findw .n{font-size:11.5px;color:#8e9099}
+.hud{position:absolute;left:12px;bottom:10px;background:rgba(28,29,33,.92);border:1px solid #2c2d33;border-radius:6px;padding:6px 9px;font-size:11px;color:#8e9099;line-height:1.5}
+.hud b{color:#d4d5da;font-weight:500}
+.status{height:24px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px;color:#8e9099;flex-shrink:0}
+.menu{position:absolute;background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.45);padding:5px;box-sizing:border-box;width:200px}
+.mi{height:26px;display:flex;align-items:center;gap:8px;padding:0 8px;border-radius:5px;font-size:12.5px;color:#d4d5da}
+.mi.on{background:#262b3d;color:#eef0f3}
+.mi .k2{margin-left:auto;font-size:11px;color:#7a7d86}
+.msep{height:1px;background:#2c2d33;margin:4px 2px}
+</style>
+</helmet>
+<div class="board">
+<div class="w">
+  <div class="bar"><div class="logo">m</div><span style="font-weight:600;color:#eef0f3">merlin</span><span style="font-size:12px;color:#8e9099">⑂ editor-rework</span><div class="search">⌕ Search files, commands, symbols and text <span class="kbd" style="margin-left:auto">Ctrl Shift P</span></div></div>
+  <div class="mid">
+    <div class="rail"><div class="ri">❐</div><div class="ri">⌕</div><div class="ri">⑂</div><div class="ri">⚗</div><div class="ri">▷</div><div class="ri">☰</div></div>
+    <div class="island" style="flex:1">
+      <div class="tabs"><div class="tab"><span class="ic">RS</span>scene.rs</div><div class="tab on"><span class="ic pdf">PDF</span>wgpu-notes.pdf <span style="color:#7a7d86;font-size:11px">×</span></div></div>
+      <div class="tbar">
+        <div class="tb on">▤</div>
+        <div class="vsep"></div>
+        <div class="tb">‹</div><div class="num">3</div><span style="color:#8e9099">of 24</span><div class="tb">›</div>
+        <div class="vsep"></div>
+        <div class="tb">−</div><div class="num">125%</div><div class="tb">+</div><div class="tb">Fit Width</div>
+        <span class="from" style="margin-left:auto">PDF plugin</span><div class="tb">⋯</div>
+      </div>
+      <div class="view">
+        <div class="thumbs">
+          <div class="th"><i class="h"></i><i></i><i></i><i></i><i style="width:70%"></i></div><div class="thn">1</div>
+          <div class="th"><i></i><i></i><i style="width:80%"></i><i></i><i></i></div><div class="thn">2</div>
+          <div class="th on"><i class="h"></i><i></i><i></i><i style="width:50%"></i></div><div class="thn" style="color:#eef0f3">3</div>
+          <div class="th"><i></i><i></i><i></i><i></i><i style="width:40%"></i></div><div class="thn">4</div>
+        </div>
+        <div class="pages">
+          <div class="sheet" style="top:18px">
+            <h1>3. Drawing a frame</h1>
+            <p class="cap">wgpu notes · page 3</p>
+            <h2>3.1 Recording, then submitting</h2>
+            <p>A frame is recorded as a list of primitives, back to front, before anything reaches the GPU. <span class="selx">Each glyph and picture is uploaded once into an atlas and named by its id; later frames only refer to it.</span> The <span class="hit cur">atlas</span> is cleared when the font or the scale changes.</p>
+            <p>Because the list is plain data, the same frame can be drawn by a CPU backend where no adapter is found, and compared pixel for pixel in tests. The <span class="hit">atlas</span> keeps the two backends from drawing a glyph twice.</p>
+            <div class="fig"><b style="height:30%"></b><b style="height:55%"></b><b style="height:80%"></b><b style="height:46%"></b><b style="height:64%;background:#e6b45c"></b><b style="height:38%"></b></div>
+            <p class="cap" style="margin-bottom:9px">Figure 3. Frame time by number of primitives.</p>
+            <p>Uploads are batched per frame: an <span class="hit">atlas</span> that fills up is grown rather than split, which keeps one bind group for every glyph.</p>
+          </div>
+          <div class="tile" style="top:648px"><span>Rendering page 4…</span></div>
+
+          <div class="findw">⌕ atlas <span class="n">1 of 7</span><span style="color:#8e9099">↑ ↓ ×</span></div>
+
+          <div class="menu" style="left:560px;top:150px">
+            <div class="mi on">Copy<span class="k2">Ctrl C</span></div>
+            <div class="mi">Search the Project for This</div>
+            <div class="mi">Ask OpenCode About This</div>
+            <div class="msep"></div>
+            <div class="mi">Copy Page as Image</div>
+          </div>
+
+          <div class="hud"><b>6 tiles</b> in view · 1 on its way<br/><b>9.4 MB</b> of pictures · budget 64 MB</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="status"><span>⑂ editor-rework</span><span style="margin-left:auto">Page 3 of 24</span><span>125%</span><span>PDF</span></div>
+</div>
+
+<div class="notes">
+  <div><h3>A file type from a plugin</h3><p>The PDF plugin declares <b>[[editors]]</b> for <b>.pdf</b>, so the file opens as a tab like any other: in a group, beside code, back next time. The toolbar under the tab is the plugin's, drawn by merlin.</p>
+<div class="toml" style="margin-top:6px">[[editors]]
+id = "pdf"
+title = "PDF"
+extensions = ["pdf"]</div></div>
+  <div><h3>merlin scrolls, the plugin paints</h3><p>The pages are a surface. merlin owns scroll and zoom and asks for tiles as they come into view, <b>render-tile(page, x, y, w, h, scale)</b>, on the plugin's own thread. Until one comes back its place is hatched (page 4), and typing never waits for it.</p></div>
+  <div><h3>Text you can use</h3><p>The plugin says where each word is (<b>set-text-boxes</b>), so selecting, Copy, Find (amber, the current one darker) and the right-click menu are merlin's, as in a code tab. Other plugins' commands can act on the selection.</p></div>
+  <div><h3>The cost, shown</h3><p>The corner card is for this mock-up only: tiles in view and memory against the budget. The plugin's page in Settings shows its picture memory beside its wasm. A hidden tab drops its tiles; an idle one uses no CPU.</p></div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1620,"height":800}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
