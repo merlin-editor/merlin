@@ -1,0 +1,7 @@
+[build]
+target = "wasm32-wasip2"
+
+# The grammar's C code builds against the SDK's headers, not a system C library.
+[env]
+CFLAGS_wasm32_wasip2 = "-nostdlibinc"
+C_INCLUDE_PATH = { value = "wasm-include", relative = true }

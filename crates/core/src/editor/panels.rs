@@ -424,7 +424,6 @@ impl Editor {
             },
             KeyCode::Backspace => {
                 if let Some(key) = input {
-                    let is_plugins = key.0 == super::views::PLUGINS;
                     let text = self.inputs.entry(key.clone()).or_default();
                     let cur = self.input_cursors.entry(key).or_insert(text.len());
                     *cur = (*cur).min(text.len());
@@ -436,14 +435,10 @@ impl Editor {
                         text.drain((*cur - prev)..*cur);
                         *cur -= prev;
                     }
-                    if is_plugins {
-                        self.build_views();
-                    }
                 }
             }
             KeyCode::Delete => {
                 if let Some(key) = input {
-                    let is_plugins = key.0 == super::views::PLUGINS;
                     let text = self.inputs.entry(key.clone()).or_default();
                     let cur = self.input_cursors.entry(key).or_insert(text.len());
                     *cur = (*cur).min(text.len());
@@ -454,14 +449,10 @@ impl Editor {
                         let next = text[*cur..].chars().next().map_or(1, |c| c.len_utf8());
                         text.drain(*cur..(*cur + next));
                     }
-                    if is_plugins {
-                        self.build_views();
-                    }
                 }
             }
             KeyCode::Char(c) if !key.ctrl && !key.alt => {
                 if let Some(key) = input {
-                    let is_plugins = key.0 == super::views::PLUGINS;
                     let text = self.inputs.entry(key.clone()).or_default();
                     let cur = self.input_cursors.entry(key).or_insert(text.len());
                     *cur = (*cur).min(text.len());
@@ -470,9 +461,6 @@ impl Editor {
                     }
                     text.insert(*cur, c);
                     *cur += c.len_utf8();
-                    if is_plugins {
-                        self.build_views();
-                    }
                 }
             }
             _ => {}

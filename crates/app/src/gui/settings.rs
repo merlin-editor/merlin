@@ -43,6 +43,8 @@ struct Ctx {
 enum ListOf {
     Row(Row),
     Packs(Vec<(String, String)>),
+    /// A plugin row's menu.
+    PluginMenu(crate::prefs::PluginRow),
 }
 
 impl Ctx {
@@ -180,7 +182,10 @@ impl<'a> Frame<'a> {
         self.settings_scope(v, Rect::new(x, top + SEARCH_H + 12.0, w, 30.0));
         // What floats: a choice's list, then the card catching keys.
         if let Some((under, of)) = c.list.take() {
-            self.choice_list(under, &of, r);
+            match &of {
+                ListOf::PluginMenu(row) => self.plugin_menu(under, row, r),
+                _ => self.choice_list(under, &of, r),
+            }
         }
         if v.capture.is_some() {
             self.capture_card(v, &c, body);

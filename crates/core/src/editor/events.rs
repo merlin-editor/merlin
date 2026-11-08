@@ -630,9 +630,10 @@ pub enum Effect {
     /// Use a theme from now on, and save it in the user's settings.
     SetTheme(ThemeKind, String),
     /// The Settings tab opened: the window draws it. `plugin` is the
-    /// plugin whose page to show, from the Plugins view.
+    /// plugin whose page to show; `plugins` opens the list of them.
     OpenSettingsWindow {
         plugin: Option<String>,
+        plugins: bool,
     },
     /// Create, rename or trash a file or folder in the project, then send
     /// what changed and list the tree again.

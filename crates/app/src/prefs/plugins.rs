@@ -45,6 +45,7 @@ impl App {
     pub(crate) fn page_view(&self, name: &str) -> Option<PageView> {
         let p = self.host.plugins().into_iter().find(|p| p.name == name)?;
         let rows = self.rows_of(&p);
+        let off_here = self.off_here(&p.name);
         Some(PageView {
             mark: mark(&p),
             commands: self.editor.plugin_commands(&p.name),
@@ -72,6 +73,7 @@ impl App {
             busy: p.busy,
             languages: p.languages,
             looks: p.looks,
+            off_here,
             rows,
         })
     }
@@ -108,6 +110,48 @@ impl App {
         rows_of(p, user, workspace, self.settings_ui.workspace)
     }
 
+    /// The plugins turned off: in your settings, and in the workspace's.
+    pub(crate) fn off_lists(&self) -> (Vec<String>, Vec<String>) {
+        let Loaded {
+            user, workspace, ..
+        } = &self.loaded;
+        (
+            settings::editor_list(user, "disabled_plugins"),
+            settings::editor_list(workspace, "disabled_plugins"),
+        )
+    }
+
+    /// Whether a plugin is off in this workspace while on for you.
+    pub(crate) fn off_here(&self, name: &str) -> bool {
+        let (user, workspace) = self.off_lists();
+        off_here(&user, &workspace, name)
+    }
+
+    /// Puts a plugin in or out of the list of those turned off, in your
+    /// settings or the workspace's.
+    fn list_off(&mut self, workspace: bool, name: &str, off: bool) -> Vec<Event> {
+        if self.scripted {
+            return Vec::new();
+        }
+        let (user, here) = self.off_lists();
+        let Some(list) = with_off(if workspace { here } else { user }, name, off) else {
+            return Vec::new();
+        };
+        let value = toml::Value::Array(list.into_iter().map(toml::Value::String).collect());
+        let saved = if value.as_array().is_some_and(|a| a.is_empty()) {
+            self.settings
+                .remove_in(workspace, "editor.disabled_plugins")
+        } else {
+            self.settings
+                .set_in(workspace, "editor.disabled_plugins", &value.to_string())
+        };
+        match saved {
+            // Read again, so the lists and the pages agree.
+            Ok(()) => self.load_settings(),
+            Err(err) => vec![Event::Error(format!("Can't save that: {err}"))],
+        }
+    }
+
     /// The link `merlin plugin install` made for a plugin, if it has one.
     pub(super) fn install_link(&self, p: &PluginInfo) -> Option<PathBuf> {
         let link = settings::plugins_dir()?.join(&p.name);
@@ -118,29 +162,30 @@ impl App {
     pub(crate) fn page_action(&mut self, action: PageAction) -> Vec<Event> {
         let mut events = Vec::new();
         match action {
+            // Off everywhere goes in your settings; on, it's on here too.
             PageAction::Enable(name, on) => {
                 events.extend(self.host.set_enabled(&name, on));
-                if !self.scripted {
-                    let mut off =
-                        settings::editor_list(&self.settings.load().0, "disabled_plugins");
-                    off.retain(|n| *n != name);
-                    if !on {
-                        off.push(name.clone());
-                    }
-                    let list =
-                        toml::Value::Array(off.into_iter().map(toml::Value::String).collect());
-                    if let Err(err) = self
-                        .settings
-                        .set("editor.disabled_plugins", &list.to_string())
-                    {
-                        events.push(Event::Error(format!("Can't save that: {err}")));
-                    }
+                events.extend(self.list_off(false, &name, !on));
+                if on {
+                    events.extend(self.list_off(true, &name, false));
+                }
+            }
+            PageAction::EnableHere(name, on) => {
+                let off_everywhere = self.off_lists().0.contains(&name);
+                events.extend(self.host.set_enabled(&name, on && !off_everywhere));
+                events.extend(self.list_off(true, &name, !on));
+            }
+            PageAction::Folder(name) => {
+                if let Some(p) = self.host.plugins().into_iter().find(|p| p.name == name) {
+                    crate::open_folder(&p.dir);
                 }
             }
             PageAction::Reload(name) => events.extend(self.host.reload(&name)),
             PageAction::Output(name) => events.push(Event::ShowOutput(name)),
             PageAction::Uninstall(name) => {
                 if self.uninstall_armed.as_deref() != Some(name.as_str()) {
+                    // Its page shows, asking again, as from its menu.
+                    self.settings_ui.plugin = Some(name.clone());
                     self.uninstall_armed = Some(name);
                     return events;
                 }
@@ -169,6 +214,24 @@ impl App {
         events.push(self.plugin_summaries());
         events
     }
+}
+
+/// Whether a plugin is off in the workspace's list and not in yours.
+fn off_here(user: &[String], workspace: &[String], name: &str) -> bool {
+    workspace.iter().any(|n| n == name) && !user.iter().any(|n| n == name)
+}
+
+/// A list of plugins turned off, with `name` in or out; none when it's
+/// already so.
+fn with_off(mut list: Vec<String>, name: &str, off: bool) -> Option<Vec<String>> {
+    if list.iter().any(|n| n == name) == off {
+        return None;
+    }
+    list.retain(|n| n != name);
+    if off {
+        list.push(name.to_string());
+    }
+    Some(list)
 }
 
 /// A plugin's tile, as its manifest gives it.
@@ -267,4 +330,38 @@ pub(super) fn rows_of(
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{off_here, with_off};
+
+    fn names(list: &[&str]) -> Vec<String> {
+        list.iter().map(|n| n.to_string()).collect()
+    }
+
+    #[test]
+    fn a_plugin_is_off_here_only_when_the_workspace_says_and_you_dont() {
+        assert!(off_here(&[], &names(&["python"]), "python"));
+        assert!(!off_here(
+            &names(&["python"]),
+            &names(&["python"]),
+            "python"
+        ));
+        assert!(!off_here(&[], &[], "python"));
+    }
+
+    #[test]
+    fn turning_off_adds_once_and_turning_on_takes_out() {
+        assert_eq!(
+            with_off(names(&["go"]), "rust", true),
+            Some(names(&["go", "rust"]))
+        );
+        assert_eq!(with_off(names(&["go", "rust"]), "rust", true), None);
+        assert_eq!(
+            with_off(names(&["go", "rust"]), "rust", false),
+            Some(names(&["go"]))
+        );
+        assert_eq!(with_off(names(&["go"]), "rust", false), None);
+    }
 }

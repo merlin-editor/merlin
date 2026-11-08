@@ -330,6 +330,9 @@ impl App {
                 .into_iter()
                 .map(|p| PluginRow {
                     mark: plugins::mark(&p),
+                    what: super::describe(&p),
+                    off_here: self.off_here(&p.name),
+                    waiting: p.waiting,
                     memory: p.memory as u64
                         + p.processes
                             .iter()
@@ -366,6 +369,9 @@ impl App {
                 key_row: ui.key_row,
                 open_choice: ui.open_choice.clone(),
                 page_tab: ui.page_tab,
+                list_tab: ui.list_tab,
+                plugin_filter: ui.filter_text().to_string(),
+                plugin_menu: ui.plugin_menu.clone(),
                 editing: ui.editing.clone(),
                 card: ui.card,
                 scroll: ui.scroll,

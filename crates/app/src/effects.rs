@@ -278,7 +278,7 @@ impl App {
                     n => (self.zoom + n as f32).clamp(-6.0, 18.0),
                 };
             }
-            Effect::OpenSettingsWindow { plugin } => self.open_settings(plugin),
+            Effect::OpenSettingsWindow { plugin, plugins } => self.open_settings(plugin, plugins),
         }
     }
 

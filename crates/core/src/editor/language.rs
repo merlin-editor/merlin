@@ -16,8 +16,9 @@ pub struct LanguageCardView {
     /// The plugin it's from, such as `from the Rust plugin`; empty without
     /// one.
     pub from: String,
-    /// Whether the plugin has settings to open.
-    pub settings: bool,
+    /// The link to its plugin's page in Settings, such as `Rust plugin…`;
+    /// none without a plugin.
+    pub settings: Option<String>,
     pub rows: Vec<LanguageRowView>,
 }
 
@@ -260,7 +261,14 @@ impl Editor {
             from: owner.map_or(String::new(), |p| {
                 format!("from {}", plugin_name(&title(p)))
             }),
-            settings: owner.is_some(),
+            settings: owner.map(|p| {
+                let title = title(p);
+                if title.to_lowercase().ends_with("plugin") {
+                    format!("{title}…")
+                } else {
+                    format!("{title} plugin…")
+                }
+            }),
             rows: self
                 .language_rows()
                 .into_iter()

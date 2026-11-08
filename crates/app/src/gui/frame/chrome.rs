@@ -716,8 +716,8 @@ impl Frame<'_> {
             p.faint,
             r,
         );
-        if card.settings {
-            let label = "Plugin settings";
+        if let Some(label) = &card.settings {
+            let label = label.as_str();
             let lw = self.text.width(label, Face::ui(12.0));
             let l = Rect::new(r.right() - 12.0 - lw, r.y + 8.0, lw, head_h - 16.0);
             let colour = if self.hovered(l) { p.bright } else { p.accent };

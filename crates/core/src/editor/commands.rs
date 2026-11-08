@@ -76,7 +76,7 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
     ("settings.user", "Preferences: Open User Settings"),
     ("settings.workspace", "Preferences: Open Workspace Settings"),
     ("settings.open", "Preferences: Open Settings"),
-    ("view.plugins", "View: Plugins"),
+    ("plugins.manage", "Plugins: Manage"),
     ("theme.pick", "Preferences: Color Theme"),
     ("icons.pick", "Preferences: File Icon Theme"),
     ("go.symbol", "Go to Symbol in Editor"),
@@ -471,7 +471,13 @@ impl Editor {
             "find.replace" => self.open_find(true),
             "palette.open" => self.open_search(search_all::Scope::Everything, fx),
             "settings.open" => self.open_settings(None, fx),
-            "view.plugins" => self.show_view(views::PLUGINS, fx),
+            "plugins.manage" => {
+                self.open_page(SETTINGS_PAGE, "Settings");
+                fx.push(Effect::OpenSettingsWindow {
+                    plugin: None,
+                    plugins: true,
+                });
+            }
             "theme.pick" => self.pick_theme(ThemeKind::Colours),
             "icons.pick" => self.pick_theme(ThemeKind::Icons),
             // Show and focus, then step through the panels, then hide.

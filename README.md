@@ -81,7 +81,23 @@ Language servers run as their own processes and aren't counted here.
 Plugins are where the memory goes, about 27 MB each, so they're the next
 thing to make smaller.
 
-## Build and run
+## Installation & Updates
+
+### One-line installer / updater (Linux & macOS)
+
+To install or update Merlin to the latest release binary into `~/.local/bin`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/merlin-editor/merlin/main/scripts/install.sh | sh
+```
+
+Running this command again checks for new releases and updates your installation automatically.
+
+Prebuilt binaries for Linux, macOS (Apple Silicon & Intel), and Windows are also available directly from [GitHub Releases](https://github.com/merlin-editor/merlin/releases).
+
+---
+
+## Build and run from source
 
 ```sh
 scripts/install-plugins.sh
@@ -689,6 +705,11 @@ processes = ["wc"]
 # Also: workspace-read = true, to read the project's files, and
 # terminal = true, to run command lines in a terminal tab.
 ```
+
+Plugins are managed in Settings › Plugins (Plugins: Manage in the palette):
+each row's switch turns one off everywhere, and its ⋯ menu can turn it off
+in this workspace only, reload it, open its Output or folder, or uninstall
+it.
 
 The first time a plugin asks for permissions, its panel shows what it wants
 and it loads only if you allow it. The answer is remembered, by plugin folder,

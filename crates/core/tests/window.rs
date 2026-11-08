@@ -34,8 +34,7 @@ fn the_view_has_tabs_status_and_rail() {
             "Source Control",
             "Tests",
             "Run and Debug",
-            "Outline",
-            "Plugins"
+            "Outline"
         ]
     );
 }
@@ -194,56 +193,31 @@ fn rail_items_say_what_they_show() {
             "source-control",
             "testing",
             "debug",
-            "outline",
-            "plugins"
+            "outline"
         ]
     );
 }
 
 #[test]
-fn the_plugins_view_lists_plugins_and_opens_their_pages() {
-    use merlin_core::{PluginSummary, Tone};
+fn plugins_are_managed_in_settings_not_a_side_view() {
+    use merlin_core::Effect;
     let mut s = windowed();
-    s.send(Event::PluginList(vec![PluginSummary {
-        name: "lsp".into(),
-        title: "Language".into(),
-        what: "Language servers".into(),
-        tag: "runs programs".into(),
-        tone: Tone::Warning,
-        mark: ("LA".into(), merlin_core::style::Hue::Blue),
-    }]));
-    let rail = s.editor.window_view().rail;
-    let i = rail
-        .iter()
-        .position(|r| r.id == "plugins")
-        .expect("a Plugins rail item");
-    s.send(Event::Ui(UiEvent::Rail(i)));
-    let left = s.editor.window_view().left.expect("the Plugins view shows");
-    assert_eq!(left.title, "Plugins");
-    let row = left
-        .nodes
-        .iter()
-        .position(|n| matches!(n, Node::Entry(e) if e.label == "Language"))
-        .expect("the plugin is listed");
-    s.send(Event::Ui(UiEvent::Target {
-        side: Side::Left,
-        index: left.targets[row].unwrap(),
-        clicks: 1,
-    }));
-    // Settings opens at the plugin's page.
-    let view = s.editor.window_view();
-    assert_eq!(
-        view.page.as_deref(),
-        Some(merlin_core::SETTINGS_PAGE),
-        "Settings is the active tab"
-    );
-    assert!(view.tabs.iter().any(|t| t.name == "Settings" && t.active));
     assert!(
-        s.effects
-            .contains(&merlin_core::Effect::OpenSettingsWindow {
-                plugin: Some("lsp".into())
-            })
+        s.editor
+            .window_view()
+            .rail
+            .iter()
+            .all(|r| r.id != "plugins"),
+        "the rail is for places you work"
     );
+    s.effects.clear();
+    s.run("key ctrl+shift+p; type plugins manage; key enter");
+    assert!(s.effects.contains(&Effect::OpenSettingsWindow {
+        plugin: None,
+        plugins: true
+    }));
+    let view = s.editor.window_view();
+    assert_eq!(view.page.as_deref(), Some(merlin_core::SETTINGS_PAGE));
 
     // A page has no text to type into, and opening it again reuses its tab.
     s.run("type hello");
@@ -253,11 +227,7 @@ fn the_plugins_view_lists_plugins_and_opens_their_pages() {
     );
     assert!(!s.editor.buffer().is_dirty());
     let tabs = s.editor.window_view().tabs.len();
-    s.send(Event::Ui(UiEvent::Target {
-        side: Side::Left,
-        index: left.targets[row].unwrap(),
-        clicks: 1,
-    }));
+    s.run("key ctrl+shift+p; type plugins manage; key enter");
     assert_eq!(s.editor.window_view().tabs.len(), tabs);
 }
 
@@ -267,7 +237,13 @@ fn ctrl_comma_opens_settings() {
     let mut s = windowed();
     s.effects.clear();
     s.run("key ctrl+,");
-    assert_eq!(s.effects, [Effect::OpenSettingsWindow { plugin: None }]);
+    assert_eq!(
+        s.effects,
+        [Effect::OpenSettingsWindow {
+            plugin: None,
+            plugins: false
+        }]
+    );
     let view = s.editor.window_view();
     assert_eq!(view.page.as_deref(), Some(merlin_core::SETTINGS_PAGE));
     assert!(view.tabs.iter().any(|t| t.active && t.name == "Settings"));

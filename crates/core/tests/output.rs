@@ -164,6 +164,25 @@ fn a_plugin_notice_has_its_buttons_and_a_way_to_quieten_it() {
         "{:?}",
         s.effects
     );
+
+    // Its last choice is the plugin's page in Settings.
+    s.send(Event::PluginNotice {
+        plugin: "rust".into(),
+        level: LogLevel::Warn,
+        text: "hover failed".into(),
+        buttons: Vec::new(),
+    });
+    s.send(Event::Ui(UiEvent::ToastButton(1)));
+    let palette = s.editor.window_view().palette.unwrap();
+    assert_eq!(
+        palette.items.last().map(|(label, _)| label.as_str()),
+        Some("Plugin settings…")
+    );
+    s.run("type plugin settings; key enter");
+    assert!(s.effects.contains(&Effect::OpenSettingsWindow {
+        plugin: Some("rust".into()),
+        plugins: false
+    }));
 }
 
 #[test]

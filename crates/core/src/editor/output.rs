@@ -448,6 +448,7 @@ impl Editor {
             ("all", "All notices"),
             ("errors", "Errors only"),
             ("none", "None: log them only"),
+            ("settings", "Plugin settings…"),
         ]
         .map(|(id, label)| (format!("{plugin}:{id}"), label.to_string()))
         .to_vec();
@@ -524,6 +525,10 @@ impl Editor {
         let Some((plugin, value)) = item.rsplit_once(':') else {
             return;
         };
+        // Or its page in Settings, for the rest of what it does.
+        if value == "settings" {
+            return self.open_settings(Some(plugin.to_string()), fx);
+        }
         fx.push(Effect::SetSetting {
             key: format!("plugins.{plugin}.notices"),
             value: format!("\"{value}\""),

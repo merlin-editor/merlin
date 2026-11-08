@@ -604,32 +604,6 @@ impl Editor {
         self.build_views();
     }
 
-    /// What a plugin gives, for the Plugins view: its tests and tasks.
-    pub(crate) fn plugin_gives(&self, plugin: &str) -> String {
-        let tests: usize = self
-            .tests
-            .plugin_files
-            .iter()
-            .filter(|f| f.plugin == plugin)
-            .map(|f| f.tests.len())
-            .sum();
-        let tasks: usize = self
-            .tasks
-            .plugins
-            .iter()
-            .filter(|((p, _), _)| p == plugin)
-            .map(|(_, t)| t.len())
-            .sum();
-        let mut out = Vec::new();
-        if tests > 0 {
-            out.push(format!("Tests {tests}"));
-        }
-        if tasks > 0 {
-            out.push(format!("Tasks {tasks}"));
-        }
-        out.join(" · ")
-    }
-
     /// The counts the view's title shows: passed and failed.
     pub(crate) fn test_counts(&self) -> (usize, usize) {
         let count = |o| {

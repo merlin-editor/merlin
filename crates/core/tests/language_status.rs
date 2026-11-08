@@ -140,4 +140,6 @@ fn a_line_is_only_for_the_files_it_names() {
     let names: Vec<&str> = card.rows.iter().map(|r| r.name.as_str()).collect();
     assert_eq!(names, ["gopls", "Problems"]);
     assert_eq!(card.from, "from the lsp plugin");
+    // Its link goes to the plugin's page in Settings, by the plugin's name.
+    assert_eq!(card.settings.as_deref(), Some("lsp plugin…"));
 }

@@ -221,7 +221,10 @@ impl Editor {
     /// Opens the Settings tab, at a plugin's page if one is named.
     pub(crate) fn open_settings(&mut self, plugin: Option<String>, fx: &mut Vec<Effect>) {
         self.open_page(SETTINGS_PAGE, "Settings");
-        fx.push(Effect::OpenSettingsWindow { plugin });
+        fx.push(Effect::OpenSettingsWindow {
+            plugin,
+            plugins: false,
+        });
     }
 
     pub(super) fn file_changed(&mut self, path: &PathBuf, text: &str) {

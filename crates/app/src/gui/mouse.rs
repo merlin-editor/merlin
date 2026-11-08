@@ -308,7 +308,8 @@ impl Gui<'_> {
             Hit::Settings(action) => self.settings_press(action, clicks, at),
             Hit::SettingsBody => {
                 // A click away from a field being typed in leaves it.
-                self.app.settings_ui.editing = None;
+                self.app.settings_ui.stop_editing();
+                self.app.settings_ui.plugin_menu = None;
                 self.app.settings_ui.open_choice = None;
                 self.focus_page(at);
             }

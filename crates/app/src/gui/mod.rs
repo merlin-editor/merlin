@@ -820,6 +820,11 @@ impl ApplicationHandler for Gui<'_> {
                         self.context_at = Some(at);
                         self.dispatch(Event::Ui(UiEvent::SideMenu(side)));
                     }
+                    // A plugin's menu, from its row in Settings.
+                    Some(Hit::Settings(crate::prefs::SettingsAction::Plugin(name))) => {
+                        let menu = crate::prefs::SettingsAction::PluginMenu(Some(name));
+                        self.settings_press(menu, 1, at);
+                    }
                     // A plugin view's menu, from its rail icon or its tab.
                     Some(Hit::Ui(UiEvent::Rail(i))) => {
                         self.context_at = Some(at);

@@ -234,7 +234,10 @@ The PDF viewer is the test: it's `PluginDocument.dc.html` in
    the right side bar's own tabs. **Built.** `render-view` is in a `views`
    interface the SDK exports, found the same way as `on-setting-changed`.
 4. One home for plugins (drop the side view), once 3 gives the rail
-   something better to hold.
+   something better to hold. **Built**: Settings › Plugins has Installed
+   and Browse, a filter, and a menu on each row that turns a plugin off
+   everywhere or in this workspace only (`editor.disabled_plugins` in
+   either settings file, read at startup, which it wasn't before).
 5. Rich nodes for chat views, then the smaller gaps.
 6. Plugin calls off the main thread, then images, then surfaces with
    `[[editors]]` (proved by a PDF viewer), then drawing commands.

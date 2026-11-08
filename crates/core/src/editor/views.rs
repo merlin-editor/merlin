@@ -18,7 +18,6 @@ pub(crate) const CHANGES: &str = "merlin.changes";
 pub(crate) const OUTLINE: &str = "merlin.outline";
 pub(crate) const PROBLEMS: &str = "merlin.problems";
 pub(crate) const OUTPUT: &str = "merlin.output";
-pub(crate) const PLUGINS: &str = "merlin.plugins";
 
 /// Most search results shown.
 const SHOWN_HITS: usize = 500;
@@ -247,7 +246,6 @@ impl Editor {
             (super::testing::TESTS, "Tests", Side::Left),
             (super::debug::DEBUG, "Run and Debug", Side::Left),
             (OUTLINE, "Outline", Side::Left),
-            (PLUGINS, "Plugins", Side::Left),
             (PROBLEMS, "Problems", Side::Bottom),
             (OUTPUT, "Output", Side::Bottom),
             (super::terminal::TERMINAL, "Terminal", Side::Bottom),
@@ -376,8 +374,6 @@ impl Editor {
         let problems = self.problems_nodes();
         self.set_view(PROBLEMS, problems);
         self.build_output();
-        let plugins = self.plugins_nodes();
-        self.set_view(PLUGINS, plugins);
         let tests = self.tests_nodes();
         self.set_view(super::testing::TESTS, tests);
         let rename = self.rename_nodes();
@@ -386,69 +382,6 @@ impl Editor {
         self.set_view(super::debug::DEBUG, debug);
         let console = self.console_nodes();
         self.set_view(super::debug::CONSOLE, console);
-    }
-
-    /// The Plugins view: each plugin, how it runs, and what it adds.
-    fn plugins_nodes(&self) -> Vec<Node> {
-        use crate::icons::{Icon, file_icon, icon};
-        let filter = self
-            .inputs
-            .get(&(PLUGINS.to_string(), "filter".to_string()))
-            .map(|s| s.trim().to_ascii_lowercase())
-            .unwrap_or_default();
-        let shown: Vec<_> = self
-            .plugin_list
-            .iter()
-            .filter(|p| {
-                filter.is_empty()
-                    || p.title.to_ascii_lowercase().contains(&filter)
-                    || p.name.to_ascii_lowercase().contains(&filter)
-                    || p.what.to_ascii_lowercase().contains(&filter)
-                    || p.tag.to_ascii_lowercase().contains(&filter)
-            })
-            .collect();
-        let heading = if filter.is_empty() {
-            format!("Installed · {}", self.plugin_list.len())
-        } else {
-            format!("Installed · {} of {}", shown.len(), self.plugin_list.len())
-        };
-        let mut nodes = vec![
-            Node::Input {
-                id: "filter".into(),
-                placeholder: "Filter installed plugins…".into(),
-                secret: false,
-                multiline: false,
-            },
-            Node::Heading(heading),
-        ];
-        if shown.is_empty() && !filter.is_empty() {
-            nodes.push(Node::Styled("No matching plugins.".into(), Tone::Muted));
-        }
-        for p in shown {
-            // A language's file icon, in the plugin's colour.
-            let glyph = match self.languages.iter().find(|(plugin, _)| *plugin == p.name) {
-                Some((_, l)) => {
-                    let ext = l.extensions.first().map_or("", String::as_str);
-                    file_icon(&format!("file.{ext}"), self.nerd).0
-                }
-                None => icon(Icon::Plugin, self.nerd),
-            };
-            nodes.push(Node::entry(crate::panel::Entry {
-                id: format!("plugin:{}", p.name),
-                label: p.title.clone(),
-                detail: match self.plugin_gives(&p.name) {
-                    gives if gives.is_empty() => p.what.clone(),
-                    gives if p.what.is_empty() => gives,
-                    gives => format!("{} · {gives}", p.what),
-                },
-                icon: Some((glyph, p.mark.1)),
-                monogram: Some(p.mark.0.clone()),
-                badge: p.tag.clone(),
-                badge_tone: p.tone,
-                ..Default::default()
-            }));
-        }
-        nodes
     }
 
     /// The Outline view: the open file's symbols, nested, while it shows.
@@ -920,9 +853,6 @@ impl Editor {
         }
         if id.starts_with("rn:") || id.starts_with("rename:") {
             return self.rename_click(id, fx);
-        }
-        if let Some(name) = id.strip_prefix("plugin:") {
-            return self.open_settings(Some(name.to_string()), fx);
         }
         if let Some(folder) = id.strip_prefix("d:") {
             if let Some(tree) = &mut self.tree {

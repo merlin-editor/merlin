@@ -48,6 +48,7 @@ Options:
                      without asking, and remember nothing.
   --size <WxH>       The text's size for --exec, in columns and rows
                      (default 80x24)
+  -v, --version      Show version
   -h, --help         Show this help
 ";
 
@@ -70,6 +71,10 @@ fn parse_args() -> Result<Args> {
         match arg.as_str() {
             "-h" | "--help" => {
                 print!("{USAGE}");
+                std::process::exit(0);
+            }
+            "-v" | "--version" => {
+                println!("merlin v{}", env!("CARGO_PKG_VERSION"));
                 std::process::exit(0);
             }
             "--plugin" => args
@@ -352,6 +357,20 @@ impl App {
         {
             self.editor.set_nerd_icons(icons != "plain");
         }
+        // Plugins turned off, for you or in this workspace: off now, and
+        // left off when they load.
+        let mut toggled = Vec::new();
+        if !self.scripted {
+            let (mut off, here) = self.off_lists();
+            off.extend(here);
+            for p in self.host.plugins() {
+                let on = !off.contains(&p.name);
+                if !p.data_only && p.enabled != on {
+                    toggled.extend(self.host.set_enabled(&p.name, on));
+                }
+            }
+            self.host.set_disabled(off);
+        }
         let snapshot = self.snapshot();
         let heard = self.host.set_settings(
             settings::plugins(&self.loaded.user),
@@ -363,6 +382,7 @@ impl App {
         self.choice.icons = settings::editor_text(&table, "icon_theme").map(str::to_string);
         self.choice.packs = settings::editor_list(&table, "packs");
         let mut events = vec![Event::Settings(editor)];
+        events.extend(toggled);
         events.extend(heard);
         events.extend(self.refresh_looks());
         events.extend(
@@ -821,6 +841,16 @@ fn file_op(root: &Path, op: FileOp) -> Vec<Event> {
         },
     }
 }
+/// Opens a folder in the desktop's file manager.
+pub(crate) fn open_folder(dir: &Path) {
+    let _ = Command::new("xdg-open")
+        .arg(dir)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+}
+
 /// Opens a web page in the desktop's browser. Only web pages: a link a
 /// plugin sends mustn't open a program.
 fn open_url(url: &str) {

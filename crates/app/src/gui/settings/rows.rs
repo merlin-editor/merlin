@@ -445,6 +445,7 @@ impl Frame<'_> {
                     )
                 })
                 .collect(),
+            ListOf::PluginMenu(_) => return,
         };
         if items.is_empty() {
             return;

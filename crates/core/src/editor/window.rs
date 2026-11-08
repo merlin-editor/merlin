@@ -410,7 +410,7 @@ pub struct ToastView {
 impl Editor {
     /// The activity rail's items: the built-in views, then plugin panels.
     pub(crate) fn rail_items(&self) -> Vec<(RailItem, Action)> {
-        use super::views::{CHANGES, EXPLORER, OUTLINE, PLUGINS, SEARCH};
+        use super::views::{CHANGES, EXPLORER, OUTLINE, SEARCH};
         let left = self
             .bar(Side::Left)
             .visible
@@ -429,7 +429,6 @@ impl Editor {
             (super::testing::TESTS, Icon::Testing, "Tests", "testing"),
             (super::debug::DEBUG, Icon::Debug, "Run and Debug", "debug"),
             (OUTLINE, Icon::Outline, "Outline", "outline"),
-            (PLUGINS, Icon::Plugin, "Plugins", "plugins"),
         ] {
             items.push((
                 RailItem {

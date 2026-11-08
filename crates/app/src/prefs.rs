@@ -109,6 +109,12 @@ pub struct SettingsUi {
     pub open_choice: Option<String>,
     /// The plugin page's tab.
     pub page_tab: PageTab,
+    /// The plugin list's tab: what's installed, or where to find more.
+    pub list_tab: ListTab,
+    /// What the plugin list is filtered by.
+    pub plugin_filter: String,
+    /// The plugin whose row menu is open.
+    pub plugin_menu: Option<String>,
     /// A setting's text being typed.
     pub editing: Option<Editing>,
     /// The theme card the arrows are on, which the window previews.
@@ -116,6 +122,26 @@ pub struct SettingsUi {
     pub scroll: f32,
     /// How far the page scrolls, as last drawn.
     pub room: f32,
+}
+
+impl SettingsUi {
+    /// Stops typing. What was typed into the plugin filter stays; a
+    /// setting's text that wasn't entered is dropped.
+    pub fn stop_editing(&mut self) {
+        if let Some(edit) = self.editing.take()
+            && edit.key == PLUGIN_FILTER
+        {
+            self.plugin_filter = edit.text;
+        }
+    }
+
+    /// The plugin filter as it reads now, typed or not.
+    pub fn filter_text(&self) -> &str {
+        match &self.editing {
+            Some(edit) if edit.key == PLUGIN_FILTER => &edit.text,
+            _ => &self.plugin_filter,
+        }
+    }
 }
 
 /// A plugin page's tabs.
@@ -126,6 +152,17 @@ pub enum PageTab {
     Allowed,
     Adds,
 }
+
+/// The plugin list's tabs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ListTab {
+    #[default]
+    Installed,
+    Browse,
+}
+
+/// The [`Editing`] key of the plugin list's filter.
+pub const PLUGIN_FILTER: &str = "#plugin-filter";
 
 /// A setting's text being typed: into its field, or as a new item of a
 /// list.
@@ -243,6 +280,12 @@ pub struct CaptureView {
 pub struct PluginRow {
     pub name: String,
     pub title: String,
+    /// What it does, in a few words.
+    pub what: String,
+    /// Turned off in this workspace only.
+    pub off_here: bool,
+    /// Waiting for its permissions to be allowed.
+    pub waiting: bool,
     /// Its tile's letters and colour.
     pub mark: (String, merlin_core::style::Hue),
     pub on: bool,
@@ -290,6 +333,10 @@ pub struct SettingsUiView {
     pub key_row: Option<usize>,
     pub open_choice: Option<String>,
     pub page_tab: PageTab,
+    pub list_tab: ListTab,
+    /// The filter as typed so far.
+    pub plugin_filter: String,
+    pub plugin_menu: Option<String>,
     pub editing: Option<Editing>,
     pub card: Option<usize>,
     pub scroll: f32,
@@ -329,6 +376,9 @@ pub enum SettingsAction {
     Unbind(String),
     ResetKey(String),
     Plugin(String),
+    /// A plugin row's menu, opened or closed.
+    PluginMenu(Option<String>),
+    ListTab(ListTab),
     Page(PageAction),
     OpenFile,
 }
@@ -359,6 +409,8 @@ pub struct PageView {
     pub looks: Vec<String>,
     /// Its settings, as rows.
     pub rows: Vec<Row>,
+    /// Turned off in this workspace only.
+    pub off_here: bool,
     /// The Uninstall button was pressed once, and waits for a second.
     pub uninstall_armed: bool,
     /// Installed with `merlin plugin install`, so it can be uninstalled.
@@ -367,7 +419,12 @@ pub struct PageView {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum PageAction {
+    /// On or off everywhere.
     Enable(String, bool),
+    /// On or off in this workspace only.
+    EnableHere(String, bool),
+    /// Opens its folder in the file manager.
+    Folder(String),
     Reload(String),
     /// Its channel of the Output panel.
     Output(String),
@@ -448,11 +505,15 @@ pub(crate) fn option_label(o: &str) -> String {
 
 impl App {
     /// The Settings tab opened, at a plugin's page if one is named.
-    pub(crate) fn open_settings(&mut self, plugin: Option<String>) {
+    /// The Settings tab opened: at a plugin's page, at the list of
+    /// plugins, or where it was.
+    pub(crate) fn open_settings(&mut self, plugin: Option<String>, plugins: bool) {
         self.make_previews();
-        if let Some(name) = plugin {
+        if plugin.is_some() || plugins {
             self.settings_ui.category = Category::Plugins;
-            self.settings_ui.plugin = Some(name);
+            if plugin.is_some() {
+                self.settings_ui.plugin = plugin;
+            }
             self.settings_ui.search.clear();
             self.settings_ui.scroll = 0.0;
         }
@@ -496,8 +557,11 @@ impl App {
         if !matches!(action, SettingsAction::Choose(..)) {
             ui.open_choice = None;
         }
+        if !matches!(action, SettingsAction::PluginMenu(..)) {
+            ui.plugin_menu = None;
+        }
         if !matches!(action, SettingsAction::Edit(..)) {
-            ui.editing = None;
+            ui.stop_editing();
         }
         match action {
             SettingsAction::Category(c) => {
@@ -553,6 +617,23 @@ impl App {
             }
             SettingsAction::PageTab(tab) => {
                 ui.page_tab = tab;
+                Vec::new()
+            }
+            SettingsAction::ListTab(tab) => {
+                ui.list_tab = tab;
+                Vec::new()
+            }
+            SettingsAction::PluginMenu(name) => {
+                ui.plugin_menu = name;
+                Vec::new()
+            }
+            SettingsAction::Edit(key, _) if key == PLUGIN_FILTER => {
+                let text = ui.plugin_filter.clone();
+                ui.editing = Some(Editing {
+                    key,
+                    text,
+                    add: false,
+                });
                 Vec::new()
             }
             SettingsAction::Edit(key, add) => {
@@ -683,6 +764,12 @@ impl App {
         let ui = &mut self.settings_ui;
         if let Some(edit) = &mut ui.editing {
             match key.code {
+                // The filter keeps what was typed; Esc empties it.
+                KeyCode::Esc if edit.key == PLUGIN_FILTER => {
+                    ui.plugin_filter.clear();
+                    ui.editing = None;
+                }
+                KeyCode::Enter if edit.key == PLUGIN_FILTER => ui.stop_editing(),
                 KeyCode::Esc => ui.editing = None,
                 KeyCode::Enter => return Some(self.edit_done()),
                 KeyCode::Backspace if key.ctrl => {
@@ -830,6 +917,10 @@ impl App {
         let Some(edit) = self.settings_ui.editing.take() else {
             return Vec::new();
         };
+        if edit.key == PLUGIN_FILTER {
+            self.settings_ui.plugin_filter = edit.text;
+            return Vec::new();
+        }
         let Some(control) = self.find_row(&edit.key).map(|r| r.control) else {
             return Vec::new();
         };

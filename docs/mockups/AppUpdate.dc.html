@@ -1,0 +1,484 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>App update in title bar</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body { margin: 0; background: #08090a; }
+.w {
+  width: 1280px;
+  height: 800px;
+  background: #0f1012;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, sans-serif;
+  color: #d4d5da;
+  font-size: 13px;
+  overflow: hidden;
+  position: relative;
+  box-sizing: border-box;
+}
+
+/* Chrome Title Bar */
+.titlebar {
+  height: 40px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  gap: 8px;
+  background: #0f1012;
+  border-bottom: 1px solid #1a1b1e;
+  user-select: none;
+}
+.btn-icon {
+  width: 30px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: #8e9099;
+  cursor: pointer;
+}
+.btn-icon:hover { background: #1c1d22; color: #eef0f3; }
+
+.project-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 10px 0 6px;
+  border-radius: 6px;
+  font-weight: 600;
+  color: #eef0f3;
+  cursor: pointer;
+}
+.project-badge:hover { background: #1c1d22; }
+.mark-m {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  background: #7c9cff;
+  color: #0f1012;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.branch-tag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  color: #8e9099;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.branch-tag:hover { background: #1c1d22; color: #b4b6bd; }
+
+/* Central command search box */
+.search-center {
+  flex: 1;
+  max-width: 440px;
+  margin: 0 auto;
+  height: 28px;
+  background: #17181c;
+  border: 1px solid #23242a;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px 0 10px;
+  gap: 8px;
+  color: #8e9099;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.search-center:hover { background: #1c1d22; border-color: #2b2c34; }
+.kbd-chip {
+  margin-left: auto;
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  background: #23252b;
+  color: #8e9099;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+/* Right header controls */
+.right-cluster {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+/* UPDATE BUTTON PILL */
+.update-pill {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 26px;
+  padding: 0 10px 0 8px;
+  border-radius: 13px;
+  background: #192338;
+  border: 1px solid #2c3e66;
+  color: #8cb0ff;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all .15s ease;
+}
+.update-pill:hover {
+  background: #202e4d;
+  border-color: #3d5894;
+  color: #b3ccff;
+  box-shadow: 0 2px 8px rgba(124, 156, 255, 0.15);
+}
+.update-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #7c9cff;
+  box-shadow: 0 0 6px #7c9cff;
+}
+
+/* Layout toggle buttons */
+.layout-btns {
+  display: flex;
+  gap: 2px;
+  border-left: 1px solid #202126;
+  padding-left: 6px;
+  margin-left: 2px;
+}
+.layout-btns .btn-icon.active { color: #eef0f3; }
+
+/* Workspace body with islands */
+.workspace {
+  display: flex;
+  height: calc(800px - 40px - 24px);
+  padding: 6px;
+  gap: 6px;
+  box-sizing: border-box;
+}
+
+/* Activity Rail */
+.rail {
+  width: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding-top: 4px;
+}
+.rail-icon {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: #8e9099;
+  cursor: pointer;
+}
+.rail-icon.active {
+  color: #eef0f3;
+  background: #1c1d22;
+}
+
+/* Islands */
+.sidebar-island {
+  width: 220px;
+  background: #17181b;
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.editor-island {
+  flex: 1;
+  background: #17181b;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.editor-tabs {
+  height: 34px;
+  background: #141518;
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  gap: 4px;
+  border-bottom: 1px solid #1f2025;
+}
+.tab {
+  height: 25px;
+  padding: 0 10px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: #8e9099;
+  background: transparent;
+}
+.tab.active {
+  background: #1d1e23;
+  color: #eef0f3;
+}
+.code-area {
+  padding: 16px 20px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  line-height: 22px;
+  color: #d4d5da;
+}
+
+/* Status Bar */
+.statusbar {
+  height: 24px;
+  background: #0f1012;
+  border-top: 1px solid #1a1b1e;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  font-size: 11.5px;
+  color: #8e9099;
+  gap: 16px;
+}
+
+/* POPUP CARD DEMO (When Update button is clicked) */
+.update-popup {
+  position: absolute;
+  top: 46px;
+  right: 110px;
+  width: 320px;
+  background: #18191d;
+  border: 1px solid #2a2c34;
+  border-radius: 10px;
+  box-shadow: 0 14px 38px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.3);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  z-index: 100;
+  animation: popIn .12s ease-out;
+}
+@keyframes popIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.pop-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #eef0f3;
+}
+.pop-badge {
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  background: #1d2840;
+  color: #7c9cff;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+.pop-desc {
+  font-size: 12px;
+  color: #8e9099;
+  line-height: 1.5;
+}
+.pop-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+.btn {
+  height: 26px;
+  padding: 0 11px;
+  border-radius: 6px;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border: 1px solid #2b2c34;
+  background: #202228;
+  color: #d4d5da;
+}
+.btn:hover { background: #282a32; color: #fff; }
+.btn.primary {
+  background: #7c9cff;
+  border-color: #7c9cff;
+  color: #0f1012;
+  font-weight: 600;
+}
+.btn.primary:hover {
+  background: #92adff;
+  border-color: #92adff;
+}
+.btn.ghost {
+  background: transparent;
+  border-color: transparent;
+  color: #8e9099;
+}
+.btn.ghost:hover { color: #d4d5da; }
+
+/* Callout annotation */
+.annotation {
+  position: absolute;
+  top: 15px;
+  right: 250px;
+  background: #241c10;
+  border: 1px solid #573e1c;
+  color: #f7b955;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+</style>
+</helmet>
+
+<div class="w">
+  <!-- Window Titlebar with Command Center & Update Pill -->
+  <div class="titlebar">
+    <!-- Menu burger -->
+    <div class="btn-icon" title="Menu (F10)">
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2.5 4h11M2.5 8h11M2.5 12h11"/></svg>
+    </div>
+
+    <!-- Project badge -->
+    <div class="project-badge">
+      <div class="mark-m">m</div>
+      <span>merlin</span>
+    </div>
+
+    <!-- Git Branch -->
+    <div class="branch-tag">
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 3a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm8 6a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM4 7v6m0-3c1.5 0 3-1 4-2.5l2-2.5"/></svg>
+      <span>main</span>
+    </div>
+
+    <!-- Centered Command Palette Search -->
+    <div class="search-center">
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="5"/><path d="M11 11l3.5 3.5"/></svg>
+      <span>Search files, commands, symbols and text</span>
+      <span class="kbd-chip">Ctrl Shift P</span>
+    </div>
+
+    <!-- Right Cluster: Update Button & Layout Toggles -->
+    <div class="right-cluster">
+      <!-- THE UPDATE PILL IN THE TOP BAR -->
+      <div class="update-pill" id="updateBtn">
+        <span class="update-dot"></span>
+        <span>Update available</span>
+        <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 3v10M4 9l4 4 4-4"/></svg>
+      </div>
+
+      <!-- Layout toggles -->
+      <div class="layout-btns">
+        <div class="btn-icon active" title="Toggle Side Bar"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M6 2.5v11"/></svg></div>
+        <div class="btn-icon" title="Toggle Bottom Panel"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M2 10.5h12"/></svg></div>
+        <div class="btn-icon" title="Toggle Secondary Bar"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="2.5" width="12" height="11" rx="1.5"/><path d="M10 2.5v11"/></svg></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- WORKSPACE -->
+  <div class="workspace">
+    <!-- Activity Rail -->
+    <div class="rail">
+      <div class="rail-icon active" title="Explorer">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 3.5h4.5l1.5 1.5H14v7.5a1.5 1.5 0 0 1-1.5 1.5H3.5A1.5 1.5 0 0 1 2 12.5v-9z"/></svg>
+      </div>
+      <div class="rail-icon" title="Search">
+        <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
+      </div>
+      <div class="rail-icon" title="Source Control">
+        <svg width="17" height="17" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="5" cy="5" r="2.5"/><circle cx="5" cy="11" r="2.5"/><circle cx="11" cy="7" r="2.5"/><path d="M5 7.5v1M7 6l2 1"/></svg>
+      </div>
+    </div>
+
+    <!-- Sidebar Explorer -->
+    <div class="sidebar-island">
+      <div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#8e9099;padding-bottom:4px">Explorer</div>
+      <div style="font-size:12.5px;color:#eef0f3;display:flex;align-items:center;gap:6px">▾ merlin</div>
+      <div style="padding-left:12px;display:flex;flex-direction:column;gap:5px;font-size:12.5px;color:#b4b6bd">
+        <div style="display:flex;gap:6px;align-items:center">▸ crates</div>
+        <div style="display:flex;gap:6px;align-items:center">▸ plugins</div>
+        <div style="display:flex;gap:6px;align-items:center">▸ sdk</div>
+        <div style="display:flex;gap:6px;align-items:center;color:#eef0f3"><span style="color:#f5a97f">RS</span> main.rs</div>
+        <div style="display:flex;gap:6px;align-items:center"><span>MD</span> README.md</div>
+      </div>
+    </div>
+
+    <!-- Editor Island -->
+    <div class="editor-island">
+      <div class="editor-tabs">
+        <div class="tab active"><span style="color:#f5a97f;font-weight:700;font-size:10px">RS</span> main.rs</div>
+        <div class="tab"><span>MD</span> README.md</div>
+      </div>
+      <div class="code-area">
+        <span style="color:#c4a7e7">fn</span> <span style="color:#82aaff">main</span>() -&gt; <span style="color:#ffcb6b">Result</span>&lt;()&gt; {<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#8e9099">// Sandboxed WASI component plugins host</span><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#c4a7e7">let</span> config = <span style="color:#ffcb6b">Config</span>::standard();<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#c4a7e7">let</span> <span style="color:#c4a7e7">mut</span> app = <span style="color:#ffcb6b">App</span>::new(config)?;<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;app.run()<br>
+        }
+      </div>
+    </div>
+  </div>
+
+  <!-- Status Bar -->
+  <div class="statusbar">
+    <span style="display:flex;align-items:center;gap:4px">⑂ main</span>
+    <span>0 errors, 0 warnings</span>
+    <span style="margin-left:auto">Rust 1.97</span>
+    <span>UTF-8</span>
+    <span>Ln 4, Col 1</span>
+  </div>
+
+  <!-- DROPDOWN POPUP WHEN PILL IS CLICKED -->
+  <div class="update-popup">
+    <div class="pop-title">
+      <span>Update Ready</span>
+      <span class="pop-badge">v0.2.0</span>
+    </div>
+    <div class="pop-desc">
+      A new version of Merlin is available (current: v0.1.0). Updates download and apply seamlessly without losing unsaved buffers.
+    </div>
+    <div class="pop-actions">
+      <span class="btn ghost">Release notes</span>
+      <span class="btn primary">Restart &amp; Update</span>
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
