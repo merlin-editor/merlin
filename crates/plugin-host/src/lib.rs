@@ -53,7 +53,7 @@ use bindings::merlin::plugin::{host, types};
 
 /// The API version this host implements. A manifest names the version it was
 /// built for and loads only on an exact match while the API is 0.x.
-pub const API_VERSION: &str = "0.10";
+pub const API_VERSION: &str = "0.11";
 
 /// Roughly six billion instructions per call, about a second. It stops a
 /// plugin stuck in a loop, and leaves room for a language plugin to colour
@@ -568,6 +568,7 @@ impl PluginHost {
             debug_start: None,
             breakpoints: Vec::new(),
             symbol_query: String::new(),
+            images: Default::default(),
         };
         let mut store = Store::new(&self.engine, state);
         store.limiter(|s| &mut s.limits);

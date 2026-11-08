@@ -11,6 +11,8 @@ struct Testbed {
     asked: Vec<String>,
     /// Whether the Counters row is open.
     open: bool,
+    /// The count its chart was last drawn for.
+    plotted: Option<u32>,
 }
 
 impl Plugin for Testbed {
@@ -29,6 +31,7 @@ impl Plugin for Testbed {
             "show-chat",
             "about",
             "slow",
+            "bad-image",
             "colour",
             "log",
             "warn",
@@ -45,6 +48,11 @@ impl Plugin for Testbed {
                 host::set_view_badge("activity", self.clicks);
             }
             "show-chat" => host::focus_view("chat"),
+            "bad-image" => {
+                if let Err(err) = host::set_image("bad", Some(&Picture::Png(vec![1, 2, 3]))) {
+                    host::notify(&err);
+                }
+            }
             // Busy for a while, as rendering a page of a PDF can be.
             "slow" => {
                 let mut x = 0u64;
@@ -126,7 +134,9 @@ impl Plugin for Testbed {
             "runs" if self.cat.is_some() => Some(
                 Panel::new("Runs")
                     .node(Node::progress("cat is running", None))
-                    .node(Node::progress("Counted", Some(self.clicks.min(10) as f32 / 10.0))),
+                    .node(Node::progress("Counted", Some(self.clicks.min(10) as f32 / 10.0)))
+                    // Never handed over: it waits, saying what it'll be.
+                    .node(Node::image("last-run", "Plot of the last run")),
             ),
             "runs" => Some(Panel::new("Runs").node(Node::empty(
                 "No runs yet",
@@ -202,11 +212,16 @@ impl Plugin for Testbed {
 
 impl Testbed {
     /// Counts and the log, then a tree with chips and a right-click menu.
-    fn activity(&self) -> Panel {
+    fn activity(&mut self) -> Panel {
+        if self.plotted != Some(self.clicks) {
+            let _ = host::set_image("chart", Some(&chart(self.clicks)));
+            self.plotted = Some(self.clicks);
+        }
         let log = format!("log: {}", self.log.join(", "));
         let mut panel = Panel::new("Testbed")
             .text(format!("clicks: {}", self.clicks))
             .text(log)
+            .node(Node::image("chart", "Clicks so far"))
             .row(
                 Row::new("toggle", "Counters")
                     .expanded(self.open)
@@ -269,6 +284,25 @@ impl Testbed {
                 "Ctrl Enter to send",
             ))
     }
+}
+
+/// A bar for each of the last eight counts up to `clicks`, as RGBA: blue
+/// bars on nothing, so the view's own colour shows between them.
+fn chart(clicks: u32) -> Picture {
+    let (w, h) = (240u32, 96u32);
+    let mut pixels = vec![0u8; (w * h * 4) as usize];
+    for bar in 0..8u32 {
+        let value = (clicks + bar) % 9 + 1;
+        let top = h - value * h / 10;
+        let x0 = 6 + bar * 29;
+        for y in top..h {
+            for x in x0..x0 + 21 {
+                let i = ((y * w + x) * 4) as usize;
+                pixels[i..i + 4].copy_from_slice(&[0x7c, 0x9c, 0xff, 0xff]);
+            }
+        }
+    }
+    Picture::rgba(w, h, pixels)
 }
 
 merlin_plugin::export!(Testbed);

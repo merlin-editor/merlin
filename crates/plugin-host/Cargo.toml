@@ -15,3 +15,4 @@ regex.workspace = true
 ignore = "0.4"
 wasmtime = "50"
 wasmtime-wasi = "50"
+png = "0.18"

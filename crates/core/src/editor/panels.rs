@@ -57,6 +57,8 @@ impl Editor {
     /// Records a plugin's commands and binds their keys. A key that's
     /// malformed, lacks Ctrl or Alt, or is taken is skipped with a warning.
     pub(crate) fn register(&mut self, plugin: String, commands: Vec<Command>) {
+        // Started again, or stopped: its pictures go with the old instance.
+        self.drop_images(&plugin);
         let mut keys = Vec::new();
         let mut problems = Vec::new();
         for command in &commands {

@@ -849,7 +849,8 @@ fn views_draw_rows_messages_edits_chips_progress_and_empty_states() {
         &draw(&mut host, "runs")[..],
         [
             Node::Progress { done: None, .. },
-            Node::Progress { done: Some(0), .. }
+            Node::Progress { done: Some(0), .. },
+            Node::Image(_)
         ]
     ));
 }
@@ -1035,4 +1036,46 @@ fn calls_in_the_background_do_not_wait() {
     // Drawn once, after the slow command, so it counts it.
     assert_eq!(drawn.len(), 1, "{drawn:?}");
     assert!(drawn[0].contains("clicks: 1"), "{drawn:?}");
+}
+
+/// A picture handed over once is kept by the editor, shown by an image
+/// node, and handed over again only when it changes; one that can't be
+/// read says why.
+#[test]
+fn pictures_are_handed_over_once() {
+    let (dir, config) = setup("pictures");
+    let mut host = PluginHost::new(Config {
+        ask: false,
+        ..config
+    })
+    .unwrap();
+    host.load(&dir).unwrap();
+    let images = |events: &[Event]| -> Vec<(u32, u32)> {
+        events
+            .iter()
+            .filter_map(|e| match e {
+                Event::SetImage {
+                    id, image: Some(i), ..
+                } if id == "chart" => Some((i.width, i.height)),
+                _ => None,
+            })
+            .collect()
+    };
+    let first = host.render_panels(&snapshot(), &shown(), true);
+    assert_eq!(images(&first), [(240, 96)]);
+    assert!(first.iter().any(|e| matches!(
+        e,
+        Event::SetPanel { panel: Some(p), .. }
+            if p.nodes.iter().any(|n| matches!(n, Node::Image(i) if i.id == "chart"))
+    )));
+    // Drawn again with nothing changed: not handed over again.
+    assert!(images(&host.render_panels(&snapshot(), &shown(), true)).is_empty());
+    host.run_command("testbed", "count", snapshot());
+    assert_eq!(
+        images(&host.render_panels(&snapshot(), &shown(), true)),
+        [(240, 96)]
+    );
+
+    let said = notices(host.run_command("testbed", "bad-image", snapshot()));
+    assert!(said[0].starts_with("not a PNG"), "{said:?}");
 }

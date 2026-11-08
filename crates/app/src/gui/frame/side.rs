@@ -458,6 +458,7 @@ impl Frame<'_> {
             Node::Message(m) => self.message_layout(m, inner).height,
             Node::Chips { .. } => 32.0,
             Node::Edit(_) => 50.0,
+            Node::Image(i) => image_size(i, inner).1 + 10.0,
             Node::Progress { detail, .. } => {
                 if detail.is_empty() {
                     36.0
@@ -624,6 +625,9 @@ impl Frame<'_> {
                 }
             }
             Node::Edit(e) => self.edit_card(e, sv, side, r, target, clip),
+            Node::Image(i) => {
+                self.plugin_image(i, Rect::new(r.x + 14.0, r.y + 4.0, inner, r.h), clip)
+            }
             Node::Progress {
                 label,
                 detail,
@@ -1815,6 +1819,77 @@ impl Frame<'_> {
                 Hit::Ui(UiEvent::Output(merlin_core::OutputClick::Row(i))),
             );
             iy += row_h;
+        }
+    }
+}
+
+/// How large a plugin's picture is drawn at width `inner`: as wide as it
+/// fits, never larger than it is, keeping its shape. A box for its words
+/// until it's there.
+fn image_size(node: &merlin_core::ImageNode, inner: f32) -> (f32, f32) {
+    match &node.image {
+        Some(i) => {
+            let w = inner.min(i.width as f32).max(1.0);
+            (w, (w * i.height as f32 / i.width as f32).max(1.0))
+        }
+        None => (inner, 64.0),
+    }
+}
+
+impl Frame<'_> {
+    /// A plugin's picture with its top left at `at`, or, until the plugin
+    /// hands it over, a hatched box with what it shows in words.
+    fn plugin_image(&mut self, node: &merlin_core::ImageNode, at: Rect, clip: Rect) {
+        let p = self.p;
+        let (w, h) = image_size(node, at.w);
+        let r = Rect::new(at.x, at.y, w, h);
+        let Some(image) = &node.image else {
+            self.canvas.round(r, 6.0, p.chip);
+            self.hatch(r.inset(1.0).intersect(clip), p.border);
+            let f = Face::ui(11.5);
+            let tw = self.text.width(&node.alt, f).min(r.w - 24.0);
+            let pill = Rect::new(
+                r.x + (r.w - tw) / 2.0 - 8.0,
+                r.y + r.h / 2.0 - 11.0,
+                tw + 16.0,
+                22.0,
+            );
+            self.canvas.round(pill, 5.0, p.island);
+            let alt = self.text.fit(&node.alt, f, tw);
+            self.text.draw_in_row(
+                &mut self.canvas,
+                &alt,
+                f,
+                pill.x + 8.0,
+                pill.y,
+                22.0,
+                p.muted,
+                clip,
+            );
+            return;
+        };
+        let s = self.canvas.scale;
+        let (pw, ph) = ((w * s).round() as u32, (h * s).round() as u32);
+        let picture = self
+            .pictures
+            .plugin(image, pw, ph, 6.0 * s, self.canvas.bitmaps);
+        self.canvas.picture(picture, r.x, r.y, None, clip);
+    }
+
+    /// Stripes across `r`, as a place still waiting for its picture.
+    fn hatch(&mut self, r: Rect, colour: u32) {
+        if r.w <= 0.0 || r.h <= 0.0 {
+            return;
+        }
+        // Lines where x + y is constant, cut to the box.
+        let mut c = r.x + r.y + 10.0;
+        while c < r.right() + r.bottom() {
+            let x0 = r.x.max(c - r.bottom());
+            let x1 = r.right().min(c - r.y);
+            if x0 < x1 {
+                self.canvas.line((x0, c - x0), (x1, c - x1), 1.0, colour);
+            }
+            c += 10.0;
         }
     }
 }

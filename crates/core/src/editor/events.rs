@@ -197,6 +197,13 @@ pub enum Event {
         plugin: String,
         items: Vec<super::MenuItem>,
     },
+    /// A plugin's picture for its views' `Image` nodes, by its id; none
+    /// forgets it.
+    SetImage {
+        plugin: String,
+        id: String,
+        image: Option<std::sync::Arc<crate::PluginImage>>,
+    },
     /// A count on a view's icon or tab; 0 for none.
     ViewBadge {
         plugin: String,

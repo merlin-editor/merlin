@@ -309,6 +309,8 @@ pub struct Editor {
     /// Cursor positions in panel inputs, by plugin and input id.
     input_cursors: HashMap<(String, String), usize>,
     plugins: Vec<Plugin>,
+    /// Plugins' pictures, by plugin and id.
+    images: HashMap<(String, String), std::sync::Arc<crate::PluginImage>>,
     message: Option<Message>,
     /// A question that needs an answer first.
     dialog: Option<dialog::Dialog>,
@@ -603,6 +605,7 @@ impl Editor {
             inputs: HashMap::new(),
             input_cursors: HashMap::new(),
             plugins: Vec::new(),
+            images: HashMap::new(),
             message: None,
             dialog: None,
             preedit: None,

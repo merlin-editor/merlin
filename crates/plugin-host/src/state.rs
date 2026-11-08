@@ -2,6 +2,7 @@
 //! the host functions in `sdk/rust/wit/merlin.wit`, turned into events.
 
 use super::*;
+use std::collections::HashMap;
 
 pub(super) struct State {
     pub(super) wasi: WasiCtx,
@@ -22,6 +23,76 @@ pub(super) struct State {
     pub(super) breakpoints: Vec<merlin_core::Breakpoint>,
     /// What the palette's symbol search looks for, for `symbol-query`.
     pub(super) symbol_query: String,
+    /// The bytes each of its pictures takes, by id, against its budget.
+    pub(super) images: HashMap<String, usize>,
+}
+
+/// What one plugin's pictures may take together, as RGBA.
+const PICTURE_BUDGET: usize = 64 << 20;
+/// The most pixels a picture may have a side.
+const PICTURE_SIDE: u32 = 8192;
+
+/// A picture as premultiplied RGBA, or why it can't be read.
+fn decode(picture: types::Picture) -> Result<(u32, u32, Vec<u8>), String> {
+    let (width, height, mut pixels) = match picture {
+        types::Picture::Rgba(p) => {
+            if p.width == 0 || p.height == 0 || p.width > PICTURE_SIDE || p.height > PICTURE_SIDE {
+                return Err(format!(
+                    "a picture is 1 to {PICTURE_SIDE} pixels a side, not {}×{}",
+                    p.width, p.height
+                ));
+            }
+            if p.pixels.len() != p.width as usize * p.height as usize * 4 {
+                return Err(format!(
+                    "{}×{} RGBA is {} bytes, not {}",
+                    p.width,
+                    p.height,
+                    p.width as usize * p.height as usize * 4,
+                    p.pixels.len()
+                ));
+            }
+            (p.width, p.height, p.pixels)
+        }
+        types::Picture::Png(bytes) => {
+            let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+            decoder.set_transformations(png::Transformations::normalize_to_color8());
+            let mut reader = decoder.read_info().map_err(|e| format!("not a PNG: {e}"))?;
+            let info = reader.info();
+            if info.width > PICTURE_SIDE || info.height > PICTURE_SIDE {
+                return Err(format!(
+                    "a picture is at most {PICTURE_SIDE} pixels a side, not {}×{}",
+                    info.width, info.height
+                ));
+            }
+            let size = reader.output_buffer_size().ok_or("the PNG is too large")?;
+            let mut buf = vec![0; size];
+            let frame = reader
+                .next_frame(&mut buf)
+                .map_err(|e| format!("reading the PNG: {e}"))?;
+            buf.truncate(frame.buffer_size());
+            let rgba = match frame.color_type {
+                png::ColorType::Rgba => buf,
+                png::ColorType::Rgb => buf
+                    .chunks_exact(3)
+                    .flat_map(|c| [c[0], c[1], c[2], 255])
+                    .collect(),
+                png::ColorType::GrayscaleAlpha => buf
+                    .chunks_exact(2)
+                    .flat_map(|c| [c[0], c[0], c[0], c[1]])
+                    .collect(),
+                png::ColorType::Grayscale => buf.iter().flat_map(|&g| [g, g, g, 255]).collect(),
+                png::ColorType::Indexed => return Err("the PNG's palette wasn't expanded".into()),
+            };
+            (frame.width, frame.height, rgba)
+        }
+    };
+    for px in pixels.chunks_exact_mut(4) {
+        let a = px[3] as u16;
+        for c in &mut px[..3] {
+            *c = ((*c as u16 * a + 127) / 255) as u8;
+        }
+    }
+    Ok((width, height, pixels))
 }
 
 /// Most memory one plugin instance may grow to: 128 MB is plenty for
@@ -823,6 +894,41 @@ impl host::Host for State {
         });
     }
 
+    fn set_image(&mut self, id: String, picture: Option<types::Picture>) -> Result<(), String> {
+        let Some(picture) = picture else {
+            self.images.remove(&id);
+            self.events.push(Event::SetImage {
+                plugin: self.name.clone(),
+                id,
+                image: None,
+            });
+            return Ok(());
+        };
+        let (width, height, pixels) = decode(picture)?;
+        let others: usize = self
+            .images
+            .iter()
+            .filter(|(k, _)| **k != id)
+            .map(|(_, n)| n)
+            .sum();
+        if others + pixels.len() > PICTURE_BUDGET {
+            return Err(format!(
+                "its pictures would take {} MB, past the {} MB a plugin has",
+                (others + pixels.len()) >> 20,
+                PICTURE_BUDGET >> 20
+            ));
+        }
+        self.images.insert(id.clone(), pixels.len());
+        self.events.push(Event::SetImage {
+            plugin: self.name.clone(),
+            id,
+            image: Some(Arc::new(merlin_core::PluginImage::new(
+                width, height, pixels,
+            ))),
+        });
+        Ok(())
+    }
+
     fn set_view_badge(&mut self, view: String, count: u32) {
         self.events.push(Event::ViewBadge {
             plugin: self.name.clone(),
@@ -1029,6 +1135,11 @@ pub(super) fn convert_panel(panel: types::Panel) -> Panel {
                     text: e.text,
                     buttons: e.buttons.into_iter().map(button).collect(),
                 },
+                types::Node::Image(i) => Node::Image(Box::new(merlin_core::ImageNode {
+                    id: i.id,
+                    alt: i.alt,
+                    image: None,
+                })),
                 types::Node::Divider => Node::Divider,
                 types::Node::Footer => Node::Footer,
             })

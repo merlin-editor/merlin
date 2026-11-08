@@ -395,6 +395,28 @@ impl Editor {
             .and_then(|p| p.view.as_ref())
     }
 
+    /// Keeps a plugin's picture, or forgets it.
+    pub(crate) fn set_image(
+        &mut self,
+        plugin: String,
+        id: String,
+        image: Option<std::sync::Arc<crate::PluginImage>>,
+    ) {
+        match image {
+            Some(image) => {
+                self.images.insert((plugin, id), image);
+            }
+            None => {
+                self.images.remove(&(plugin, id));
+            }
+        }
+    }
+
+    /// Forgets all a plugin's pictures, as when it starts again or stops.
+    pub(crate) fn drop_images(&mut self, plugin: &str) {
+        self.images.retain(|(p, _), _| p != plugin);
+    }
+
     /// Sets a view's badge, by the plugin and the view's id.
     pub(crate) fn set_view_badge(&mut self, plugin: &str, id: &str, count: u32) {
         let key = view_key(plugin, id);
@@ -438,7 +460,19 @@ impl Editor {
                 title: panel.title.clone(),
                 nodes: vec![Node::Styled(view.empty.clone(), Tone::Muted)],
             },
-            _ => panel.clone(),
+            Some(view) => {
+                let mut panel = panel.clone();
+                for node in &mut panel.nodes {
+                    if let Node::Image(image) = node {
+                        image.image = self
+                            .images
+                            .get(&(view.plugin.clone(), image.id.clone()))
+                            .cloned();
+                    }
+                }
+                panel
+            }
+            None => panel.clone(),
         }
     }
 

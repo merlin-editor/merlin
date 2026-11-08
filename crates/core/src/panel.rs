@@ -32,6 +32,47 @@ pub struct LogRow {
     pub text: String,
 }
 
+/// A picture a plugin gave, kept by the editor: premultiplied RGBA, row by
+/// row. Each one made has a new `version`, which is what tells two apart.
+#[derive(Debug)]
+pub struct PluginImage {
+    pub width: u32,
+    pub height: u32,
+    pub pixels: Vec<u8>,
+    pub version: u64,
+}
+
+impl PluginImage {
+    /// A picture from premultiplied pixels, with a version of its own.
+    pub fn new(width: u32, height: u32, pixels: Vec<u8>) -> Self {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        Self {
+            width,
+            height,
+            pixels,
+            version: NEXT.fetch_add(1, Ordering::Relaxed),
+        }
+    }
+}
+
+impl PartialEq for PluginImage {
+    fn eq(&self, other: &Self) -> bool {
+        self.version == other.version
+    }
+}
+
+impl Eq for PluginImage {}
+
+/// A plugin's picture in a view: its id, what it shows in words, and the
+/// picture, filled in by the editor as the view is shown.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ImageNode {
+    pub id: String,
+    pub alt: String,
+    pub image: Option<std::sync::Arc<PluginImage>>,
+}
+
 /// One element of a plugin panel. Plugins describe what to show; the editor
 /// owns layout, focus, scrolling and input text, so a re-render can't reset
 /// them.
@@ -115,6 +156,8 @@ pub enum Node {
         text: String,
         buttons: Vec<Button>,
     },
+    /// A plugin's picture, fitted to the view's width.
+    Image(Box<ImageNode>),
 }
 
 /// A small label, clicked on its own when it has an id.

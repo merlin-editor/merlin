@@ -623,6 +623,8 @@ pub struct Picture {
 #[derive(Default)]
 pub struct Pictures {
     drawn: HashMap<(std::path::PathBuf, u32), Option<Picture>>,
+    /// Plugins' pictures, scaled: by version and size in physical pixels.
+    scaled: HashMap<(u64, u32, u32), Picture>,
     generation: u64,
 }
 
@@ -649,6 +651,41 @@ impl Pictures {
         *self.drawn.get(&key)?
     }
 
+    /// A plugin's picture scaled to `w` by `h` physical pixels, its corners
+    /// rounded to `radius`, scaled once for each size.
+    pub fn plugin(
+        &mut self,
+        image: &merlin_core::PluginImage,
+        w: u32,
+        h: u32,
+        radius: f32,
+        bitmaps: &mut Bitmaps,
+    ) -> Picture {
+        if self.generation != bitmaps.generation() {
+            self.drawn.clear();
+            self.scaled.clear();
+            self.generation = bitmaps.generation();
+        }
+        // Old versions' sizes go now and then; their bitmaps go when the
+        // bitmaps start again.
+        if self.scaled.len() > 256 {
+            self.scaled.clear();
+        }
+        let key = (image.version, w.max(1), h.max(1));
+        *self.scaled.entry(key).or_insert_with(|| {
+            let mut data = scale(&image.pixels, image.width, image.height, key.1, key.2);
+            round_corners(&mut data, key.1, key.2, radius);
+            Picture {
+                bitmap: bitmaps.add(Bitmap {
+                    width: key.1,
+                    height: key.2,
+                    kind: Kind::Premul,
+                    data,
+                }),
+            }
+        })
+    }
+
     fn draw(file: &std::path::Path, px: u32) -> Option<Bitmap> {
         use resvg::{tiny_skia, usvg};
         let data = std::fs::read(file).ok()?;
@@ -671,9 +708,110 @@ impl Pictures {
     }
 }
 
+/// Premultiplied RGBA scaled from `sw` by `sh` to `dw` by `dh`, each
+/// pixel the average of the source it covers: smooth going down, square
+/// pixels going up.
+pub fn scale(src: &[u8], sw: u32, sh: u32, dw: u32, dh: u32) -> Vec<u8> {
+    if (sw, sh) == (dw, dh) {
+        return src.to_vec();
+    }
+    // What each output column or row takes of the source's: (first, weights).
+    let spans = |from: u32, to: u32| -> Vec<(usize, Vec<f32>)> {
+        let step = from as f32 / to as f32;
+        (0..to)
+            .map(|i| {
+                let (a, b) = (i as f32 * step, (i as f32 + 1.0) * step);
+                let first = a.floor() as usize;
+                let last = (b.ceil() as usize).min(from as usize).max(first + 1);
+                let weights: Vec<f32> = (first..last)
+                    .map(|j| (b.min(j as f32 + 1.0) - a.max(j as f32)).max(0.0) / step)
+                    .collect();
+                (first, weights)
+            })
+            .collect()
+    };
+    let (xs, ys) = (spans(sw, dw), spans(sh, dh));
+    // Across, then down.
+    let mut across = vec![0f32; dw as usize * sh as usize * 4];
+    for y in 0..sh as usize {
+        for (x, (first, weights)) in xs.iter().enumerate() {
+            let out = &mut across[(y * dw as usize + x) * 4..][..4];
+            for (k, w) in weights.iter().enumerate() {
+                let i = (y * sw as usize + first + k) * 4;
+                for c in 0..4 {
+                    out[c] += src[i + c] as f32 * w;
+                }
+            }
+        }
+    }
+    let mut out = vec![0u8; dw as usize * dh as usize * 4];
+    for (y, (first, weights)) in ys.iter().enumerate() {
+        for x in 0..dw as usize {
+            let mut px = [0f32; 4];
+            for (k, w) in weights.iter().enumerate() {
+                let i = ((first + k) * dw as usize + x) * 4;
+                for c in 0..4 {
+                    px[c] += across[i + c] * w;
+                }
+            }
+            let o = (y * dw as usize + x) * 4;
+            for c in 0..4 {
+                out[o + c] = px[c].round().clamp(0.0, 255.0) as u8;
+            }
+        }
+    }
+    out
+}
+
+/// Fades premultiplied RGBA out past corners rounded to `radius`.
+fn round_corners(data: &mut [u8], w: u32, h: u32, radius: f32) {
+    let r = radius.min(w as f32 / 2.0).min(h as f32 / 2.0);
+    if r <= 0.0 {
+        return;
+    }
+    let n = r.ceil() as u32;
+    for y in 0..n.min(h) {
+        for x in 0..n.min(w) {
+            // Distance past the corner's circle, from the pixel's middle.
+            let (dx, dy) = (r - (x as f32 + 0.5), r - (y as f32 + 0.5));
+            let cover = (r + 0.5 - (dx * dx + dy * dy).sqrt()).clamp(0.0, 1.0);
+            if cover >= 1.0 {
+                continue;
+            }
+            for (cx, cy) in [
+                (x, y),
+                (w - 1 - x, y),
+                (x, h - 1 - y),
+                (w - 1 - x, h - 1 - y),
+            ] {
+                let i = ((cy * w + cx) * 4) as usize;
+                for c in &mut data[i..i + 4] {
+                    *c = (*c as f32 * cover).round() as u8;
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pictures_scale_by_the_area_they_cover() {
+        // Two by one, white then clear, halved: half white.
+        let src = [255, 255, 255, 255, 0, 0, 0, 0];
+        assert_eq!(scale(&src, 2, 1, 1, 1), [128, 128, 128, 128]);
+        // Doubled: square pixels.
+        let up = scale(&src, 2, 1, 4, 1);
+        assert_eq!(&up[..8], &[255; 8]);
+        assert_eq!(&up[8..], &[0; 8]);
+        // A corner rounded away, the middle left.
+        let mut solid = vec![255u8; 10 * 10 * 4];
+        round_corners(&mut solid, 10, 10, 4.0);
+        assert_eq!(solid[3], 0);
+        assert_eq!(solid[(5 * 10 + 5) * 4 + 3], 255);
+    }
 
     #[test]
     fn cursor_pos_multiline_and_wrapped() {

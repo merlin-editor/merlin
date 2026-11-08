@@ -42,7 +42,7 @@ pub use bindings::merlin::plugin::types::{
     ActionKind, Breakpoint, BreakpointState, BufferEvent, Button, Chip, ChipRow, CodeAction,
     Command, Completion, DebugLaunch, EditCard, EmptyState, Message, Progress, Row, DebugPause, DebugState, DebugTarget, DebugThread, DebugVariable,
     DetailedDiagnostic, Diagnostic, DocSymbol, FileEdit, FoldRange, Framing, FunctionStop,
-    InlayHint, InlayKind, InlineValue, Input, Item, LineRange, Location, LogLevel, Node,
+    Image, InlayHint, InlayKind, InlineValue, Input, Item, Picture, RgbaPicture, LineRange, Location, LogLevel, Node,
     OutputKind, Panel, PickItem, Position, ProcessEvent, ProjectSymbol, RenameInfo, Selection,
     Setting, Severity, Signature, StackFrame, StatusItem, StatusState, StopFilter, Styled, Task,
     TaskGroup, TestItem, TestOutcome, TestResult, TextChange, Token, TokenKind, TokenLayer, Tone,
@@ -96,12 +96,23 @@ pub mod settings {
     }
 }
 
+impl Picture {
+    /// Pixels row by row, four bytes each: red, green, blue, alpha.
+    pub fn rgba(width: u32, height: u32, pixels: Vec<u8>) -> Self {
+        Picture::Rgba(RgbaPicture {
+            width,
+            height,
+            pixels,
+        })
+    }
+}
+
 pub mod prelude {
     pub use crate::{
         ActionKind, Breakpoint, BreakpointState, BufferEvent, Button, Chip, CodeAction, Command, EditCard, Message, Progress, Row,
         Completion, DebugLaunch, DebugPause, DebugState, DebugTarget, DebugThread, DebugVariable,
         DetailedDiagnostic, Diagnostic, DocSymbol, FileEdit, FoldRange, Framing, FunctionStop,
-        InlayHint, InlayKind, InlineValue, LineRange, Location, LogLevel, Node, OutputKind, Panel,
+        Picture, InlayHint, InlayKind, InlineValue, LineRange, Location, LogLevel, Node, OutputKind, Panel,
         PickItem, Plugin, Position, ProcessEvent, ProjectSymbol, RenameInfo, Selection, Severity,
         Signature, StackFrame, StatusItem, StatusState, StopFilter, Task, TaskGroup, TestItem,
         TestOutcome, TestResult, TextChange, Token, TokenKind, TokenLayer, Tone, host, settings,
@@ -255,6 +266,15 @@ impl Node {
             label: label.into(),
             detail: String::new(),
             done,
+        })
+    }
+
+    /// A picture given to `host::set_image`, fitted to the view's width;
+    /// `alt` says what it shows until it's there.
+    pub fn image(id: impl Into<String>, alt: impl Into<String>) -> Self {
+        Node::Image(Image {
+            id: id.into(),
+            alt: alt.into(),
         })
     }
 

@@ -48,4 +48,7 @@ pub use editor::{
 pub use key::{Key, KeyCode};
 pub use lang::{Completion, Diagnostic, InlayHint, InlayKind, Severity, Signature};
 pub use merlin_syntax::Syntax;
-pub use panel::{Button, Chip, EditCard, Entry, LogRow, Message, Node, Panel, PickItem, Tone};
+pub use panel::{
+    Button, Chip, EditCard, Entry, ImageNode, LogRow, Message, Node, Panel, PickItem, PluginImage,
+    Tone,
+};

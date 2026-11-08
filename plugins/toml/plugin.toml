@@ -3,7 +3,7 @@ title = "TOML"
 description = "Syntax highlighting & code folding"
 badge = "TM"
 hue = "cyan"
-api = "0.10"
+api = "0.11"
 component = "target/wasm32-wasip2/release/toml_language.wasm"
 # Starts when one of its files opens, or the project has one.
 activate-on = ["language:toml"]

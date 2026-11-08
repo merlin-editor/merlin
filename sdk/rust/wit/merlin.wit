@@ -1,4 +1,4 @@
-package merlin:plugin@0.7.0;
+package merlin:plugin@0.8.0;
 
 interface types {
   /// What a run of text is, for its colour.
@@ -197,6 +197,28 @@ interface types {
     buttons: list<button>,
   }
 
+  /// A picture handed to `set-image` once and shown by its id as often
+  /// as wanted: the editor keeps it, so drawing it again costs nothing.
+  variant picture {
+    /// A PNG file's bytes.
+    png(list<u8>),
+    /// Pixels row by row, four bytes each: red, green, blue, alpha.
+    rgba(rgba-picture),
+  }
+
+  record rgba-picture {
+    width: u32,
+    height: u32,
+    pixels: list<u8>,
+  }
+
+  /// A picture from `set-image`, fitted to the view's width, and what it
+  /// shows in words, for while it isn't there.
+  record image {
+    id: string,
+    alt: string,
+  }
+
   /// A row that can be focused and clicked like a button, drawn as text:
   /// a file in a list, a problem in a file.
   record item {
@@ -227,6 +249,7 @@ interface types {
     edit-card(edit-card),
     progress(progress),
     empty-state(empty-state),
+    image(image),
     divider,
     /// Nodes after this stay at the bottom of the panel. The nodes before it
     /// scroll, and keep the newest content in view.
@@ -604,7 +627,7 @@ interface types {
 /// What the editor offers a plugin. Calls that need a permission check the
 /// plugin's manifest and return an error naming the permission if denied.
 interface host {
-  use types.{status-item, framing, pick-item, position, selection, text-change, diagnostic, detailed-diagnostic, code-action, file-edit, rename-info, location, project-symbol, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint, signature, task, test-item, test-result, debug-target, debug-launch, function-stop, breakpoint, debug-state, debug-thread, stack-frame, debug-variable, breakpoint-state, stop-filter, inline-value, output-kind, log-level, button};
+  use types.{status-item, framing, pick-item, position, selection, text-change, diagnostic, detailed-diagnostic, code-action, file-edit, rename-info, location, project-symbol, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint, signature, task, test-item, test-result, debug-target, debug-launch, function-stop, breakpoint, debug-state, debug-thread, stack-frame, debug-variable, breakpoint-state, stop-filter, inline-value, output-kind, log-level, button, picture};
 
   /// Text of the active buffer. Needs `editor-read`.
   active-text: func() -> result<string, string>;
@@ -681,6 +704,12 @@ interface host {
   /// A count on a view's icon and tab, such as updates waiting; 0 for
   /// none.
   set-view-badge: func(view: string, count: u32);
+
+  /// Keeps a picture by an id of the plugin's choosing for `image` nodes,
+  /// replacing one of the same id; none forgets it. Each plugin's pictures
+  /// together may take 64 MB, as RGBA. Errs if it can't be read, or is
+  /// larger than 8192 pixels a side or the room left.
+  set-image: func(id: string, picture: option<picture>) -> result<_, string>;
 
   /// Replaces this plugin's diagnostics for a file. The path is relative to
   /// the workspace root, or absolute. They're underlined, and move with

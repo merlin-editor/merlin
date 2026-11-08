@@ -255,3 +255,7 @@ The PDF viewer is the test: it's `PluginDocument.dc.html` in
    a view or a file change asked for again replaces the one not yet
    started, and programs are started from one long-lived thread, since on
    Linux a program is told to end with the thread that started it.
+   **Images built**, with API 0.11: `set-image(id, picture)` takes a PNG
+   or RGBA, decoded on the plugin's thread into its 64 MB budget, and an
+   `image` node fits it to the view, its corners rounded, scaled once per
+   size; until it's there, a hatched box with its words.

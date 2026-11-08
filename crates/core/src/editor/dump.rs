@@ -500,6 +500,13 @@ fn dump_side(o: &mut String, which: &str, side: &SideView) {
                     buttons.iter().map(|b| format!("[{}]", b.label)).collect();
                 format!("{title}\n{text}\n{}", buttons.join(" "))
             }
+            Node::Image(image) => match &image.image {
+                Some(i) => format!(
+                    "[image {} {}×{}: {}]",
+                    image.id, i.width, i.height, image.alt
+                ),
+                None => format!("[image {}, not set: {}]", image.id, image.alt),
+            },
             Node::Input {
                 id,
                 placeholder,

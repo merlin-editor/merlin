@@ -140,6 +140,7 @@ impl Editor {
                 view,
                 count,
             } => self.set_view_badge(&plugin, &view, count),
+            Event::SetImage { plugin, id, image } => self.set_image(plugin, id, image),
             Event::FocusView { plugin, view } => {
                 self.show_plugin_view(&super::view_key(&plugin, &view))
             }

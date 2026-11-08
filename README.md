@@ -281,7 +281,7 @@ merlin comes with:
 # plugin.toml
 name = "my-looks"
 title = "My Looks"
-api = "0.10"
+api = "0.11"
 
 [[themes]]          # shows in the colour or icon theme picker
 label = "My Theme"
@@ -694,7 +694,7 @@ title = "Word Count"
 # Its tile in the plugin lists: two letters and a colour.
 badge = "WC"
 hue = "green"
-api = "0.10"
+api = "0.11"
 component = "target/wasm32-wasip2/release/word_count.wasm"
 
 [permissions]
@@ -855,6 +855,13 @@ What else plugins get, besides commands and panels:
   - `Node::multiline_input` (Enter adds a line, Ctrl+Enter sends) and
     `Node::chips(chips, hint)` under it.
   - `Node::progress(label, done)` and `Node::empty(title, text, buttons)`.
+  - `Node::image(id, alt)`: a picture handed over once with
+    `host::set_image(id, Some(&picture))`, a PNG's bytes
+    (`Picture::Png`) or pixels (`Picture::rgba(width, height, pixels)`).
+    The editor keeps it and fits it to the view's width, so showing it
+    again costs the plugin nothing; until it's there the view shows `alt`.
+    A plugin's pictures may take 64 MB together, at most 8192 pixels a
+    side.
 
   Clicks on rows, chips and buttons all arrive at `click`.
 
