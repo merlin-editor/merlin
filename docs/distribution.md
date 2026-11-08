@@ -85,7 +85,7 @@ The full spec for the package format, the registry repo, `index.json`, signing a
 ### Today
 - `merlin plugin install <dir>...` links a built plugin folder into `~/.config/merlin/plugins/` (or `$XDG_CONFIG_HOME/merlin/plugins/`) and grants what its manifest asks for. Plugins there load at every start.
 - `merlin plugin pack [dir]` packs a built plugin into a deterministic `<name>-<version>.merlin`, and `merlin plugin install <file.merlin>` unpacks one there, swapping out the version before it and recording it in `installed.toml`.
-- `merlin plugin install <name>`, `search`, `update` and `uninstall` work against signed registry indexes: merlin's own at `https://merlin-editor.github.io/plugins/index.json`, and any in `[plugin-sources]` in user settings. merlin's has no index yet, so for now they report a 404 for it.
+- `merlin plugin install <name>`, `search`, `update` and `uninstall` work against signed registry indexes: merlin's own at `https://merlin-editor.github.io/plugins/index.json`, and any in `[plugin-sources]` in user settings. merlin's serves Merlin's 13 bundled plugins.
 - `scripts/install-plugins.sh` builds the plugins that come with Merlin from source and installs them this way.
 - `merlin plugin new <name>` creates a plugin from the template.
 - The host accepts only plugins whose manifest `api` equals `API_VERSION` exactly (see section 8).
@@ -101,8 +101,8 @@ The full spec for the package format, the registry repo, `index.json`, signing a
 1. **Phase 0 (Done)**: Publish SDK crates to crates.io; point `merlin-grammar`'s C build at its bundled headers (`sdk/grammar/.cargo/config.toml`, `wasm-include/`); create automated release workflows.
 2. **Phase 1 (Done, API 0.14)**: `.merlin` package format, `merlin plugin pack`, local archive installation, and staging directory swaps.
 3. **Phase 2 (Done)**: Sources configuration, index verification (`minisign-verify`), and CLI search/update commands.
-4. **Phase 3 (Next)**: Registry template repo at `merlin-editor/plugins` with reproducible CI builds and signing.
-5. **Phase 4**: In-app "Browse" tab in Settings › Plugins with update indicators.
+4. **Phase 3 (Done)**: Registry at `merlin-editor/plugins` with reproducible CI builds and signing; its first index, with Merlin's 13 bundled plugins, went live on 2026-11-09.
+5. **Phase 4 (Next)**: In-app "Browse" tab in Settings › Plugins with update indicators.
 
 ---
 

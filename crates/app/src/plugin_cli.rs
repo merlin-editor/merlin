@@ -39,12 +39,18 @@ fn fetch(url: &str, limit: u64) -> Result<Vec<u8>> {
         .header("User-Agent", concat!("merlin/", env!("CARGO_PKG_VERSION")))
         .call()
         .with_context(|| format!("fetching {url}"))?;
-    response
+    // ureq refuses a body as long as its limit, and a package is exactly
+    // as long as the index says: so one more, and the length checked here.
+    let bytes = response
         .body_mut()
         .with_config()
-        .limit(limit)
+        .limit(limit.saturating_add(1))
         .read_to_vec()
-        .with_context(|| format!("reading {url}"))
+        .with_context(|| format!("reading {url}"))?;
+    if bytes.len() as u64 > limit {
+        bail!("{url} is larger than the {limit} bytes expected");
+    }
+    Ok(bytes)
 }
 
 /// The registries in the user's own settings, saying what's wrong with any

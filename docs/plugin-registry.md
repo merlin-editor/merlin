@@ -3,10 +3,11 @@
 How plugins get from an author to a user's editor through
 [merlin-editor/plugins](https://github.com/merlin-editor/plugins). This is the
 spec behind phases 1–4 of section 6 in [distribution.md](distribution.md).
-Phases 1 and 2 are built: packages (sections 2 and 4), and installing,
+Phases 1 to 3 are built: packages (sections 2 and 4), installing,
 searching, updating and uninstalling from the command line against signed
-indexes (sections 6 and 7). The registry's CI and the Browse tab aren't yet. The registry repo has its license, keys, `gh-pages` branch
-and `registry` environment, and no plugins.
+indexes (sections 6 and 7), and the registry itself (sections 3 and 5), which
+published its first index on 2026-11-09 with Merlin's 13 bundled plugins. The
+Browse tab isn't built yet.
 
 ---
 
@@ -28,7 +29,7 @@ author's repo ──PR──▶ merlin-editor/plugins ──CI──▶ GitHub R
   the pinned commit in a fixed container, so what users run is what the source
   says, and anyone can rebuild it and get the same bytes.
 - **One packer.** CI runs `merlin plugin pack`, the same command authors run
-  locally, from a pinned Merlin release. A local pack and the registry's pack of
+  locally, from merlin built at a pinned commit (`build/toolchain.env`). A local pack and the registry's pack of
   the same commit are identical.
 - **One signed file.** The editor trusts `index.json` because of its minisign
   signature; it trusts each archive because `index.json` gives its SHA-256.
@@ -69,8 +70,14 @@ merlin-editor/plugins
 │   ├── rust.toml            one entry per plugin, named after it
 │   └── word-count.toml
 ├── build/
-│   ├── Containerfile        the build image, pinned by digest in CI
-│   └── toolchain.toml       the Rust version, and the Merlin release whose `merlin plugin pack` CI uses
+│   ├── toolchain.env        the merlin commit whose `merlin plugin pack` CI uses
+│   ├── apt.txt              what the container installs
+│   ├── setup.sh             adds the wasm target and builds that merlin
+│   ├── check.sh             builds new versions twice and compares them
+│   ├── publish.sh           builds, releases and records new versions
+│   └── sign.sh              writes, signs and pushes index.json
+├── tools/
+│   └── registry.py          validate, pending, build, index, summary
 ├── keys/
 │   └── merlin.pub           minisign public keys (current and next)
 ├── .github/workflows/
@@ -168,13 +175,18 @@ For each entry the PR changes:
 2. Clone `repository` at `commit` and read `path/plugin.toml`. Its `name` and
    `version` must match the entry; its `api` must be one Merlin has released.
 3. Check dependencies (section 3.2) and that `Cargo.lock` exists.
-4. Build twice in separate jobs inside the pinned container:
-   `cargo build --locked --release --target wasm32-wasip2` with
-   `RUSTFLAGS=--remap-path-prefix=$PWD=/build` and `SOURCE_DATE_EPOCH` set to
-   the commit time, then `merlin plugin pack`. The two SHA-256s must match.
-5. Comment on the PR with the archive size, the permissions it asks for, and how
-   those differ from the previous version. `processes` and `terminal` are called
-   out, since they reach outside the sandbox.
+4. Build twice, one after the other, inside the container
+   (`rust:1.97.1-slim-trixie`, pinned by digest in the workflows):
+   `cargo build --locked --release` with the source, `CARGO_HOME` and
+   `RUSTUP_HOME` remapped in `RUSTFLAGS` and `SOURCE_DATE_EPOCH` set to the
+   commit time, then `merlin plugin pack`. The two SHA-256s must match.
+   Every build is cloned to the same folder, `/build/src`: grammars' C code
+   built from different folders gives different bytes even with the paths
+   remapped, and the same folder gives the same bytes.
+5. Write the archive size and what it asks for to the job summary.
+   `processes`, `terminal` and `debugger` are called out, since they reach
+   outside the sandbox, and so are programs that run anything (10.2). Comparing
+   with the previous version's permissions is still to do.
 
 ### 5.2 `publish.yml` (push to `main`)
 
@@ -377,9 +389,9 @@ update from the registry like any other.
    serial and expiry checks, `[plugin-sources]`, `search`, `update`,
    `uninstall`. Turning off a blocked plugin by itself waits for the editor to
    fetch the index at start (phase 4); `merlin plugin update` reports it.
-3. **Registry repo**: the layout, container, `check.yml`, `publish.yml`,
-   `resign.yml`, the key, and entries for Merlin's own plugins. Turn on GitHub
-   Pages for `gh-pages`.
+3. **Registry repo (done)**: the layout, container, `check.yml`, `publish.yml`,
+   `resign.yml`, the key, and entries for Merlin's own plugins, pinned to
+   merlin `1c58427`. GitHub Pages serves `gh-pages`.
 4. **Browse**: the Browse tab in Settings › Plugins, update badges, yank
    warnings, the permissions prompt. Needs an approved mock-up first.
 5. **Bundling**: release archives carry the registry's packages.
