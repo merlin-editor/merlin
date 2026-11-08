@@ -906,8 +906,30 @@ what builds it (`src/`, `target/`, `Cargo.toml` and the like) and what
 every time (set `SOURCE_DATE_EPOCH` to choose the files' time). Installing
 one unpacks it
 beside the plugins folder and swaps it in, replacing the version before it.
-How packages will reach people through a registry is in
-[docs/plugin-registry.md](docs/plugin-registry.md).
+### Installing from a registry
+
+```sh
+merlin plugin search json
+merlin plugin install json          # or json@0.2.0, or acme:json
+merlin plugin update                # everything installed from a registry
+merlin plugin uninstall json
+```
+
+A registry serves an `index.json` signed with minisign, listing each
+plugin's versions and their packages' SHA-256. merlin checks the signature,
+that the index hasn't expired and isn't older than one it has seen, and the
+download's hash, then installs as above. merlin's own registry is built in;
+add others in your settings, never a folder's:
+
+```toml
+[plugin-sources.acme]
+url = "https://plugins.acme.dev/index.json"
+key = "RWQ..."        # its minisign public key
+```
+
+An update that asks to do more than the version before waits for
+`merlin plugin install`, which shows what it asks. How the registry works is
+in [docs/plugin-registry.md](docs/plugin-registry.md).
 
 ## Not done yet
 

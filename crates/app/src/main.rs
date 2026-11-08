@@ -7,6 +7,7 @@ mod gui;
 mod jobs;
 mod looks;
 mod packs;
+mod plugin_cli;
 mod prefs;
 mod settings;
 mod template;
@@ -37,10 +38,17 @@ merlin - a code editor with sandboxed plugins
 
 Usage: merlin [options] [file...]
        merlin plugin new <name>   Start a plugin in a new folder
-       merlin plugin install <dir | file.merlin>...
-                                  Install plugins: a folder is linked, so
-                                  rebuilding it updates it; a package is
-                                  unpacked
+       merlin plugin install <name | dir | file.merlin>...
+                                  Install plugins: by name from a registry
+                                  (name@1.2.0 for a version, source:name for
+                                  a source), a folder linked so rebuilding
+                                  it updates it, or a package unpacked
+       merlin plugin search [text]
+                                  Search the registries
+       merlin plugin update [name...]
+                                  Update plugins from their registries
+       merlin plugin uninstall <name>...
+                                  Remove installed plugins
        merlin plugin pack [dir] [--out <dir>]
                                   Pack a built plugin into
                                   <name>-<version>.merlin
@@ -121,90 +129,6 @@ fn plugin_dirs(args: &Args) -> Vec<PathBuf> {
         }));
     }
     dirs
-}
-
-/// `merlin plugin install <dir | file.merlin>...`: links each plugin
-/// folder into the user's plugins folder, or unpacks each package there,
-/// so it loads at every start, and allows what its manifest asks for,
-/// since installing it is the user's say-so.
-fn install_plugins(items: &[String]) -> Result<()> {
-    use merlin_plugins::package;
-    let plugins = settings::plugins_dir().context("no home folder")?;
-    fs::create_dir_all(&plugins)?;
-    let data = Config::standard().data_dir;
-    for item in items {
-        let path = Path::new(item);
-        let is_package =
-            path.is_file() && path.extension().is_some_and(|e| e == package::EXTENSION);
-        let (manifest, installed, how) = if is_package {
-            let manifest = package::install(path, &plugins, &data)?;
-            let installed = plugins.join(&manifest.name);
-            (manifest, installed, String::new())
-        } else {
-            let dir = path
-                .canonicalize()
-                .with_context(|| format!("no plugin or package at {item}"))?;
-            let manifest = merlin_plugins::manifest(&dir)?;
-            if let Some(component) = &manifest.component
-                && !dir.join(component).exists()
-            {
-                bail!(
-                    "{} isn't built: run `cargo build --release` in {}",
-                    manifest.name,
-                    dir.display()
-                );
-            }
-            let linked = package::link(&dir, &manifest.name, &plugins, &data)?;
-            let how = if linked {
-                String::new()
-            } else {
-                " as a copy, since this system won't make links (Developer Mode allows them \
-                 on Windows); install it again after rebuilding it"
-                    .to_string()
-            };
-            let installed = plugins.join(&manifest.name);
-            (manifest, installed, how)
-        };
-        let (_, allowed) = merlin_plugins::grant(&Config::standard(), &installed)?;
-        let title = format!("{} {}", manifest.title, manifest.version);
-        if allowed.is_empty() {
-            println!("Installed {title}{how}");
-        } else {
-            println!("Installed {title}{how}, allowed to:");
-            for what in &allowed {
-                println!("  • {what}");
-            }
-        }
-    }
-    Ok(())
-}
-
-/// `merlin plugin pack [dir] [--out <dir>]`: packs a plugin into
-/// `<name>-<version>.merlin`, the same bytes every time from the same
-/// source and `SOURCE_DATE_EPOCH`.
-fn pack_plugin(args: &[String]) -> Result<()> {
-    use merlin_plugins::package;
-    let mut dir = None;
-    let mut out = None;
-    let mut it = args.iter();
-    while let Some(arg) = it.next() {
-        match arg.as_str() {
-            "--out" => out = Some(PathBuf::from(it.next().context("--out needs a folder")?)),
-            flag if flag.starts_with('-') => bail!("unknown option: {flag}\n\n{USAGE}"),
-            _ if dir.is_some() => bail!("pack takes one plugin folder\n\n{USAGE}"),
-            path => dir = Some(PathBuf::from(path)),
-        }
-    }
-    let dir = dir.unwrap_or_else(|| PathBuf::from("."));
-    let out = out.unwrap_or_else(|| PathBuf::from("."));
-    let packed = package::pack(&dir, &out, package::source_epoch())?;
-    println!("Packed {}", packed.path.display());
-    println!(
-        "  {} KB, sha256 {}",
-        packed.size.div_ceil(1024),
-        packed.sha256
-    );
-    Ok(())
 }
 
 /// Connects the editor to the outside world: it carries out the editor's
@@ -1151,18 +1075,11 @@ fn main() -> Result<()> {
     {
         return template::create(name);
     }
-    if let [plugin, install, dirs @ ..] = &argv[..]
+    if let [plugin, command, rest @ ..] = &argv[..]
         && plugin == "plugin"
-        && install == "install"
-        && !dirs.is_empty()
+        && let Some(run) = plugin_cli::command(command)
     {
-        return install_plugins(dirs);
-    }
-    if let [plugin, pack, rest @ ..] = &argv[..]
-        && plugin == "plugin"
-        && pack == "pack"
-    {
-        return pack_plugin(rest);
+        return run(rest, USAGE);
     }
     let args = parse_args()?;
     let root = env::current_dir()

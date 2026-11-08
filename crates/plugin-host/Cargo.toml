@@ -23,3 +23,9 @@ flate2 = "1"
 sha2 = "0.10"
 toml_edit = "0.25"
 globset = "0.4"
+# Registries' index.json files are signed with minisign.
+minisign-verify = "0.2"
+
+[dev-dependencies]
+# Signs indexes in tests, as a registry would.
+minisign = "0.7"

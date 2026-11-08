@@ -3,8 +3,9 @@
 How plugins get from an author to a user's editor through
 [merlin-editor/plugins](https://github.com/merlin-editor/plugins). This is the
 spec behind phases 1–4 of section 6 in [distribution.md](distribution.md).
-Phase 1 (sections 2 and 4, and installing a package from disk) is built; the
-rest isn't yet. The registry repo has its license, keys, `gh-pages` branch
+Phases 1 and 2 are built: packages (sections 2 and 4), and installing,
+searching, updating and uninstalling from the command line against signed
+indexes (sections 6 and 7). The registry's CI and the Browse tab aren't yet. The registry repo has its license, keys, `gh-pages` branch
 and `registry` environment, and no plugins.
 
 ---
@@ -343,9 +344,14 @@ one in place of the other asks first.
 | `merlin plugin update [name]` | Updates one or all; asks again if permissions grew |
 | `merlin plugin uninstall <name>` | Removes it and its grant |
 
-Built so far: `pack`, and `install` of a folder or a `.merlin` file.
-Uninstalling is in Settings › Plugins: a linked plugin loses its link, and a
-packaged one's folder goes to the system's bin and leaves `installed.toml`.
+All five are built (`crates/app/src/plugin_cli.rs`, with the index logic in
+`crates/plugin-host/src/registry.rs`). `install` also takes `name@1.2.0` for a
+version and `source:name` to pick a source; a plugin with the same name in two
+sources needs one. Uninstalling, here or in Settings › Plugins, forgets the
+plugin's grant: a linked plugin loses its link, and a packaged one's folder goes
+to the system's bin. The last good index of each source is kept in
+`sources/<name>/` in the data folder with its serial, for 6's checks and for
+searching offline; installing needs a fresh one.
 
 ---
 
@@ -367,8 +373,10 @@ update from the registry like any other.
    grant message lists every permission; `merlin plugin install` builds on
    Windows and copies a folder when links aren't allowed; the WIT package
    version is the API version.
-2. **Index and sources**: the `index.json` types, `minisign-verify`, serial and
-   expiry checks, `[plugin-sources]`, `search`, `update`, `uninstall`.
+2. **Index and sources (done)**: the `index.json` types, `minisign-verify`,
+   serial and expiry checks, `[plugin-sources]`, `search`, `update`,
+   `uninstall`. Turning off a blocked plugin by itself waits for the editor to
+   fetch the index at start (phase 4); `merlin plugin update` reports it.
 3. **Registry repo**: the layout, container, `check.yml`, `publish.yml`,
    `resign.yml`, the key, and entries for Merlin's own plugins. Turn on GitHub
    Pages for `gh-pages`.

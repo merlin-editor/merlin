@@ -543,7 +543,7 @@ impl Permissions {
     /// What each permission lets a plugin do, in words, and whether it
     /// reaches outside the sandbox. The permission card and
     /// `merlin plugin install` both say it this way.
-    pub(super) fn described(&self) -> Vec<(String, bool)> {
+    pub fn described(&self) -> Vec<(String, bool)> {
         let mut what = Vec::new();
         if self.editor_read {
             what.push(("read the open file".to_string(), false));
@@ -576,7 +576,7 @@ impl Permissions {
     }
 
     /// Whether these allow everything `wanted` asks for.
-    pub(super) fn covers(&self, wanted: &Permissions) -> bool {
+    pub fn covers(&self, wanted: &Permissions) -> bool {
         (self.editor_read || !wanted.editor_read)
             && (self.editor_write || !wanted.editor_write)
             && (self.debugger || !wanted.debugger)
@@ -1011,6 +1011,26 @@ fn check_views(manifest: &Manifest) -> Result<()> {
                 view.id
             );
         }
+    }
+    Ok(())
+}
+
+/// What the user allowed the plugin in `dir`, if anything.
+pub fn granted(config: &Config, dir: &Path) -> Option<Permissions> {
+    let dir = dir.canonicalize().ok()?.display().to_string();
+    read_grants(&config.data_dir).plugins.get(&dir).cloned()
+}
+
+/// Forgets what the user allowed the plugin in `dir`, as uninstalling it
+/// does. Call it while `dir` still exists.
+pub fn revoke(config: &Config, dir: &Path) -> Result<()> {
+    let key = dir.canonicalize()?.display().to_string();
+    let mut grants = read_grants(&config.data_dir);
+    if grants.plugins.remove(&key).is_some() {
+        fs::write(
+            config.data_dir.join("grants.toml"),
+            toml::to_string(&grants)?,
+        )?;
     }
     Ok(())
 }

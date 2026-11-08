@@ -17,6 +17,7 @@
 mod manifest;
 pub mod package;
 mod process;
+pub mod registry;
 mod secrets;
 mod state;
 mod worker;

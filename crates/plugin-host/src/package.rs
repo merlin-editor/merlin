@@ -322,13 +322,16 @@ pub fn record(data_dir: &Path, name: &str, entry: Option<Installed>) -> Result<(
 /// after one that stopped halfway.
 pub fn install(archive: &Path, plugins_dir: &Path, data_dir: &Path) -> Result<Manifest> {
     let bytes = fs::read(archive).with_context(|| format!("reading {}", archive.display()))?;
-    install_bytes(&bytes, "file", plugins_dir, data_dir)
+    install_bytes(&bytes, "file", None, plugins_dir, data_dir)
 }
 
-/// [`install`], from a package's bytes and the name of where they came from.
+/// [`install`], from a package's bytes and the name of where they came
+/// from. With `expect`, the package must be that name and version, as an
+/// index said it would be.
 pub fn install_bytes(
     bytes: &[u8],
     source: &str,
+    expect: Option<(&str, &str)>,
     plugins_dir: &Path,
     data_dir: &Path,
 ) -> Result<Manifest> {
@@ -338,6 +341,15 @@ pub fn install_bytes(
     let result = (|| {
         unpack(bytes, &staging)?;
         let manifest = manifest(&staging).context("in the package")?;
+        if let Some((name, version)) = expect
+            && (manifest.name != name || manifest.version != version)
+        {
+            bail!(
+                "the package is {} {}, not the {name} {version} the index lists",
+                manifest.name,
+                manifest.version
+            );
+        }
         if manifest.api != API_VERSION {
             bail!(
                 "{} {} is built for plugin API {}, and this merlin has {API_VERSION}",
@@ -491,7 +503,7 @@ pub fn link(dir: &Path, name: &str, plugins_dir: &Path, data_dir: &Path) -> Resu
         Ok(()) => Ok(true),
         Err(_) if cfg!(windows) => {
             let (bytes, _) = pack_bytes(dir, 0)?;
-            install_bytes(&bytes, "folder", plugins_dir, data_dir)?;
+            install_bytes(&bytes, "folder", None, plugins_dir, data_dir)?;
             Ok(false)
         }
         Err(err) => Err(err.into()),
@@ -653,7 +665,7 @@ mod tests {
         let plugins = tmp.0.join("plugins");
         let err = format!(
             "{:#}",
-            install_bytes(&bytes, "file", &plugins, &tmp.0).unwrap_err()
+            install_bytes(&bytes, "file", None, &plugins, &tmp.0).unwrap_err()
         );
         assert!(err.contains("built for plugin API 0.1"), "{err}");
         assert!(!plugins.join("demo").exists());

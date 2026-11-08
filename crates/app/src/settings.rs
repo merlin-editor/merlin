@@ -72,6 +72,14 @@ const USER_TEMPLATE: &str = r#"# merlin settings. Saving this file applies them.
 
 # Plugins' settings, by plugin name:
 # [plugins.rust]
+
+# Registries to install plugins from, besides merlin's own. Only these
+# settings, yours, can add one: a folder's settings can't.
+# [plugin-sources.acme]
+# url = "https://plugins.acme.dev/index.json"
+# key = "RWQ..."          # the minisign public key its index is signed with
+# [plugin-sources.merlin]
+# enabled = false         # turns merlin's own registry off
 "#;
 
 const WORKSPACE_TEMPLATE: &str = r#"# Settings for this folder, over your own (Preferences: Open User Settings).

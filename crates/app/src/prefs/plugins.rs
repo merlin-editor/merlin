@@ -196,12 +196,18 @@ impl App {
                 let Some(info) = self.host.plugins().into_iter().find(|p| p.name == name) else {
                     return events;
                 };
+                // What it was allowed goes with it, linked or packaged,
+                // once it's sure to go.
+                let revoke = || {
+                    let _ = merlin_plugins::revoke(&merlin_plugins::Config::standard(), &info.dir);
+                };
                 let packaged = settings::plugins_dir()
                     .filter(|plugins| merlin_plugins::package::is_packaged(&info.dir, plugins));
                 if packaged.is_some() {
                     // Installed from a package: its folder is the plugin's
                     // own, so it goes, to the bin where it can come back.
                     events.extend(self.host.unload(&name));
+                    revoke();
                     match trash::delete(&info.dir) {
                         Ok(()) => {
                             let data = merlin_plugins::Config::standard().data_dir;
@@ -219,7 +225,11 @@ impl App {
                     events.push(self.plugin_summaries());
                     return events;
                 }
-                match self.install_link(&info).map(std::fs::remove_file) {
+                let link = self.install_link(&info);
+                if link.is_some() {
+                    revoke();
+                }
+                match link.map(std::fs::remove_file) {
                     Some(Ok(())) => {
                         events.extend(self.host.unload(&name));
                         events.push(Event::Notify(format!(
