@@ -1,5 +1,5 @@
 //! What a plugin's instance holds, and the calls it makes to the editor:
-//! the host functions in `wit/merlin.wit`, turned into events.
+//! the host functions in `sdk/rust/wit/merlin.wit`, turned into events.
 
 use super::*;
 

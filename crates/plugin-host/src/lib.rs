@@ -1,6 +1,6 @@
 //! Loads plugins as WebAssembly components and calls them.
 //!
-//! A plugin can only call the functions in `wit/merlin.wit`, plus a WASI
+//! A plugin can only call the functions in `sdk/rust/wit/merlin.wit`, plus a WASI
 //! context with no files, environment or network. It never touches editor
 //! state: it reads a [`Snapshot`] taken before the call, and what it asks for
 //! comes back as [`Event`]s for the editor to apply. Each call has a fuel
@@ -43,7 +43,7 @@ use state::*;
 pub use manifest::*;
 
 mod bindings {
-    wasmtime::component::bindgen!({ path: "../../wit", world: "plugin" });
+    wasmtime::component::bindgen!({ path: "../../sdk/rust/wit", world: "plugin" });
 }
 
 use bindings::Plugin as Bindings;

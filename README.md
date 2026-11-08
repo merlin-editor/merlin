@@ -12,7 +12,7 @@ looking at [ttt](https://github.com/eugenioenko/ttt), and merlin keeps both:
    dump of it.
 2. **Plugins should be sandboxed, typed and quick to iterate on.** Plugins are
    WebAssembly components. They can call only what's in
-   [`wit/merlin.wit`](wit/merlin.wit), each call is checked against the
+   [`sdk/rust/wit/merlin.wit`](sdk/rust/wit/merlin.wit), each call is checked against the
    manifest's permissions, a call that loops forever runs out of fuel instead
    of hanging the editor, and a rebuilt plugin reloads without a restart.
 
@@ -24,7 +24,7 @@ looking at [ttt](https://github.com/eugenioenko/ttt), and merlin keeps both:
 | `crates/syntax` | What a piece of code is, for its colour. The editor has no grammars. |
 | `crates/plugin-host` | Loads plugins with wasmtime and turns their requests into events. |
 | `crates/app` | The `merlin` binary: the window (`gui.rs`) and headless `--exec` mode. |
-| `wit/merlin.wit` | The plugin API. |
+| `sdk/rust/wit/merlin.wit` | The plugin API. |
 | `sdk/rust` | `merlin-plugin`, the Rust SDK for writing plugins. |
 | `sdk/grammar` | `merlin-grammar`: colour a language in a plugin with a tree-sitter grammar. |
 | `sdk/lsp` | `merlin-lsp`: a language server client a language plugin embeds with its own servers. |
@@ -808,7 +808,7 @@ What else plugins get, besides commands and panels:
   `Node::item` for clickable rows drawn as text, such as a list of problems.
 
 Other languages work too: anything that builds a WASI 0.2 component for
-[`wit/merlin.wit`](wit/merlin.wit).
+[`sdk/rust/wit/merlin.wit`](sdk/rust/wit/merlin.wit).
 
 ## Not done yet
 

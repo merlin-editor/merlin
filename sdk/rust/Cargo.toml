@@ -1,13 +1,22 @@
 [package]
 name = "merlin-plugin"
 description = "Write merlin plugins in Rust"
-version = "0.3.0"
+version = "0.9.0"
 edition = "2024"
 license = "MIT"
-publish = false
+repository = "https://github.com/merlin-editor/merlin"
+readme = "README.md"
+keywords = ["merlin", "editor", "plugin", "wasm", "wasi"]
+categories = ["development-tools", "text-editors", "wasm"]
+# Only what the crate needs: no build output.
+include = ["src/**", "wit/**", "README.md"]
 
 [dependencies]
 wit-bindgen = "0.63"
+
+# docs.rs builds it for the target plugins use.
+[package.metadata.docs.rs]
+targets = ["wasm32-wasip2"]
 
 # Plugins build it for wasm32-wasip2, so it stays out of the editor's
 # workspace.

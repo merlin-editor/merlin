@@ -1,14 +1,24 @@
 [package]
 name = "merlin-grammar"
 description = "Colour a language in a merlin plugin with a tree-sitter grammar"
-version = "0.1.0"
+version = "0.9.0"
 edition = "2024"
 license = "MIT"
-publish = false
+repository = "https://github.com/merlin-editor/merlin"
+readme = "README.md"
+keywords = ["merlin", "editor", "plugin", "tree-sitter", "syntax"]
+categories = ["development-tools", "text-editors", "wasm"]
+# Only what the crate needs: no build output.
+include = ["src/**", "wasm-include/**", "README.md"]
 
 [dependencies]
-merlin-plugin = { path = "../rust" }
+# The path here, the version once published.
+merlin-plugin = { path = "../rust", version = "0.9.0" }
 tree-sitter = "0.27"
+
+# docs.rs builds it for the target plugins use.
+[package.metadata.docs.rs]
+targets = ["wasm32-wasip2"]
 
 # Plugins build it for wasm32-wasip2, so it stays out of the editor's
 # workspace.

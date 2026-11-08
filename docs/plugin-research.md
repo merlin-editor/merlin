@@ -8,8 +8,8 @@ yet; any UI in it needs a mock-up first.
 
 | Area | Today | Where |
 |---|---|---|
-| Views | One panel per plugin, from `render-panel`, always in the **right** side bar, always with the generic plugin glyph. No way to say where it goes, what icon it has, or to have two. | `wit/merlin.wit` (`render-panel`, `panel`), `crates/core/src/editor/window.rs` `rail_items` (`panel_names(Side::Right)`, `Icon::Plugin`) |
-| What a panel can draw | Headings, text, buttons, items, Markdown, inputs, dividers, a footer. No trees, icons, badges, toolbars, context menus or empty states. | `node` in `wit/merlin.wit` |
+| Views | One panel per plugin, from `render-panel`, always in the **right** side bar, always with the generic plugin glyph. No way to say where it goes, what icon it has, or to have two. | `sdk/rust/wit/merlin.wit` (`render-panel`, `panel`), `crates/core/src/editor/window.rs` `rail_items` (`panel_names(Side::Right)`, `Icon::Plugin`) |
+| What a panel can draw | Headings, text, buttons, items, Markdown, inputs, dividers, a footer. No trees, icons, badges, toolbars, context menus or empty states. | `node` in `sdk/rust/wit/merlin.wit` |
 | Messages | `notify` is the only way to tell the user anything, and it's a toast. The lsp SDK alone calls it from 11 places, several for things nobody asked about (a server's error reply, "Nothing to show here"). Reloads toast too. | `sdk/lsp/src/handlers.rs`, `sdk/lsp/src/lib.rs`, `crates/plugin-host/src/lib.rs` |
 | Logs | One Output view for all of merlin. A plugin has no log of its own; the plugin page's Output button opens the shared one. | `views.rs` `output_nodes`, `prefs/plugins.rs` `PageAction::Output` |
 | Settings | `[settings]` in the manifest is a table of defaults with no type, description, choices or range. The page shows booleans as switches and everything else read-only, and saves only to the user's file, though `settings.rs` has `set_in(workspace, …)`. Plugin settings don't show in Settings search. | `manifest.rs`, `gui/settings/plugins.rs` ("Its settings") |

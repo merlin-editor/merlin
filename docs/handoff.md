@@ -1028,7 +1028,7 @@ These are suggestions; nothing of them is written yet.
 - Build the LSP plugin with
   `cd plugins/lsp && cargo build --release --target wasm32-wasip2`.
   `scripts/install-plugins.sh` builds and installs them all.
-- The WIT is `wit/merlin.wit`. Host calls are implemented in
+- The WIT is `sdk/rust/wit/merlin.wit`. Host calls are implemented in
   `crates/plugin-host/src/lib.rs` (`impl host::Host for State`) and turned
   straight into core `Event`s. The Rust SDK's re-exports are in
   `sdk/rust/src/lib.rs`; add new types to both lists there.

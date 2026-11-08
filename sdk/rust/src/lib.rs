@@ -28,7 +28,7 @@
 #[doc(hidden)]
 pub mod bindings {
     wit_bindgen::generate!({
-        path: "../../wit",
+        path: "wit",
         world: "plugin-sdk",
         pub_export_macro: true,
         default_bindings_module: "merlin_plugin::bindings",
