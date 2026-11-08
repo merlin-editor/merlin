@@ -427,13 +427,16 @@ pub enum SettingKind {
     Choice(Vec<(String, String)>),
     /// A list of strings.
     List,
+    /// Kept in the system keyring, never in a settings file, and shown as
+    /// dots. Plugins read it with `get-secret`.
+    Secret,
 }
 
 /// A setting as the Settings page shows it:
 ///
 /// ```toml
 /// [settings.check-command]
-/// type = "choice"           # flag, string, path, integer, float, choice, list
+/// type = "choice"           # flag, string, path, integer, float, choice, list, secret
 /// default = "check"
 /// title = "Check on save"
 /// choices = [{ value = "check", label = "cargo check" }, "clippy"]
@@ -512,7 +515,9 @@ fn read_level(
             .filter(|t| t.get("type").is_some_and(toml::Value::is_str));
         if let Some(t) = described {
             let spec = described_setting(&key, t).with_context(|| format!("setting {key}"))?;
-            defaults.insert(name.clone(), spec.default.clone());
+            if spec.kind != SettingKind::Secret {
+                defaults.insert(name.clone(), spec.default.clone());
+            }
             schema.push(spec);
         } else if let toml::Value::Table(inner) = value {
             let mut sub = toml::Table::new();
@@ -577,15 +582,16 @@ fn described_setting(key: &str, t: &toml::Table) -> Result<SettingSpec> {
             SettingKind::Choice(choices)
         }
         "list" => SettingKind::List,
-        other => {
-            bail!("unknown type `{other}`: flag, string, path, integer, float, choice or list")
-        }
+        "secret" => SettingKind::Secret,
+        other => bail!(
+            "unknown type `{other}`: flag, string, path, integer, float, choice, list or secret"
+        ),
     };
     let default = match t.get("default") {
         Some(v) => v.clone(),
         None => match &kind {
             SettingKind::Flag => false.into(),
-            SettingKind::Text | SettingKind::Path => "".into(),
+            SettingKind::Text | SettingKind::Path | SettingKind::Secret => "".into(),
             SettingKind::Integer { min, .. } => min.unwrap_or(0).into(),
             SettingKind::Float { min, .. } => min.unwrap_or(0.0).into(),
             SettingKind::Choice(c) => c.first().map_or("", |(v, _)| v.as_str()).into(),
@@ -593,6 +599,8 @@ fn described_setting(key: &str, t: &toml::Table) -> Result<SettingSpec> {
         },
     };
     let user_only = match text("scope").as_deref() {
+        // A secret is in your keyring, which no workspace sets.
+        _ if kind == SettingKind::Secret => true,
         None | Some("workspace") => false,
         Some("user-only" | "user") => true,
         Some(other) => bail!("unknown scope `{other}`: workspace or user-only"),

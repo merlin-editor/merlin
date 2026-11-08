@@ -235,6 +235,10 @@ pub(super) fn rows_of(
                 ),
                 SettingKind::Text => Control::Field(shown(value), FieldKind::Text),
                 SettingKind::Path => Control::Field(shown(value), FieldKind::Path),
+                SettingKind::Secret => {
+                    let set = p.secrets.contains(&spec.key);
+                    Control::Field(if set { "set" } else { "" }.into(), FieldKind::Secret)
+                }
                 SettingKind::Integer { min, max } => {
                     Control::Field(shown(value), FieldKind::Integer(*min, *max))
                 }
@@ -250,7 +254,9 @@ pub(super) fn rows_of(
             Row {
                 label: spec.title.clone(),
                 about,
-                changed: !locked && get(scope, &key).is_some(),
+                changed: !locked
+                    && (get(scope, &key).is_some()
+                        || (spec.kind == SettingKind::Secret && p.secrets.contains(&spec.key))),
                 in_workspace,
                 note: None,
                 yours,

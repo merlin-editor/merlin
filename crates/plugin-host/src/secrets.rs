@@ -5,15 +5,19 @@
 //! read, which is no worse than the plain-text config files plugins used
 //! before, but not encrypted.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::Mutex;
 
 pub(crate) struct Secrets {
     dir: PathBuf,
     keyring: bool,
+    /// Whether each plugin's secret is set, as last seen, so the Settings
+    /// page doesn't ask the keyring on every frame.
+    known: Mutex<HashMap<(String, String), bool>>,
 }
 
 impl Secrets {
@@ -23,10 +27,32 @@ impl Secrets {
         Self {
             dir,
             keyring: keyring && on_path("secret-tool"),
+            known: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Whether a plugin has stored this secret, asking the store once.
+    pub fn is_set(&self, plugin: &str, key: &str) -> bool {
+        let id = (plugin.to_string(), key.to_string());
+        if let Some(set) = self.known.lock().ok().and_then(|k| k.get(&id).copied()) {
+            return set;
+        }
+        self.get(plugin, key).is_some()
+    }
+
+    fn remember(&self, plugin: &str, key: &str, set: bool) {
+        if let Ok(mut known) = self.known.lock() {
+            known.insert((plugin.to_string(), key.to_string()), set);
         }
     }
 
     pub fn get(&self, plugin: &str, key: &str) -> Option<String> {
+        let value = self.read(plugin, key);
+        self.remember(plugin, key, value.is_some());
+        value
+    }
+
+    fn read(&self, plugin: &str, key: &str) -> Option<String> {
         if self.keyring {
             let output = secret_tool(&["lookup"], plugin, key)
                 .stdin(Stdio::null())
@@ -41,6 +67,14 @@ impl Secrets {
     }
 
     pub fn set(&self, plugin: &str, key: &str, value: &str) -> Result<(), String> {
+        let done = self.write(plugin, key, value);
+        if done.is_ok() {
+            self.remember(plugin, key, true);
+        }
+        done
+    }
+
+    fn write(&self, plugin: &str, key: &str, value: &str) -> Result<(), String> {
         if self.keyring {
             let label = format!("--label=merlin {plugin} {key}");
             let mut child = secret_tool(&["store", &label], plugin, key)
@@ -65,6 +99,7 @@ impl Secrets {
     }
 
     pub fn delete(&self, plugin: &str, key: &str) {
+        self.remember(plugin, key, false);
         if self.keyring {
             let _ = secret_tool(&["clear"], plugin, key).status();
             return;

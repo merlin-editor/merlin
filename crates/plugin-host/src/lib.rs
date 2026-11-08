@@ -202,6 +202,8 @@ pub struct PluginInfo {
     /// Its settings as the Settings page shows them: the manifest's, then
     /// the ones every plugin that runs has.
     pub schema: Vec<SettingSpec>,
+    /// Its secret settings that are stored, by key.
+    pub secrets: Vec<String>,
     /// Bytes of memory its instance has.
     pub memory: usize,
     pub busy: Duration,
@@ -638,6 +640,33 @@ impl PluginHost {
             }
         }
         events
+    }
+
+    /// Stores one of a plugin's secret settings, or forgets it given none,
+    /// as its row in Settings does. The plugin hears it changed.
+    pub fn set_secret(
+        &mut self,
+        plugin: &str,
+        key: &str,
+        value: Option<&str>,
+        snapshot: &Snapshot,
+    ) -> Result<Vec<Event>, String> {
+        let i = self.index(plugin).ok_or("no such plugin")?;
+        match value {
+            Some(value) => self.secrets.set(plugin, key, value)?,
+            None => self.secrets.delete(plugin, key),
+        }
+        let Some(func) = self.plugins[i]
+            .instance
+            .as_ref()
+            .and_then(|i| i.setting_changed)
+        else {
+            return Ok(Vec::new());
+        };
+        let key = key.to_string();
+        Ok(self
+            .call(i, snapshot.clone(), |_, store| func.call(store, (key,)))
+            .1)
     }
 
     /// Gives a debugger plugin what `debug-start` and `breakpoints` read,
@@ -1112,6 +1141,13 @@ impl PluginHost {
                                 .into_iter()
                                 .flatten(),
                         )
+                        .collect(),
+                    secrets: m
+                        .schema
+                        .iter()
+                        .filter(|s| s.kind == SettingKind::Secret)
+                        .filter(|s| self.secrets.is_set(&m.name, &s.key))
+                        .map(|s| s.key.clone())
                         .collect(),
                     memory,
                     busy: p.busy,

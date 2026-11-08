@@ -637,3 +637,40 @@ fn described_settings_have_their_types_and_scopes() {
     assert!(text.contains("server-path changed"), "{text}");
     fs::remove_dir_all(dir.parent().unwrap()).ok();
 }
+
+#[test]
+fn a_secret_setting_is_kept_out_of_the_settings_files() {
+    let (dir, mut config) = setup("secret-setting");
+    config.ask = false;
+    let mut host = PluginHost::new(config).unwrap();
+    host.load(&dir).unwrap();
+    let info = |host: &PluginHost| {
+        host.plugins()
+            .into_iter()
+            .find(|p| p.name == "testbed")
+            .unwrap()
+    };
+    let token = info(&host)
+        .schema
+        .into_iter()
+        .find(|s| s.key == "token")
+        .unwrap();
+    assert_eq!(token.kind, SettingKind::Secret);
+    assert!(token.user_only, "no workspace sets a secret");
+    assert!(info(&host).defaults.get("token").is_none());
+    assert!(info(&host).secrets.is_empty());
+
+    host.set_secret("testbed", "token", Some("hunter3"), &snapshot())
+        .unwrap();
+    assert_eq!(info(&host).secrets, ["token"]);
+    assert_eq!(
+        notices(host.run_command("testbed", "show-secret", snapshot())),
+        ["secret: Some(\"hunter3\")"]
+    );
+    assert!(panel_text(&mut host).contains("token changed"));
+
+    host.set_secret("testbed", "token", None, &snapshot())
+        .unwrap();
+    assert!(info(&host).secrets.is_empty());
+    fs::remove_dir_all(dir.parent().unwrap()).ok();
+}

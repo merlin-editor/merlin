@@ -189,7 +189,8 @@ impl Frame<'_> {
                     .map(|(_, l)| self.text.width(l, face) + 20.0)
                     .sum::<f32>()
                     + 6.0;
-                if options.len() <= 5 && seg <= 300.0 {
+                // A few short ones side by side; more open a list.
+                if options.len() <= 4 && seg <= 300.0 {
                     (seg, true)
                 } else {
                     let widest = options
@@ -246,7 +247,18 @@ impl Frame<'_> {
                 let typing = editing.filter(|e| !e.add).map(|e| e.text.as_str());
                 let hit = Hit::Settings(SettingsAction::Edit(key(), false));
                 let mono = matches!(kind, FieldKind::Path);
-                self.text_field(value, typing, mono, row.locked, r, clip, hit);
+                if *kind == FieldKind::Secret {
+                    // Dots, never the secret: one per letter typed.
+                    let dots = typing.map(|t| "•".repeat(t.chars().count()));
+                    let value = if value.is_empty() {
+                        ""
+                    } else {
+                        "••••••••"
+                    };
+                    self.text_field(value, dots.as_deref(), false, row.locked, r, clip, hit);
+                } else {
+                    self.text_field(value, typing, mono, row.locked, r, clip, hit);
+                }
             }
             Control::List(items) => {
                 let face = Face::ui(12.0);

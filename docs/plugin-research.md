@@ -218,7 +218,7 @@ The PDF viewer is the test: it's `PluginDocument.dc.html` in
 1. Logs and quieter notices: no UI to agree on beyond the Output picker, and
    it's the most visible annoyance. **Built.**
 2. Settings with a schema and scopes: the page and rows exist. **Built**,
-   except secret settings, which still go through `set-secret`.
+   with secret settings kept in the keyring.
    `on-setting-changed` is in a `plugin-sdk` world that the SDK builds, and
    the host calls it only when a plugin exports it, so plugins built for
    0.9 before it still load.

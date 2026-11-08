@@ -155,6 +155,8 @@ pub enum Control {
 pub enum FieldKind {
     Text,
     Path,
+    /// Kept in the keyring, shown as dots. Its value is "set" or empty.
+    Secret,
     Integer(Option<i64>, Option<i64>),
     Float(Option<f64>, Option<f64>),
 }
@@ -558,6 +560,8 @@ impl App {
                     String::new()
                 } else {
                     match self.find_row(&key).map(|r| r.control) {
+                        // A secret is typed afresh, never shown.
+                        Some(Control::Field(_, FieldKind::Secret)) => String::new(),
                         Some(Control::Field(text, _)) => text,
                         _ => String::new(),
                     }
@@ -658,7 +662,10 @@ impl App {
                 let next = (now + by).clamp(8.0, 32.0);
                 self.write(&key, Some(format!("{next:.1}")))
             }
-            SettingsAction::Reset(key) => self.write(&key, None),
+            SettingsAction::Reset(key) => match self.find_row(&key).map(|r| r.control) {
+                Some(Control::Field(_, FieldKind::Secret)) => self.store_secret(&key, None),
+                _ => self.write(&key, None),
+            },
             SettingsAction::Unbind(command) => self.unbind(&command),
             SettingsAction::ResetKey(command) => self.reset_key(&command),
             SettingsAction::Page(action) => self.page_action(action),
@@ -827,11 +834,34 @@ impl App {
             return Vec::new();
         };
         match typed(&control, &edit.text) {
+            Ok(Typed::Set(toml::Value::String(text)))
+                if matches!(control, Control::Field(_, FieldKind::Secret)) =>
+            {
+                self.store_secret(&edit.key, Some(&text))
+            }
             Ok(Typed::Set(value)) => self.write(&edit.key, Some(value.to_string())),
             Ok(Typed::Reset) => self.write(&edit.key, None),
             Ok(Typed::Nothing) => Vec::new(),
             Err(err) => vec![Event::Error(err)],
         }
+    }
+
+    /// A plugin's secret setting, `plugins.<name>.<key>`, stored in the
+    /// keyring or forgotten. Settings files never hold it.
+    fn store_secret(&mut self, key: &str, value: Option<&str>) -> Vec<Event> {
+        let Some((plugin, key)) = key
+            .strip_prefix("plugins.")
+            .and_then(|rest| rest.split_once('.'))
+        else {
+            return Vec::new();
+        };
+        if self.scripted {
+            return Vec::new();
+        }
+        let snapshot = self.snapshot();
+        self.host
+            .set_secret(plugin, key, value, &snapshot)
+            .unwrap_or_else(|err| vec![Event::Error(format!("Can't store {key}: {err}"))])
     }
 
     /// The wheel over the page.
@@ -866,6 +896,9 @@ fn typed(control: &Control, text: &str) -> Result<Typed, String> {
             items.push(text.into());
             Ok(Typed::Set(toml::Value::Array(items)))
         }
+        // Nothing typed keeps a secret: ↺ forgets it.
+        Control::Field(_, FieldKind::Secret) if text.is_empty() => Ok(Typed::Nothing),
+        Control::Field(_, FieldKind::Secret) => Ok(Typed::Set(text.into())),
         Control::Field(..) if text.is_empty() => Ok(Typed::Reset),
         Control::Field(_, FieldKind::Text | FieldKind::Path) => Ok(Typed::Set(text.into())),
         Control::Field(_, FieldKind::Integer(min, max)) => text
@@ -1096,6 +1129,10 @@ mod tests {
         assert_eq!(typed(&jobs, "100"), Ok(Typed::Set(64.into())));
         assert!(typed(&jobs, "lots").is_err());
         assert_eq!(typed(&jobs, ""), Ok(Typed::Reset));
+        // A secret is never reset by an empty field; ↺ forgets it.
+        let secret = Control::Field("set".into(), FieldKind::Secret);
+        assert_eq!(typed(&secret, ""), Ok(Typed::Nothing));
+        assert_eq!(typed(&secret, "k3y"), Ok(Typed::Set("k3y".into())));
         let path = Control::Field(String::new(), FieldKind::Path);
         assert_eq!(
             typed(&path, "/usr/bin/ra"),

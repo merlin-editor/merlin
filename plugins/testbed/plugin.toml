@@ -17,6 +17,11 @@ default = "fast"
 choices = [{ value = "fast", label = "Quickly" }, "careful"]
 description = "How it works."
 
+[settings.token]
+type = "secret"
+title = "API key"
+description = "Kept in your keyring."
+
 [settings.server-path]
 type = "path"
 scope = "user-only"

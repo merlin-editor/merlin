@@ -759,7 +759,7 @@ What else plugins get, besides commands and panels:
 
   ```toml
   [settings.check-command]
-  type = "choice"        # flag, string, path, integer, float, choice, list
+  type = "choice"        # flag, string, path, integer, float, choice, list, secret
   title = "Check on save"
   default = "check"
   choices = [{ value = "check", label = "cargo check" }, "clippy"]
@@ -767,6 +767,8 @@ What else plugins get, besides commands and panels:
   scope = "user-only"    # for a program's path: never set by a workspace
   ```
 
+  A `secret`, such as an API key, is typed as dots and kept in the
+  keyring, never in a settings file; read it with `host::get_secret`.
   Plain values are shown too, typed by their defaults. Every plugin also
   gets **Notices** (all, errors only, none) and **Log level**. A language
   server's `Spec::options` hands settings to the server, and restarts it
