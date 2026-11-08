@@ -58,11 +58,22 @@ fn panel_text(host: &mut PluginHost) -> String {
         .join("\n")
 }
 
+/// Lines for the plugin's Output channel.
+fn logged(events: Vec<Event>) -> Vec<String> {
+    events
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::PluginLog { text, .. } => Some(text),
+            _ => None,
+        })
+        .collect()
+}
+
 fn notices(events: Vec<Event>) -> Vec<String> {
     events
         .into_iter()
         .filter_map(|e| match e {
-            Event::Notify(m) => Some(m),
+            Event::Notify(m) | Event::PluginNotice { text: m, .. } => Some(m),
             _ => None,
         })
         .collect()
@@ -187,8 +198,10 @@ fn a_reload_keeps_saved_state_and_processes() {
         .unwrap()
         .set_modified(later)
         .unwrap();
+    // A reload because the file changed is only logged.
     let events = host.reload_changed();
-    assert_eq!(notices(events), ["Reloaded Testbed"]);
+    assert!(notices(events.clone()).is_empty());
+    assert_eq!(logged(events), ["Reloaded the plugin, keeping its state"]);
     assert!(panel_text(&mut host).contains("clicks: 2"));
 
     // The cat started before the reload still answers.
@@ -545,4 +558,33 @@ fn catch2_plugin_discovers_cpp_tests_and_skips_other_languages() {
     );
     assert_eq!(tests[1].label, "Scenario: subtraction works");
     assert_eq!(tests[1].line, 4);
+}
+
+#[test]
+fn logs_and_notices_follow_the_plugins_settings() {
+    let (dir, mut config) = setup("logs");
+    config.ask = false;
+    let mut host = PluginHost::new(config).unwrap();
+    host.load(&dir).unwrap();
+    // Info and up by default.
+    let events = host.run_command("testbed", "log", snapshot());
+    assert_eq!(logged(events), ["something to see"]);
+    assert_eq!(
+        notices(host.run_command("testbed", "warn", snapshot())),
+        ["careful"]
+    );
+
+    let user: toml::Table =
+        toml::from_str("[testbed]\nnotices = \"errors\"\nlog-level = \"debug\"\n").unwrap();
+    host.set_settings(user);
+    let events = host.run_command("testbed", "log", snapshot());
+    assert_eq!(logged(events), ["quiet detail", "something to see"]);
+    // A warning is logged instead; an error still shows.
+    let events = host.run_command("testbed", "warn", snapshot());
+    assert!(notices(events.clone()).is_empty());
+    assert_eq!(logged(events), ["careful"]);
+    assert_eq!(
+        notices(host.run_command("testbed", "fail", snapshot())),
+        ["it broke"]
+    );
 }

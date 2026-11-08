@@ -92,6 +92,8 @@ pub enum UiEvent {
     ClosePalette,
     /// A notice's button, by its index.
     ToastButton(usize),
+    /// Something on the Output panel's bar.
+    Output(super::OutputClick),
     /// A right-click menu item, by its index in [`ContextView::items`].
     ContextItem(usize),
     CloseContext,
@@ -184,6 +186,8 @@ pub struct WindowView {
     pub problem: Option<(String, bool)>,
     pub palette: Option<PaletteView>,
     pub toast: Option<ToastView>,
+    /// The Output panel's channel and level choices, while it shows.
+    pub output_bar: Option<super::OutputBarView>,
     pub context: Option<ContextView>,
     pub popup: Option<PopupView>,
     pub signature: Option<super::context::SignatureView>,
@@ -352,6 +356,9 @@ pub struct ToastView {
     /// Put right: an amber dot.
     pub warning: bool,
     pub buttons: Vec<String>,
+    /// A quieter link before the buttons; a click on it is the
+    /// [`UiEvent::ToastButton`] after the last button.
+    pub link: Option<String>,
 }
 
 impl Editor {
@@ -601,6 +608,7 @@ impl Editor {
             done: m.done,
             warning: m.warning,
             buttons: m.actions.iter().map(|(label, _)| label.clone()).collect(),
+            link: m.link.as_ref().map(|(label, _)| label.clone()),
         });
         WindowView {
             project: self.project.clone(),
@@ -627,6 +635,7 @@ impl Editor {
             problem,
             palette,
             toast,
+            output_bar: self.output_bar(),
             context: self.context_view(),
             popup: self.popup_view(),
             signature: self.signature_view(),
@@ -831,11 +840,16 @@ impl Editor {
                 self.search_restore();
                 self.close_palette();
             }
+            UiEvent::Output(click) => self.output_click(click),
             UiEvent::ToastButton(i) => {
                 if let Some(command) = self
                     .message
                     .as_ref()
-                    .and_then(|m| m.actions.get(i))
+                    .and_then(|m| {
+                        m.actions
+                            .get(i)
+                            .or(m.link.as_ref().filter(|_| i == m.actions.len()))
+                    })
                     .map(|(_, c)| c.clone())
                 {
                     self.message = None;

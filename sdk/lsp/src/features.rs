@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use merlin_plugin::{FileEdit, Framing, Position, TextChange, host};
+use merlin_plugin::{FileEdit, Framing, LogLevel, Position, TextChange, host};
 use serde_json::{Value, json};
 
 use crate::Lsp;
@@ -27,7 +27,7 @@ pub(crate) fn formatted(path: &str, edits: &Value) {
         edits: text_changes(edits),
     };
     if let Err(err) = host::apply_edits(&[file]) {
-        host::notify(&err);
+        host::notice(LogLevel::Error, &err, &[]);
     }
 }
 
@@ -383,8 +383,10 @@ impl Lsp {
     pub(crate) fn format(&mut self, what: Formatting, saving: bool) {
         let active = host::active_path().ok().flatten().unwrap_or_default();
         let say = |lsp: &mut Self, why: String| {
+            // The Format mock-up says when a save went out unformatted,
+            // once a file.
             if !saving || lsp.warned.insert(format!("{active}\n{why}")) {
-                host::notify(&why);
+                host::notice(LogLevel::Info, &why, &[]);
             }
         };
         let Some((path, spec, language)) = self.active() else {

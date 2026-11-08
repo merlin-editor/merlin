@@ -469,7 +469,9 @@ mod tests {
 
     /// What a plugin's own matchers find in `out`.
     fn found(plugin: &str, out: &str) -> Vec<Found> {
-        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins").join(plugin);
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../plugins")
+            .join(plugin);
         let manifest = super::manifest(&dir).unwrap();
         let matchers: Vec<_> = manifest
             .problem_matchers

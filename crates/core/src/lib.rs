@@ -29,19 +29,20 @@ pub use editor::{
     GitAction, GitMove, HoverButton, KeyBinding, Keymap, LanguageCardHit, LanguageCardView,
     LanguageRowView, LeaderKey, Macro, MacroView, MenuView, MergeBarView, MergeKind, MergeNote,
     MergePaneView, MergeRow, MergeSide, MergeState, MergeView, MouseKind, Outcome, PaletteExtra,
-    PaletteIcon, PaletteView, PluginSummary, PluginTest, plugin_mark, PluginTestResult, Pointer, PopupKind,
+    PaletteIcon, PaletteView, PluginSummary, PluginTest, PluginTestResult, Pointer, PopupKind,
     PopupView, ProblemView, RailItem, SETTINGS_PAGE, SearchHit, Settings, Side, SideView,
     SignatureView, StatusMark, StatusView, SyncKind, SyncOutcome, SyncState, TabView, Task,
     TaskGroup, TermOp, TermSession, TerminalView, TextView, ThemeKind, ToastView, UiEvent, UserKey,
     VimCursor, VimLineItem, VimLineView, VimMode, VimSettings, VimView, When, WhichKeyItem,
-    WhichKeyView, WindowView, Workspace, from_tasks_file,
+    WhichKeyView, WindowView, Workspace, from_tasks_file, plugin_mark,
 };
 pub use editor::{
     BreakBoxView, BreakField, BreakMark, Breakpoint, BreakpointState, DAP, DebugBarView,
     DebugButton, DebugStart, DebugState, DebugTarget, DebugThread, DebugUpdate, DebugVariable,
     Debugger, FunctionStop, OutputKind, StackFrame, StopFilter,
 };
+pub use editor::{LogLevel, OutputBarView, OutputClick, OutputList, OutputRowView};
 pub use key::{Key, KeyCode};
 pub use lang::{Completion, Diagnostic, InlayHint, InlayKind, Severity, Signature};
 pub use merlin_syntax::Syntax;
-pub use panel::{Button, Entry, Node, Panel, PickItem, Tone};
+pub use panel::{Button, Entry, LogRow, Node, Panel, PickItem, Tone};

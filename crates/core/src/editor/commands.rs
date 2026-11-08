@@ -128,6 +128,8 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
         "File: Save without Formatting",
     ),
     ("view.output", "View: Output"),
+    ("output.channel", "Output: Choose a Channel…"),
+    ("output.clear", "Output: Clear the Channel"),
     ("go.line", "Go: Go to Line…"),
     ("go.definition", "Go: Go to Definition"),
     ("go.references", "Go: Peek References"),
@@ -209,6 +211,11 @@ impl Editor {
         }
         if id.starts_with("debug.") || id == "view.debug" || id == "view.debug_console" {
             return self.debug_command(id, fx);
+        }
+        if (id.starts_with("output.") || id.starts_with("plugin.click:"))
+            && self.output_command(id, fx)
+        {
+            return;
         }
         if id.starts_with("terminal.") {
             return self.terminal_command(id, fx);
@@ -365,6 +372,10 @@ impl Editor {
             "go.next_change" => self.go_to_change(true),
             "go.prev_change" => self.go_to_change(false),
             "view.output" => self.show_bottom(views::OUTPUT),
+            "output.channel" => {
+                self.show_bottom(views::OUTPUT);
+                self.output_click(super::OutputClick::Open(super::OutputList::Channels));
+            }
             "view.secondary" => {
                 let bar = self.bar_mut(Side::Right);
                 bar.visible = !bar.visible;

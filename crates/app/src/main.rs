@@ -1116,6 +1116,7 @@ fn main() -> Result<()> {
         memory: prefs::Memory::default(),
         system_light: false,
     };
+    app.editor.set_utc_offset(local_utc_offset());
     // Nerd Font icons, except in scripted runs, whose output should read
     // anywhere. MERLIN_ICONS=nerd or =plain decides either way.
     let nerd = match env::var("MERLIN_ICONS").as_deref() {
@@ -1433,6 +1434,25 @@ fn processes() -> (Vec<(u32, String, String)>, u8) {
             .collect(),
         scope,
     )
+}
+
+/// The local time's offset from UTC now, in seconds.
+#[cfg(unix)]
+fn local_utc_offset() -> i64 {
+    // SAFETY: localtime_r writes only to `tm`, which lives here.
+    unsafe {
+        let now = libc::time(std::ptr::null_mut());
+        let mut tm: libc::tm = std::mem::zeroed();
+        if libc::localtime_r(&now, &mut tm).is_null() {
+            return 0;
+        }
+        tm.tm_gmtoff as i64
+    }
+}
+
+#[cfg(not(unix))]
+fn local_utc_offset() -> i64 {
+    0
 }
 
 #[cfg(test)]

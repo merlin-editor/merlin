@@ -21,6 +21,17 @@ pub struct Button {
     pub label: String,
 }
 
+/// A line of the Output panel: when, how serious, and what. Drawn on one
+/// line in a fixed-width font, so a long log costs no wrapping.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LogRow {
+    pub time: String,
+    pub level: String,
+    /// The level's colour.
+    pub tone: Tone,
+    pub text: String,
+}
+
 /// One element of a plugin panel. Plugins describe what to show; the editor
 /// owns layout, focus, scrolling and input text, so a re-render can't reset
 /// them.
@@ -54,6 +65,8 @@ pub enum Node {
         multiline: bool,
     },
     Divider,
+    /// A line of a log, in the Output panel.
+    Log(LogRow),
     /// Nodes after this stay at the bottom; the ones before it scroll.
     Footer,
     /// A title row with buttons at its right end, each with its key; the

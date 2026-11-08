@@ -43,7 +43,7 @@ pub use bindings::merlin::plugin::types::{
     InlayKind, Input, Item, LineRange, Location, Node, Panel, PickItem, Position, ProcessEvent, ProjectSymbol, RenameInfo, Selection,
     Setting, Severity, Signature, Styled, Task, TaskGroup, TestItem, TestOutcome, TestResult, TextChange, Token, TokenKind, TokenLayer, Tone,
     Breakpoint, BreakpointState, DebugLaunch, FunctionStop, DebugPause, DebugState, DebugTarget, DebugThread, DebugVariable, InlineValue,
-    OutputKind, StackFrame, StatusItem, StatusState, StopFilter,
+    LogLevel, OutputKind, StackFrame, StatusItem, StatusState, StopFilter,
 };
 
 /// UTF-16 columns, which positions count, as LSP does.
@@ -100,7 +100,7 @@ pub mod prelude {
         InlayHint, InlayKind, LineRange, Location, Node, Panel, PickItem, Plugin, Position, ProcessEvent, ProjectSymbol, RenameInfo,
         Selection, Severity, Signature, Task, TaskGroup, TestItem, TestOutcome, TestResult, TextChange, Token, TokenKind, TokenLayer, Tone, host,
         settings, Breakpoint, BreakpointState, DebugLaunch, FunctionStop, DebugPause, DebugState, DebugTarget, DebugThread, DebugVariable,
-        InlineValue, OutputKind, StackFrame, StatusItem, StatusState, StopFilter,
+        InlineValue, LogLevel, OutputKind, StackFrame, StatusItem, StatusState, StopFilter,
     };
 }
 

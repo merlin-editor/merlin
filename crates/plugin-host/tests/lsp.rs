@@ -295,7 +295,9 @@ fn a_file_not_in_git_saves_unformatted_and_says_so_once() {
         let events = host.run_command("rust", "format-changed", snapshot());
         said += events
             .iter()
-            .filter(|e| matches!(e, Event::Notify(t) if t.contains("isn't in git")))
+            .filter(
+                |e| matches!(e, Event::PluginNotice { text, .. } if text.contains("isn't in git")),
+            )
             .count();
         let empty = events
             .iter()

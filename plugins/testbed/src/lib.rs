@@ -23,6 +23,9 @@ impl Plugin for Testbed {
             "spawn-forbidden",
             "show-setting",
             "colour",
+            "log",
+            "warn",
+            "fail",
         ]
         .map(|id| Command::new(id, format!("Testbed: {id}")))
         .into()
@@ -63,6 +66,12 @@ impl Plugin for Testbed {
                 );
                 host::set_folds("notes.txt", &[FoldRange { first: 0, last: 2 }]);
             }
+            "log" => {
+                host::log(LogLevel::Debug, "quiet detail");
+                host::log(LogLevel::Warn, "something to see");
+            }
+            "warn" => host::notice(LogLevel::Warn, "careful", &[]),
+            "fail" => host::notice(LogLevel::Error, "it broke", &[]),
             "propose" => host::show_diff("edit-1", "notes.txt", "one\n", "one\ntwo\n"),
             "spawn-forbidden" => {
                 if let Err(err) = host::spawn("sh", &[], &[], Framing::Lines) {

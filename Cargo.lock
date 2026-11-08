@@ -1874,6 +1874,7 @@ dependencies = [
  "cosmic-text",
  "globset",
  "ignore",
+ "libc",
  "merlin-core",
  "merlin-plugins",
  "notify",

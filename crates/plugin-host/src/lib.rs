@@ -29,7 +29,7 @@ use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result, anyhow, bail};
 use merlin_core::{
-    Button, Command, Completion, Diagnostic, Event, Node, Panel, PickItem, Severity, Tone,
+    Button, Command, Completion, Diagnostic, Event, LogLevel, Node, Panel, PickItem, Severity, Tone,
 };
 use serde::{Deserialize, Serialize};
 use wasmtime::component::{Component, HasSelf, Linker, ResourceTable};
@@ -147,6 +147,8 @@ struct Loaded {
     /// isn't delivered to the new one.
     generation: u64,
     failed: bool,
+    /// Its last reload failed, so the old code runs on.
+    failed_reload: bool,
     /// Turned off by the user: loaded, but not running.
     disabled: bool,
     /// Time spent in the plugin's calls since it loaded.
@@ -309,6 +311,7 @@ impl PluginHost {
                 instance: None,
                 generation: 0,
                 failed: false,
+                failed_reload: false,
                 disabled: false,
                 busy: Duration::ZERO,
                 pure_language: false,
@@ -333,6 +336,7 @@ impl PluginHost {
             instance,
             generation: 0,
             failed: false,
+            failed_reload: false,
             disabled: off,
             busy: Duration::ZERO,
             pure_language: false,
@@ -828,6 +832,15 @@ impl PluginHost {
             {
                 instance.store.data_mut().processes.forget(output.process);
             }
+            // What a plugin's programs print on stderr goes to its channel,
+            // as well as to the plugin.
+            if let types::ProcessEvent::Stderr(line) = &output.event {
+                events.push(Event::PluginLog {
+                    plugin: output.plugin.clone(),
+                    level: LogLevel::Stderr,
+                    text: line.clone(),
+                });
+            }
             let (_, mut more) = self.call(i, snapshot.clone(), |b, s| {
                 b.call_on_process(s, output.process, &output.event)
             });
@@ -875,7 +888,16 @@ impl PluginHost {
     /// saves it.
     pub fn reload(&mut self, name: &str) -> Vec<Event> {
         match self.index(name) {
-            Some(i) if self.plugins[i].instance.is_some() => self.reload_at(i),
+            Some(i) if self.plugins[i].instance.is_some() => {
+                let mut events = self.reload_at(i);
+                // Asked for, so said; a reload because its file changed is
+                // only logged.
+                if !self.plugins[i].failed_reload {
+                    let title = &self.plugins[i].manifest.title;
+                    events.push(Event::Notify(format!("Reloaded {title}")));
+                }
+                events
+            }
             _ => Vec::new(),
         }
     }
@@ -883,6 +905,8 @@ impl PluginHost {
     fn reload_at(&mut self, i: usize) -> Vec<Event> {
         let mut events = Vec::new();
         let name = self.plugins[i].manifest.title.clone();
+        let plugin_name = self.plugins[i].manifest.name.clone();
+        self.plugins[i].failed_reload = false;
         let (state, mut more) = self.call(i, Snapshot::default(), |b, s| b.call_save_state(s));
         events.append(&mut more);
         let state = state.flatten();
@@ -905,10 +929,26 @@ impl PluginHost {
                 plugin.instance = Some(instance);
                 plugin.generation = generation;
                 plugin.failed = false;
+                let kept = state.is_some();
                 events.extend(self.activate(i, state));
-                events.push(Event::Notify(format!("Reloaded {name}")));
+                events.push(Event::PluginLog {
+                    plugin: plugin_name,
+                    level: LogLevel::Info,
+                    text: format!(
+                        "Reloaded the plugin{}",
+                        if kept { ", keeping its state" } else { "" }
+                    ),
+                });
             }
-            Err(err) => events.push(Event::Notify(format!("Reload of {name} failed: {err:#}"))),
+            Err(err) => {
+                self.plugins[i].failed_reload = true;
+                events.push(Event::PluginNotice {
+                    plugin: plugin_name,
+                    level: LogLevel::Error,
+                    text: format!("{name} didn't reload, so its old code keeps running: {err:#}"),
+                    buttons: Vec::new(),
+                });
+            }
         }
         events
     }

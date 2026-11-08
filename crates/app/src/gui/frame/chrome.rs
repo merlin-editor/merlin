@@ -567,7 +567,13 @@ impl Frame<'_> {
         let w = 420.0_f32.min(editor.w - 32.0);
         let text_w = w - 56.0;
         let th = self.text.wrapped_height(&toast.text, face, text_w);
-        let h = th + 28.0 + if toast.buttons.is_empty() { 0.0 } else { 40.0 };
+        let h = th
+            + 28.0
+            + if toast.buttons.is_empty() && toast.link.is_none() {
+                0.0
+            } else {
+                40.0
+            };
         let r = Rect::new(editor.right() - w - 16.0, editor.bottom() - h - 16.0, w, h);
         self.canvas.shadow(r, 10.0, theme::is_light(&p));
         self.canvas.outline(r, 10.0, 1.0, p.border, p.widget);
@@ -607,6 +613,20 @@ impl Frame<'_> {
                 .draw_in_row(&mut self.canvas, label, bf, b.x + 12.0, b.y, 28.0, fg, b);
             self.hit(b, Hit::Ui(UiEvent::ToastButton(i)));
             bx -= 8.0;
+        }
+        // The link, at the start of the row.
+        if let Some(link) = &toast.link {
+            let lf = Face::ui(12.0);
+            let lw = self.text.width(link, lf);
+            let l = Rect::new(r.x + 14.0, r.bottom() - 40.0, lw.min(bx - r.x - 22.0), 28.0);
+            let colour = if self.hovered(l) {
+                self.p.bright
+            } else {
+                self.p.accent
+            };
+            self.text
+                .draw_in_row(&mut self.canvas, link, lf, l.x, l.y, l.h, colour, l);
+            self.hit(l, Hit::Ui(UiEvent::ToastButton(toast.buttons.len())));
         }
     }
 

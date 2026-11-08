@@ -380,6 +380,7 @@ fn dump_side(o: &mut String, which: &str, side: &SideView) {
             Node::Heading(t) => t.to_uppercase(),
             Node::Text(t) | Node::Styled(t, _) => t.clone(),
             Node::Markdown(t) => t.clone(),
+            Node::Log(l) => format!("{} {:<6} {}", l.time, l.level, l.text),
             Node::Button(b) => format!("[{}]", b.label),
             Node::Buttons(bs) | Node::Tools(bs) => bs
                 .iter()

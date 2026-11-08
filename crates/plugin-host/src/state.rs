@@ -741,7 +741,48 @@ impl host::Host for State {
     }
 
     fn notify(&mut self, message: String) {
-        self.events.push(Event::Notify(message));
+        self.notice(types::LogLevel::Info, message, Vec::new());
+    }
+
+    fn log(&mut self, level: types::LogLevel, message: String) {
+        let level = log_level(level);
+        if level < self.log_level() {
+            return;
+        }
+        self.events.push(Event::PluginLog {
+            plugin: self.name.clone(),
+            level,
+            text: message,
+        });
+    }
+
+    fn notice(&mut self, level: types::LogLevel, message: String, buttons: Vec<types::Button>) {
+        let level = log_level(level);
+        let shown = match self.text_setting("notices").as_deref() {
+            Some("none") => false,
+            Some("errors") => level >= LogLevel::Error,
+            _ => true,
+        };
+        if !shown {
+            self.events.push(Event::PluginLog {
+                plugin: self.name.clone(),
+                level,
+                text: message,
+            });
+            return;
+        }
+        self.events.push(Event::PluginNotice {
+            plugin: self.name.clone(),
+            level,
+            text: message,
+            buttons: buttons
+                .into_iter()
+                .map(|b| Button {
+                    id: b.id,
+                    label: b.label,
+                })
+                .collect(),
+        });
     }
 
     fn focus_panel(&mut self) {
@@ -816,6 +857,31 @@ impl host::Host for State {
 
     fn delete_secret(&mut self, key: String) {
         self.secrets.delete(&self.name, &key);
+    }
+}
+
+fn log_level(level: types::LogLevel) -> LogLevel {
+    match level {
+        types::LogLevel::Trace => LogLevel::Trace,
+        types::LogLevel::Debug => LogLevel::Debug,
+        types::LogLevel::Info => LogLevel::Info,
+        types::LogLevel::Warn => LogLevel::Warn,
+        types::LogLevel::Error => LogLevel::Error,
+    }
+}
+
+impl State {
+    /// One of the plugin's own settings, as text, if it is text.
+    fn text_setting(&self, key: &str) -> Option<String> {
+        self.settings.get(key)?.as_str().map(str::to_string)
+    }
+
+    /// The least a `log` line must be to keep: the plugin's `log-level`
+    /// setting, or info.
+    fn log_level(&self) -> LogLevel {
+        self.text_setting("log-level")
+            .and_then(|l| LogLevel::parse(&l))
+            .unwrap_or(LogLevel::Info)
     }
 }
 

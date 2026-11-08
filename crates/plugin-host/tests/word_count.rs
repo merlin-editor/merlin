@@ -74,7 +74,7 @@ fn commands_read_the_snapshot() {
     host.load(&plugin_dir()).unwrap();
     let events = host.run_command("word-count", "show", snapshot("one two three"));
     assert!(
-        matches!(&events[..], [Event::Notify(m)] if m == "3 words, 1 lines"),
+        matches!(&events[..], [Event::PluginNotice { text: m, .. }] if m == "3 words, 1 lines"),
         "{events:?}"
     );
 }
@@ -86,7 +86,7 @@ fn ungranted_permissions_are_denied() {
     host.load(&dir).unwrap();
     let events = host.run_command("readonly", "todo", snapshot(""));
     assert!(
-        matches!(&events[..], [Event::Notify(m)] if m == "permission denied: editor-write"),
+        matches!(&events[..], [Event::PluginNotice { text: m, .. }] if m == "permission denied: editor-write"),
         "{events:?}"
     );
     fs::remove_dir_all(dir).unwrap();
@@ -114,7 +114,11 @@ fn reloads_when_the_component_changes() {
         matches!(events.first(), Some(Event::RegisterPlugin { .. })),
         "{events:?}"
     );
-    assert!(matches!(events.last(), Some(Event::Notify(m)) if m == "Reloaded Test"));
+    // Reloading because the file changed is logged, not a notice.
+    assert!(
+        matches!(events.last(), Some(Event::PluginLog { text, .. }) if text.starts_with("Reloaded the plugin")),
+        "{events:?}"
+    );
     fs::remove_dir_all(dir).unwrap();
 }
 

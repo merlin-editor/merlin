@@ -169,6 +169,11 @@ impl Editor {
                     {
                         self.debug_picked(&item, fx)
                     }
+                    (Some((item, _)), Source::Picker { plugin, .. })
+                        if plugin == super::views::OUTPUT =>
+                    {
+                        self.notices_picked(&item, fx)
+                    }
                     (Some((item, _)), Source::Picker { plugin, id }) => {
                         fx.push(Effect::PluginPick {
                             plugin,

@@ -111,7 +111,7 @@ impl App {
                 }
             }
             PageAction::Reload(name) => events.extend(self.host.reload(&name)),
-            PageAction::Output => events.push(Event::Command("view.output".into())),
+            PageAction::Output(name) => events.push(Event::ShowOutput(name)),
             PageAction::Uninstall(name) => {
                 if self.uninstall_armed.as_deref() != Some(name.as_str()) {
                     self.uninstall_armed = Some(name);

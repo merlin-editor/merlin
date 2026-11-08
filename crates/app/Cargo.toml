@@ -28,3 +28,7 @@ notify = { version = "8", default-features = false }
 rfd = "0.17.2"
 copypasta = "0.10.2"
 raw-window-handle = "0.6"
+
+[target.'cfg(unix)'.dependencies]
+# The local time's offset from UTC, for times in the Output panel.
+libc = "0.2"

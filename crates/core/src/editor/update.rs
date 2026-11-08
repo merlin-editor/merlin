@@ -139,6 +139,18 @@ impl Editor {
             }
             Event::InsertText(text) => self.type_text(&text, Kind::Other),
             Event::Notify(text) => self.notify(text),
+            Event::PluginLog {
+                plugin,
+                level,
+                text,
+            } => self.log_line(&plugin, level, &text),
+            Event::PluginNotice {
+                plugin,
+                level,
+                text,
+                buttons,
+            } => self.plugin_notice(&plugin, level, text, buttons),
+            Event::ShowOutput(channel) => self.show_output(&channel),
             Event::SetDiagnostics {
                 plugin,
                 path,
@@ -454,8 +466,13 @@ impl Editor {
             ],
         });
         entry.error = Some(message.clone());
+        self.log_line(
+            &plugin,
+            super::LogLevel::Error,
+            &format!("Failed: {message}"),
+        );
         self.error(format!("Plugin {plugin} failed: {message}"));
-        self.add_action("Show Output", "view.output");
+        self.add_action("Show Output", &format!("output.show:{plugin}"));
     }
 
     /// A plugin's tokens for a file's `layer`, on `lines` or all of it.

@@ -94,6 +94,15 @@ interface types {
     label: string,
   }
 
+  /// How serious a line in a plugin's Output channel is, or a notice.
+  enum log-level {
+    trace,
+    debug,
+    info,
+    warn,
+    error,
+  }
+
   enum tone {
     normal,
     muted,
@@ -517,7 +526,7 @@ interface types {
 /// What the editor offers a plugin. Calls that need a permission check the
 /// plugin's manifest and return an error naming the permission if denied.
 interface host {
-  use types.{status-item, framing, pick-item, position, selection, text-change, diagnostic, detailed-diagnostic, code-action, file-edit, rename-info, location, project-symbol, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint, signature, task, test-item, test-result, debug-target, debug-launch, function-stop, breakpoint, debug-state, debug-thread, stack-frame, debug-variable, breakpoint-state, stop-filter, inline-value, output-kind};
+  use types.{status-item, framing, pick-item, position, selection, text-change, diagnostic, detailed-diagnostic, code-action, file-edit, rename-info, location, project-symbol, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint, signature, task, test-item, test-result, debug-target, debug-launch, function-stop, breakpoint, debug-state, debug-thread, stack-frame, debug-variable, breakpoint-state, stop-filter, inline-value, output-kind, log-level, button};
 
   /// Text of the active buffer. Needs `editor-read`.
   active-text: func() -> result<string, string>;
@@ -558,8 +567,21 @@ interface host {
   /// workspace root, or absolute within it. Needs `workspace-read`.
   read-file: func(path: string) -> result<string, string>;
 
-  /// Shows a message in the status bar.
+  /// Shows a notice. Prefer `log` for what the user didn't ask about, and
+  /// `notice` for what they must act on.
   notify: func(message: string);
+
+  /// A line in this plugin's channel of the Output panel. Lines under the
+  /// plugin's `log-level` setting (info unless the user sets it) are
+  /// dropped. The stderr of the plugin's programs goes there by itself.
+  log: func(level: log-level, message: string);
+
+  /// A notice, for something the user must know or act on: a server that
+  /// stopped, a command of theirs that failed. Its buttons' clicks come to
+  /// `on-click`, but one whose id is `command:<id>` runs that command of
+  /// the plugin instead. merlin adds Open Output, and the user's `notices` setting
+  /// for the plugin (all, errors, none) may log it instead.
+  notice: func(level: log-level, message: string, buttons: list<button>);
 
   /// Shows this plugin's panel and focuses its first input.
   focus-panel: func();

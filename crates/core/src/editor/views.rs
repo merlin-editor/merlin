@@ -20,9 +20,6 @@ pub(crate) const PROBLEMS: &str = "merlin.problems";
 pub(crate) const OUTPUT: &str = "merlin.output";
 pub(crate) const PLUGINS: &str = "merlin.plugins";
 
-/// Most messages the Output panel keeps.
-const LOG_LINES: usize = 1000;
-
 /// Most search results shown.
 const SHOWN_HITS: usize = 500;
 
@@ -279,7 +276,7 @@ impl Editor {
         });
     }
 
-    fn set_view(&mut self, name: &str, nodes: Vec<Node>) {
+    pub(crate) fn set_view(&mut self, name: &str, nodes: Vec<Node>) {
         if let Some(plugin) = self.plugins.iter_mut().find(|p| p.name == name)
             && let Some(panel) = &mut plugin.panel
         {
@@ -376,8 +373,7 @@ impl Editor {
         self.build_outline();
         let problems = self.problems_nodes();
         self.set_view(PROBLEMS, problems);
-        let output = self.output_nodes();
-        self.set_view(OUTPUT, output);
+        self.build_output();
         let plugins = self.plugins_nodes();
         self.set_view(PLUGINS, plugins);
         let tests = self.tests_nodes();
@@ -895,22 +891,6 @@ impl Editor {
         }
         self.problems = problems;
         nodes
-    }
-
-    /// Messages so far, newest last.
-    fn output_nodes(&self) -> Vec<Node> {
-        let start = self.log.len().saturating_sub(LOG_LINES);
-        self.log[start..]
-            .iter()
-            .map(|(error, text)| {
-                let (level, tone) = if *error {
-                    ("error", Tone::Error)
-                } else {
-                    ("info", Tone::Normal)
-                };
-                Node::Styled(format!("[{level}] {text}"), tone)
-            })
-            .collect()
     }
 
     /// Shows or hides the panel under the editor.

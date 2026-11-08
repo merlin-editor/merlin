@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use super::context::ContextMenu;
 use super::dialog::Ask;
 use super::views::CHANGES;
-use super::{Editor, Effect, Focus, GitAction, Side, SyncKind, SyncOutcome};
+use super::{Editor, Effect, Focus, GitAction, LogLevel, Side, SyncKind, SyncOutcome};
 use crate::key::{Key, KeyCode};
 use crate::panel::Target;
 
@@ -247,8 +247,12 @@ impl Editor {
         };
         if !output.trim().is_empty() {
             for line in output.lines().filter(|l| !l.trim().is_empty()) {
-                self.log
-                    .push((outcome != SyncOutcome::Done, format!("git {verb}: {line}")));
+                let level = if outcome == SyncOutcome::Done {
+                    LogLevel::Info
+                } else {
+                    LogLevel::Error
+                };
+                self.log_line(super::output::MERLIN, level, &format!("git {verb}: {line}"));
             }
         }
         // A fetch is quiet: it only brings the counts up to date.

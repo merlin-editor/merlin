@@ -248,8 +248,7 @@ impl Editor {
             .collect();
         self.diagnostics.retain(|(k, _), _| *k != key);
         let mut by_path: Vec<(PathBuf, Vec<Diagnostic>)> = Vec::new();
-        let matchers: Vec<&ProblemMatcher> =
-            self.problem_matchers.iter().map(|(_, m)| m).collect();
+        let matchers: Vec<&ProblemMatcher> = self.problem_matchers.iter().map(|(_, m)| m).collect();
         for f in problems(text, &matchers) {
             let first = f.message.lines().next().unwrap_or_default();
             let shown_already = self.diagnostics.iter().any(|((k, p), list)| {

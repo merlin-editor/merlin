@@ -108,7 +108,7 @@ fn messages_collect_in_output() {
     s.run("cmd view.output");
     assert!(
         s.screen()
-            .contains("[info] The key combination (Ctrl+K, X) is not a command"),
+            .contains("info   The key combination (Ctrl+K, X) is not a command"),
         "{}",
         s.screen()
     );
@@ -126,7 +126,7 @@ fn a_failed_plugin_offers_its_output() {
     ui(&mut s, UiEvent::ToastButton(0));
     assert!(s.editor.bottom_visible());
     assert!(
-        s.screen().contains("[error] Plugin lsp failed: exited"),
+        s.screen().contains("error  Failed: exited"),
         "{}",
         s.screen()
     );

@@ -40,8 +40,10 @@ mod merge;
 mod merge_editor;
 mod mouse;
 mod open;
+mod output;
 mod overview;
 mod palette;
+pub use output::{LogLevel, OutputBarView, OutputClick, OutputList, OutputRowView};
 mod panels;
 mod peek;
 pub use blame::{BlameCardView, BlameCell, CommitInfo};
@@ -264,6 +266,8 @@ struct Message {
     warning: bool,
     /// Buttons: label and the command each runs.
     actions: Vec<(String, String)>,
+    /// A quieter link at the start of the button row: label and command.
+    link: Option<(String, String)>,
 }
 
 pub struct Editor {
@@ -539,8 +543,8 @@ pub struct Editor {
     outline_for: Option<(u64, u64)>,
     /// The project's name, for the title bar.
     project: String,
-    /// Messages so far, newest last, for the Output panel.
-    log: Vec<(bool, String)>,
+    /// The Output panel's channels: merlin's messages and plugins' logs.
+    output: output::Output,
     /// Problems as listed in the Problems panel: file, line and column.
     problems: Vec<(PathBuf, u32, u32)>,
     /// The plugins loaded, for the Plugins view.
@@ -692,7 +696,7 @@ impl Editor {
             inline_notes: true,
             inlay_hints: true,
             project: "merlin".into(),
-            log: Vec::new(),
+            output: output::Output::default(),
             problems: Vec::new(),
             plugin_list: Vec::new(),
             status_lines: Vec::new(),
@@ -951,13 +955,14 @@ impl Editor {
     // Messages ----------------------------------------------------------------
 
     fn notify(&mut self, text: String) {
-        self.log.push((false, text.clone()));
+        self.log_line(output::MERLIN, LogLevel::Info, &text);
         self.message = Some(Message {
             text,
             error: false,
             done: false,
             warning: false,
             actions: Vec::new(),
+            link: None,
         });
     }
 
@@ -970,13 +975,14 @@ impl Editor {
     }
 
     fn error(&mut self, text: String) {
-        self.log.push((true, text.clone()));
+        self.log_line(output::MERLIN, LogLevel::Error, &text);
         self.message = Some(Message {
             text,
             error: true,
             done: false,
             warning: false,
             actions: Vec::new(),
+            link: None,
         });
     }
 

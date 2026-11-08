@@ -11,7 +11,9 @@ mod spec;
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use merlin_plugin::{BufferEvent, Command, Panel, Plugin, ProcessEvent, StatusItem, Token, host};
+use merlin_plugin::{
+    BufferEvent, Button, Command, LogLevel, Panel, Plugin, ProcessEvent, StatusItem, Token, host,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -154,14 +156,14 @@ impl Lsp {
             return;
         }
         let Some(edit) = self.actions.get(item) else {
-            return host::notify("That code action is out of date: try again");
+            return host::notice(LogLevel::Info, "That code action is out of date: try again", &[]);
         };
         let edits = file_edits(edit);
         if edits.is_empty() {
-            return host::notify("That code action changes nothing");
+            return host::notice(LogLevel::Info, "That code action changes nothing", &[]);
         }
         if let Err(err) = host::apply_edits(&edits) {
-            host::notify(&err);
+            host::notice(LogLevel::Error, &err, &[]);
         }
     }
 
@@ -211,6 +213,14 @@ impl Lsp {
                     server.opened.clear();
                     let code = code.map_or("a signal".into(), |c| format!("code {c}"));
                     server.status = Status::Failed(format!("exited ({code})"));
+                    host::notice(
+                        LogLevel::Error,
+                        &format!("{program} stopped: it exited with {code}"),
+                        &[Button {
+                            id: "command:restart".into(),
+                            label: "Restart".into(),
+                        }],
+                    );
                 }
             }
         }

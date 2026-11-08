@@ -175,6 +175,22 @@ pub enum Event {
     },
     InsertText(String),
     Notify(String),
+    /// A line for a plugin's channel of the Output panel.
+    PluginLog {
+        plugin: String,
+        level: super::LogLevel,
+        text: String,
+    },
+    /// A notice from a plugin. Its buttons' clicks go back to the plugin's
+    /// `on-click`, and it says how to quieten that plugin's notices.
+    PluginNotice {
+        plugin: String,
+        level: super::LogLevel,
+        text: String,
+        buttons: Vec<crate::panel::Button>,
+    },
+    /// Shows a channel of the Output panel: `merlin` or a plugin's name.
+    ShowOutput(String),
     /// A plugin's diagnostics for a file, replacing its earlier ones.
     SetDiagnostics {
         plugin: String,

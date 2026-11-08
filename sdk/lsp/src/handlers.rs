@@ -4,7 +4,8 @@ use std::collections::BTreeSet;
 
 use merlin_plugin::{
     ActionKind, CodeAction, Completion, DetailedDiagnostic, Diagnostic, FoldRange, InlayHint,
-    Location, Position, ProjectSymbol, RenameInfo, Severity, Task, TaskGroup, TokenLayer, host,
+    Location, LogLevel, Position, ProjectSymbol, RenameInfo, Severity, Task, TaskGroup,
+    TokenLayer, host,
 };
 use serde_json::{Value, json};
 
@@ -158,10 +159,22 @@ impl Lsp {
                     None => {}
                 }
             }
-            "window/showMessage" if params["type"].as_u64() == Some(1) => host::notify(&format!(
-                "{program}: {}",
-                params["message"].as_str().unwrap_or_default()
-            )),
+            // An error the server shows is a notice; the rest of what it
+            // says goes to the plugin's Output channel.
+            "window/showMessage" | "window/logMessage" => {
+                let text = format!("{program}: {}", params["message"].as_str().unwrap_or_default());
+                let level = match params["type"].as_u64() {
+                    Some(1) => LogLevel::Error,
+                    Some(2) => LogLevel::Warn,
+                    Some(3) => LogLevel::Info,
+                    _ => LogLevel::Debug,
+                };
+                if method == "window/showMessage" && level == LogLevel::Error {
+                    host::notice(level, &text, &[]);
+                } else {
+                    host::log(level, &text);
+                }
+            }
             _ => {}
         }
     }
@@ -211,11 +224,15 @@ impl Lsp {
                     | Request::Runnables { .. }
                     | Request::Signature
             );
-            if !cancelled && !quiet {
-                host::notify(&format!(
-                    "{program}: {}",
-                    error["message"].as_str().unwrap_or("error")
-                ));
+            let text = format!("{program}: {}", error["message"].as_str().unwrap_or("error"));
+            // Only what the user asked for is a notice; what came by
+            // itself is logged.
+            if cancelled {
+                host::log(LogLevel::Debug, &text);
+            } else if quiet {
+                host::log(LogLevel::Warn, &text);
+            } else {
+                host::notice(LogLevel::Warn, &text, &[]);
             }
             return;
         }
@@ -257,7 +274,7 @@ impl Lsp {
             }
             Request::Hover { manual } => match result.get("contents").map(hover_text) {
                 Some(text) if !text.is_empty() => host::show_hover(&text),
-                _ if manual => host::notify("Nothing to show here"),
+                _ if manual => host::log(LogLevel::Info, "Hover: nothing to show here"),
                 _ => {}
             },
             Request::Format { path } => formatted(&path, result),
@@ -372,12 +389,12 @@ impl Lsp {
             Request::Rename { review } => {
                 let edits = file_edits(result);
                 if edits.is_empty() {
-                    return host::notify("That rename changes nothing");
+                    return host::notice(LogLevel::Info, "That rename changes nothing", &[]);
                 }
                 if review {
                     host::show_rename_review(&edits);
                 } else if let Err(err) = host::apply_edits(&edits) {
-                    host::notify(&err);
+                    host::notice(LogLevel::Error, &err, &[]);
                 }
             }
             Request::Definition => {
@@ -393,7 +410,7 @@ impl Lsp {
                 });
                 match target {
                     Some((path, at)) => host::open_at(&path, at),
-                    None => host::notify("No definition found"),
+                    None => host::log(LogLevel::Info, "Go to Definition: none found"),
                 }
             }
             Request::DefinitionLink => {

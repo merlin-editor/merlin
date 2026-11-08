@@ -305,7 +305,8 @@ pub struct PageView {
 pub enum PageAction {
     Enable(String, bool),
     Reload(String),
-    Output,
+    /// Its channel of the Output panel.
+    Output(String),
     Uninstall(String),
     /// A plugin's setting: plugin, key, new value.
     Setting(String, String, toml::Value),

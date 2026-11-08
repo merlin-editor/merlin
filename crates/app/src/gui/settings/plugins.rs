@@ -26,14 +26,7 @@ impl Frame<'_> {
             } else if self.s_hovered(r, clip) {
                 self.s_round(r, 6.0, clip, p.hover);
             }
-            self.plugin_mark(
-                &row.mark,
-                r.x + 10.0,
-                r.y + 8.0,
-                26.0,
-                row.on,
-                clip,
-            );
+            self.plugin_mark(&row.mark, r.x + 10.0, r.y + 8.0, 26.0, row.on, clip);
             let name_clip = Rect::new(r.x, r.y, r.w - 64.0, r.h).intersect(clip);
             let fg = if row.on { p.bright } else { p.muted };
             self.s_row_text(
@@ -122,7 +115,7 @@ impl Frame<'_> {
     }
 
     /// A plugin's mark: its monogram on a tinted square in its accent hue.
-    pub(super) fn plugin_mark(
+    pub(crate) fn plugin_mark(
         &mut self,
         (letters, hue): &(String, merlin_core::style::Hue),
         x: f32,
@@ -163,7 +156,7 @@ impl Frame<'_> {
         let mut bx = sw.x - 12.0;
         let face = Face::ui(12.0);
         for (label, action) in [
-            ("Output", PageAction::Output),
+            ("Output", PageAction::Output(page.name.clone())),
             ("Reload", PageAction::Reload(page.name.clone())),
         ] {
             let bw = self.text.width(label, face) + 20.0;

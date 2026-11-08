@@ -562,6 +562,12 @@ impl Frame<'_> {
         if let Some(bar) = &view.debug {
             self.debug_bar(bar, a.editor);
         }
+        // The Output panel's choices, over its tabs, and the list one
+        // opened.
+        if let (Some(bar), Some(panel)) = (&view.output_bar, a.bottom) {
+            let under = self.output_bar(bar, panel);
+            self.output_list(bar, under, w, h);
+        }
         if let Some(toast) = &view.toast {
             self.toast(toast, a.editor);
         }

@@ -280,6 +280,8 @@ impl Frame<'_> {
                 self.text.wrapped_height(t, Face::ui(12.5), inner) + 8.0
             }
             Node::Markdown(t) => self.text.wrapped_height(&plain(t), Face::ui(12.5), inner) + 8.0,
+            // One line each, never wrapped: a long log costs no shaping.
+            Node::Log(_) => LOG_ROW_H,
             Node::Button(_) | Node::Buttons(_) => 38.0,
             Node::Tools(_) => 32.0,
             Node::Entry(e) if e.id.starts_with("plugin:") => {
@@ -366,6 +368,7 @@ impl Frame<'_> {
                     clip,
                 );
             }
+            Node::Log(l) => self.log_row(l, r, clip),
             Node::Text(t) => {
                 self.text.draw(
                     &mut self.canvas,
@@ -1264,4 +1267,200 @@ fn pick(side: Side, index: usize) -> Hit {
         index,
         clicks: 1,
     })
+}
+
+/// A line of the Output panel.
+const LOG_ROW_H: f32 = 20.0;
+
+impl Frame<'_> {
+    /// A log line: its time, its level in its colour, then its text, in a
+    /// fixed-width font and cut at the panel's edge.
+    fn log_row(&mut self, l: &merlin_core::LogRow, r: Rect, clip: Rect) {
+        let p = self.p;
+        if l.tone == Tone::Error {
+            self.canvas
+                .tint(Rect::new(r.x + 6.0, r.y, r.w - 12.0, r.h), 4.0, p.error, 28);
+        }
+        let face = Face::mono(12.0);
+        let clip = clip.intersect(Rect::new(r.x, r.y, r.w - 14.0, r.h));
+        let mut x = r.x + 14.0;
+        x += self
+            .text
+            .draw_in_row(&mut self.canvas, &l.time, face, x, r.y, r.h, p.faint, clip);
+        x += 12.0;
+        let colour = match l.level.as_str() {
+            "info" => p.accent,
+            "stderr" => p.info,
+            _ => tone_colour(&p, l.tone),
+        };
+        self.text
+            .draw_in_row(&mut self.canvas, &l.level, face, x, r.y, r.h, colour, clip);
+        x += self.text.width("stderr", face) + 12.0;
+        self.text
+            .draw_in_row(&mut self.canvas, &l.text, face, x, r.y, r.h, p.text, clip);
+    }
+}
+
+impl Frame<'_> {
+    /// The Output panel's choices at the right of its tabs: the channel,
+    /// with its plugin's tile, and how much to show. Returns where the
+    /// controls are, for the open list to hang from.
+    pub(super) fn output_bar(&mut self, bar: &merlin_core::OutputBarView, panel: Rect) -> Rect {
+        let p = self.p;
+        let face = Face::ui(12.0);
+        let mut x = panel.right() - 10.0;
+        let y = panel.y + 7.0;
+        let mut first = None;
+        // Right to left: Clear, the level, the channel.
+        let clear = Rect::new(x - 26.0, y - 1.0, 26.0, 26.0);
+        if self.hovered(clear) {
+            self.canvas.round(clear, 6.0, p.hover);
+        }
+        self.text.draw_in_row(
+            &mut self.canvas,
+            "⊘",
+            face,
+            clear.x + 8.0,
+            clear.y,
+            clear.h,
+            p.muted,
+            panel,
+        );
+        self.hit(clear, Hit::Command("output.clear"));
+        self.tips.push((clear, "Clear the Channel".into()));
+        x = clear.x - 6.0;
+        for (list, label, mark) in [
+            (merlin_core::OutputList::Levels, &bar.level, None),
+            (
+                merlin_core::OutputList::Channels,
+                &bar.channel,
+                bar.mark.as_ref(),
+            ),
+        ] {
+            let tile = if mark.is_some() { 20.0 } else { 0.0 };
+            let w = self.text.width(label, face) + tile + 34.0;
+            let r = Rect::new(x - w, y, w, 24.0);
+            x = r.x - 6.0;
+            let open = bar.open == Some(list);
+            let bg = if self.hovered(r) { p.hover } else { p.raised };
+            self.canvas
+                .outline(r, 6.0, 1.0, if open { p.accent } else { p.border }, bg);
+            let mut tx = r.x + 9.0;
+            if let Some(mark) = mark {
+                self.plugin_mark(mark, tx, r.y + 4.0, 16.0, true, panel);
+                tx += tile;
+            }
+            self.text
+                .draw_in_row(&mut self.canvas, label, face, tx, r.y, r.h, p.text, panel);
+            self.text.draw_in_row(
+                &mut self.canvas,
+                "▾",
+                face,
+                r.right() - 17.0,
+                r.y,
+                r.h,
+                p.muted,
+                panel,
+            );
+            self.hit(
+                r,
+                Hit::Ui(UiEvent::Output(merlin_core::OutputClick::Open(list))),
+            );
+            first.get_or_insert(r);
+            if open {
+                first = Some(r);
+            }
+        }
+        first.unwrap_or(panel)
+    }
+
+    /// The Output bar's open list, floating under its control: channels
+    /// with their tiles, line counts and a red dot for errors not seen yet,
+    /// or the levels.
+    pub(super) fn output_list(
+        &mut self,
+        bar: &merlin_core::OutputBarView,
+        under: Rect,
+        w: f32,
+        h: f32,
+    ) {
+        if bar.rows.is_empty() {
+            return;
+        }
+        let p = self.p;
+        // A click anywhere else closes it.
+        self.hit(
+            Rect::new(0.0, 0.0, w, h),
+            Hit::Ui(UiEvent::Output(merlin_core::OutputClick::Close)),
+        );
+        let face = Face::ui(12.5);
+        let row_h = 28.0;
+        let heads = bar.rows.iter().filter(|r| r.heading.is_some()).count() as f32;
+        let list_w = bar
+            .rows
+            .iter()
+            .map(|r| self.text.width(&r.label, face) + 92.0)
+            .fold(under.w.max(200.0), f32::max);
+        let list_h = bar.rows.len() as f32 * row_h + heads * 26.0 + 9.0 + heads * 9.0;
+        let x = (under.right() - list_w).max(8.0);
+        let mut y = under.bottom() + 4.0;
+        if y + list_h > h - 8.0 {
+            y = (under.y - 4.0 - list_h).max(8.0);
+        }
+        let r = Rect::new(x, y, list_w, list_h);
+        self.canvas.shadow(r, 8.0, false);
+        self.canvas.outline(r, 8.0, 1.0, p.border, p.widget);
+        self.hit(r, Hit::Block);
+        let mut iy = r.y + 4.0;
+        for (i, row) in bar.rows.iter().enumerate() {
+            if let Some(heading) = &row.heading {
+                self.canvas
+                    .fill(Rect::new(r.x + 6.0, iy + 4.0, r.w - 12.0, 1.0), p.line);
+                iy += 9.0;
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    &heading.to_uppercase(),
+                    Face::ui(10.5).bold(),
+                    r.x + 14.0,
+                    iy,
+                    26.0,
+                    p.muted,
+                    r,
+                );
+                iy += 26.0;
+            }
+            let rr = Rect::new(r.x + 4.0, iy, r.w - 8.0, row_h);
+            if row.on {
+                self.canvas.round(rr, 5.0, p.selected);
+            } else if self.hovered(rr) {
+                self.canvas.round(rr, 5.0, p.focus_row);
+            }
+            let mut tx = rr.x + 10.0;
+            if let Some(mark) = &row.mark {
+                self.plugin_mark(mark, tx, rr.y + 6.0, 16.0, true, r);
+                tx += 24.0;
+            }
+            let fg = if row.on { p.bright } else { p.text };
+            self.text
+                .draw_in_row(&mut self.canvas, &row.label, face, tx, rr.y, rr.h, fg, r);
+            let mut rx = rr.right() - 10.0;
+            if let Some(n) = row.count {
+                let n = n.to_string();
+                let nf = Face::ui(11.0);
+                rx -= self.text.width(&n, nf);
+                self.text
+                    .draw_in_row(&mut self.canvas, &n, nf, rx, rr.y, rr.h, p.muted, r);
+                rx -= 10.0;
+            }
+            if row.unseen_error {
+                self.canvas
+                    .round(Rect::new(rx - 7.0, rr.y + 10.5, 7.0, 7.0), 3.5, p.error);
+            }
+            self.hit(
+                rr,
+                Hit::Ui(UiEvent::Output(merlin_core::OutputClick::Row(i))),
+            );
+            iy += row_h;
+        }
+    }
 }
