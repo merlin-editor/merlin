@@ -18,6 +18,7 @@ mod manifest;
 mod process;
 mod secrets;
 mod state;
+mod worker;
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -39,6 +40,7 @@ use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
 use process::{Output, Processes};
 use secrets::Secrets;
 use state::*;
+use worker::{Finished, Instance, Worker};
 
 pub use manifest::*;
 
@@ -72,6 +74,11 @@ pub struct Config {
     pub ask: bool,
     /// Keep secrets in the system keyring when `secret-tool` is installed.
     pub keyring: bool,
+    /// Calls into plugins don't wait: each plugin runs on a thread of its
+    /// own and what it asks for comes from [`PluginHost::poll_processes`].
+    /// Off, each call waits and returns its events, as scripts and tests
+    /// want.
+    pub background: bool,
 }
 
 impl Config {
@@ -86,6 +93,7 @@ impl Config {
             data_dir: data.join("merlin"),
             ask: true,
             keyring: true,
+            background: false,
         }
     }
 }
@@ -133,19 +141,15 @@ impl Snapshot {
     }
 }
 
-struct Instance {
-    store: Store<State>,
-    bindings: Bindings,
-}
-
 struct Loaded {
     manifest: Manifest,
     /// The plugin's folder, which its permissions are remembered by.
     dir: String,
     wasm: PathBuf,
     modified: Option<SystemTime>,
-    /// None while waiting for the user to allow its permissions.
-    instance: Option<Instance>,
+    /// Its thread, which has its instance. None while waiting for the
+    /// user to allow its permissions, or to start.
+    worker: Option<Worker>,
     /// Bumped on every reload, so output from an old instance's processes
     /// isn't delivered to the new one.
     generation: u64,
@@ -154,8 +158,6 @@ struct Loaded {
     failed_reload: bool,
     /// Turned off by the user: loaded, but not running.
     disabled: bool,
-    /// Time spent in the plugin's calls since it loaded.
-    busy: Duration,
     /// Adds languages only: no commands, processes, debugger or symbol
     /// search, so it has no panel and only cares about files of its own
     /// languages.
@@ -224,6 +226,9 @@ pub struct PluginHost {
     plugins: Vec<Loaded>,
     output_tx: Sender<Output>,
     output_rx: Receiver<Output>,
+    /// Calls that didn't wait, done.
+    done_tx: Sender<Finished>,
+    done_rx: Receiver<Finished>,
     /// Called from background threads when process output is queued, so a
     /// frontend that sleeps between events knows to poll.
     waker: Option<Waker>,
@@ -259,6 +264,7 @@ impl PluginHost {
         wasmtime_wasi::p2::add_to_linker_sync(&mut linker).map_err(wt)?;
         Bindings::add_to_linker::<State, HasSelf<State>>(&mut linker, |s| s).map_err(wt)?;
         let (output_tx, output_rx) = channel();
+        let (done_tx, done_rx) = channel();
         let secrets = Arc::new(Secrets::new(
             config.data_dir.join("secrets"),
             config.keyring,
@@ -269,6 +275,8 @@ impl PluginHost {
             plugins: Vec::new(),
             output_tx,
             output_rx,
+            done_tx,
+            done_rx,
             waker: None,
             woken: Arc::new(AtomicBool::new(false)),
             config,
@@ -324,12 +332,11 @@ impl PluginHost {
                 dir,
                 modified: None,
                 wasm: PathBuf::new(),
-                instance: None,
+                worker: None,
                 generation: 0,
                 failed: false,
                 failed_reload: false,
                 disabled: false,
-                busy: Duration::ZERO,
                 pure_language: false,
                 dormant: false,
             });
@@ -345,7 +352,7 @@ impl PluginHost {
         let cached = (!manifest.activate_on.is_empty() && !ask && !off)
             .then(|| self.cached_commands(&manifest.name))
             .flatten();
-        let instance = if ask || off || cached.is_some() {
+        let worker = if ask || off || cached.is_some() {
             None
         } else {
             Some(self.instantiate(&manifest, &wasm, 0)?)
@@ -355,12 +362,11 @@ impl PluginHost {
             dir,
             modified: modified(&wasm),
             wasm,
-            instance,
+            worker,
             generation: 0,
             failed: false,
             failed_reload: false,
             disabled: off,
-            busy: Duration::ZERO,
             pure_language: false,
             dormant: cached.is_some(),
         });
@@ -410,7 +416,7 @@ impl PluginHost {
                 continue;
             }
             let plugin = &mut self.plugins[i];
-            plugin.instance = None;
+            plugin.worker = None;
             plugin.dormant = false;
             plugin.failed = true;
             let which = missing.join(", ");
@@ -456,8 +462,8 @@ impl PluginHost {
             ];
         }
         let plugin = &self.plugins[index];
-        let instance = match self.instantiate(&plugin.manifest, &plugin.wasm, 0) {
-            Ok(instance) => instance,
+        let worker = match self.instantiate(&plugin.manifest, &plugin.wasm, 0) {
+            Ok(worker) => worker,
             Err(err) => {
                 self.plugins.remove(index);
                 return vec![Event::PluginFailed {
@@ -471,7 +477,7 @@ impl PluginHost {
             &plugin.dir,
             &plugin.manifest.permissions,
         );
-        self.plugins[index].instance = Some(instance);
+        self.plugins[index].worker = Some(worker);
         let mut events = self.activate(index, None);
         if let Err(err) = saved {
             events.push(Event::Notify(format!(
@@ -532,7 +538,13 @@ impl PluginHost {
         Ok(component)
     }
 
-    fn instantiate(&self, manifest: &Manifest, wasm: &Path, generation: u64) -> Result<Instance> {
+    /// Starts a plugin's instance on a thread of its own.
+    fn instantiate(&self, manifest: &Manifest, wasm: &Path, generation: u64) -> Result<Worker> {
+        let instance = self.instance(manifest, wasm, generation)?;
+        Worker::start(&manifest.name, instance).context("starting the plugin's thread")
+    }
+
+    fn instance(&self, manifest: &Manifest, wasm: &Path, generation: u64) -> Result<Instance> {
         let component = self
             .compile(&manifest.name, wasm)
             .with_context(|| format!("loading {}", wasm.display()))?;
@@ -568,12 +580,16 @@ impl PluginHost {
         let bindings = Bindings::new(&mut store, &instance)
             .map_err(wt)
             .with_context(|| format!("instantiating {}", manifest.name))?;
-        Ok(Instance { store, bindings })
+        Ok(Instance {
+            store,
+            bindings,
+            failed: false,
+        })
     }
 
     fn activate(&mut self, index: usize, state: Option<Vec<u8>>) -> Vec<Event> {
         let plugin = self.plugins[index].manifest.name.clone();
-        let (commands, mut events) = self.call(index, Snapshot::default(), |b, s| {
+        let (commands, mut events) = self.call(index, Snapshot::default(), move |b, s| {
             b.call_activate(s, state.as_deref())
         });
         if let Some(commands) = commands {
@@ -697,9 +713,9 @@ impl PluginHost {
         let plugin = &self.plugins[index];
         let name = plugin.manifest.name.clone();
         match self.instantiate(&plugin.manifest, &plugin.wasm, plugin.generation) {
-            Ok(instance) => {
+            Ok(worker) => {
                 let plugin = &mut self.plugins[index];
-                plugin.instance = Some(instance);
+                plugin.worker = Some(worker);
                 plugin.dormant = false;
                 self.activate(index, None)
             }
@@ -740,58 +756,98 @@ impl PluginHost {
         })
     }
 
-    /// Calls into a plugin and collects the events it asked for. A trap
-    /// disables the plugin and stops its processes until it is reloaded.
-    fn call<R>(
+    /// Calls into a plugin, waits, and collects the events it asked for.
+    /// A trap disables the plugin and stops its processes until it is
+    /// reloaded. One waiting to start starts.
+    fn call<R: Send + 'static>(
         &mut self,
         index: usize,
         snapshot: Snapshot,
-        f: impl FnOnce(&Bindings, &mut Store<State>) -> wasmtime::Result<R>,
+        f: impl FnOnce(&Bindings, &mut Store<State>) -> wasmtime::Result<R> + Send + 'static,
     ) -> (Option<R>, Vec<Event>) {
-        // Waiting to start: used now, so it starts.
-        let woke = if self.plugins[index].dormant {
+        let mut events = if self.plugins[index].dormant {
             self.wake(index)
         } else {
             Vec::new()
         };
-        if !woke.is_empty() {
-            let (result, mut more) = self.call(index, snapshot, f);
-            let mut events = woke;
-            events.append(&mut more);
-            return (result, events);
-        }
         let plugin = &mut self.plugins[index];
-        let Some(instance) = plugin.instance.as_mut().filter(|_| !plugin.failed) else {
-            return (None, Vec::new());
+        let Some(worker) = plugin.worker.as_ref().filter(|_| !plugin.failed) else {
+            return (None, events);
         };
-        let store = &mut instance.store;
-        store.data_mut().snapshot = snapshot;
-        let _ = store.set_fuel(FUEL_PER_CALL);
-        let started = std::time::Instant::now();
-        let result = f(&instance.bindings, store);
-        plugin.busy += started.elapsed();
-        let mut events = std::mem::take(&mut store.data_mut().events);
-        match result {
-            Ok(value) => (Some(value), events),
-            Err(err) => {
-                plugin.failed = true;
-                store.data_mut().processes.kill_all();
-                // Out of fuel says nothing a backtrace would add.
-                let message =
-                    if err.downcast_ref::<wasmtime::Trap>() == Some(&wasmtime::Trap::OutOfFuel) {
-                        "it ran too long and was stopped. Turn it off and on in Settings › \
-                     Plugins to start it again."
-                            .to_string()
-                    } else {
-                        format!("{err:#}")
-                    };
-                events.push(Event::PluginFailed {
-                    plugin: plugin.manifest.name.clone(),
-                    message,
-                });
-                (None, events)
-            }
+        let name = plugin.manifest.name.clone();
+        let Some((result, more, failed)) = worker.run(move |i| run_call(i, &name, snapshot, f))
+        else {
+            return (None, events);
+        };
+        plugin.failed |= failed;
+        events.extend(more);
+        (result, events)
+    }
+
+    /// Calls into a plugin without waiting, when the host runs in the
+    /// background: `then` turns what it returns into events, and they come
+    /// from [`Self::poll_processes`] with the ones it asked for. A newer
+    /// call of the same `kind` replaces this one if it hasn't started.
+    /// `quiet` calls only draw, so their events don't ask for views again.
+    /// Not in the background, it waits and returns them.
+    fn post<R: Send + 'static>(
+        &mut self,
+        index: usize,
+        snapshot: Snapshot,
+        kind: Option<String>,
+        quiet: bool,
+        f: impl FnOnce(&Bindings, &mut Store<State>) -> wasmtime::Result<R> + Send + 'static,
+        then: impl FnOnce(R) -> Vec<Event> + Send + 'static,
+    ) -> Vec<Event> {
+        if !self.config.background {
+            let (result, mut events) = self.call(index, snapshot, f);
+            events.extend(result.map(then).unwrap_or_default());
+            return events;
         }
+        let events = if self.plugins[index].dormant {
+            self.wake(index)
+        } else {
+            Vec::new()
+        };
+        let plugin = &self.plugins[index];
+        let Some(worker) = plugin.worker.as_ref().filter(|_| !plugin.failed) else {
+            return events;
+        };
+        let name = plugin.manifest.name.clone();
+        let generation = plugin.generation;
+        let done = self.done_tx.clone();
+        let waker = self.waker.clone();
+        let woken = self.woken.clone();
+        worker.post(kind, move |i| {
+            let (result, mut events, failed) = run_call(i, &name, snapshot, f);
+            events.extend(result.map(then).unwrap_or_default());
+            if events.is_empty() && !failed {
+                return;
+            }
+            let _ = done.send(Finished {
+                plugin: name,
+                generation,
+                events,
+                failed,
+                quiet,
+            });
+            if !woken.swap(true, Ordering::AcqRel)
+                && let Some(wake) = &waker
+            {
+                wake();
+            }
+        });
+        events
+    }
+
+    /// [`Self::post`] for a call whose result is only its events.
+    fn post_call<R: Send + 'static>(
+        &mut self,
+        index: usize,
+        snapshot: Snapshot,
+        f: impl FnOnce(&Bindings, &mut Store<State>) -> wasmtime::Result<R> + Send + 'static,
+    ) -> Vec<Event> {
+        self.post(index, snapshot, None, false, f, |_| Vec::new())
     }
 
     fn index(&self, name: &str) -> Option<usize> {
@@ -811,25 +867,25 @@ impl PluginHost {
         self.workspace_settings = workspace;
         let mut events = Vec::new();
         for i in 0..self.plugins.len() {
-            let plugin = &mut self.plugins[i];
+            let plugin = &self.plugins[i];
+            if plugin.worker.is_none() {
+                continue;
+            }
             let settings = plugin_settings(
                 &plugin.manifest,
                 &self.user_settings,
                 &self.workspace_settings,
             );
-            let Some(instance) = &mut plugin.instance else {
-                continue;
+            let call = move |b: &Bindings, s: &mut Store<State>| {
+                let old = std::mem::replace(&mut s.data_mut().settings, settings);
+                let mut changed: Vec<String> = Vec::new();
+                changed_keys(&old, &s.data().settings, "", &mut changed);
+                for key in changed {
+                    b.call_on_setting_changed(&mut *s, &key)?;
+                }
+                Ok(())
             };
-            let old = std::mem::replace(&mut instance.store.data_mut().settings, settings);
-            let new = &instance.store.data().settings;
-            let mut changed: Vec<String> = Vec::new();
-            changed_keys(&old, new, "", &mut changed);
-            for key in changed {
-                let (_, mut more) = self.call(i, snapshot.clone(), |b, s| {
-                    b.call_on_setting_changed(s, &key)
-                });
-                events.append(&mut more);
-            }
+            events.extend(self.post_call(i, snapshot.clone(), call));
         }
         events
     }
@@ -848,11 +904,10 @@ impl PluginHost {
             Some(value) => self.secrets.set(plugin, key, value)?,
             None => self.secrets.delete(plugin, key),
         }
-        Ok(self
-            .call(i, snapshot.clone(), |b, s| {
-                b.call_on_setting_changed(s, key)
-            })
-            .1)
+        let key = key.to_string();
+        Ok(self.post_call(i, snapshot.clone(), move |b, s| {
+            b.call_on_setting_changed(s, &key)
+        }))
     }
 
     /// Gives a debugger plugin what `debug-start` and `breakpoints` read,
@@ -866,12 +921,14 @@ impl PluginHost {
         let Some(i) = self.index(plugin) else {
             return;
         };
-        if let Some(instance) = &mut self.plugins[i].instance {
-            let state = instance.store.data_mut();
-            if start.is_some() {
-                state.debug_start = start;
-            }
-            state.breakpoints = breakpoints;
+        if let Some(worker) = &self.plugins[i].worker {
+            worker.post(None, move |i| {
+                let state = i.store.data_mut();
+                if start.is_some() {
+                    state.debug_start = start;
+                }
+                state.breakpoints = breakpoints;
+            });
         }
     }
 
@@ -879,8 +936,8 @@ impl PluginHost {
         let Some(i) = self.index(plugin) else {
             return Vec::new();
         };
-        self.call(i, snapshot, |b, s| b.call_run_command(s, command))
-            .1
+        let command = command.to_string();
+        self.post_call(i, snapshot, move |b, s| b.call_run_command(s, &command))
     }
 
     /// Runs a plugin's symbol search, with `query` for `symbol-query`.
@@ -894,11 +951,11 @@ impl PluginHost {
         let Some(i) = self.index(plugin) else {
             return Vec::new();
         };
-        if let Some(instance) = &mut self.plugins[i].instance {
-            instance.store.data_mut().symbol_query = query.to_string();
-        }
-        self.call(i, snapshot, |b, s| b.call_run_command(s, command))
-            .1
+        let (command, query) = (command.to_string(), query.to_string());
+        self.post_call(i, snapshot, move |b, s| {
+            s.data_mut().symbol_query = query;
+            b.call_run_command(s, &command)
+        })
     }
 
     pub fn click(&mut self, plugin: &str, button: &str, snapshot: Snapshot) -> Vec<Event> {
@@ -909,14 +966,15 @@ impl PluginHost {
         if self.plugins[i].manifest.component.is_none() || self.plugins[i].disabled {
             return Vec::new();
         }
-        if self.plugins[i].instance.is_none() && !self.plugins[i].dormant {
+        if self.plugins[i].worker.is_none() && !self.plugins[i].dormant {
             return match button {
                 ALLOW => self.answer(i, true),
                 DENY => self.answer(i, false),
                 _ => Vec::new(),
             };
         }
-        self.call(i, snapshot, |b, s| b.call_on_click(s, button)).1
+        let button = button.to_string();
+        self.post_call(i, snapshot, move |b, s| b.call_on_click(s, &button))
     }
 
     /// Tells every working plugin that the open files changed.
@@ -944,8 +1002,17 @@ impl PluginHost {
             {
                 continue;
             }
-            let (_, mut more) = self.call(i, snapshot.clone(), |b, s| b.call_on_buffer(s, &event));
-            events.append(&mut more);
+            // Typing on: a change not yet heard is replaced by the newer one.
+            let kind = matches!(event, types::BufferEvent::Changed).then(|| "changed".to_string());
+            let event = event.clone();
+            events.extend(self.post(
+                i,
+                snapshot.clone(),
+                kind,
+                false,
+                move |b, s| b.call_on_buffer(s, &event),
+                |()| Vec::new(),
+            ));
         }
         events
     }
@@ -960,8 +1027,8 @@ impl PluginHost {
         let Some(i) = self.index(plugin) else {
             return Vec::new();
         };
-        self.call(i, snapshot, |b, s| b.call_on_submit(s, input, text))
-            .1
+        let (input, text) = (input.to_string(), text.to_string());
+        self.post_call(i, snapshot, move |b, s| b.call_on_submit(s, &input, &text))
     }
 
     /// The user cancelled a plugin's work under way.
@@ -969,7 +1036,8 @@ impl PluginHost {
         let Some(i) = self.index(plugin) else {
             return Vec::new();
         };
-        self.call(i, snapshot, |b, s| b.call_on_cancel(s, id)).1
+        let id = id.to_string();
+        self.post_call(i, snapshot, move |b, s| b.call_on_cancel(s, &id))
     }
 
     /// A command line the plugin ran in a terminal, or one of its tests',
@@ -985,8 +1053,10 @@ impl PluginHost {
         let Some(i) = self.index(plugin) else {
             return Vec::new();
         };
-        self.call(i, snapshot, |b, s| b.call_on_terminal(s, id, output, code))
-            .1
+        let (id, output) = (id.to_string(), output.to_string());
+        self.post_call(i, snapshot, move |b, s| {
+            b.call_on_terminal(s, &id, &output, code)
+        })
     }
 
     pub fn review(
@@ -999,41 +1069,47 @@ impl PluginHost {
         let Some(i) = self.index(plugin) else {
             return Vec::new();
         };
-        self.call(i, snapshot, |b, s| b.call_on_review(s, id, accepted))
-            .1
+        let id = id.to_string();
+        self.post_call(i, snapshot, move |b, s| b.call_on_review(s, &id, accepted))
     }
 
     /// Colours `text` as a language, named by its id or an extension, with
-    /// the plugin that added it. `None` if no plugin did.
-    pub fn colour_text(
-        &mut self,
-        language: &str,
-        text: &str,
-    ) -> Option<Vec<merlin_core::lang::PluginToken>> {
+    /// the plugin that added it: a [`Event::TextColours`], now or from
+    /// [`Self::poll_processes`]. With no plugin for it, no colours.
+    pub fn colour_text(&mut self, language: &str, text: &str) -> Vec<Event> {
         let name = language.trim_start_matches('.').to_ascii_lowercase();
-        let mut fallback = None;
-        for i in 0..self.plugins.len() {
-            let matches = (self.plugins[i].instance.is_some() || self.plugins[i].dormant)
+        let found = (0..self.plugins.len()).find(|&i| {
+            (self.plugins[i].worker.is_some() || self.plugins[i].dormant)
+                && !self.plugins[i].failed
                 && self.plugins[i]
                     .manifest
                     .languages
                     .iter()
-                    .any(|l| l.id == name || l.extensions.contains(&name));
-            if !matches {
-                continue;
-            }
-            let (tokens, _) = self.call(i, Snapshot::default(), |b, s| {
-                b.call_colour_text(s, &name, text)
-            });
-            if let Some(tokens) = tokens {
-                let converted: Vec<_> = tokens.into_iter().map(plugin_token).collect();
-                if !converted.is_empty() {
-                    return Some(converted);
-                }
-                fallback = Some(converted);
-            }
-        }
-        fallback
+                    .any(|l| l.id == name || l.extensions.contains(&name))
+        });
+        let (language, text) = (language.to_string(), text.to_string());
+        let Some(i) = found else {
+            return vec![Event::TextColours {
+                language,
+                text,
+                tokens: Vec::new(),
+            }];
+        };
+        let asked = text.clone();
+        self.post(
+            i,
+            Snapshot::default(),
+            None,
+            true,
+            move |b, s| b.call_colour_text(s, &name, &asked),
+            move |tokens| {
+                vec![Event::TextColours {
+                    language,
+                    text,
+                    tokens: tokens.into_iter().map(plugin_token).collect(),
+                }]
+            },
+        )
     }
 
     pub fn pick(
@@ -1046,8 +1122,8 @@ impl PluginHost {
         let Some(i) = self.index(plugin) else {
             return Vec::new();
         };
-        self.call(i, snapshot, |b, s| b.call_on_pick(s, picker, item))
-            .1
+        let (picker, item) = (picker.to_string(), item.to_string());
+        self.post_call(i, snapshot, move |b, s| b.call_on_pick(s, &picker, &item))
     }
 
     /// Asks plugins to draw the views in `shown`, by name. With `all`,
@@ -1066,7 +1142,7 @@ impl PluginHost {
                 continue;
             }
             let name = self.plugins[i].manifest.name.clone();
-            if self.plugins[i].instance.is_none() && !self.plugins[i].dormant {
+            if self.plugins[i].worker.is_none() && !self.plugins[i].dormant {
                 if all {
                     events.push(Event::SetPanel {
                         plugin: name,
@@ -1083,43 +1159,58 @@ impl PluginHost {
                 .filter(|id| shown.contains(&merlin_core::view_key(&name, id)))
                 .collect();
             for id in views {
-                let (panel, mut more) =
-                    self.call(i, snapshot.clone(), |b, s| b.call_render_view(s, &id));
-                events.append(&mut more);
-                if let Some(panel) = panel {
-                    events.push(Event::SetPanel {
-                        plugin: merlin_core::view_key(&name, &id),
-                        panel: panel.map(convert_panel),
-                    });
-                }
+                let key = merlin_core::view_key(&name, &id);
+                events.extend(self.post(
+                    i,
+                    snapshot.clone(),
+                    Some(format!("view {id}")),
+                    true,
+                    move |b, s| b.call_render_view(s, &id),
+                    move |panel| {
+                        vec![Event::SetPanel {
+                            plugin: key,
+                            panel: panel.map(convert_panel),
+                        }]
+                    },
+                ));
             }
         }
         events
     }
 
-    /// Delivers process output that arrived since the last poll. `snapshot`
-    /// is only called if there is output to deliver. Returns the events the
-    /// plugins asked for, and whether anything was delivered.
+    /// Delivers process output that arrived since the last poll, and
+    /// collects what calls that didn't wait asked for. `snapshot` is only
+    /// called if there is output to deliver. Returns the events, and
+    /// whether anything happened that may change what plugins show:
+    /// events from drawing a view or colouring text alone don't.
     pub fn poll_processes(&mut self, snapshot: impl Fn() -> Snapshot) -> (Vec<Event>, bool) {
         self.woken.store(false, Ordering::Release);
+        let mut events = Vec::new();
+        let mut changed = false;
+        let finished: Vec<Finished> = self.done_rx.try_iter().collect();
+        for done in finished {
+            let Some(i) = self.index(&done.plugin) else {
+                continue;
+            };
+            if self.plugins[i].generation != done.generation {
+                continue;
+            }
+            self.plugins[i].failed |= done.failed;
+            changed |= !done.quiet;
+            events.extend(done.events);
+        }
         let pending: Vec<Output> = self.output_rx.try_iter().take(MESSAGES_PER_POLL).collect();
         if pending.is_empty() {
-            return (Vec::new(), false);
+            return (events, changed);
         }
         let more_waiting = pending.len() == MESSAGES_PER_POLL;
         let snapshot = snapshot();
-        let mut events = Vec::new();
         for output in pending {
             let Some(i) = self.index(&output.plugin) else {
                 continue;
             };
             if self.plugins[i].generation != output.generation {
                 continue;
-            }
-            if let (types::ProcessEvent::Exit(_), Some(instance)) =
-                (&output.event, &mut self.plugins[i].instance)
-            {
-                instance.store.data_mut().processes.forget(output.process);
             }
             // What a plugin's programs print on stderr goes to its channel,
             // as well as to the plugin.
@@ -1130,10 +1221,13 @@ impl PluginHost {
                     text: line.clone(),
                 });
             }
-            let (_, mut more) = self.call(i, snapshot.clone(), |b, s| {
-                b.call_on_process(s, output.process, &output.event)
-            });
-            events.append(&mut more);
+            let (process, event) = (output.process, output.event);
+            events.extend(self.post_call(i, snapshot.clone(), move |b, s| {
+                if let types::ProcessEvent::Exit(_) = &event {
+                    s.data_mut().processes.forget(process);
+                }
+                b.call_on_process(s, process, &event)
+            }));
         }
         if more_waiting
             && !self.woken.swap(true, Ordering::AcqRel)
@@ -1161,9 +1255,7 @@ impl PluginHost {
         let mut events = Vec::new();
         for i in 0..self.plugins.len() {
             let now = modified(&self.plugins[i].wasm);
-            if now.is_none()
-                || now == self.plugins[i].modified
-                || self.plugins[i].instance.is_none()
+            if now.is_none() || now == self.plugins[i].modified || self.plugins[i].worker.is_none()
             {
                 continue;
             }
@@ -1177,7 +1269,7 @@ impl PluginHost {
     /// saves it.
     pub fn reload(&mut self, name: &str) -> Vec<Event> {
         match self.index(name) {
-            Some(i) if self.plugins[i].instance.is_some() => {
+            Some(i) if self.plugins[i].worker.is_some() => {
                 let mut events = self.reload_at(i);
                 // Asked for, so said; a reload because its file changed is
                 // only logged.
@@ -1203,19 +1295,32 @@ impl PluginHost {
         // Output from the old instance's processes goes to the new one
         // only if they're handed over.
         let generation = plugin.generation + state.is_none() as u64;
-        match self.instantiate(&plugin.manifest, &plugin.wasm, generation) {
-            Ok(mut instance) => {
-                let plugin = &mut self.plugins[i];
-                if let Some(old) = &mut plugin.instance
+        let started = self
+            .instance(&plugin.manifest, &plugin.wasm, generation)
+            .and_then(|mut instance| {
+                // The old instance's programs go to the new one, on the
+                // old one's thread.
+                if let Some(old) = &plugin.worker
                     && state.is_some()
                 {
-                    std::mem::swap(
-                        &mut old.store.data_mut().processes,
-                        &mut instance.store.data_mut().processes,
-                    );
+                    instance = old
+                        .run(move |old| {
+                            old.store
+                                .data_mut()
+                                .processes
+                                .hand_over(&mut instance.store.data_mut().processes);
+                            instance
+                        })
+                        .ok_or_else(|| anyhow!("the plugin's thread ended"))?;
                 }
-                // Dropping the old store stops any processes it still has.
-                plugin.instance = Some(instance);
+                let name = &plugin.manifest.name;
+                Worker::start(name, instance).context("starting the plugin's thread")
+            });
+        match started {
+            Ok(worker) => {
+                let plugin = &mut self.plugins[i];
+                // Dropping the old instance stops any programs it still has.
+                plugin.worker = Some(worker);
                 plugin.generation = generation;
                 plugin.failed = false;
                 let kept = state.is_some();
@@ -1263,8 +1368,8 @@ impl PluginHost {
         }
         plugin.disabled = !on;
         if !on {
-            // Dropping the store stops its processes.
-            plugin.instance = None;
+            // Dropping the instance stops its processes.
+            plugin.worker = None;
             return vec![
                 Event::SetPanel {
                     plugin: name.to_string(),
@@ -1286,9 +1391,9 @@ impl PluginHost {
         }
         let plugin = &self.plugins[i];
         match self.instantiate(&plugin.manifest, &plugin.wasm, plugin.generation + 1) {
-            Ok(instance) => {
+            Ok(worker) => {
                 let plugin = &mut self.plugins[i];
-                plugin.instance = Some(instance);
+                plugin.worker = Some(worker);
                 plugin.generation += 1;
                 plugin.failed = false;
                 self.activate(i, None)
@@ -1332,13 +1437,7 @@ impl PluginHost {
             .iter()
             .map(|p| {
                 let m = &p.manifest;
-                let (memory, processes) = match &p.instance {
-                    Some(i) => (
-                        i.store.data().limits.memory,
-                        i.store.data().processes.running(),
-                    ),
-                    None => (0, Vec::new()),
-                };
+                let stats = p.worker.as_ref().map(Worker::stats).unwrap_or_default();
                 PluginInfo {
                     name: m.name.clone(),
                     title: m.title.clone(),
@@ -1352,7 +1451,7 @@ impl PluginHost {
                     waiting: m.component.is_some()
                         && !p.disabled
                         && !p.dormant
-                        && p.instance.is_none(),
+                        && p.worker.is_none(),
                     dormant: p.dormant,
                     failed: p.failed,
                     permissions: m.permissions.clone(),
@@ -1384,9 +1483,9 @@ impl PluginHost {
                         .filter(|s| self.secrets.is_set(&m.name, &s.key))
                         .map(|s| s.key.clone())
                         .collect(),
-                    memory,
-                    busy: p.busy,
-                    processes,
+                    memory: stats.memory,
+                    busy: stats.busy,
+                    processes: stats.processes,
                 }
             })
             .collect()
@@ -1477,6 +1576,45 @@ fn changed_keys(old: &toml::Table, new: &toml::Table, prefix: &str, out: &mut Ve
             }
             (a, b) if a != b => out.push(format!("{prefix}{key}")),
             _ => {}
+        }
+    }
+}
+
+/// One call into a plugin's instance, on its thread: what it returned,
+/// the events it asked for, and whether it failed and is now stopped.
+fn run_call<R>(
+    instance: &mut Instance,
+    plugin: &str,
+    snapshot: Snapshot,
+    f: impl FnOnce(&Bindings, &mut Store<State>) -> wasmtime::Result<R>,
+) -> (Option<R>, Vec<Event>, bool) {
+    if instance.failed {
+        return (None, Vec::new(), false);
+    }
+    let store = &mut instance.store;
+    store.data_mut().snapshot = snapshot;
+    let _ = store.set_fuel(FUEL_PER_CALL);
+    let result = f(&instance.bindings, store);
+    let mut events = std::mem::take(&mut store.data_mut().events);
+    match result {
+        Ok(value) => (Some(value), events, false),
+        Err(err) => {
+            instance.failed = true;
+            store.data_mut().processes.kill_all();
+            // Out of fuel says nothing a backtrace would add.
+            let message =
+                if err.downcast_ref::<wasmtime::Trap>() == Some(&wasmtime::Trap::OutOfFuel) {
+                    "it ran too long and was stopped. Turn it off and on in Settings › \
+                     Plugins to start it again."
+                        .to_string()
+                } else {
+                    format!("{err:#}")
+                };
+            events.push(Event::PluginFailed {
+                plugin: plugin.to_string(),
+                message,
+            });
+            (None, events, true)
         }
     }
 }

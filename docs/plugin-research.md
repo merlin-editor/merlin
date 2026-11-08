@@ -250,3 +250,8 @@ The PDF viewer is the test: it's `PluginDocument.dc.html` in
    Updates wait for a registry, as Browse does.
 6. Plugin calls off the main thread, then images, then surfaces with
    `[[editors]]` (proved by a PDF viewer), then drawing commands.
+   **Calls off the main thread built**: each plugin's instance has a
+   thread; calls from the window don't wait (scripts and tests still do),
+   a view or a file change asked for again replaces the one not yet
+   started, and programs are started from one long-lived thread, since on
+   Linux a program is told to end with the thread that started it.

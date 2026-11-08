@@ -21,6 +21,7 @@ fn host() -> PluginHost {
         data_dir: std::env::temp_dir().join(format!("merlin-rust-test-{}", std::process::id())),
         ask: false,
         keyring: false,
+        background: false,
     };
     let mut host = PluginHost::new(config).unwrap();
     host.load(&plugin_dir()).unwrap();

@@ -21,6 +21,7 @@ fn host() -> (PluginHost, Vec<Event>) {
         data_dir: std::env::temp_dir().join(format!("merlin-cpp-test-{}", std::process::id())),
         ask: false,
         keyring: false,
+        background: false,
     };
     let mut host = PluginHost::new(config).unwrap();
     let events = host.load(&plugin_dir()).unwrap();

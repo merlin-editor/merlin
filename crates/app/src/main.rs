@@ -277,16 +277,10 @@ impl App {
         if wanted.is_empty() {
             return false;
         }
+        // Coloured now, or later on the plugin's thread.
         let events = wanted
             .into_iter()
-            .map(|(language, text)| {
-                let tokens = self.host.colour_text(&language, &text).unwrap_or_default();
-                Event::TextColours {
-                    language,
-                    text,
-                    tokens,
-                }
-            })
+            .flat_map(|(language, text)| self.host.colour_text(&language, &text))
             .collect();
         self.run_events(events);
         true
@@ -750,18 +744,24 @@ impl App {
         self.panels_for = Some(key);
     }
 
-    /// Hands queued process output to plugins. Returns whether there was any.
+    /// Hands queued process output to plugins, and applies what their
+    /// calls asked for. Returns whether there was any.
     fn poll_processes(&mut self) -> bool {
         let (editor, root) = (&self.editor, &self.root);
-        let (events, delivered) = self.host.poll_processes(|| snapshot(editor, root));
-        if delivered {
+        let (events, changed) = self.host.poll_processes(|| snapshot(editor, root));
+        let any = changed || !events.is_empty();
+        // A view drawn or text coloured changes no plugin, so the views
+        // aren't asked for again; anything else may have.
+        if changed {
             self.panels_for = None;
-            for event in events {
-                self.dispatch(event);
-            }
+        }
+        for event in events {
+            self.dispatch(event);
+        }
+        if changed {
             self.refresh_panels();
         }
-        delivered
+        any
     }
 
     fn reload_plugins(&mut self) {
@@ -1072,8 +1072,11 @@ fn main() -> Result<()> {
         .context("reading the current folder")?;
     let git_dir = git_dir(&root);
     let git_prefix = git_prefix(&root);
+    // The window never waits for a plugin; a script does, so its steps
+    // happen in order.
     let config = Config {
         ask: args.exec.is_none(),
+        background: args.exec.is_none(),
         ..Config::standard()
     };
     let settings_files = settings::Files::new(&root);

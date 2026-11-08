@@ -28,6 +28,7 @@ impl Plugin for Testbed {
             "show-path",
             "show-chat",
             "about",
+            "slow",
             "colour",
             "log",
             "warn",
@@ -44,6 +45,15 @@ impl Plugin for Testbed {
                 host::set_view_badge("activity", self.clicks);
             }
             "show-chat" => host::focus_view("chat"),
+            // Busy for a while, as rendering a page of a PDF can be.
+            "slow" => {
+                let mut x = 0u64;
+                for i in 0..std::hint::black_box(40_000_000u64) {
+                    x = x.wrapping_mul(31).wrapping_add(i);
+                }
+                self.clicks += 1;
+                host::notify(&format!("slow done {}", std::hint::black_box(x) > 0));
+            }
             "about" => {
                 let target = host::menu_target().unwrap_or_else(|| "nothing".into());
                 self.asked.push(format!("about {target}"));

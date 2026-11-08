@@ -44,6 +44,7 @@ fn config() -> Config {
         data_dir: std::env::temp_dir().join(format!("merlin-test-data-{}", std::process::id())),
         ask: false,
         keyring: false,
+        background: false,
     }
 }
 

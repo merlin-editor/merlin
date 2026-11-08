@@ -716,6 +716,11 @@ and it loads only if you allow it. The answer is remembered, by plugin folder,
 in `~/.local/share/merlin/grants.toml`, and you're asked again if the plugin
 later wants more. `--exec` scripts grant without asking and remember nothing.
 
+Each plugin runs on a thread of its own. The window hands it what happened
+and goes on drawing; what the plugin asks for is applied when it answers.
+A slow plugin can't make typing wait, and asking for a view again while it's
+busy replaces the older request.
+
 What else plugins get, besides commands and panels:
 
 - **Keys.** `Command::new("show", "Word Count: Show").key("ctrl+alt+w")`. A key

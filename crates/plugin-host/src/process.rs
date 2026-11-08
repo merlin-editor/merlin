@@ -6,8 +6,8 @@ use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::Sender;
-use std::sync::{Arc, Mutex};
+use std::sync::mpsc::{Sender, channel};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 
@@ -71,15 +71,14 @@ impl Processes {
     ) -> Result<u32, String> {
         let mut command = Command::new(program);
         die_with_editor(&mut command);
-        let mut child = command
+        command
             .args(args)
             .envs(env.iter().map(|(k, v)| (k, v)))
             .current_dir(cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("couldn't start {program}: {e}"))?;
+            .stderr(Stdio::piped());
+        let mut child = start(command).map_err(|e| format!("couldn't start {program}: {e}"))?;
         let stdin = child.stdin.take().expect("piped stdin");
         let stdout = child.stdout.take().expect("piped stdout");
         let stderr = child.stderr.take().expect("piped stderr");
@@ -192,6 +191,13 @@ impl Processes {
         self.running.remove(&id);
     }
 
+    /// Hands this instance's programs to another, as a reload that keeps
+    /// its state does.
+    pub fn hand_over(&mut self, to: &mut Processes) {
+        to.running = std::mem::take(&mut self.running);
+        to.next_id = self.next_id;
+    }
+
     pub fn kill_all(&mut self) {
         let ids: Vec<u32> = self.running.keys().copied().collect();
         for id in ids {
@@ -203,6 +209,37 @@ impl Processes {
 impl Drop for Processes {
     fn drop(&mut self) {
         self.kill_all();
+    }
+}
+
+/// Starts programs from one thread that lasts as long as the editor. Each
+/// plugin calls from a thread of its own, which ends when the plugin
+/// reloads, and on Linux a program is told to end when the thread that
+/// started it does.
+fn start(command: Command) -> io::Result<Child> {
+    type Request = (Command, Sender<io::Result<Child>>);
+    static STARTER: OnceLock<Mutex<Sender<Request>>> = OnceLock::new();
+    let starter = STARTER.get_or_init(|| {
+        let (tx, rx) = channel::<Request>();
+        let _ = thread::Builder::new()
+            .name("plugin programs".into())
+            .spawn(move || {
+                for (mut command, reply) in rx {
+                    let _ = reply.send(command.spawn());
+                }
+            });
+        Mutex::new(tx)
+    });
+    let (tx, rx) = channel();
+    let sent = starter.lock().unwrap().send((command, tx));
+    match sent {
+        Ok(()) => rx
+            .recv()
+            .unwrap_or_else(|_| Err(io::Error::other("the starter thread ended"))),
+        Err(e) => {
+            let (mut command, _) = e.0;
+            command.spawn()
+        }
     }
 }
 

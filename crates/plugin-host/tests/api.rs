@@ -28,6 +28,7 @@ fn setup(name: &str) -> (PathBuf, Config) {
         data_dir: root.join("data"),
         ask: true,
         keyring: false,
+        background: false,
     };
     (dir, config)
 }
@@ -116,6 +117,7 @@ fn permissions_are_asked_for_once_and_remembered() {
         data_dir: data,
         ask: true,
         keyring: false,
+        background: false,
     })
     .unwrap();
     let events = again.load(&dir).unwrap();
@@ -143,6 +145,7 @@ fn asking_for_more_permissions_asks_again() {
         data_dir: data,
         ask: true,
         keyring: false,
+        background: false,
     })
     .unwrap();
     let events = again.load(&dir).unwrap();
@@ -347,6 +350,7 @@ fn data_only_plugins_have_no_panel_and_ask_nothing() {
         data_dir: root.join("data"),
         ask: true,
         keyring: false,
+        background: false,
     })
     .unwrap();
     host.load(&dir).unwrap();
@@ -981,4 +985,54 @@ fn progress_shows_and_cancel_reaches_the_plugin() {
         )),
         "{events:?}"
     );
+}
+
+/// In the background, as the window runs plugins: a slow call returns at
+/// once, its events come from polling, calls keep their order, and views
+/// asked for again while it's busy are drawn once, as they are last.
+#[test]
+fn calls_in_the_background_do_not_wait() {
+    let (dir, config) = setup("background");
+    let mut host = PluginHost::new(Config {
+        ask: false,
+        background: true,
+        ..config
+    })
+    .unwrap();
+    host.load(&dir).unwrap();
+    let started = Instant::now();
+    assert!(host.run_command("testbed", "slow", snapshot()).is_empty());
+    let waited = started.elapsed();
+    for _ in 0..3 {
+        assert!(host.render_panels(&snapshot(), &shown(), true).is_empty());
+    }
+    let until = Instant::now() + Duration::from_secs(10);
+    let mut events = Vec::new();
+    while !events
+        .iter()
+        .any(|e| matches!(e, Event::SetPanel { plugin, .. } if plugin == "testbed/activity"))
+    {
+        assert!(Instant::now() < until, "nothing came back: {events:?}");
+        std::thread::sleep(Duration::from_millis(5));
+        events.extend(host.poll_processes(snapshot).0);
+    }
+    assert!(
+        waited < started.elapsed() / 2,
+        "the call waited {waited:?} of {:?}",
+        started.elapsed()
+    );
+    assert_eq!(notices(events.clone()), ["slow done true"]);
+    let drawn: Vec<String> = events
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::SetPanel {
+                plugin,
+                panel: Some(panel),
+            } if plugin == "testbed/activity" => Some(format!("{:?}", panel.nodes[0])),
+            _ => None,
+        })
+        .collect();
+    // Drawn once, after the slow command, so it counts it.
+    assert_eq!(drawn.len(), 1, "{drawn:?}");
+    assert!(drawn[0].contains("clicks: 1"), "{drawn:?}");
 }
