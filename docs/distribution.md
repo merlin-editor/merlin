@@ -120,9 +120,10 @@ Of section 7, the `install` hints in 7.2 and the Windows fallback in 7.4 are bui
 - **Planned**: The editor does not block installation if a process is missing on `$PATH`. Instead, the install confirmation card reads the `install` hints (to be added for language servers too) and surfaces a copyable command:
   > *"Installed Rust! Note: `rust-analyzer` was not found on your $PATH. Install it to enable completion and diagnostics: `rustup component add rust-analyzer` [Copy]"*
 
-### 7.3 Wasm Optimization (`wasm-opt`) (Partly Built)
-- **Problem**: Unoptimized component `.wasm` files can be 2–3 MB each (e.g. `rust_language.wasm` is 2.9 MB; packed, the Rust plugin is 684 KB).
-- **Solution**: `merlin plugin pack` runs `wasm-opt -Oz` (Binaryen) if installed, and the registry CI will too. Whether Binaryen reads components rather than core modules is untested (see plugin-registry.md section 4).
+### 7.3 Wasm Optimization (`wasm-opt`) (Dropped)
+- **Problem**: Component `.wasm` files can be 2–3 MB each (e.g. `rust_language.wasm` is 2.9 MB).
+- **Tried, 2026-11-09**: Binaryen's `wasm-opt` (version 120) refuses components: *"this looks like a wasm component, which Binaryen does not support yet"* ([binaryen#6728](https://github.com/WebAssembly/binaryen/issues/6728)). Run on the core module inside, `-Oz` cut raw size by about 23%, but the gzipped size, which is what a package holds, went up for the Rust plugin (686 KB → 710 KB) and saved only 3 KB for Word Count (25 KB → 22 KB). Using it would also mean optimising the module before `wasm-component-ld` wraps it, a change to every plugin's build.
+- **Decision**: Packages hold the component as built. Plugins already build with `opt-level = "s"` and `strip = true`, the package is gzipped (the Rust plugin packs to 684 KB), and the editor caches each compiled plugin, so first-load compile time is paid once per version. Worth trying again if Binaryen learns to read components.
 
 ### 7.4 Cross-Platform Symlinks & Windows Fallback (`merlin plugin install`) (Built)
 - **Problem**: Standard user accounts on Windows often lack permission to create UNIX symbolic links unless Developer Mode is enabled.

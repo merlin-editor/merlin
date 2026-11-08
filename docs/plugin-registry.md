@@ -69,7 +69,7 @@ merlin-editor/plugins
 │   └── word-count.toml
 ├── build/
 │   ├── Containerfile        the build image, pinned by digest in CI
-│   └── toolchain.toml       Rust and wasm-opt versions, and the Merlin release whose `merlin plugin pack` CI uses
+│   └── toolchain.toml       the Rust version, and the Merlin release whose `merlin plugin pack` CI uses
 ├── keys/
 │   └── merlin.pub           minisign public keys (current and next)
 ├── .github/workflows/
@@ -145,12 +145,10 @@ A gzip-compressed tar file, built so the same input always gives the same bytes:
   commit's time) or 0 without it; uid/gid 0 with no user or group names; mode
   0644; no symlinks (a symlink in the folder stops packing); gzip at the best
   level with no name or time in its header.
-- **Optimisation**: `wasm-opt -Oz --all-features` runs on the component when
-  it's on `PATH`. If it isn't, or it fails, the component goes in as built,
-  with a notice; a local pack then won't match CI's. Binaryen is made for core
-  modules, so whether it reads a component needs checking before phase 3 makes
-  CI rely on it; if it doesn't, CI optimises the core module before
-  `wasm-component-ld` wraps it, or skips this step.
+- **No optimisation step**: the component goes in as built. `wasm-opt` can't
+  read components and, run on the module inside, made the gzipped package
+  larger (distribution.md 7.3). With nothing but Rust and `merlin plugin pack`
+  in the build, a local pack of the same commit matches CI's.
 - **Limit**: 25 MB per archive, and 200 MB unpacked when installing.
 
 `merlin plugin pack [dir]` writes `<name>-<version>.merlin` and prints its

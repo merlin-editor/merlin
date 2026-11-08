@@ -903,8 +903,8 @@ A package is one file holding `plugin.toml`, the component as
 `plugin.wasm`, and the plugin's other files: everything in its folder but
 what builds it (`src/`, `target/`, `Cargo.toml` and the like) and what
 `[package] exclude` leaves out. The same source packs to the same bytes
-every time (set `SOURCE_DATE_EPOCH` to choose the files' time), with
-`wasm-opt -Oz` run first when it's installed. Installing one unpacks it
+every time (set `SOURCE_DATE_EPOCH` to choose the files' time). Installing
+one unpacks it
 beside the plugins folder and swaps it in, replacing the version before it.
 How packages will reach people through a registry is in
 [docs/plugin-registry.md](docs/plugin-registry.md).

@@ -183,7 +183,7 @@ fn install_plugins(items: &[String]) -> Result<()> {
 /// `<name>-<version>.merlin`, the same bytes every time from the same
 /// source and `SOURCE_DATE_EPOCH`.
 fn pack_plugin(args: &[String]) -> Result<()> {
-    use merlin_plugins::package::{self, Optimised};
+    use merlin_plugins::package;
     let mut dir = None;
     let mut out = None;
     let mut it = args.iter();
@@ -198,21 +198,6 @@ fn pack_plugin(args: &[String]) -> Result<()> {
     let dir = dir.unwrap_or_else(|| PathBuf::from("."));
     let out = out.unwrap_or_else(|| PathBuf::from("."));
     let packed = package::pack(&dir, &out, package::source_epoch())?;
-    match &packed.optimised {
-        Optimised::NoComponent => {}
-        Optimised::Missing => eprintln!(
-            "Note: wasm-opt isn't installed, so the component went in as built. \
-             The registry's build runs it, so this package won't match the registry's."
-        ),
-        Optimised::Failed(why) => eprintln!(
-            "Note: wasm-opt couldn't optimise the component ({why}), so it went in as built."
-        ),
-        Optimised::Done { before, after } => println!(
-            "Optimised the component from {} KB to {} KB",
-            before / 1024,
-            after / 1024
-        ),
-    }
     println!("Packed {}", packed.path.display());
     println!(
         "  {} KB, sha256 {}",

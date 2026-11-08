@@ -14,7 +14,7 @@ With the recent and upcoming changes:
 3. **Richer UI nodes** (`chips`, `edit-card`, `progress`, `input`, `markdown`, `buttons`).
 4. **Typed settings with user and workspace scopes** (`[settings.<key>]`).
 5. **Per-plugin logging channels** (`log(level, msg)` into dedicated Output channels).
-6. **Package format & registry distribution** (`.merlin` tarballs, `wasm-opt`, signed `index.json`): see `docs/plugin-registry.md`.
+6. **Package format & registry distribution** (`.merlin` tarballs, signed `index.json`): see `docs/plugin-registry.md`.
 
 A dedicated **Plugin Studio** plugin serves as the premier dogfooding project: an inception-style development environment that allows developers to author, preview, test, and package plugins entirely inside Merlin.
 
@@ -24,7 +24,7 @@ A dedicated **Plugin Studio** plugin serves as the premier dogfooding project: a
 
 ### 2.1 Manifest Declaration
 
-The plugin requires access to workspace files and build tools (`cargo`, `wasm-opt`, `git`), declared in its `plugin.toml`:
+The plugin requires access to workspace files and build tools (`cargo`, `merlin`, `git`), declared in its `plugin.toml`:
 
 ```toml
 name = "merlin-plugin-studio"
@@ -50,12 +50,12 @@ where = "right"
 [permissions]
 workspace-read = true
 editor-write = true
-processes = ["cargo", "wasm-opt", "git"]
+processes = ["cargo", "merlin", "git"]
 ```
 
 ### 2.2 Permissions Boundary
 * **File Operations**: Uses `workspace-read` and `editor-write` (via `host.read-file`, `host.apply-edits`, `host.list-files`) to inspect project structures and scaffold code.
-* **Process Execution**: Strictly limited to build tools (`cargo`, `wasm-opt`, `git`). It runs with standard host permissions upon user approval, keeping compilation out of the UI thread.
+* **Process Execution**: Strictly limited to build tools (`cargo`, `merlin` for `merlin plugin pack`, `git`). It runs with standard host permissions upon user approval, keeping compilation out of the UI thread.
 * **Host Compatibility**: Its `api` must equal the editor's `API_VERSION` (`0.14` today), and moves with it.
 * **Note**: `cargo` runs build scripts, so asking for it means the studio can run anything you can (`docs/plugin-registry.md` 10.2). It falls in the registry's "outside the sandbox" review tier.
 
@@ -121,9 +121,8 @@ processes = ["cargo", "wasm-opt", "git"]
 
 ### 3.5 Module 5: Distribution & Packaging (`.merlin`)
 * Runs `merlin plugin pack` rather than packing by itself, so the studio, an author's terminal and the registry's CI make the same bytes (`docs/plugin-registry.md` section 4):
-  1. **Binary Optimization**: `wasm-opt -Oz` on the component, reporting before/after size reductions.
-  2. **Deterministic Archiving**: `plugin.toml` (its `component` rewritten to `plugin.wasm`), the component as `plugin.wasm`, and assets, in a gzip tarball (`<name>-<version>.merlin`).
-  3. **Registry Pre-flight Audit**:
+  1. **Deterministic Archiving**: `plugin.toml` (its `component` rewritten to `plugin.wasm`), the component as `plugin.wasm`, and assets, in a gzip tarball (`<name>-<version>.merlin`).
+  2. **Registry Pre-flight Audit**:
      * Verifies `api` equals the editor's `API_VERSION`, and `version` is set.
      * Validates that all declared permissions are justified and minimal.
      * Shows the SHA-256 and size, and drafts the `plugins/<name>.toml` entry for a PR to `merlin-editor/plugins`.
@@ -137,7 +136,7 @@ processes = ["cargo", "wasm-opt", "git"]
 | **Phase 1** | Scaffolding & Manifest Editor | Project creation templates, `plugin.toml` parser/writer, form controls in tab view. | Run "New Plugin", configure permissions in UI, and verify generated `Cargo.toml` and `plugin.toml` on disk. |
 | **Phase 2** | Build & Dev Loop | Process execution (`cargo build`), dedicated Output logging, and diagnostic mapping. | Click "Build", observe build logs in Output view, and see compilation errors highlighted on code lines. |
 | **Phase 3** | Component Sandbox | Visual previewer for `node` trees and layout combinations. | Author a custom UI view in the sandbox and verify it matches Merlin's native widget rendering. |
-| **Phase 4** | Distribution & Packaging | `wasm-opt` pipeline, `.merlin` archive creation, SHA-256 calculation, and registry checklist. | Click "Package", produce optimized `.merlin` tarball, and verify archive contents against registry schema. |
+| **Phase 4** | Distribution & Packaging | `.merlin` archive creation, SHA-256 calculation, and registry checklist. | Click "Package", produce the `.merlin` tarball, and verify archive contents against registry schema. |
 
 ---
 

@@ -9,7 +9,6 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
-use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
@@ -51,23 +50,6 @@ pub struct Packed {
     /// Lowercase hex.
     pub sha256: String,
     pub size: u64,
-    pub optimised: Optimised,
-}
-
-/// What became of `wasm-opt -Oz` on the component.
-#[derive(Debug, PartialEq, Eq)]
-pub enum Optimised {
-    /// The plugin has no component: it's data.
-    NoComponent,
-    /// `wasm-opt` isn't on `PATH`; the component went in as built.
-    Missing,
-    /// It ran but failed (it reads core modules, and may not read a
-    /// component); the component went in as built.
-    Failed(String),
-    Done {
-        before: u64,
-        after: u64,
-    },
 }
 
 /// Packs the plugin in `dir` into `<name>-<version>.merlin` in `out_dir`.
@@ -76,7 +58,7 @@ pub enum Optimised {
 /// pinned commit's time through `SOURCE_DATE_EPOCH` (see [`source_epoch`]),
 /// so the same commit always packs to the same bytes.
 pub fn pack(dir: &Path, out_dir: &Path, epoch: u64) -> Result<Packed> {
-    let (bytes, manifest, optimised) = pack_bytes(dir, epoch)?;
+    let (bytes, manifest) = pack_bytes(dir, epoch)?;
     let size = bytes.len() as u64;
     if size > MAX_PACKED {
         bail!(
@@ -100,7 +82,6 @@ pub fn pack(dir: &Path, out_dir: &Path, epoch: u64) -> Result<Packed> {
         version: manifest.version,
         sha256: sha256_hex(&bytes),
         size,
-        optimised,
     })
 }
 
@@ -119,17 +100,20 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
         .collect()
 }
 
-/// The package's bytes, the manifest, and how the component was optimised.
-fn pack_bytes(dir: &Path, epoch: u64) -> Result<(Vec<u8>, Manifest, Optimised)> {
+/// The package's bytes, and the manifest.
+///
+/// The component goes in as built. `wasm-opt` can't read components, and
+/// on the module inside one it made the gzipped package larger, not
+/// smaller (`docs/distribution.md` 7.3).
+fn pack_bytes(dir: &Path, epoch: u64) -> Result<(Vec<u8>, Manifest)> {
     let manifest = manifest(dir)?;
     let mut files: BTreeMap<String, Vec<u8>> = BTreeMap::new();
 
     // The manifest, pointing at the component by its packed name.
     let text = fs::read_to_string(dir.join("plugin.toml"))?;
-    let optimised = match &manifest.component {
+    match &manifest.component {
         None => {
             files.insert("plugin.toml".into(), text.into_bytes());
-            Optimised::NoComponent
         }
         Some(component) => {
             let path = dir.join(component);
@@ -140,14 +124,12 @@ fn pack_bytes(dir: &Path, epoch: u64) -> Result<(Vec<u8>, Manifest, Optimised)> 
                     dir.display()
                 )
             })?;
-            let (wasm, optimised) = optimise(built);
-            files.insert(COMPONENT.into(), wasm);
+            files.insert(COMPONENT.into(), built);
             let mut doc: toml_edit::DocumentMut = text.parse().context("reading plugin.toml")?;
             doc["component"] = toml_edit::value(COMPONENT);
             files.insert("plugin.toml".into(), doc.to_string().into_bytes());
-            optimised
         }
-    };
+    }
 
     // Everything else in the folder that isn't the build's.
     let exclude = excludes(&manifest.package.exclude)?;
@@ -175,7 +157,7 @@ fn pack_bytes(dir: &Path, epoch: u64) -> Result<(Vec<u8>, Manifest, Optimised)> 
         }
     }
 
-    Ok((archive(&files, epoch)?, manifest, optimised))
+    Ok((archive(&files, epoch)?, manifest))
 }
 
 /// Files the manifest names: themes' and packs' files, and SVG icons.
@@ -260,59 +242,6 @@ fn slash_path(path: &Path) -> String {
         })
         .collect::<Vec<_>>()
         .join("/")
-}
-
-/// Runs `wasm-opt -Oz` on the component if it can.
-fn optimise(wasm: Vec<u8>) -> (Vec<u8>, Optimised) {
-    let before = wasm.len() as u64;
-    let tmp = std::env::temp_dir().join(format!("merlin-pack-{}-{}", std::process::id(), nanos()));
-    if fs::create_dir_all(&tmp).is_err() {
-        return (
-            wasm,
-            Optimised::Failed("can't make a temporary folder".into()),
-        );
-    }
-    let (input, output) = (tmp.join("in.wasm"), tmp.join("out.wasm"));
-    let result = fs::write(&input, &wasm)
-        .map_err(|e| e.to_string())
-        .and_then(|()| {
-            Command::new("wasm-opt")
-                .args(["-Oz", "--all-features"])
-                .arg(&input)
-                .arg("-o")
-                .arg(&output)
-                .output()
-                .map_err(|e| e.to_string())
-        });
-    let outcome = match result {
-        Err(_) if which_missing() => (wasm, Optimised::Missing),
-        Err(err) => (wasm, Optimised::Failed(err)),
-        Ok(out) if !out.status.success() => {
-            let err = String::from_utf8_lossy(&out.stderr);
-            let first = err
-                .lines()
-                .find(|l| !l.trim().is_empty())
-                .unwrap_or("it failed");
-            (wasm, Optimised::Failed(first.trim().to_string()))
-        }
-        Ok(_) => match fs::read(&output) {
-            Ok(smaller) => {
-                let after = smaller.len() as u64;
-                (smaller, Optimised::Done { before, after })
-            }
-            Err(err) => (wasm, Optimised::Failed(err.to_string())),
-        },
-    };
-    let _ = fs::remove_dir_all(&tmp);
-    outcome
-}
-
-/// Whether `wasm-opt` isn't there at all, as opposed to failing.
-fn which_missing() -> bool {
-    Command::new("wasm-opt")
-        .arg("--version")
-        .output()
-        .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
 }
 
 /// A gzipped ustar archive of `files`, the same bytes for the same input:
@@ -561,7 +490,7 @@ pub fn link(dir: &Path, name: &str, plugins_dir: &Path, data_dir: &Path) -> Resu
     match linked {
         Ok(()) => Ok(true),
         Err(_) if cfg!(windows) => {
-            let (bytes, _, _) = pack_bytes(dir, 0)?;
+            let (bytes, _) = pack_bytes(dir, 0)?;
             install_bytes(&bytes, "folder", plugins_dir, data_dir)?;
             Ok(false)
         }
@@ -636,12 +565,12 @@ mod tests {
     fn packing_twice_gives_the_same_bytes() {
         let tmp = Temp::new("same");
         let dir = plugin(&tmp.0, "0.1.0");
-        let (a, _, _) = pack_bytes(&dir, 1_700_000_000).unwrap();
+        let (a, _) = pack_bytes(&dir, 1_700_000_000).unwrap();
         // A file touched later changes nothing.
         fs::write(dir.join("README.md"), "Demo\n").unwrap();
-        let (b, _, _) = pack_bytes(&dir, 1_700_000_000).unwrap();
+        let (b, _) = pack_bytes(&dir, 1_700_000_000).unwrap();
         assert_eq!(sha256_hex(&a), sha256_hex(&b));
-        let (c, _, _) = pack_bytes(&dir, 1_700_000_001).unwrap();
+        let (c, _) = pack_bytes(&dir, 1_700_000_001).unwrap();
         assert_ne!(sha256_hex(&a), sha256_hex(&c), "the epoch is in the bytes");
     }
 
@@ -720,7 +649,7 @@ mod tests {
             text.replace(&format!("api = \"{API_VERSION}\""), "api = \"0.1\""),
         )
         .unwrap();
-        let (bytes, _, _) = pack_bytes(&dir, 0).unwrap();
+        let (bytes, _) = pack_bytes(&dir, 0).unwrap();
         let plugins = tmp.0.join("plugins");
         let err = format!(
             "{:#}",
