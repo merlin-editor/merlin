@@ -242,6 +242,8 @@ The PDF viewer is the test: it's `PluginDocument.dc.html` in
    with API 0.10: rows with chips and a right-click menu, messages, edit
    cards, chips under a multi-line box, progress, empty states, and real
    Markdown with coloured code. `render-panel` is gone; `render-view` and
-   `on-setting-changed` are plain exports.
+   `on-setting-changed` are plain exports. **Lazy start and depends built**:
+   `activate-on` (language, file; any use starts it too, and its commands
+   are cached for the palette) and `depends`.
 6. Plugin calls off the main thread, then images, then surfaces with
    `[[editors]]` (proved by a PDF viewer), then drawing commands.

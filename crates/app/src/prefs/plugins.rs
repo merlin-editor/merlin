@@ -63,6 +63,7 @@ impl App {
             data_only: p.data_only,
             enabled: p.enabled,
             waiting: p.waiting,
+            dormant: p.dormant,
             failed: p.failed,
             read: p.permissions.editor_read,
             write: p.permissions.editor_write,

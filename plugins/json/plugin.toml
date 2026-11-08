@@ -5,6 +5,8 @@ badge = "{}"
 hue = "green"
 api = "0.10"
 component = "target/wasm32-wasip2/release/json_language.wasm"
+# Starts when one of its files opens, or the project has one.
+activate-on = ["language:json"]
 
 [permissions]
 editor-read = true

@@ -849,3 +849,89 @@ fn views_draw_rows_messages_edits_chips_progress_and_empty_states() {
         ]
     ));
 }
+
+#[test]
+fn a_plugin_with_activate_on_waits_until_its_file_opens_or_it_is_used() {
+    let (dir, mut config) = setup("lazy");
+    config.ask = false;
+    let manifest = fs::read_to_string(dir.join("plugin.toml")).unwrap();
+    fs::write(
+        dir.join("plugin.toml"),
+        manifest.replace(
+            "[permissions]",
+            "activate-on = [\"language:notes\"]\n\n[permissions]",
+        ),
+    )
+    .unwrap();
+    // The first time, it starts, so its commands are known.
+    let mut host = PluginHost::new(config.clone()).unwrap();
+    host.load(&dir).unwrap();
+    assert!(!host.plugins()[0].dormant);
+    drop(host);
+
+    // Next time it waits, its commands in the palette all the same.
+    let mut host = PluginHost::new(config).unwrap();
+    let events = host.load(&dir).unwrap();
+    assert!(host.plugins()[0].dormant && host.plugins()[0].memory == 0);
+    assert!(events.iter().any(
+        |e| matches!(e, Event::RegisterPlugin { commands, .. } if commands.iter().any(|c| c.id == "count"))
+    ));
+    let mut rs = snapshot();
+    rs.path = Some("main.rs".into());
+    host.buffer_event(&BufferEvent::Switched, &rs);
+    assert!(
+        host.plugins()[0].dormant,
+        "another language's file doesn't start it"
+    );
+    let mut notes = snapshot();
+    notes.path = Some("todo.notes".into());
+    host.buffer_event(&BufferEvent::Switched, &notes);
+    assert!(!host.plugins()[0].dormant, "its own language's file does");
+}
+
+#[test]
+fn a_command_starts_a_waiting_plugin() {
+    let (dir, mut config) = setup("lazy-command");
+    config.ask = false;
+    let manifest = fs::read_to_string(dir.join("plugin.toml")).unwrap();
+    fs::write(
+        dir.join("plugin.toml"),
+        manifest.replace(
+            "[permissions]",
+            "activate-on = [\"file:nowhere.txt\"]\n\n[permissions]",
+        ),
+    )
+    .unwrap();
+    PluginHost::new(config.clone()).unwrap().load(&dir).unwrap();
+    let mut host = PluginHost::new(config).unwrap();
+    host.load(&dir).unwrap();
+    assert!(host.plugins()[0].dormant);
+    let events = host.run_command("testbed", "count", snapshot());
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::ViewBadge { count: 1, .. })),
+        "it started and ran: {events:?}"
+    );
+    assert!(!host.plugins()[0].dormant);
+}
+
+#[test]
+fn a_plugin_needing_one_thats_missing_stops_and_says_so() {
+    let (dir, mut config) = setup("depends");
+    config.ask = false;
+    let manifest = fs::read_to_string(dir.join("plugin.toml")).unwrap();
+    fs::write(
+        dir.join("plugin.toml"),
+        manifest.replace("[permissions]", "depends = [\"lsp\"]\n\n[permissions]"),
+    )
+    .unwrap();
+    let mut host = PluginHost::new(config).unwrap();
+    host.load(&dir).unwrap();
+    let events = host.check_depends();
+    assert!(
+        matches!(&events[..], [Event::PluginFailed { message, .. }] if message.contains("needs the lsp plugin")),
+        "{events:?}"
+    );
+    assert!(host.plugins()[0].failed);
+}

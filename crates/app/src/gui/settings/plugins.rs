@@ -526,6 +526,8 @@ impl Frame<'_> {
             sub.push("it failed to start".into());
         } else if page.waiting {
             sub.push("waiting for your OK".into());
+        } else if page.dormant {
+            sub.push("starts when needed".into());
         } else if !page.enabled {
             sub.push("off".into());
         }

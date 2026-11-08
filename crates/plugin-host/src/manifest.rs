@@ -62,6 +62,14 @@ pub struct Manifest {
     /// Views the plugin draws, each where it goes: see [`ManifestView`].
     #[serde(default)]
     pub views: Vec<ManifestView>,
+    /// When to start it, rather than at launch: `language:<id>` when a
+    /// file of that language opens, `file:<path>` when the workspace has
+    /// that file. Using one of its commands or views starts it too.
+    #[serde(default, rename = "activate-on")]
+    pub activate_on: Vec<String>,
+    /// Plugins it needs, by name; without them it doesn't start.
+    #[serde(default)]
+    pub depends: Vec<String>,
 }
 
 /// A view, as `[[views]]` in a manifest declares it.
@@ -767,6 +775,17 @@ pub fn manifest(dir: &Path) -> Result<Manifest> {
             .with_context(|| format!("in {}", path.display()))?;
     }
     check_views(&manifest).with_context(|| format!("in {}", path.display()))?;
+    for trigger in &manifest.activate_on {
+        let known = trigger.starts_with("language:")
+            || trigger.starts_with("file:")
+            || matches!(trigger.as_str(), "view" | "command");
+        if !known {
+            bail!(
+                "in {}: activate-on {trigger:?} isn't one of language:<id>, file:<path>, view or command",
+                path.display()
+            );
+        }
+    }
     Ok(manifest)
 }
 

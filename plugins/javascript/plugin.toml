@@ -5,6 +5,8 @@ badge = "JS"
 hue = "yellow"
 api = "0.10"
 component = "target/wasm32-wasip2/release/javascript_language.wasm"
+# Starts when one of its files opens, or the project has one.
+activate-on = ["language:javascript", "language:typescript", "file:package.json"]
 symbols = "project-symbols"
 
 [permissions]

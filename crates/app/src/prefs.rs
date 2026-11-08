@@ -395,6 +395,8 @@ pub struct PageView {
     pub data_only: bool,
     pub enabled: bool,
     pub waiting: bool,
+    /// Waits to start until it's needed.
+    pub dormant: bool,
     pub failed: bool,
     pub read: bool,
     pub write: bool,

@@ -63,6 +63,7 @@ const FUEL_PER_CALL: u64 = 6_000_000_000;
 /// the editor of input.
 const MESSAGES_PER_POLL: usize = 256;
 
+#[derive(Clone)]
 pub struct Config {
     /// Where remembered permissions and file-backed secrets are kept.
     pub data_dir: PathBuf,
@@ -157,6 +158,9 @@ struct Loaded {
     /// search, so it has no panel and only cares about files of its own
     /// languages.
     pure_language: bool,
+    /// Not started yet: it waits for what its `activate-on` names, or
+    /// for one of its commands or views to be used.
+    dormant: bool,
 }
 
 impl Loaded {
@@ -188,6 +192,9 @@ pub struct PluginInfo {
     pub enabled: bool,
     /// Waiting for the user to allow its permissions.
     pub waiting: bool,
+    /// Waits to start until its file, language, commands or views are
+    /// needed.
+    pub dormant: bool,
     pub failed: bool,
     pub permissions: Permissions,
     pub languages: Vec<String>,
@@ -322,6 +329,7 @@ impl PluginHost {
                 disabled: false,
                 busy: Duration::ZERO,
                 pure_language: false,
+                dormant: false,
             });
             return Ok(events);
         };
@@ -330,7 +338,12 @@ impl PluginHost {
             && !manifest.permissions.is_empty()
             && !self.grants().covers(&dir, &manifest.permissions);
         let off = self.disabled.contains(&manifest.name);
-        let instance = if ask || off {
+        // One that starts when needed waits, if the commands it had last
+        // time are known for the palette meanwhile.
+        let cached = (!manifest.activate_on.is_empty() && !ask && !off)
+            .then(|| self.cached_commands(&manifest.name))
+            .flatten();
+        let instance = if ask || off || cached.is_some() {
             None
         } else {
             Some(self.instantiate(&manifest, &wasm, 0)?)
@@ -347,10 +360,19 @@ impl PluginHost {
             disabled: off,
             busy: Duration::ZERO,
             pure_language: false,
+            dormant: cached.is_some(),
         });
         let index = self.plugins.len() - 1;
         if off {
             return Ok(Vec::new());
+        }
+        if let Some(commands) = cached {
+            let mut events = vec![Event::RegisterPlugin {
+                plugin: self.plugins[index].manifest.name.clone(),
+                commands,
+            }];
+            events.extend(self.declared_events(index));
+            return Ok(events);
         }
         if ask {
             let plugin = &self.plugins[index].manifest;
@@ -363,6 +385,40 @@ impl PluginHost {
             ]);
         }
         Ok(self.activate(index, None))
+    }
+
+    /// Stops each plugin that needs one that isn't loaded or is off, and
+    /// says which. Call once every plugin has loaded.
+    pub fn check_depends(&mut self) -> Vec<Event> {
+        let mut events = Vec::new();
+        for i in 0..self.plugins.len() {
+            let missing: Vec<String> = self.plugins[i]
+                .manifest
+                .depends
+                .iter()
+                .filter(|d| {
+                    !self
+                        .plugins
+                        .iter()
+                        .any(|p| p.manifest.name == **d && !p.disabled && !p.failed)
+                })
+                .cloned()
+                .collect();
+            if missing.is_empty() || self.plugins[i].failed {
+                continue;
+            }
+            let plugin = &mut self.plugins[i];
+            plugin.instance = None;
+            plugin.dormant = false;
+            plugin.failed = true;
+            let which = missing.join(", ");
+            let s = if missing.len() == 1 { "" } else { "s" };
+            events.push(Event::PluginFailed {
+                plugin: plugin.manifest.name.clone(),
+                message: format!("it needs the {which} plugin{s}, which isn't installed or is off"),
+            });
+        }
+        events
     }
 
     /// Every loaded plugin's themes and packs: name and file.
@@ -519,6 +575,7 @@ impl PluginHost {
             b.call_activate(s, state.as_deref())
         });
         if let Some(commands) = commands {
+            self.cache_commands(index, &commands);
             let m = &self.plugins[index].manifest;
             self.plugins[index].pure_language = !m.languages.is_empty()
                 && commands.is_empty()
@@ -539,23 +596,146 @@ impl PluginHost {
                         .collect(),
                 },
             );
-            let loaded = &self.plugins[index];
-            let views = loaded
-                .manifest
-                .views
-                .iter()
-                .map(|v| v.to_core(&loaded.manifest.name, Path::new(&loaded.dir)))
-                .collect();
-            let mut declared = manifest_events(&loaded.manifest);
-            declared.push(Event::RegisterViews {
-                plugin: loaded.manifest.name.clone(),
-                views,
-            });
-            for (i, event) in declared.into_iter().enumerate() {
+            for (i, event) in self.declared_events(index).into_iter().enumerate() {
                 events.insert(1 + i, event);
             }
         }
         events
+    }
+
+    /// What a plugin's manifest adds: its languages, keys and the rest,
+    /// then its views.
+    fn declared_events(&self, index: usize) -> Vec<Event> {
+        let loaded = &self.plugins[index];
+        let views = loaded
+            .manifest
+            .views
+            .iter()
+            .map(|v| v.to_core(&loaded.manifest.name, Path::new(&loaded.dir)))
+            .collect();
+        let mut declared = manifest_events(&loaded.manifest);
+        declared.push(Event::RegisterViews {
+            plugin: loaded.manifest.name.clone(),
+            views,
+        });
+        declared
+    }
+
+    /// Where a plugin's commands are kept between runs, for the palette
+    /// while it waits to start.
+    fn commands_file(&self, name: &str) -> PathBuf {
+        self.config
+            .data_dir
+            .join("commands")
+            .join(format!("{name}.toml"))
+    }
+
+    fn cached_commands(&self, name: &str) -> Option<Vec<Command>> {
+        #[derive(Deserialize)]
+        struct Cached {
+            commands: Vec<CachedCommand>,
+        }
+        #[derive(Deserialize)]
+        struct CachedCommand {
+            id: String,
+            title: String,
+            key: Option<String>,
+        }
+        let text = fs::read_to_string(self.commands_file(name)).ok()?;
+        let cached: Cached = toml::from_str(&text).ok()?;
+        Some(
+            cached
+                .commands
+                .into_iter()
+                .map(|c| Command {
+                    id: c.id,
+                    title: c.title,
+                    key: c.key,
+                })
+                .collect(),
+        )
+    }
+
+    /// Remembers a plugin's commands, if it waits to start next time.
+    fn cache_commands(&self, index: usize, commands: &[types::Command]) {
+        let m = &self.plugins[index].manifest;
+        if m.activate_on.is_empty() {
+            return;
+        }
+        #[derive(Serialize)]
+        struct Cached<'a> {
+            commands: Vec<CachedCommand<'a>>,
+        }
+        #[derive(Serialize)]
+        struct CachedCommand<'a> {
+            id: &'a str,
+            title: &'a str,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            key: Option<&'a str>,
+        }
+        let cached = Cached {
+            commands: commands
+                .iter()
+                .map(|c| CachedCommand {
+                    id: &c.id,
+                    title: &c.title,
+                    key: c.key.as_deref(),
+                })
+                .collect(),
+        };
+        let path = self.commands_file(&m.name);
+        if let (Some(dir), Ok(text)) = (path.parent(), toml::to_string(&cached)) {
+            let _ = fs::create_dir_all(dir);
+            let _ = fs::write(path, text);
+        }
+    }
+
+    /// Starts a plugin that was waiting to.
+    fn wake(&mut self, index: usize) -> Vec<Event> {
+        let plugin = &self.plugins[index];
+        let name = plugin.manifest.name.clone();
+        match self.instantiate(&plugin.manifest, &plugin.wasm, plugin.generation) {
+            Ok(instance) => {
+                let plugin = &mut self.plugins[index];
+                plugin.instance = Some(instance);
+                plugin.dormant = false;
+                self.activate(index, None)
+            }
+            Err(err) => {
+                let plugin = &mut self.plugins[index];
+                plugin.dormant = false;
+                plugin.failed = true;
+                vec![Event::PluginFailed {
+                    plugin: name,
+                    message: format!("{err:#}"),
+                }]
+            }
+        }
+    }
+
+    /// Whether a waiting plugin's `activate-on` matches the open file or
+    /// the workspace.
+    fn wants_start(&self, index: usize, snapshot: &Snapshot) -> bool {
+        let ext = snapshot
+            .path
+            .as_deref()
+            .and_then(|p| p.rsplit_once('.'))
+            .map(|(_, e)| e.to_ascii_lowercase());
+        self.plugins[index].manifest.activate_on.iter().any(|t| {
+            if let Some(id) = t.strip_prefix("language:") {
+                // The language's extensions, from whichever plugin adds it.
+                return ext.as_ref().is_some_and(|ext| {
+                    self.plugins.iter().any(|p| {
+                        p.manifest.languages.iter().any(|l| {
+                            l.id == id && l.extensions.iter().any(|e| e.eq_ignore_ascii_case(ext))
+                        })
+                    })
+                });
+            }
+            t.strip_prefix("file:").is_some_and(|f| {
+                !snapshot.root.as_os_str().is_empty() && snapshot.root.join(f).exists()
+            })
+        })
     }
 
     /// Calls into a plugin and collects the events it asked for. A trap
@@ -566,6 +746,18 @@ impl PluginHost {
         snapshot: Snapshot,
         f: impl FnOnce(&Bindings, &mut Store<State>) -> wasmtime::Result<R>,
     ) -> (Option<R>, Vec<Event>) {
+        // Waiting to start: used now, so it starts.
+        let woke = if self.plugins[index].dormant {
+            self.wake(index)
+        } else {
+            Vec::new()
+        };
+        if !woke.is_empty() {
+            let (result, mut more) = self.call(index, snapshot, f);
+            let mut events = woke;
+            events.append(&mut more);
+            return (result, events);
+        }
         let plugin = &mut self.plugins[index];
         let Some(instance) = plugin.instance.as_mut().filter(|_| !plugin.failed) else {
             return (None, Vec::new());
@@ -715,7 +907,7 @@ impl PluginHost {
         if self.plugins[i].manifest.component.is_none() || self.plugins[i].disabled {
             return Vec::new();
         }
-        if self.plugins[i].instance.is_none() {
+        if self.plugins[i].instance.is_none() && !self.plugins[i].dormant {
             return match button {
                 ALLOW => self.answer(i, true),
                 DENY => self.answer(i, false),
@@ -734,6 +926,10 @@ impl PluginHost {
         };
         let mut events = Vec::new();
         for i in 0..self.plugins.len() {
+            // Waiting to start: only its own files or languages start it.
+            if self.plugins[i].dormant && !self.wants_start(i, snapshot) {
+                continue;
+            }
             if self.plugins[i].pure_language
                 && (matches!(event, types::BufferEvent::Saved(_))
                     || !self.plugins[i].handles_path(snapshot.path.as_deref()))
@@ -807,7 +1003,7 @@ impl PluginHost {
         let name = language.trim_start_matches('.').to_ascii_lowercase();
         let mut fallback = None;
         for i in 0..self.plugins.len() {
-            let matches = self.plugins[i].instance.is_some()
+            let matches = (self.plugins[i].instance.is_some() || self.plugins[i].dormant)
                 && self.plugins[i]
                     .manifest
                     .languages
@@ -860,7 +1056,7 @@ impl PluginHost {
                 continue;
             }
             let name = self.plugins[i].manifest.name.clone();
-            if self.plugins[i].instance.is_none() {
+            if self.plugins[i].instance.is_none() && !self.plugins[i].dormant {
                 if all {
                     events.push(Event::SetPanel {
                         plugin: name,
@@ -1135,7 +1331,11 @@ impl PluginHost {
                     api: m.api.clone(),
                     data_only: m.component.is_none(),
                     enabled: !p.disabled,
-                    waiting: m.component.is_some() && !p.disabled && p.instance.is_none(),
+                    waiting: m.component.is_some()
+                        && !p.disabled
+                        && !p.dormant
+                        && p.instance.is_none(),
+                    dormant: p.dormant,
                     failed: p.failed,
                     permissions: m.permissions.clone(),
                     languages: m.languages.iter().map(|l| l.name.clone()).collect(),

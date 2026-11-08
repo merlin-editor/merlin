@@ -818,6 +818,12 @@ What else plugins get, besides commands and panels:
   drag its icon or tab elsewhere, or use its ⋯ or a right-click to move
   it, hide it or put it back; the workspace remembers, and View: Show
   finds any of them in the palette.
+- **Starting when needed.** `activate-on = ["language:rust",
+  "file:Cargo.toml"]` keeps a plugin from starting at launch: it starts
+  when a file of that language opens, or the workspace has that file, or
+  when one of its commands, views or buttons is used. Its commands from
+  the last run stay in the palette meanwhile. `depends = ["lsp"]` names
+  plugins it needs; without them it doesn't start, and says why.
 - **Buffer events**: `buffer` hears when the active file switches, changes or
   is saved.
 - **The selection**: `host::active_selection` gives its text and position.

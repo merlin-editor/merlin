@@ -1256,6 +1256,7 @@ fn main() -> Result<()> {
             }),
         }
     }
+    loaded.extend(app.host.check_depends());
     loaded.into_iter().for_each(|e| app.dispatch(e));
     let summaries = app.plugin_summaries();
     app.dispatch(summaries);
