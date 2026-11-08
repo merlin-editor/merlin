@@ -1023,10 +1023,11 @@ These are suggestions; nothing of them is written yet.
 ## Plugin and build notes
 
 - Plugins in `plugins/` are installed as **symlinks** to this repo
-  (`~/.local/share/merlin/plugins/<name>`). Rebuilding a plugin's wasm
+  (`~/.config/merlin/plugins/<name>`). Rebuilding a plugin's wasm
   changes what the user's own merlin loads; it hot-reloads.
-- Build the LSP plugin with
-  `cd plugins/lsp && cargo build --release --target wasm32-wasip2`.
+- Build a plugin with `cd plugins/<name> && cargo build --release`; its
+  `.cargo/config.toml` picks the wasm target. Language servers come from
+  the `merlin-lsp` SDK crate, not a plugin of their own.
   `scripts/install-plugins.sh` builds and installs them all.
 - The WIT is `sdk/rust/wit/merlin.wit`. Host calls are implemented in
   `crates/plugin-host/src/lib.rs` (`impl host::Host for State`) and turned

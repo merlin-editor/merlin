@@ -1704,32 +1704,13 @@ fn permission_card(manifest: &Manifest) -> Panel {
         Node::Heading(format!("Allow {}?", manifest.title)),
         Node::Text("This plugin asks to:".into()),
     ];
-    if p.editor_read {
-        nodes.push(Node::Text("• read the open file".into()));
-    }
-    if p.editor_write {
-        nodes.push(Node::Text("• change the open file".into()));
-    }
-    if p.workspace_read {
-        nodes.push(Node::Text("• read the project's files".into()));
-    }
-    if p.terminal {
-        nodes.push(Node::Styled(
-            "• run command lines in a terminal, with your rights".into(),
-            Tone::Warning,
-        ));
-    }
-    for program in &p.processes {
-        nodes.push(Node::Styled(
-            format!("• run `{program}`, outside the sandbox, with your rights"),
-            Tone::Warning,
-        ));
-    }
-    if p.debugger {
-        nodes.push(Node::Styled(
-            "• start the debuggers plugins name when you start a run, and drive them".into(),
-            Tone::Warning,
-        ));
+    for (what, outside) in p.described() {
+        let line = format!("• {what}");
+        nodes.push(if outside {
+            Node::Styled(line, Tone::Warning)
+        } else {
+            Node::Text(line)
+        });
     }
     nodes.push(Node::Text(String::new()));
     nodes.push(Node::Styled(

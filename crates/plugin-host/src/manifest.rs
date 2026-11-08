@@ -489,6 +489,41 @@ impl Permissions {
         *self == Permissions::default()
     }
 
+    /// What each permission lets a plugin do, in words, and whether it
+    /// reaches outside the sandbox. The permission card and
+    /// `merlin plugin install` both say it this way.
+    pub(super) fn described(&self) -> Vec<(String, bool)> {
+        let mut what = Vec::new();
+        if self.editor_read {
+            what.push(("read the open file".to_string(), false));
+        }
+        if self.editor_write {
+            what.push(("change the open file".to_string(), false));
+        }
+        if self.workspace_read {
+            what.push(("read the project's files".to_string(), false));
+        }
+        if self.terminal {
+            what.push((
+                "run command lines in a terminal, with your rights".to_string(),
+                true,
+            ));
+        }
+        for program in &self.processes {
+            what.push((
+                format!("run `{program}`, outside the sandbox, with your rights"),
+                true,
+            ));
+        }
+        if self.debugger {
+            what.push((
+                "start the debuggers plugins name when you start a run, and drive them".to_string(),
+                true,
+            ));
+        }
+        what
+    }
+
     /// Whether these allow everything `wanted` asks for.
     pub(super) fn covers(&self, wanted: &Permissions) -> bool {
         (self.editor_read || !wanted.editor_read)
@@ -921,20 +956,12 @@ pub fn grant(config: &Config, dir: &Path) -> Result<(Manifest, Vec<String>)> {
     let manifest = manifest(dir)?;
     let dir = dir.canonicalize()?.display().to_string();
     save_grant(&config.data_dir, &dir, &manifest.permissions)?;
-    let p = &manifest.permissions;
-    let mut allowed = Vec::new();
-    if p.editor_read {
-        allowed.push("read the open file".to_string());
-    }
-    if p.editor_write {
-        allowed.push("change the open file".to_string());
-    }
-    for program in &p.processes {
-        allowed.push(format!("run `{program}`, outside the sandbox"));
-    }
-    if p.debugger {
-        allowed.push("start the debuggers plugins name, and drive them".to_string());
-    }
+    let allowed = manifest
+        .permissions
+        .described()
+        .into_iter()
+        .map(|(what, _)| what)
+        .collect();
     Ok((manifest, allowed))
 }
 

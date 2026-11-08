@@ -105,7 +105,7 @@ target/release/merlin src/main.rs src/lib.rs
 ```
 
 The editor has no languages of its own: they come with it as plugins, as
-VS Code's do. The script builds them (and the language server plugin) and
+VS Code's do. The script builds them (and the debugger, PDF and theme plugins) and
 installs them with `merlin plugin install <dir>`, which links a plugin into
 `~/.config/merlin/plugins/` and allows what its manifest asks for, so they
 load at every start. Without them, files show uncoloured. Plugins compile

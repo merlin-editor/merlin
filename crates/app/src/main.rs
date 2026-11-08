@@ -148,12 +148,14 @@ fn install_plugins(dirs: &[String]) -> Result<()> {
             std::os::unix::fs::symlink(&dir, &link)?;
         }
         let (_, allowed) = merlin_plugins::grant(&Config::standard(), &link)?;
-        let may = if allowed.is_empty() {
-            String::new()
+        if allowed.is_empty() {
+            println!("Installed {}", manifest.title);
         } else {
-            format!(", allowed to {}", allowed.join(", "))
-        };
-        println!("Installed {}{may}", manifest.title);
+            println!("Installed {}, allowed to:", manifest.title);
+            for what in &allowed {
+                println!("  • {what}");
+            }
+        }
     }
     Ok(())
 }
