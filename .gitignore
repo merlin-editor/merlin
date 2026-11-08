@@ -1,1 +1,3 @@
 target/
+# The SDK builds inside each plugin, whose own lock file counts.
+sdk/*/Cargo.lock
