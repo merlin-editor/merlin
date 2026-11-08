@@ -13,6 +13,7 @@ impl Editor {
                     .iter()
                     .map(|c| (format!("{}.{}", p.name, c.id), c.title.clone()))
             }))
+            .chain(self.view_commands())
             .chain(
                 self.macros
                     .iter()

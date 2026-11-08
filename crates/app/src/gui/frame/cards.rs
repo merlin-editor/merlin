@@ -830,8 +830,7 @@ impl Frame<'_> {
     /// the window's edges; a click on the `k`th item sends `event(k)`.
     pub(super) fn items_card(
         &mut self,
-        items: &[ContextItem],
-        selected: Option<usize>,
+        (items, selected, title): (&[ContextItem], Option<usize>, Option<&str>),
         (x, y): (f32, f32),
         w: f32,
         h: f32,
@@ -839,6 +838,8 @@ impl Frame<'_> {
     ) {
         let p = self.p;
         let (label_f, key_f) = (Face::ui(13.0), Face::ui(12.0));
+        let title_f = Face::ui(12.0);
+        let title_h = if title.is_some() { 26.0 } else { 0.0 };
         let widest = items
             .iter()
             .map(|i| {
@@ -847,10 +848,11 @@ impl Frame<'_> {
                         .as_ref()
                         .map_or(0.0, |k| self.text.width(k, key_f) + 32.0)
             })
-            .fold(0.0, f32::max);
+            .fold(0.0, f32::max)
+            .max(title.map_or(0.0, |t| self.text.width(t, title_f) - 8.0));
         let mw = (widest + 40.0).max(220.0);
         let height = |label: &str| if label.is_empty() { 9.0 } else { 28.0 };
-        let mh: f32 = items.iter().map(|i| height(&i.label)).sum::<f32>() + 10.0;
+        let mh: f32 = items.iter().map(|i| height(&i.label)).sum::<f32>() + 10.0 + title_h;
         let x = if x + mw > w - 8.0 {
             (x - mw).max(8.0)
         } else {
@@ -866,6 +868,20 @@ impl Frame<'_> {
         self.canvas.outline(r, 8.0, 1.0, p.border, p.widget);
         self.hit(r, Hit::Block);
         let mut ry = r.y + 5.0;
+        // What the items are about, quieter, above them.
+        if let Some(title) = title {
+            self.text.draw_in_row(
+                &mut self.canvas,
+                title,
+                title_f,
+                r.x + 13.0,
+                ry,
+                title_h,
+                p.muted,
+                r,
+            );
+            ry += title_h;
+        }
         for (k, item) in items.iter().enumerate() {
             let rh = height(&item.label);
             if item.label.is_empty() {
@@ -911,7 +927,13 @@ impl Frame<'_> {
     pub(super) fn context(&mut self, menu: &ContextView, at: (f32, f32), w: f32, h: f32) {
         // A click anywhere else closes it.
         self.hit(Rect::new(0.0, 0.0, w, h), Hit::Ui(UiEvent::CloseContext));
-        self.items_card(&menu.items, menu.selected, at, w, h, UiEvent::ContextItem);
+        self.items_card(
+            (&menu.items, menu.selected, menu.title.as_deref()),
+            at,
+            w,
+            h,
+            UiEvent::ContextItem,
+        );
     }
 
     /// The menus behind the title bar's button: their titles in one card,
@@ -961,7 +983,13 @@ impl Frame<'_> {
             self.hit(row, Hit::Ui(UiEvent::MenuTitle(i)));
         }
         let at = (titles.right() + 4.0, open_y);
-        self.items_card(&menu.items, menu.selected, at, w, h, UiEvent::MenuItem);
+        self.items_card(
+            (&menu.items, menu.selected, None),
+            at,
+            w,
+            h,
+            UiEvent::MenuItem,
+        );
     }
 
     /// A small label under `r`, or beside it on the rail.

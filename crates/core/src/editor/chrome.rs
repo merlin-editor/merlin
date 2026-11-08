@@ -16,7 +16,7 @@ pub(crate) enum Action {
     /// Shows a built-in view in the side bar, or hides the side bar if it's
     /// showing it already.
     View(&'static str),
-    /// The same for a plugin's panel in the secondary side bar.
+    /// The same for a plugin's view, where it lives.
     Plugin(String),
 }
 
@@ -45,16 +45,20 @@ impl Editor {
                 }
             }
             Action::Plugin(name) => {
-                let shown = self.bar(Side::Right).visible
-                    && self.active_panel_name(Side::Right).as_deref() == Some(name.as_str());
+                let side = self
+                    .plugins
+                    .iter()
+                    .find(|p| p.name == name)
+                    .map_or(Side::Right, |p| p.side);
+                let shown = self.bar(side).visible
+                    && self.active_panel_name(side).as_deref() == Some(name.as_str());
                 if shown {
-                    self.bar_mut(Side::Right).visible = false;
-                    if self.focus == Focus::Panel {
+                    self.bar_mut(side).visible = false;
+                    if self.focus == side.focus() {
                         self.focus = Focus::Editor;
                     }
                 } else {
-                    self.bar_mut(Side::Right).active = Some(name);
-                    self.focus_panel(Side::Right);
+                    self.show_plugin_view(&name);
                 }
             }
         }

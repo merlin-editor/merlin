@@ -477,6 +477,10 @@ impl Editor {
             // Show and focus, then step through the panels, then hide.
             "panel.toggle" => self.toggle_plugin_panels(),
             "app.quit" => self.quit_asked(fx),
+            other if self.view_menu_command(other) => {}
+            other if other.starts_with("view.show:") => {
+                self.show_plugin_view(&other["view.show:".len()..]);
+            }
             other => {
                 let found = self.plugins.iter().find_map(|p| {
                     let local = other.strip_prefix(&p.name)?.strip_prefix('.')?;

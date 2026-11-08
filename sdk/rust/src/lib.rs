@@ -125,6 +125,15 @@ pub trait Plugin: 'static {
         None
     }
 
+    /// One of the views `[[views]]` in the manifest declares, by its id,
+    /// when it shows and something may have changed. Each shows
+    /// [`Plugin::panel`]'s unless the plugin says otherwise.
+    /// [`host::set_view_badge`] puts a count on its icon, and
+    /// [`host::focus_view`] shows it.
+    fn view(&mut self, _id: &str) -> Option<Panel> {
+        self.panel()
+    }
+
     fn click(&mut self, _button: &str) {}
 
     /// Enter in a panel input.
@@ -398,6 +407,14 @@ macro_rules! export {
             fn on_setting_changed(key: String) {
                 $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
                     $crate::Plugin::setting_changed(p, &key)
+                })
+            }
+        }
+
+        impl $crate::bindings::exports::merlin::plugin::views::Guest for __MerlinExports {
+            fn render_view(view: String) -> Option<$crate::Panel> {
+                $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
+                    $crate::Plugin::view(p, &view)
                 })
             }
         }

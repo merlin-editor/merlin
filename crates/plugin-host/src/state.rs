@@ -789,6 +789,21 @@ impl host::Host for State {
         self.events.push(Event::FocusPanel(self.name.clone()));
     }
 
+    fn focus_view(&mut self, view: String) {
+        self.events.push(Event::FocusView {
+            plugin: self.name.clone(),
+            view,
+        });
+    }
+
+    fn set_view_badge(&mut self, view: String, count: u32) {
+        self.events.push(Event::ViewBadge {
+            plugin: self.name.clone(),
+            view,
+            count,
+        });
+    }
+
     fn show_picker(&mut self, id: String, title: String, items: Vec<types::PickItem>) {
         self.events.push(Event::ShowPicker {
             plugin: self.name.clone(),

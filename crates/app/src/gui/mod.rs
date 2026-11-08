@@ -70,6 +70,9 @@ struct TabDrag {
     /// A file's element in a side's view, and the clicks pressed on it,
     /// which go to it on release unless it was dragged.
     entry: Option<(Side, usize, u8)>,
+    /// A plugin view's icon or tab: the view, and the click it is unless
+    /// it's dragged somewhere else.
+    view: Option<(String, UiEvent)>,
 }
 
 /// Where a dragged tab or file would land.
@@ -82,6 +85,11 @@ enum Landing {
     Body {
         group: usize,
         edge: Option<Edge>,
+        zone: Rect,
+    },
+    /// A plugin view's new place, shading where it goes.
+    View {
+        place: merlin_core::Place,
         zone: Rect,
     },
 }
@@ -290,7 +298,7 @@ struct Gui<'a> {
     areas: Areas,
     /// What was last drawn, so a redraw that changes nothing costs nothing.
     #[allow(clippy::type_complexity)]
-    drawn: Option<(WindowView, Option<usize>, [f32; 3], (u32, u32), Look)>,
+    drawn: Option<(WindowView, Option<usize>, [f32; 4], (u32, u32), Look)>,
     /// The text last drawn, beside `drawn`.
     drawn_text: Vec<TextView>,
     /// The terminals' version last drawn, and where each pane was.
@@ -763,8 +771,16 @@ impl ApplicationHandler for Gui<'_> {
                 {
                     self.redraw();
                 } else if let Some(drag) = self.tab_drag.take() {
-                    self.drop = None;
-                    if drag.moved {
+                    let landing = self.drop.take();
+                    if let Some((name, click)) = drag.view {
+                        match landing {
+                            Some(Landing::View { place, .. }) if drag.moved => {
+                                self.dispatch(Event::Ui(UiEvent::MoveView { name, place }))
+                            }
+                            _ if !drag.moved => self.dispatch(Event::Ui(click)),
+                            _ => {}
+                        }
+                    } else if drag.moved {
                         self.drop_tab(at, drag.entry);
                     } else if let Some((side, index, clicks)) = drag.entry {
                         // Not dragged: a click, which opens it.
@@ -803,6 +819,15 @@ impl ApplicationHandler for Gui<'_> {
                     Some(Hit::Side(side)) => {
                         self.context_at = Some(at);
                         self.dispatch(Event::Ui(UiEvent::SideMenu(side)));
+                    }
+                    // A plugin view's menu, from its rail icon or its tab.
+                    Some(Hit::Ui(UiEvent::Rail(i))) => {
+                        self.context_at = Some(at);
+                        self.dispatch(Event::Ui(UiEvent::RailMenu(i)));
+                    }
+                    Some(Hit::Ui(UiEvent::PanelTitle { name, .. })) => {
+                        self.context_at = Some(at);
+                        self.dispatch(Event::Ui(UiEvent::Press(format!("view-menu:{name}"))));
                     }
                     // A tab's menu is about that tab, so it's chosen first.
                     Some(Hit::Ui(tab @ (UiEvent::Tab { .. } | UiEvent::GroupTab { .. }))) => {

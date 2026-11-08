@@ -149,18 +149,19 @@ pub struct Areas {
 /// What the frame keeps between frames: how far each side is scrolled.
 #[derive(Default)]
 pub struct State {
-    pub scroll: [f32; 3],
+    pub scroll: [f32; 4],
     /// The selection each side last showed, to scroll to it when it moves.
-    selected: [Option<usize>; 3],
+    selected: [Option<usize>; 4],
     /// How far each multi-line input has scrolled.
     pub input_scroll: HashMap<String, f32>,
 }
 
-fn side_index(side: Side) -> usize {
+pub(super) fn side_index(side: Side) -> usize {
     match side {
         Side::Left => 0,
         Side::Right => 1,
         Side::Bottom => 2,
+        Side::Tab => 3,
     }
 }
 
@@ -235,6 +236,7 @@ impl Sizes {
                 self.bottom = (h - STATUS_H - y).clamp(100.0, body * 0.75);
                 self.bottom_before = None;
             }
+            Side::Tab => {}
         }
     }
 
@@ -512,7 +514,7 @@ impl Frame<'_> {
             let sv = match side {
                 Side::Left => &view.left,
                 Side::Right => &view.right,
-                Side::Bottom => &view.bottom,
+                _ => &view.bottom,
             };
             if let (Some(area), Some(sv)) = (area, sv) {
                 self.canvas.round(area, self.radius, p.island);
@@ -616,7 +618,11 @@ impl Frame<'_> {
         if let Some(menu) = &view.menu {
             self.menu(menu, w, h);
         }
-        if let Some((r, tip)) = self.tip.clone() {
+        // An open menu is what's being read: no tip over it.
+        if let Some((r, tip)) = self.tip.clone()
+            && view.context.is_none()
+            && view.menu.is_none()
+        {
             self.tooltip(r, &tip, w);
         }
     }

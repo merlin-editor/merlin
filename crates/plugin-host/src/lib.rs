@@ -63,6 +63,9 @@ const FUEL_PER_CALL: u64 = 6_000_000_000;
 /// the editor of input.
 const MESSAGES_PER_POLL: usize = 256;
 
+/// The interface that holds `render-view`, as the SDK exports it.
+const VIEWS: &str = "merlin:plugin/views@0.6.0";
+
 pub struct Config {
     /// Where remembered permissions and file-backed secrets are kept.
     pub data_dir: PathBuf,
@@ -135,7 +138,11 @@ struct Instance {
     bindings: Bindings,
     /// `on-setting-changed`, which plugins built before it don't export.
     setting_changed: Option<wasmtime::component::TypedFunc<(String,), ()>>,
+    /// `render-view`, which plugins built before it don't export.
+    render_view: Option<RenderView>,
 }
+
+type RenderView = wasmtime::component::TypedFunc<(String,), (Option<types::Panel>,)>;
 
 struct Loaded {
     manifest: Manifest,
@@ -515,10 +522,15 @@ impl PluginHost {
         let setting_changed = instance
             .get_typed_func::<(String,), ()>(&mut store, "on-setting-changed")
             .ok();
+        let render_view = instance
+            .get_export_index(&mut store, None, VIEWS)
+            .and_then(|views| instance.get_export_index(&mut store, Some(&views), "render-view"))
+            .and_then(|func| instance.get_typed_func(&mut store, func).ok());
         Ok(Instance {
             store,
             bindings,
             setting_changed,
+            render_view,
         })
     }
 
@@ -548,10 +560,19 @@ impl PluginHost {
                         .collect(),
                 },
             );
-            for (i, event) in manifest_events(&self.plugins[index].manifest)
-                .into_iter()
-                .enumerate()
-            {
+            let loaded = &self.plugins[index];
+            let views = loaded
+                .manifest
+                .views
+                .iter()
+                .map(|v| v.to_core(&loaded.manifest.name, Path::new(&loaded.dir)))
+                .collect();
+            let mut declared = manifest_events(&loaded.manifest);
+            declared.push(Event::RegisterViews {
+                plugin: loaded.manifest.name.clone(),
+                views,
+            });
+            for (i, event) in declared.into_iter().enumerate() {
                 events.insert(1 + i, event);
             }
         }
@@ -852,29 +873,74 @@ impl PluginHost {
             .1
     }
 
-    /// Asks every working plugin for its panel.
-    pub fn render_panels(&mut self, snapshot: &Snapshot) -> Vec<Event> {
+    /// Asks plugins for what shows: the views in `shown`, by name, and,
+    /// when `all` is set, every working plugin's panel from
+    /// `render-panel`, so the right side bar knows which plugins have one.
+    pub fn render_panels(
+        &mut self,
+        snapshot: &Snapshot,
+        shown: &[String],
+        all: bool,
+    ) -> Vec<Event> {
         let mut events = Vec::new();
         for i in 0..self.plugins.len() {
             // Data only or turned off: no panel, and nothing to allow.
             if self.plugins[i].manifest.component.is_none() || self.plugins[i].disabled {
                 continue;
             }
+            let name = self.plugins[i].manifest.name.clone();
             if self.plugins[i].instance.is_none() {
-                events.push(Event::SetPanel {
-                    plugin: self.plugins[i].manifest.name.clone(),
-                    panel: Some(permission_card(&self.plugins[i].manifest)),
-                });
+                if all {
+                    events.push(Event::SetPanel {
+                        plugin: name,
+                        panel: Some(permission_card(&self.plugins[i].manifest)),
+                    });
+                }
                 continue;
             }
-            if self.plugins[i].pure_language {
+            let views: Vec<String> = self.plugins[i]
+                .manifest
+                .views
+                .iter()
+                .map(|v| v.id.clone())
+                .collect();
+            if !views.is_empty() {
+                for id in views {
+                    let key = merlin_core::view_key(&name, &id);
+                    if !shown.contains(&key) {
+                        continue;
+                    }
+                    let render = self.plugins[i]
+                        .instance
+                        .as_ref()
+                        .and_then(|i| i.render_view);
+                    let (panel, mut more) = match render {
+                        Some(func) => {
+                            let (panel, more) = self.call(i, snapshot.clone(), |_, store| {
+                                func.call(store, (id,)).map(|(p,)| p)
+                            });
+                            (panel, more)
+                        }
+                        None => self.call(i, snapshot.clone(), |b, s| b.call_render_panel(s)),
+                    };
+                    events.append(&mut more);
+                    if let Some(panel) = panel {
+                        events.push(Event::SetPanel {
+                            plugin: key,
+                            panel: panel.map(convert_panel),
+                        });
+                    }
+                }
+                continue;
+            }
+            if self.plugins[i].pure_language || !(all || shown.contains(&name)) {
                 continue;
             }
             let (panel, mut more) = self.call(i, snapshot.clone(), |b, s| b.call_render_panel(s));
             events.append(&mut more);
             if let Some(panel) = panel {
                 events.push(Event::SetPanel {
-                    plugin: self.plugins[i].manifest.name.clone(),
+                    plugin: name,
                     panel: panel.map(convert_panel),
                 });
             }
@@ -1059,6 +1125,10 @@ impl PluginHost {
                     plugin: name.to_string(),
                     commands: Vec::new(),
                 },
+                Event::RegisterViews {
+                    plugin: name.to_string(),
+                    views: Vec::new(),
+                },
             ];
         }
         let plugin = &self.plugins[i];
@@ -1091,6 +1161,10 @@ impl PluginHost {
             Event::RegisterPlugin {
                 plugin: name.to_string(),
                 commands: Vec::new(),
+            },
+            Event::RegisterViews {
+                plugin: name.to_string(),
+                views: Vec::new(),
             },
         ]
     }

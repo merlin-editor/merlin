@@ -39,8 +39,15 @@ fn snapshot() -> Snapshot {
     }
 }
 
+/// The testbed's views, which show what it has.
+fn shown() -> Vec<String> {
+    ["activity", "chat", "runs"]
+        .map(|v| merlin_core::view_key("testbed", v))
+        .into()
+}
+
 fn panel_text(host: &mut PluginHost) -> String {
-    host.render_panels(&snapshot())
+    host.render_panels(&snapshot(), &shown(), true)
         .into_iter()
         .filter_map(|e| match e {
             Event::SetPanel {
@@ -341,7 +348,7 @@ fn data_only_plugins_have_no_panel_and_ask_nothing() {
     .unwrap();
     host.load(&dir).unwrap();
     assert!(
-        host.render_panels(&snapshot()).is_empty(),
+        host.render_panels(&snapshot(), &shown(), true).is_empty(),
         "no permission card for a plugin that runs nothing"
     );
     assert!(host.click("looks", "merlin:allow", snapshot()).is_empty());
@@ -377,7 +384,7 @@ fn plugin_pages_count_memory_and_time_and_plugins_turn_off_and_on() {
         "off, it runs nothing"
     );
     assert!(
-        host.render_panels(&snapshot()).is_empty(),
+        host.render_panels(&snapshot(), &shown(), true).is_empty(),
         "no permission card when off"
     );
     let info = host.plugins().into_iter().next().unwrap();
@@ -390,8 +397,95 @@ fn plugin_pages_count_memory_and_time_and_plugins_turn_off_and_on() {
             .any(|e| matches!(e, Event::RegisterPlugin { commands, .. } if !commands.is_empty())),
         "on again, it registers its commands: {events:?}"
     );
-    assert!(host.unload("testbed").len() == 2);
+    let events = host.unload("testbed");
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::RegisterViews { views, .. } if views.is_empty())),
+        "unloaded, its views go: {events:?}"
+    );
     assert!(host.plugins().is_empty());
+}
+
+#[test]
+fn views_come_from_the_manifest_and_draw_only_while_they_show() {
+    let (dir, mut config) = setup("views");
+    config.ask = false;
+    let mut host = PluginHost::new(config).unwrap();
+    let events = host.load(&dir).unwrap();
+    let views = events
+        .iter()
+        .find_map(|e| match e {
+            Event::RegisterViews { views, .. } => Some(views.clone()),
+            _ => None,
+        })
+        .expect("its views are announced");
+    let places: Vec<_> = views.iter().map(|v| (v.id.as_str(), v.place)).collect();
+    assert_eq!(
+        places,
+        [
+            ("activity", merlin_core::Place::Left),
+            ("chat", merlin_core::Place::Right),
+            ("runs", merlin_core::Place::Bottom),
+        ]
+    );
+    assert_eq!(views[0].toolbar[0].command, "count");
+    assert_eq!(
+        views[0].toolbar[0].icon,
+        Some(merlin_core::ViewIcon::Glyph("+".into()))
+    );
+    assert!(
+        matches!(&views[1].icon, Some(merlin_core::ViewIcon::Svg(p)) if p.ends_with("icons/chat.svg")),
+        "an icon file is in its folder: {:?}",
+        views[1].icon
+    );
+    assert_eq!(views[2].empty, "No runs yet.");
+
+    // Only what shows is drawn, each by its view's id.
+    let chat = merlin_core::view_key("testbed", "chat");
+    let events = host.render_panels(&snapshot(), std::slice::from_ref(&chat), false);
+    let drawn: Vec<_> = events
+        .iter()
+        .filter_map(|e| match e {
+            Event::SetPanel { plugin, panel } => Some((plugin.clone(), panel.is_some())),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(drawn, [(chat.clone(), true)]);
+    host.submit("testbed", "ask", "why", snapshot());
+    let events = host.render_panels(&snapshot(), &[chat], false);
+    assert!(
+        format!("{events:?}").contains("asked: why"),
+        "a view's input reaches its plugin: {events:?}"
+    );
+
+    // A count on its icon, and a way to show it.
+    let events = host.run_command("testbed", "count", snapshot());
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::ViewBadge { view, count: 1, .. } if view == "activity"))
+    );
+    let events = host.run_command("testbed", "show-chat", snapshot());
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::FocusView { view, .. } if view == "chat"))
+    );
+}
+
+#[test]
+fn a_view_with_a_place_merlin_doesnt_know_is_refused() {
+    let (dir, config) = setup("bad-view");
+    let manifest = fs::read_to_string(dir.join("plugin.toml")).unwrap();
+    fs::write(
+        dir.join("plugin.toml"),
+        manifest.replace("where = \"bottom\"", "where = \"top\""),
+    )
+    .unwrap();
+    let mut host = PluginHost::new(config).unwrap();
+    let err = format!("{:#}", host.load(&dir).unwrap_err());
+    assert!(err.contains("left, right, bottom or tab"), "{err}");
 }
 
 #[test]
@@ -437,7 +531,7 @@ fn pure_language_plugins_skip_unrelated_files_and_panel_renders() {
         host.buffer_event(&BufferEvent::Saved("a.json".into()), &rs)
             .is_empty()
     );
-    assert!(host.render_panels(&rs).is_empty());
+    assert!(host.render_panels(&rs, &[], true).is_empty());
     assert_eq!(
         host.plugins()[0].busy,
         after_load,

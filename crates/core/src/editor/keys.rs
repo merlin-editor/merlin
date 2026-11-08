@@ -208,6 +208,7 @@ impl Editor {
             ));
         }
         match self.focus {
+            Focus::Editor if self.tab_view().is_some() => self.panel_key(Side::Tab, key, fx),
             Focus::Editor => self.editor_key(key, fx),
             Focus::Find => self.find_key(key),
             Focus::Palette => self.palette_key(key, fx),

@@ -8,6 +8,7 @@ struct Testbed {
     clicks: u32,
     cat: Option<u32>,
     log: Vec<String>,
+    asked: Vec<String>,
 }
 
 impl Plugin for Testbed {
@@ -23,6 +24,7 @@ impl Plugin for Testbed {
             "spawn-forbidden",
             "show-setting",
             "show-path",
+            "show-chat",
             "colour",
             "log",
             "warn",
@@ -34,7 +36,11 @@ impl Plugin for Testbed {
 
     fn run_command(&mut self, id: &str) {
         match id {
-            "count" => self.clicks += 1,
+            "count" => {
+                self.clicks += 1;
+                host::set_view_badge("activity", self.clicks);
+            }
+            "show-chat" => host::focus_view("chat"),
             "spawn" => self.cat = host::spawn("cat", &[], &[], Framing::Lines).ok(),
             "send" => {
                 if let Some(cat) = self.cat {
@@ -95,6 +101,26 @@ impl Plugin for Testbed {
                 .text(format!("clicks: {}", self.clicks))
                 .text(log),
         )
+    }
+
+    /// Activity shows the panel; Chat asks something; Runs has nothing,
+    /// so it shows its empty text.
+    fn view(&mut self, id: &str) -> Option<Panel> {
+        match id {
+            "activity" => self.panel(),
+            "chat" => Some(
+                Panel::new("Chat")
+                    .text(format!("asked: {}", self.asked.join(", ")))
+                    .input("ask", "Ask something"),
+            ),
+            _ => None,
+        }
+    }
+
+    fn submit(&mut self, input: &str, text: &str) {
+        if input == "ask" {
+            self.asked.push(text.to_string());
+        }
     }
 
     fn process(&mut self, _process: u32, event: ProcessEvent) {

@@ -121,6 +121,12 @@ impl Frame<'_> {
         let p = self.p;
         let mut y = TITLE_H + 2.0;
         for (i, item) in view.rail.iter().enumerate() {
+            // A thin line before the plugins' views.
+            if item.divider {
+                self.canvas
+                    .fill(Rect::new(12.0, y + 2.0, 20.0, 1.0), p.border);
+                y += 7.0;
+            }
             let r = Rect::new(4.0, y, 36.0, 36.0);
             let hovered = self.hovered(r);
             if item.active {
@@ -136,9 +142,15 @@ impl Frame<'_> {
             } else {
                 p.muted
             };
-            let themed = self.icons.ui(item.id).cloned();
-            let drawn = themed
-                .is_some_and(|icon| self.draw_icon(&icon, r.x + 8.0, y + 8.0, 20.0, colour, r));
+            let drawn = match &item.icon {
+                Some(icon) => self.view_icon(icon, r.x + 8.0, y + 8.0, 20.0, colour, r),
+                None => {
+                    let themed = self.icons.ui(item.id).cloned();
+                    themed.is_some_and(|icon| {
+                        self.draw_icon(&icon, r.x + 8.0, y + 8.0, 20.0, colour, r)
+                    })
+                }
+            };
             if !drawn {
                 self.text.draw_in_row(
                     &mut self.canvas,

@@ -33,3 +33,29 @@ id = "notes"
 name = "Notes"
 extensions = ["notes"]
 line-comment = ";"
+
+# One view in each place a view can go, for the window's tests.
+[[views]]
+id = "activity"
+title = "Activity"
+icon = "list"
+where = "left"
+empty = "Nothing yet."
+
+[[views.toolbar]]
+command = "count"
+icon = "plus"
+
+[[views]]
+id = "chat"
+title = "Chat"
+icon = "icons/chat.svg"
+where = "right"
+empty = "Ask about this file."
+
+[[views]]
+id = "runs"
+title = "Runs"
+icon = "play"
+where = "bottom"
+empty = "No runs yet."

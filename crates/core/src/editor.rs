@@ -46,6 +46,7 @@ mod palette;
 pub use output::{LogLevel, OutputBarView, OutputClick, OutputList, OutputRowView};
 mod panels;
 mod peek;
+mod plugin_views;
 pub use blame::{BlameCardView, BlameCell, CommitInfo};
 pub use compare::{DiffBarView, DiffMark, DiffMarks};
 pub use debug::{
@@ -84,8 +85,8 @@ mod workspace;
 mod wrap;
 
 pub use window::{
-    PaletteExtra, PaletteIcon, PaletteView, RailItem, SideView, StatusView, TabView, ToastView,
-    UiEvent, WindowView,
+    PaletteExtra, PaletteIcon, PaletteView, PanelTab, RailItem, SideView, StatusView, TabView,
+    ToastView, ToolView, UiEvent, WindowView,
 };
 
 pub use context::{
@@ -128,6 +129,7 @@ use crate::layers::{DocSymbol, Layer, Token};
 use crate::panel::{Panel, PickItem};
 
 pub use events::*;
+pub use plugin_views::{Place, ToolButton, ViewIcon, ViewSpec, view_key};
 pub use views::SearchHit;
 
 /// Most matches the palette keeps, so a big project stays fast.
@@ -141,6 +143,8 @@ struct Plugin {
     panel: Option<Panel>,
     error: Option<String>,
     side: Side,
+    /// For a plugin's view: whose it is, its icon and the rest.
+    view: Option<plugin_views::ViewInfo>,
 }
 
 struct Find {
@@ -280,7 +284,13 @@ pub struct Editor {
     find: Option<Find>,
     palette: Option<Palette>,
     /// The side bars, left and right, and the panel at the bottom.
-    bars: [panels::Bar; 3],
+    bars: [panels::Bar; 4],
+    /// Views the user moved from where their plugin puts them.
+    view_places: Vec<(String, Place)>,
+    /// Views the user hid.
+    hidden_views: Vec<String>,
+    /// The view whose right-click menu is open.
+    view_menu: Option<String>,
     menu: Option<menu::Menu>,
     tree: Option<views::Tree>,
     search: views::Search,
@@ -570,6 +580,9 @@ impl Editor {
             find: None,
             palette: None,
             bars: Default::default(),
+            view_places: Vec::new(),
+            hidden_views: Vec::new(),
+            view_menu: None,
             menu: None,
             tree: None,
             search: Default::default(),

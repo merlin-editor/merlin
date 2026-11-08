@@ -586,6 +586,14 @@ interface host {
   /// Shows this plugin's panel and focuses its first input.
   focus-panel: func();
 
+  /// Shows one of the views the plugin's manifest declares, where the
+  /// user keeps it, and focuses its first input.
+  focus-view: func(view: string);
+
+  /// A count on a view's icon and tab, such as updates waiting; 0 for
+  /// none.
+  set-view-badge: func(view: string, count: u32);
+
   /// Replaces this plugin's diagnostics for a file. The path is relative to
   /// the workspace root, or absolute. They're underlined, and move with
   /// edits until the plugin sends new ones.
@@ -805,6 +813,14 @@ world plugin {
   export on-terminal: func(id: string, output: string, code: option<s32>);
 }
 
+/// Views a plugin draws, beyond `render-panel`'s one.
+interface views {
+  use types.{panel};
+  /// One of the views `[[views]]` in the manifest declares, by its id,
+  /// when it shows and something may have changed.
+  render-view: func(view: string) -> option<panel>;
+}
+
 /// What the SDK builds: `plugin`, and exports merlin calls only when a
 /// plugin has them, so plugins built before them still load.
 world plugin-sdk {
@@ -812,4 +828,5 @@ world plugin-sdk {
   /// One of the plugin's settings changed, by its dotted key, after the
   /// user or a workspace set it. `get-setting` has the new value.
   export on-setting-changed: func(key: string);
+  export views;
 }

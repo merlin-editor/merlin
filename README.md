@@ -773,6 +773,32 @@ What else plugins get, besides commands and panels:
   gets **Notices** (all, errors only, none) and **Log level**. A language
   server's `Spec::options` hands settings to the server, and restarts it
   when one changes.
+- **Views.** `[[views]]` in the manifest declares each view the plugin
+  draws, and where it goes: `left` puts it in the activity rail after a
+  line, `right` gives it a tab in the right side bar, `bottom` a tab in the
+  panel beside Problems and Output, and `tab` opens it in an editor tab.
+
+  ```toml
+  [[views]]
+  id = "chat"
+  title = "Chat"
+  icon = "icons/chat.svg"   # an SVG in the folder, a name such as plus, or a glyph
+  where = "right"
+  empty = "Ask about this file."
+
+  [[views.toolbar]]          # buttons in its header, for the plugin's commands
+  command = "new-chat"
+  icon = "plus"
+  ```
+
+  `view(id)` draws one, as `panel` draws the old single panel (it calls
+  `panel` unless the plugin says otherwise), and only while it shows.
+  `host::set_view_badge(id, count)` puts a count on its icon and tab, and
+  `host::focus_view(id)` shows it. Where it goes is a default: drag its
+  icon or tab elsewhere, or use its ⋯ or a right-click to move it, hide it
+  or put it back; the workspace remembers,
+  and View: Show finds any of them in the palette. A plugin without
+  `[[views]]` keeps `panel`'s on the right, as before.
 - **Buffer events**: `buffer` hears when the active file switches, changes or
   is saved.
 - **The selection**: `host::active_selection` gives its text and position.

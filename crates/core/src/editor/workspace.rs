@@ -25,6 +25,10 @@ pub struct Workspace {
     /// latest first.
     pub recent_files: Vec<PathBuf>,
     pub recent_commands: Vec<String>,
+    /// Plugin views the user moved, and where to.
+    pub view_places: Vec<(String, super::Place)>,
+    /// Plugin views the user hid.
+    pub hidden_views: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -60,6 +64,8 @@ impl Workspace {
     /// break 41 on src/main.rs
     /// break-if i == 2
     /// debug merlin
+    /// view rust/cargo right
+    /// hide-view testbed/log
     /// ```
     ///
     /// A breakpoint's `break-if`, `break-hit` and `break-log` lines follow
@@ -100,6 +106,12 @@ impl Workspace {
         }
         for id in &self.recent_commands {
             out += &format!("recent-command {id}\n");
+        }
+        for (key, place) in &self.view_places {
+            out += &format!("view {key} {}\n", place.name());
+        }
+        for key in &self.hidden_views {
+            out += &format!("hide-view {key}\n");
         }
         out
     }
@@ -144,6 +156,18 @@ impl Workspace {
             }
             if let Some(path) = line.strip_prefix("recent-file ") {
                 ws.recent_files.push(PathBuf::from(path));
+                continue;
+            }
+            if let Some((key, place)) = line
+                .strip_prefix("view ")
+                .and_then(|r| r.split_once(' '))
+                .and_then(|(k, p)| Some((k, super::Place::parse(p)?)))
+            {
+                ws.view_places.push((key.to_string(), place));
+                continue;
+            }
+            if let Some(key) = line.strip_prefix("hide-view ") {
+                ws.hidden_views.push(key.to_string());
                 continue;
             }
             if let Some(id) = line.strip_prefix("recent-command ") {
@@ -245,6 +269,8 @@ impl Editor {
             watches: self.debug.watches.clone(),
             recent_files: self.recent_files.clone(),
             recent_commands: self.recent_commands.clone(),
+            view_places: self.view_layout().0,
+            hidden_views: self.view_layout().1,
         }
     }
 
@@ -253,6 +279,7 @@ impl Editor {
     pub(crate) fn restore(&mut self, ws: Workspace) {
         self.restore_breakpoints(ws.breakpoints.clone(), ws.debug_target.clone());
         self.debug.watches = ws.watches.clone();
+        self.restore_view_layout(ws.view_places.clone(), ws.hidden_views.clone());
         if !ws.recent_files.is_empty() || !ws.recent_commands.is_empty() {
             self.recent_files = ws.recent_files.clone();
             self.recent_commands = ws.recent_commands.clone();

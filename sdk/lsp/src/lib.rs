@@ -411,6 +411,10 @@ impl<P: Plugin> Plugin for WithLsp<P> {
         self.inner.panel()
     }
 
+    fn view(&mut self, id: &str) -> Option<Panel> {
+        self.inner.view(id)
+    }
+
     fn click(&mut self, button: &str) {
         self.inner.click(button);
     }

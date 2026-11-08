@@ -18,6 +18,13 @@ use crate::style::Hue;
 pub enum UiEvent {
     /// An activity rail item, by its index in [`WindowView::rail`].
     Rail(usize),
+    /// A right click on one: a plugin view's menu.
+    RailMenu(usize),
+    /// A plugin view dragged to another place.
+    MoveView {
+        name: String,
+        place: super::Place,
+    },
     /// A terminal session, by id, clicked in the list or in its pane.
     Terminal(u64),
     /// A session's kill button.
@@ -170,6 +177,8 @@ pub struct WindowView {
     pub left: Option<SideView>,
     pub right: Option<SideView>,
     pub bottom: Option<SideView>,
+    /// Plugin views open in editor tabs, by their page names.
+    pub pages: Vec<(String, SideView)>,
     /// Whether each side shows, for the title bar's layout buttons:
     /// left, bottom, right.
     pub shown: [bool; 3],
@@ -234,15 +243,52 @@ pub struct RailItem {
     pub label: String,
     pub active: bool,
     pub badge: usize,
+    /// A plugin view's own icon, drawn instead of the glyph.
+    pub icon: Option<super::ViewIcon>,
+    /// A thin line above it: the first of the plugins' views.
+    pub divider: bool,
+    /// The plugin view it shows, by name, which can be dragged elsewhere.
+    pub view: Option<String>,
+}
+
+/// One of the panels a side can show, as its tab or its rail icon.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PanelTab {
+    pub name: String,
+    pub title: String,
+    pub on: bool,
+    /// A plugin view's icon.
+    pub icon: Option<super::ViewIcon>,
+    /// The plugin a view is from, by its title, for the panel's tabs.
+    pub from: Option<String>,
+    pub badge: u32,
+}
+
+/// A button in a plugin view's header, running one of its commands.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ToolView {
+    /// The command's full id, `plugin.command`.
+    pub command: String,
+    pub icon: Option<super::ViewIcon>,
+    /// The command's title, for its tip.
+    pub title: String,
 }
 
 /// A side bar or the bottom panel, showing one panel.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SideView {
     pub title: String,
-    /// Panels that can show here, by name and title, and whether each is the
-    /// one showing: the bottom panel's Problems and Output, or plugin panels.
-    pub panels: Vec<(String, String, bool)>,
+    /// Panels that can show here, and whether each is the one showing: the
+    /// bottom panel's Problems and Output, or plugin views.
+    pub panels: Vec<PanelTab>,
+    /// The panel's name.
+    pub name: String,
+    /// For a plugin's view: the plugin's title, its toolbar, and that it
+    /// can be moved.
+    pub from: Option<String>,
+    pub toolbar: Vec<ToolView>,
+    /// Plugin views the user hid, which the right side bar's + lists.
+    pub hidden: usize,
     pub nodes: Vec<Node>,
     /// For each node, the index of its first focusable element, if it has
     /// one: what a click on it sends as [`UiEvent::Target`].
@@ -370,11 +416,6 @@ impl Editor {
             .visible
             .then(|| self.active_panel_name(Side::Left))
             .flatten();
-        let right = self
-            .bar(Side::Right)
-            .visible
-            .then(|| self.active_panel_name(Side::Right))
-            .flatten();
         let mut items = Vec::new();
         for (view, glyph, label, id) in [
             (EXPLORER, Icon::Explorer, "Explorer", "explorer"),
@@ -401,20 +442,29 @@ impl Editor {
                         super::testing::TESTS => self.test_counts().1,
                         _ => 0,
                     },
+                    icon: None,
+                    divider: false,
+                    view: None,
                 },
                 Action::View(view),
             ));
         }
-        for name in self.panel_names(Side::Right) {
-            // Unchanged, not in the side bar's capitals.
-            let label = self.panel_title(Side::Right, &name).0;
+        // Plugins' views on the left, after a line.
+        let mut first = true;
+        for name in self.panel_names(Side::Left) {
+            let Some(view) = self.view_info(&name) else {
+                continue;
+            };
             items.push((
                 RailItem {
                     id: "plugin",
                     glyph: icon(Icon::Plugin, self.nerd),
-                    label,
-                    active: right.as_deref() == Some(name.as_str()),
-                    badge: 0,
+                    label: self.panel_title(Side::Right, &name).0,
+                    active: left.as_deref() == Some(name.as_str()),
+                    badge: view.badge as usize,
+                    icon: view.icon.clone(),
+                    divider: std::mem::take(&mut first),
+                    view: Some(name.clone()),
                 },
                 Action::Plugin(name),
             ));
@@ -426,7 +476,32 @@ impl Editor {
         if !self.bar(side).visible {
             return None;
         }
-        let (name, panel) = self.active(side)?;
+        let name = self.active_panel_name(side)?;
+        self.panel_view(side, &name)
+    }
+
+    /// The plugin views open in editor tabs that show, by page name.
+    fn page_views(&self) -> Vec<(String, SideView)> {
+        let focused = self.tab_view();
+        self.visible_views()
+            .into_iter()
+            .filter(|key| {
+                self.plugins
+                    .iter()
+                    .any(|p| p.name == *key && p.side == Side::Tab)
+            })
+            .filter_map(|key| {
+                let mut view = self.panel_view(Side::Tab, &key)?;
+                view.focused &= focused.as_deref() == Some(key.as_str());
+                Some((super::plugin_views::tab_page(&key), view))
+            })
+            .collect()
+    }
+
+    /// A panel as `side` shows it.
+    fn panel_view(&self, side: Side, name: &str) -> Option<SideView> {
+        let entry = self.plugins.iter().find(|p| p.name == name)?;
+        let panel = self.shown_panel(name, entry.panel.as_ref()?);
         let mut next = 0;
         let targets = panel
             .nodes
@@ -457,27 +532,66 @@ impl Editor {
                 input_cursors.push((id, cursor));
             }
         }
-        let active = name.to_string();
         let panels = self
             .panel_names(side)
             .into_iter()
             .map(|n| {
-                let title = self.panel_title(Side::Right, &n).0;
-                let on = n == active;
-                (n, title, on)
+                let view = self.view_info(&n);
+                PanelTab {
+                    title: self.panel_title(Side::Right, &n).0,
+                    on: n == name,
+                    icon: view.and_then(|v| v.icon.clone()),
+                    from: view.map(|v| self.plugin_title(&v.plugin)),
+                    badge: view.map_or(0, |v| v.badge),
+                    name: n,
+                }
             })
             .collect();
+        let view = entry.view.as_ref();
+        let toolbar = view
+            .map(|v| {
+                v.toolbar
+                    .iter()
+                    .map(|t| {
+                        let command = format!("{}.{}", v.plugin, t.command);
+                        let title = self
+                            .plugins
+                            .iter()
+                            .find(|p| p.name == v.plugin)
+                            .and_then(|p| p.commands.iter().find(|c| c.id == t.command))
+                            .map_or(t.command.clone(), |c| c.title.clone());
+                        ToolView {
+                            command,
+                            icon: t.icon.clone(),
+                            title,
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         Some(SideView {
             title: panel.title.clone(),
             panels,
-            nodes: panel.nodes.clone(),
+            name: name.to_string(),
+            from: view.map(|v| self.plugin_title(&v.plugin)),
+            toolbar,
+            hidden: self.hidden_views.len(),
+            nodes: panel.nodes,
             targets,
             selected: self.selected_index(side),
             focused: self.focused_side() == Some(side),
             inputs,
             input_cursors,
-            counts: (active == super::testing::TESTS).then(|| self.test_counts()),
+            counts: (name == super::testing::TESTS).then(|| self.test_counts()),
         })
+    }
+
+    /// A plugin's title, by its name.
+    fn plugin_title(&self, plugin: &str) -> String {
+        self.plugin_list
+            .iter()
+            .find(|p| p.name == plugin)
+            .map_or(plugin.to_string(), |p| p.title.clone())
     }
 
     pub fn window_view(&self) -> WindowView {
@@ -621,6 +735,7 @@ impl Editor {
             left: self.side_view(Side::Left),
             right: self.side_view(Side::Right),
             bottom: self.side_view(Side::Bottom),
+            pages: self.page_views(),
             shown: [
                 self.bar(Side::Left).visible,
                 self.bar(Side::Bottom).visible,
@@ -713,7 +828,10 @@ impl Editor {
                     group.height = h.max(0.05);
                 }
             }
-            UiEvent::TabMenu => self.open_tab_menu(),
+            UiEvent::TabMenu => match self.tab_view() {
+                Some(key) => self.open_view_menu(key),
+                None => self.open_tab_menu(),
+            },
             UiEvent::TargetMenu { side, index } => {
                 if self.active_panel_name(side).as_deref() == Some(super::views::EXPLORER) {
                     let row = match self.panel_targets(side).into_iter().nth(index) {
@@ -742,6 +860,12 @@ impl Editor {
             UiEvent::SideMenu(side) => {
                 if self.active_panel_name(side).as_deref() == Some(super::views::EXPLORER) {
                     self.open_explorer_menu(None);
+                }
+            }
+            UiEvent::MoveView { name, place } => self.move_view(&name, place),
+            UiEvent::RailMenu(i) => {
+                if let Some((_, Action::Plugin(name))) = self.rail_items().into_iter().nth(i) {
+                    self.open_view_menu(name);
                 }
             }
             UiEvent::Rail(i) => {
@@ -810,6 +934,11 @@ impl Editor {
             UiEvent::ChangeStep(forward) => self.step_change_peek(forward),
             UiEvent::ChangeClose => self.change_peek = None,
             UiEvent::BlameButton(b) => self.blame_card_button(&b, fx),
+            UiEvent::Press(id) if id.starts_with("run:") => self.run(&id["run:".len()..], fx),
+            UiEvent::Press(id) if id == "views-hidden" => self.list_views(fx),
+            UiEvent::Press(id) if id.starts_with("view-menu:") => {
+                self.open_view_menu(id["view-menu:".len()..].to_string())
+            }
             UiEvent::Press(id) if id.starts_with("merge:") => self.merge_press(&id),
             UiEvent::Press(id) if id.starts_with("test:") => self.test_press(&id, fx),
             UiEvent::Press(id) if id.starts_with("away:") => self.away_press(&id, fx),

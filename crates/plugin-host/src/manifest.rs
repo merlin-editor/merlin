@@ -59,6 +59,71 @@ pub struct Manifest {
     /// `show-project-symbols`.
     #[serde(default)]
     pub symbols: Option<String>,
+    /// Views the plugin draws, each where it goes: see [`ManifestView`].
+    #[serde(default)]
+    pub views: Vec<ManifestView>,
+}
+
+/// A view, as `[[views]]` in a manifest declares it.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct ManifestView {
+    pub id: String,
+    pub title: String,
+    /// An SVG file in the plugin's folder, a glyph's name such as `plus`,
+    /// or a character or two.
+    #[serde(default)]
+    pub icon: Option<String>,
+    /// `left`, `right` (the default), `bottom` or `tab`.
+    #[serde(default, rename = "where")]
+    pub place: Option<String>,
+    /// What it says while the plugin gives it nothing to show.
+    #[serde(default)]
+    pub empty: String,
+    #[serde(default)]
+    pub toolbar: Vec<ManifestTool>,
+}
+
+/// A button in a view's header, as `[[views.toolbar]]` declares it.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct ManifestTool {
+    /// One of the plugin's commands, with or without its name before it.
+    pub command: String,
+    #[serde(default)]
+    pub icon: Option<String>,
+}
+
+impl ManifestView {
+    pub(super) fn to_core(&self, plugin: &str, dir: &Path) -> merlin_core::ViewSpec {
+        let icon = |text: &Option<String>| {
+            text.as_deref()
+                .and_then(|t| merlin_core::ViewIcon::parse(t, dir))
+        };
+        merlin_core::ViewSpec {
+            id: self.id.clone(),
+            title: self.title.clone(),
+            icon: icon(&self.icon),
+            place: self
+                .place
+                .as_deref()
+                .and_then(merlin_core::Place::parse)
+                .unwrap_or_default(),
+            empty: self.empty.clone(),
+            toolbar: self
+                .toolbar
+                .iter()
+                .map(|t| merlin_core::ToolButton {
+                    command: t
+                        .command
+                        .strip_prefix(&format!("{plugin}."))
+                        .unwrap_or(&t.command)
+                        .to_string(),
+                    icon: icon(&t.icon),
+                })
+                .collect(),
+        }
+    }
 }
 
 /// A debugger, as `[[debuggers]]` in a manifest declares it.
@@ -701,7 +766,39 @@ pub fn manifest(dir: &Path) -> Result<Manifest> {
             .to_core()
             .with_context(|| format!("in {}", path.display()))?;
     }
+    check_views(&manifest).with_context(|| format!("in {}", path.display()))?;
     Ok(manifest)
+}
+
+/// Views need a component to draw them, an id of their own, and a place
+/// merlin knows.
+fn check_views(manifest: &Manifest) -> Result<()> {
+    if !manifest.views.is_empty() && manifest.component.is_none() {
+        bail!("views need a component to draw them");
+    }
+    let mut ids = Vec::new();
+    for view in &manifest.views {
+        let ok = |c: char| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_';
+        if view.id.is_empty() || !view.id.chars().all(ok) {
+            bail!(
+                "view id {:?} must be lowercase letters, digits, - and _",
+                view.id
+            );
+        }
+        if ids.contains(&&view.id) {
+            bail!("two views have the id {:?}", view.id);
+        }
+        ids.push(&view.id);
+        if let Some(place) = &view.place
+            && merlin_core::Place::parse(place).is_none()
+        {
+            bail!(
+                "view {:?} has where = {place:?}; it can be left, right, bottom or tab",
+                view.id
+            );
+        }
+    }
+    Ok(())
 }
 
 /// Allows the plugin in `dir` what its manifest asks for, as installing it

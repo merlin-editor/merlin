@@ -167,6 +167,23 @@ pub enum Event {
         panel: Option<Panel>,
     },
     FocusPanel(String),
+    /// A plugin's views, as its manifest declares them; none once it's
+    /// unloaded or off.
+    RegisterViews {
+        plugin: String,
+        views: Vec<super::ViewSpec>,
+    },
+    /// A count on a view's icon or tab; 0 for none.
+    ViewBadge {
+        plugin: String,
+        view: String,
+        count: u32,
+    },
+    /// Shows a plugin's view where it lives, and focuses it.
+    FocusView {
+        plugin: String,
+        view: String,
+    },
     ShowPicker {
         plugin: String,
         id: String,
@@ -877,4 +894,6 @@ pub enum Side {
     Left,
     Right,
     Bottom,
+    /// A plugin's view open in an editor tab.
+    Tab,
 }

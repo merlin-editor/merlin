@@ -4,7 +4,7 @@
 use super::*;
 
 impl Frame<'_> {
-    pub(super) fn side(
+    pub(crate) fn side(
         &mut self,
         sv: &SideView,
         side: Side,
@@ -13,53 +13,54 @@ impl Frame<'_> {
         term: Option<&TerminalView>,
     ) {
         let p = self.p;
-        let header = Rect::new(area.x, area.y, area.w, HEADER_H);
-        // The rail picks what the side bars show; the panel under the editor
-        // has its own tabs: Problems and Output.
-        if side == Side::Bottom && sv.panels.len() > 1 {
-            // Panels that share the side, as tabs: Problems and Output.
-            let mut x = area.x + 10.0;
-            for (name, title, on) in &sv.panels {
-                let face = Face::ui(12.5).medium();
-                let tw = self.text.width(title, face);
-                let r = Rect::new(x, area.y + 7.0, tw + 20.0, 24.0);
-                if *on {
-                    self.canvas.round(r, 6.0, p.raised);
-                } else if self.hovered(r) {
-                    self.canvas.round(r, 6.0, p.hover);
-                }
-                let colour = if *on { p.bright } else { p.muted };
-                self.text.draw_in_row(
-                    &mut self.canvas,
-                    title,
-                    face,
-                    x + 10.0,
-                    r.y,
-                    24.0,
-                    colour,
-                    header,
-                );
-                self.hit(
-                    r,
-                    Hit::Ui(UiEvent::PanelTitle {
-                        side,
-                        name: name.clone(),
-                    }),
-                );
-                x += r.w + 4.0;
-            }
+        // A view in an editor tab has the tab for its title, and only a
+        // gap under it.
+        let header_h = if side == Side::Tab { 8.0 } else { HEADER_H };
+        let header = Rect::new(area.x, area.y, area.w, header_h);
+        // The rail picks what the left side bar shows; the panel under the
+        // editor and the right side bar have their own tabs.
+        let tabs = match side {
+            Side::Bottom => sv.panels.len() > 1,
+            Side::Right => true,
+            _ => false,
+        };
+        // A plugin view's buttons, at the header's right.
+        let tools_x = if side == Side::Right || (side != Side::Tab && sv.from.is_some()) {
+            self.view_tools(sv, side, header)
         } else {
+            header.right()
+        };
+        if tabs {
+            let clip = Rect::new(header.x, header.y, tools_x - header.x, header.h);
+            self.panel_tabs(sv, side, header, clip);
+        } else if side != Side::Tab {
             let title = title_case(&sv.title);
+            let face = Face::ui(13.0).bold();
             self.text.draw_in_row(
                 &mut self.canvas,
                 &title,
-                Face::ui(13.0).bold(),
+                face,
                 area.x + 14.0,
                 area.y,
                 HEADER_H,
                 p.bright,
                 header,
             );
+            // Which plugin a view is from, quieter, after its title.
+            if let Some(from) = &sv.from {
+                let x = area.x + 14.0 + self.text.width(&title, face) + 6.0;
+                let clip = Rect::new(header.x, header.y, tools_x - header.x, header.h);
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    &format!("· {from}"),
+                    Face::ui(12.0),
+                    x,
+                    area.y,
+                    HEADER_H,
+                    p.muted,
+                    clip,
+                );
+            }
             // The Tests view's passed and failed, at the right.
             if let Some((passed, failed)) = sv.counts.filter(|(a, b)| a + b > 0) {
                 let face = Face::ui(12.0).medium();
@@ -86,9 +87,9 @@ impl Frame<'_> {
         }
         let body = Rect::new(
             area.x,
-            area.y + HEADER_H,
+            area.y + header_h,
             area.w,
-            (area.h - HEADER_H - 6.0).max(0.0),
+            (area.h - header_h - 6.0).max(0.0),
         );
         if let Some(term) = term {
             return self.terminal_panel(term, header, body);
@@ -132,6 +133,179 @@ impl Frame<'_> {
             let selected = target.is_some() && target == Some(sv.selected);
             self.node(node, sv, side, r, target, selected, body, state);
         }
+    }
+
+    /// The panels a side can show, as tabs along its header: each with
+    /// its icon, its title, the plugin it's from in the panel, and its
+    /// badge.
+    fn panel_tabs(&mut self, sv: &SideView, side: Side, header: Rect, clip: Rect) {
+        let p = self.p;
+        let mut x = header.x + 8.0;
+        let h = 26.0;
+        let y = header.y + (header.h - h) / 2.0;
+        for tab in &sv.panels {
+            let face = Face::ui(12.5).medium();
+            let icon_w = match (&tab.icon, side) {
+                (Some(_), Side::Right) => 18.0,
+                _ => 0.0,
+            };
+            let from = tab
+                .from
+                .as_ref()
+                .filter(|_| side == Side::Bottom)
+                .map(|f| format!("· {f}"));
+            let from_face = Face::ui(11.5);
+            let from_w = from
+                .as_ref()
+                .map_or(0.0, |f| self.text.width(f, from_face) + 6.0);
+            let badge = (tab.badge > 0).then(|| tab.badge.min(99).to_string());
+            let badge_face = Face::ui(10.0).bold();
+            let badge_w = badge
+                .as_ref()
+                .map_or(0.0, |b| self.text.width(b, badge_face).max(7.0) + 14.0);
+            let tw = self.text.width(&tab.title, face);
+            let r = Rect::new(x, y, icon_w + tw + from_w + badge_w + 20.0, h);
+            if r.x >= clip.right() {
+                break;
+            }
+            if tab.on {
+                self.canvas.round(r, 6.0, p.raised);
+            } else if self.hovered(r) {
+                self.canvas.round(r, 6.0, p.hover);
+            }
+            let colour = if tab.on { p.bright } else { p.muted };
+            let mut tx = x + 10.0;
+            if let (Some(icon), Side::Right) = (&tab.icon, side) {
+                self.view_icon(icon, tx, y + 6.0, 14.0, colour, clip);
+                tx += icon_w;
+            }
+            self.text
+                .draw_in_row(&mut self.canvas, &tab.title, face, tx, y, h, colour, clip);
+            tx += tw;
+            if let Some(from) = &from {
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    from,
+                    from_face,
+                    tx + 6.0,
+                    y,
+                    h,
+                    p.muted,
+                    clip,
+                );
+                tx += from_w;
+            }
+            if let Some(badge) = &badge {
+                let bw = self.text.width(badge, badge_face).max(7.0) + 8.0;
+                let b = Rect::new(tx + 6.0, y + (h - 15.0) / 2.0, bw, 15.0);
+                self.canvas.round(b, 7.5, p.accent);
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    badge,
+                    badge_face,
+                    b.x + 4.0,
+                    b.y,
+                    15.0,
+                    p.ground,
+                    clip,
+                );
+            }
+            self.hit(
+                r,
+                Hit::Ui(UiEvent::PanelTitle {
+                    side,
+                    name: tab.name.clone(),
+                }),
+            );
+            x += r.w + 3.0;
+        }
+    }
+
+    /// A plugin view's toolbar and its ⋯ menu, from the header's right
+    /// end. Returns where they start.
+    fn view_tools(&mut self, sv: &SideView, side: Side, header: Rect) -> f32 {
+        let p = self.p;
+        let size = 24.0;
+        let y = header.y + (header.h - size) / 2.0;
+        let mut x = header.right() - 8.0;
+        let more = sv.from.is_some().then(|| {
+            (
+                Some(merlin_core::ViewIcon::Glyph("⋯".into())),
+                format!("view-menu:{}", sv.name),
+                "Move or Hide".to_string(),
+            )
+        });
+        // On the right, + shows a view that's hidden.
+        let add = (sv.hidden > 0 && side == Side::Right).then(|| {
+            (
+                Some(merlin_core::ViewIcon::Glyph("+".into())),
+                "views-hidden".to_string(),
+                "Show a Hidden View".to_string(),
+            )
+        });
+        let tools = sv
+            .toolbar
+            .iter()
+            .map(|t| {
+                let icon = t.icon.clone().or_else(|| {
+                    t.title
+                        .chars()
+                        .next()
+                        .map(|c| merlin_core::ViewIcon::Glyph(c.into()))
+                });
+                (icon, format!("run:{}", t.command), t.title.clone())
+            })
+            .rev();
+        for (icon, press, tip) in more.into_iter().chain(add).chain(tools) {
+            x -= size;
+            let r = Rect::new(x, y, size, size);
+            let hovered = self.hovered(r);
+            if hovered {
+                self.canvas.round(r, 6.0, p.hover);
+            }
+            let colour = if hovered { p.bright } else { p.muted };
+            if let Some(icon) = &icon {
+                self.view_icon(icon, x + 5.0, y + 5.0, 14.0, colour, header);
+            }
+            self.hit(r, Hit::Ui(UiEvent::Press(press)));
+            self.tips.push((r, tip));
+            x -= 2.0;
+        }
+        x
+    }
+
+    /// A plugin view's icon: its picture, or its glyph.
+    pub(super) fn view_icon(
+        &mut self,
+        icon: &merlin_core::ViewIcon,
+        x: f32,
+        y: f32,
+        size: f32,
+        colour: u32,
+        clip: Rect,
+    ) -> bool {
+        let icon = match icon {
+            merlin_core::ViewIcon::Svg(file) => Icon::Svg {
+                file: file.clone(),
+                tint: Tint::Current,
+            },
+            merlin_core::ViewIcon::Glyph(text) => {
+                let face = Face::ui(size);
+                let w = self.text.width(text, face);
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    text,
+                    face,
+                    x + (size - w) / 2.0,
+                    y,
+                    size,
+                    colour,
+                    clip,
+                );
+                return true;
+            }
+        };
+        self.draw_icon(&icon, x, y, size, colour, clip)
     }
 
     /// The terminal panel: its buttons in the header, the shells showing

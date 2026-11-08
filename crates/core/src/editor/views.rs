@@ -263,6 +263,7 @@ impl Editor {
                 }),
                 error: None,
                 side,
+                view: None,
             });
         }
         // Rename shows only while one's reviewed.
@@ -273,6 +274,7 @@ impl Editor {
             panel: None,
             error: None,
             side: Side::Bottom,
+            view: None,
         });
     }
 

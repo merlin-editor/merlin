@@ -199,6 +199,7 @@ impl Editor {
         self.context = Some(ContextMenu {
             items,
             selected: None,
+            title: None,
         });
         self.focus = Focus::Menu;
     }

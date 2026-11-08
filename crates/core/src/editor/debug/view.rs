@@ -691,6 +691,7 @@ impl Editor {
         self.context = Some(super::context::ContextMenu {
             items: vec!["debug.var_set", "debug.var_copy", "debug.var_watch"],
             selected: None,
+            title: None,
         });
         self.focus = Focus::Menu;
     }

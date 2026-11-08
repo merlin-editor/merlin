@@ -26,6 +26,7 @@ impl Side {
             Side::Left => Focus::SideBar,
             Side::Right => Focus::Panel,
             Side::Bottom => Focus::Bottom,
+            Side::Tab => Focus::Editor,
         }
     }
 }
@@ -45,6 +46,7 @@ impl Editor {
             Focus::SideBar => Some(Side::Left),
             Focus::Panel => Some(Side::Right),
             Focus::Bottom => Some(Side::Bottom),
+            Focus::Editor if self.tab_view().is_some() => Some(Side::Tab),
             _ => None,
         }
     }
@@ -101,6 +103,7 @@ impl Editor {
                     panel: None,
                     error: None,
                     side: Side::Right,
+                    view: None,
                 });
                 self.plugins.len() - 1
             }
@@ -109,11 +112,25 @@ impl Editor {
     }
 
     pub(crate) fn panel_names(&self, side: Side) -> Vec<String> {
+        if side == Side::Tab {
+            return self.tab_view().into_iter().collect();
+        }
         self.plugins
             .iter()
             .filter(|p| p.side == side && p.panel.is_some())
+            .filter(|p| p.view.as_ref().is_none_or(|v| !v.hidden))
             .map(|p| p.name.clone())
             .collect()
+    }
+
+    /// The plugin view the focused editor tab shows, if it shows one.
+    pub(crate) fn tab_view(&self) -> Option<String> {
+        let (page, _) = self.doc().page.as_ref()?;
+        let key = super::plugin_views::page_view(page)?;
+        self.plugins
+            .iter()
+            .any(|p| p.name == key)
+            .then(|| key.to_string())
     }
 
     /// Whether a plugin has a panel to show.
@@ -240,10 +257,9 @@ impl Editor {
             return;
         };
         if let Some(Target::Button(button)) = panel.targets().into_iter().nth(index) {
-            let plugin = plugin.to_string();
-            if side != Side::Right {
+            let Some(plugin) = self.owner(plugin).map(str::to_string) else {
                 return self.view_click(&button, fx);
-            }
+            };
             fx.push(Effect::PluginClick { plugin, button });
         }
     }
@@ -381,25 +397,26 @@ impl Editor {
                         return;
                     }
                     // The built-in views keep what was typed, as a query.
-                    let text = if side != Side::Right {
+                    let owner = self.owner(&input_key.0).map(str::to_string);
+                    let text = if owner.is_none() {
                         self.inputs.get(&input_key).cloned().unwrap_or_default()
                     } else {
                         self.inputs.remove(&input_key).unwrap_or_default()
                     };
                     self.input_cursors.remove(&input_key);
                     if !text.trim().is_empty() {
-                        if side != Side::Right {
+                        if let Some(plugin) = owner {
+                            fx.push(Effect::PluginSubmit {
+                                plugin,
+                                input: input_key.1,
+                                text,
+                            });
+                        } else {
                             if input_key.0 == super::debug::DEBUG {
                                 self.debug_submit(&input_key.1, &text, fx);
                             } else {
                                 self.view_submit(&input_key.0, &text, fx);
                             }
-                        } else {
-                            fx.push(Effect::PluginSubmit {
-                                plugin: input_key.0,
-                                input: input_key.1,
-                                text,
-                            });
                         }
                     }
                 }

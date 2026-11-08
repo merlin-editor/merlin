@@ -162,7 +162,9 @@ struct App {
     host: PluginHost,
     root: PathBuf,
     /// The file and buffer version the panels were last rendered for.
-    panels_for: Option<(u64, u64)>,
+    /// What panels were last drawn for: the file and its version, the
+    /// views that showed, and whether the right side bar did.
+    panels_for: Option<((u64, u64), Vec<String>, bool)>,
     /// The file and buffer version plugins last heard about.
     buffer_seen: Option<(u64, u64)>,
     /// Paths saved since plugins last heard.
@@ -708,19 +710,24 @@ impl App {
     }
 
     fn refresh_panels(&mut self) {
-        if !self.editor.panel_visible() {
+        // Plugin views that show, and, while the right side bar does, every
+        // plugin's panel, so it knows which have one.
+        let shown = self.editor.visible_views();
+        let all = self.editor.panel_visible();
+        if shown.is_empty() && !all {
             self.panels_for = None;
             return;
         }
         let version = (self.editor.doc_id(), self.editor.buffer().version());
-        if self.panels_for == Some(version) {
+        let key = (version, shown, all);
+        if self.panels_for.as_ref() == Some(&key) {
             return;
         }
-        self.panels_for = Some(version);
         // Panel events only change what's drawn; they produce no effects.
-        for event in self.host.render_panels(&self.snapshot()) {
+        for event in self.host.render_panels(&self.snapshot(), &key.1, all) {
             self.editor.update(event);
         }
+        self.panels_for = Some(key);
     }
 
     /// Hands queued process output to plugins. Returns whether there was any.

@@ -357,11 +357,11 @@ fn dump_side(o: &mut String, which: &str, side: &SideView) {
     let tabs: Vec<String> = side
         .panels
         .iter()
-        .map(|(_, title, on)| {
-            if *on {
-                format!("[{title}]")
+        .map(|tab| {
+            if tab.on {
+                format!("[{}]", tab.title)
             } else {
-                title.clone()
+                tab.title.clone()
             }
         })
         .collect();

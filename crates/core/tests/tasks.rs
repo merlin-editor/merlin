@@ -92,7 +92,7 @@ fn run_task_lists_them_grouped_and_runs_one_in_its_own_terminal() {
         bottom
             .panels
             .iter()
-            .any(|(_, title, on)| *on && title == "Terminal: check-budgets"),
+            .any(|t| t.on && t.title == "Terminal: check-budgets"),
         "{:?}",
         bottom.panels
     );

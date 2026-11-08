@@ -268,6 +268,10 @@ impl Gui<'_> {
             Hit::GroupSash(sash) => {
                 self.group_drag = Some((sash, at, self.areas.groups.clone()));
             }
+            // A plugin view's icon or tab: a click on release, unless it's
+            // dragged to another place.
+            Hit::Ui(event @ (UiEvent::Rail(_) | UiEvent::PanelTitle { .. }))
+                if self.hold_view(&event, at) => {}
             Hit::Ui(UiEvent::Tab { index, .. }) => {
                 self.hold_tab(None, index, at);
                 self.dispatch(Event::Ui(UiEvent::Tab { index, clicks }))
@@ -292,6 +296,11 @@ impl Gui<'_> {
             }
             Hit::Ui(UiEvent::PeekRow { index, .. }) => {
                 self.dispatch(Event::Ui(UiEvent::PeekRow { index, clicks }))
+            }
+            // A view's ⋯ opens its menu under the pointer.
+            Hit::Ui(UiEvent::Press(id)) if id.starts_with("view-menu:") => {
+                self.context_at = Some(at);
+                self.dispatch(Event::Ui(UiEvent::Press(id)))
             }
             Hit::Ui(event) => self.dispatch(Event::Ui(event)),
             Hit::Command(command) => self.dispatch(Event::Command(command.into())),
@@ -351,6 +360,7 @@ impl Gui<'_> {
                 from: at,
                 moved: false,
                 entry: None,
+                view: None,
             });
         }
     }
@@ -369,6 +379,7 @@ impl Gui<'_> {
             Side::Left => view.left.as_ref(),
             Side::Right => view.right.as_ref(),
             Side::Bottom => view.bottom.as_ref(),
+            Side::Tab => view.pages.iter().map(|(_, v)| v).find(|v| v.focused),
         };
         let Some(sv) = sv else { return false };
         let file = sv
@@ -386,8 +397,82 @@ impl Gui<'_> {
             from: at,
             moved: false,
             entry: Some((side, index, clicks)),
+            view: None,
         });
         true
+    }
+
+    /// A plugin view's rail icon or tab pressed on: held, so it can be
+    /// dragged to another place. Whether it's a view's.
+    pub(super) fn hold_view(&mut self, click: &UiEvent, at: (f32, f32)) -> bool {
+        let editor = &self.app.editor;
+        let view = editor.window_view();
+        let (name, title) = match click {
+            UiEvent::Rail(i) => match view.rail.get(*i) {
+                Some(item) if item.view.is_some() => (item.view.clone(), item.label.clone()),
+                _ => return false,
+            },
+            UiEvent::PanelTitle { side, name } if editor.is_plugin_view(name) => {
+                let sv = match side {
+                    Side::Right => view.right.as_ref(),
+                    _ => view.bottom.as_ref(),
+                };
+                let title = sv
+                    .and_then(|sv| sv.panels.iter().find(|t| t.name == *name))
+                    .map_or(name.clone(), |t| t.title.clone());
+                (Some(name.clone()), title)
+            }
+            _ => return false,
+        };
+        let Some(name) = name else { return false };
+        self.tab_drag = Some(TabDrag {
+            name: title,
+            icon: None,
+            from: at,
+            moved: false,
+            entry: None,
+            view: Some((name, click.clone())),
+        });
+        true
+    }
+
+    /// Where a plugin view dragged to `at` would go: a side bar or the
+    /// panel it's over, the edge where a hidden one would open, or the
+    /// editor, as a tab.
+    fn view_landing(&self, at: (f32, f32)) -> Option<Landing> {
+        use merlin_core::Place;
+        let a = &self.areas;
+        let e = a.editor;
+        let over = |r: &Option<Rect>| r.filter(|r| r.contains(at.0, at.1));
+        let (place, zone) = if let Some(r) = over(&a.right) {
+            (Place::Right, r)
+        } else if let Some(r) = over(&a.bottom) {
+            (Place::Bottom, r)
+        } else if let Some(r) = over(&a.left) {
+            (Place::Left, r)
+        } else if at.0 < e.x {
+            let zone = a
+                .left
+                .unwrap_or(Rect::new(e.x, e.y, 260.0_f32.min(e.w / 3.0), e.h));
+            (Place::Left, zone)
+        } else if e.contains(at.0, at.1) {
+            // Near an edge whose side is hidden: that side.
+            let edge = 80.0;
+            let w = 300.0_f32.min(e.w / 3.0);
+            let h = 220.0_f32.min(e.h / 3.0);
+            if a.right.is_none() && at.0 > e.right() - edge {
+                (Place::Right, Rect::new(e.right() - w, e.y, w, e.h))
+            } else if a.bottom.is_none() && at.1 > e.bottom() - edge {
+                (Place::Bottom, Rect::new(e.x, e.bottom() - h, e.w, h))
+            } else if a.left.is_none() && at.0 < e.x + edge {
+                (Place::Left, Rect::new(e.x, e.y, w, e.h))
+            } else {
+                (Place::Tab, e)
+            }
+        } else {
+            return None;
+        };
+        Some(Landing::View { place, zone })
     }
 
     /// Where a tab or file dragged to `at` would land: on a tab or the
@@ -478,6 +563,8 @@ impl Gui<'_> {
                 group,
                 edge,
             },
+            // Only a view's drag lands as a view.
+            (Landing::View { .. }, _) => return,
         };
         self.dispatch(Event::Ui(event));
     }
@@ -587,11 +674,7 @@ impl Gui<'_> {
         if let Some(side) = side
             && self.app.editor.window_view().palette.is_none()
         {
-            let k = match side {
-                Side::Left => 0,
-                Side::Right => 1,
-                Side::Bottom => 2,
-            };
+            let k = super::frame::side_index(side);
             self.state.scroll[k] -= lines as f32 * 78.0;
             self.redraw();
             return;
@@ -714,7 +797,13 @@ impl Gui<'_> {
                 drag.moved = true;
             }
             if drag.moved {
-                self.drop = self.drop_at(at);
+                // What's dragged needs no tip.
+                self.tip = None;
+                self.drop = if drag.view.is_some() {
+                    self.view_landing(at)
+                } else {
+                    self.drop_at(at)
+                };
                 // Where it can't go, letting go puts it back.
                 self.set_pointer(match self.drop {
                     Some(_) => CursorIcon::Grabbing,

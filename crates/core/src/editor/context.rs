@@ -33,6 +33,8 @@ pub(crate) struct ContextMenu {
     /// Command ids, `-` for separators.
     pub(crate) items: Vec<&'static str>,
     pub(crate) selected: Option<usize>,
+    /// A quiet line above the items, saying what they're for.
+    pub(crate) title: Option<String>,
 }
 
 /// The right-click menu, as the window draws it where it was opened.
@@ -40,6 +42,8 @@ pub(crate) struct ContextMenu {
 pub struct ContextView {
     pub items: Vec<ContextItem>,
     pub selected: Option<usize>,
+    /// A quiet line above the items, saying what they're for.
+    pub title: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -192,6 +196,7 @@ impl Editor {
         self.context = Some(ContextMenu {
             items,
             selected: None,
+            title: None,
         });
         self.focus = Focus::Menu;
     }
@@ -231,6 +236,7 @@ impl Editor {
                         .chain(super::files::EXPLORER_ITEMS)
                         .chain(super::scm::SCM_ITEMS)
                         .chain(super::debug::BREAK_ITEMS)
+                        .chain(super::plugin_views::VIEW_ITEMS)
                         .find(|(i, _)| *i == id)
                         .map_or(id, |(_, l)| l)
                         .to_string(),
@@ -246,6 +252,7 @@ impl Editor {
         Some(ContextView {
             items,
             selected: menu.selected,
+            title: menu.title.clone(),
         })
     }
 

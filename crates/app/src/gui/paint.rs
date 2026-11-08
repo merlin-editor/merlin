@@ -121,7 +121,7 @@ impl Gui<'_> {
                 .filter(|d| d.moved)
                 .map(|d| (d.name.clone(), d.icon)),
             drop_zone: match self.drop {
-                Some(Landing::Body { zone, .. }) => Some(zone),
+                Some(Landing::Body { zone, .. } | Landing::View { zone, .. }) => Some(zone),
                 _ => None,
             },
             strips: std::mem::take(&mut self.strips),
@@ -192,6 +192,23 @@ impl Gui<'_> {
                     && view.palette.is_none();
                 room = Some(f.settings_page(sv, r, focused));
             }
+        }
+        // Plugin views open in editor tabs.
+        for (g, group) in view.groups.iter().enumerate() {
+            let Some(page) = &group.page else { continue };
+            let (Some(area), Some((_, sv))) = (
+                areas.groups.get(g),
+                view.pages.iter().find(|(name, _)| name == page),
+            ) else {
+                continue;
+            };
+            let r = Rect::new(
+                area.tabs.x,
+                area.tabs.bottom(),
+                area.tabs.w,
+                (area.text.bottom() - area.tabs.bottom()).max(0.0),
+            );
+            f.side(sv, merlin_core::Side::Tab, r, &mut self.state, None);
         }
         let cell = (grid.cell_w as f32 / s, grid.cell_h as f32 / s);
         f.floating(&view, &areas, cell, self.context_at, w, h);

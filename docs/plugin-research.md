@@ -58,6 +58,14 @@ messages are noisy by default.
 
 ### 1. Views where they belong, with their own icon
 
+**Built** (step 3): `[[views]]` with `id`, `title`, `icon`, `where`,
+`empty` and a toolbar; `render-view(id)` in the `views` interface the SDK
+exports, so 0.9 plugins without it still load; `set-view-badge` and
+`focus-view`; the right side bar's own tabs, with + for hidden views; the
+plugin's name after a view's title; Move, Hide and Reset Location from ⋯
+or a right-click, and dragging an icon or tab to another place, remembered
+by the workspace. The richer nodes are step 5.
+
 The manifest declares each view the plugin has:
 
 ```toml
@@ -223,7 +231,8 @@ The PDF viewer is the test: it's `PluginDocument.dc.html` in
    the host calls it only when a plugin exports it, so plugins built for
    0.9 before it still load.
 3. Views from the manifest, left / right / bottom / tab, with icons, and
-   the right side bar's own tabs.
+   the right side bar's own tabs. **Built.** `render-view` is in a `views`
+   interface the SDK exports, found the same way as `on-setting-changed`.
 4. One home for plugins (drop the side view), once 3 gives the rail
    something better to hold.
 5. Rich nodes for chat views, then the smaller gaps.

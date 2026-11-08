@@ -104,6 +104,7 @@ impl Editor {
             Event::Restore(ws) => self.restore(ws),
             Event::RestoreBreakpoints(ws) => {
                 self.debug.watches = ws.watches;
+                self.restore_view_layout(ws.view_places, ws.hidden_views);
                 self.restore_breakpoints(ws.breakpoints, ws.debug_target);
             }
             Event::Settings(settings) => self.apply_settings(settings),
@@ -118,7 +119,16 @@ impl Editor {
             Event::Error(text) => self.error(text),
             Event::RegisterPlugin { plugin, commands } => self.register(plugin, commands),
             Event::PluginFailed { plugin, message } => self.plugin_failed(plugin, message),
-            Event::SetPanel { plugin, panel } => self.plugin_mut(&plugin).panel = panel,
+            Event::SetPanel { plugin, panel } => self.set_panel(&plugin, panel),
+            Event::RegisterViews { plugin, views } => self.register_views(&plugin, views),
+            Event::ViewBadge {
+                plugin,
+                view,
+                count,
+            } => self.set_view_badge(&plugin, &view, count),
+            Event::FocusView { plugin, view } => {
+                self.show_plugin_view(&super::view_key(&plugin, &view))
+            }
             Event::FocusPanel(plugin) => {
                 self.bar_mut(Side::Right).active = Some(plugin);
                 self.focus_panel(Side::Right);
