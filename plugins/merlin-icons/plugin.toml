@@ -2,7 +2,7 @@
 name = "merlin-icons"
 title = "merlin Icons"
 description = "File and UI icon themes"
-api = "0.8"
+api = "0.9"
 
 # Icon themes, for Preferences: File Icon Theme.
 [[packs]]

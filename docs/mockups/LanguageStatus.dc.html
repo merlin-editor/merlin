@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Language status</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#08090a}
+.w{width:1280px;height:800px;background:#0f1012;font-family:Inter,sans-serif;color:#d4d5da;display:flex;flex-direction:column;font-size:13px;overflow:hidden;position:relative;margin-bottom:24px}
+.bar{height:40px;display:flex;align-items:center;gap:10px;padding:0 12px;flex-shrink:0}
+.logo{width:20px;height:20px;border-radius:5px;background:#7c9cff;color:#0f1012;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
+.search{margin:0 auto;width:400px;height:26px;border-radius:7px;background:#1c1d21;border:1px solid #2c2d33;color:#8e9099;display:flex;align-items:center;gap:8px;padding:0 10px;font-size:12.5px;box-sizing:border-box}
+.kbd{font-size:11px;background:#26272c;border-radius:4px;padding:1px 6px;color:#b4b6bd;font-family:Inter,sans-serif}
+.mid{flex:1;display:flex;gap:6px;padding-right:6px;min-height:0}
+.rail{width:44px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:6px;padding-top:6px}
+.ri{width:30px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:#7a7d86;font-size:14px}
+.ri.on{background:#1c1d21;color:#eef0f3}
+.island{background:#17181b;border-radius:10px;display:flex;flex-direction:column;min-width:0;overflow:hidden;position:relative}
+.tabs{height:32px;display:flex;align-items:center;gap:3px;padding:0 6px;flex-shrink:0}
+.tab{height:24px;padding:0 10px;border-radius:6px;display:flex;align-items:center;gap:6px;color:#8e9099;font-size:12.5px}
+.tab.on{background:#26272c;color:#eef0f3;box-shadow:inset 0 0 0 1px #2c2d33}
+.ic{width:14px;height:14px;border-radius:3px;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;background:#3a2a1e;color:#f5a97f}
+.code{font-family:'JetBrains Mono',monospace;font-size:13px;line-height:22px;white-space:pre;padding:4px 0}
+.ln{display:inline-block;width:40px;text-align:right;padding-right:20px;color:#7a7d86}
+.k{color:#c4a7e7}.s{color:#a6d189}.f{color:#f0c674}.t{color:#9ccfd8}.c{color:#7f8794}.n{color:#f5a97f}
+.card{position:absolute;background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.45);font-family:Inter,sans-serif;overflow:hidden}
+.head{display:flex;align-items:center;gap:8px;padding:10px 12px 8px}
+.title{font-size:13px;font-weight:600;color:#eef0f3}
+.from{font-size:11.5px;color:#7a7d86}
+.item{display:flex;align-items:center;gap:9px;padding:7px 12px;min-height:22px}
+.dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.what{font-size:12.5px;color:#eef0f3;white-space:nowrap}
+.detail{font-size:12px;color:#8e9099;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+.mono{font-family:'JetBrains Mono',monospace;font-size:12px}
+.link{color:#7c9cff;font-size:12px;white-space:nowrap}
+.btn{height:22px;white-space:nowrap;flex-shrink:0;display:flex;align-items:center;gap:6px;padding:0 8px;border-radius:5px;font-size:12px;color:#d4d5da;background:#26272c}
+.btn.pri{background:#262b3d;color:#eef0f3;box-shadow:inset 0 0 0 1px #3a4466}
+.sep{height:1px;background:#2c2d33}
+.foot{display:flex;align-items:center;gap:6px;padding:7px 12px;font-size:12px;color:#8e9099}
+.prog{height:3px;background:#26272c;border-radius:2px;overflow:hidden;width:90px}
+.prog i{display:block;height:100%;background:#7c9cff}
+.status{height:24px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px;color:#8e9099;flex-shrink:0;position:relative}
+.si{display:flex;align-items:center;gap:5px;white-space:nowrap}
+.si.hot{background:#1f2024;border-radius:4px;padding:2px 6px;margin:0 -6px;color:#eef0f3}
+.spin{width:9px;height:9px;border-radius:50%;border:1.5px solid #3a3b42;border-top-color:#7c9cff}
+.label{position:absolute;font-family:Inter,sans-serif;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#7c9cff}
+.note{position:absolute;font-family:Inter,sans-serif;font-size:11.5px;color:#8e9099;line-height:16px}
+.note b{color:#d4d5da;font-weight:600}
+.panel{background:#0f1012;border:1px solid #2c2d33;border-radius:8px;position:absolute;overflow:hidden}
+.strip{height:24px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px;color:#8e9099;background:#0f1012;justify-content:flex-end}
+.pick{padding:6px}
+.prow{display:flex;align-items:center;gap:8px;height:26px;padding:0 8px;border-radius:5px;font-size:12.5px;color:#d4d5da}
+.prow.on{background:#262b3d;color:#eef0f3}
+.prow .detail{flex:0 1 auto;margin-left:auto}
+h2{font:600 12px Inter,sans-serif;letter-spacing:.04em;text-transform:uppercase;color:#7c9cff;margin:0 0 6px}
+</style>
+</helmet>
+
+<!-- ARTBOARD 1: the language item and its card -->
+<div class="w">
+  <div class="bar"><div class="logo">m</div><div class="search">⌕ Search files, commands, symbols <span class="kbd" style="margin-left:auto">Ctrl P</span></div></div>
+  <div class="mid">
+    <div class="rail">
+      <div class="ri on">❐</div><div class="ri">⌕</div><div class="ri">⑂</div><div class="ri">⚗</div><div class="ri">▷</div><div class="ri">☰</div><div class="ri">⧉</div>
+    </div>
+    <div class="island" style="flex:1">
+      <div class="tabs"><div class="tab on"><span class="ic">RS</span>palette.rs</div><div class="tab"><span class="ic">RS</span>frame.rs</div></div>
+      <div class="code"><span class="ln">9</span><span class="k">use</span> <span class="k">super</span>::*;
+<span class="ln">10</span>
+<span class="ln">11</span><span class="c">/// The palette's rows, best first.</span>
+<span class="ln">12</span><span class="k">impl</span> <span class="t">Frame</span> {
+<span class="ln">13</span>    <span class="k">pub</span>(<span class="k">super</span>) <span class="k">fn</span> <span class="f">palette</span>(&amp;<span class="k">mut</span> <span class="k">self</span>, pv: &amp;<span class="t">PaletteView</span>) {
+<span class="ln">14</span>        <span class="k">let</span> r = <span class="k">self</span>.<span class="f">palette_rect</span>(pv);
+<span class="ln">15</span>        <span class="k">self</span>.<span class="f">palette_query</span>(pv, r);
+<span class="ln">16</span>        <span class="k">self</span>.<span class="f">palette_scopes</span>(pv, r);
+<span class="ln">17</span>        <span class="k">for</span> (k, (label, key)) <span class="k">in</span> pv.items.<span class="f">iter</span>().<span class="f">enumerate</span>() {
+<span class="ln">18</span>            <span class="k">self</span>.<span class="f">palette_item</span>(pv, k, label, key, <span class="n">0</span>);
+<span class="ln">19</span>        }
+<span class="ln">20</span>        <span class="k">self</span>.<span class="f">palette_footer</span>(pv, r);
+<span class="ln">21</span>    }
+<span class="ln">22</span>}</div>
+
+      <div class="card" style="right:10px;bottom:6px;width:400px">
+        <div class="head"><span class="title">Rust</span><span class="from">from the Rust plugin</span><span style="margin-left:auto" class="link">Plugin settings</span></div>
+        <div class="sep"></div>
+        <div class="item"><span class="dot" style="background:#a6d189"></span><span class="what">rust-analyzer</span><span class="detail">Ready · 1.2 GB</span><span class="btn">⟳ Restart</span></div>
+        <div class="item"><span class="dot" style="background:#e3b341"></span><span class="what">cargo check</span><span class="detail">2 warnings in this file</span><span class="link">Problems</span></div>
+        <div class="item"><span class="dot" style="background:#7a7d86"></span><span class="what">Format on save</span><span class="detail">Changed lines, with rustfmt</span><span class="link">Change</span></div>
+        <div class="item"><span class="dot" style="background:#a6d189"></span><span class="what">Tests</span><span class="detail">6 in this file, all passed</span><span class="link">Run</span></div>
+        <div class="sep"></div>
+        <div class="foot" style="white-space:nowrap">Change Language Mode… <span class="kbd">Ctrl K M</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="status">
+    <span class="si">⑂ editor-rework</span><span class="si">⊗ 0</span><span class="si" style="color:#e3b341">⚠ 2</span>
+    <span class="si" style="margin-left:auto">Ln 15, Col 56</span><span class="si">Spaces: 4</span><span class="si">UTF-8</span><span class="si">LF</span><span class="si">Keymap: VS Code</span>
+    <span class="si hot"><span style="color:#a6d189">{ }</span> Rust</span>
+  </div>
+  <div class="label" style="left:70px;top:520px">1 · The language item opens its card</div>
+  <div class="note" style="left:70px;top:540px;width:560px">
+    <b>Rust</b> at the end of the status bar is the language item, as in VS Code and Zed. Its <b>{ }</b> is green while every server is fine, a spinner while one works, amber when one has a problem and red when one stopped.<br><br>
+    A click opens this card over the status bar. Each row comes from the plugin for the file's language: a server with its state, memory and Restart, then whatever else the plugin says, such as format on save and the file's tests. Esc or a click elsewhere closes it.<br><br>
+    The plugins no longer each get a side bar view. The rail keeps Explorer, Search, Source Control, Tests, Run and Debug, Outline and Plugins. Problems stay in the bottom panel, so the cards don't repeat them.
+  </div>
+</div>
+
+<!-- ARTBOARD 2: the states -->
+<div class="w" style="padding:28px 32px;box-sizing:border-box;display:block">
+  <h2>2 · How it looks as things change</h2>
+
+  <div class="panel" style="left:32px;top:62px;width:590px;height:200px">
+    <div style="padding:10px 12px;font-size:12px;color:#8e9099">Starting, or indexing: a spinner and what the server says, before the language name.</div>
+    <div class="card" style="right:10px;bottom:30px;width:360px">
+      <div class="item"><span class="spin"></span><span class="what">rust-analyzer</span><span class="detail">Indexing · 214/480 crates</span><span class="prog"><i style="width:45%"></i></span></div>
+    </div>
+    <div class="strip" style="position:absolute;left:0;right:0;bottom:0"><span class="si">Keymap: VS Code</span><span class="si"><span class="spin"></span> rust-analyzer: Indexing 45%</span><span class="si hot"><span class="spin"></span> Rust</span></div>
+  </div>
+
+  <div class="panel" style="left:658px;top:62px;width:590px;height:200px">
+    <div style="padding:10px 12px;font-size:12px;color:#8e9099">Not installed: amber, and the card says how to get it.</div>
+    <div class="card" style="right:10px;bottom:30px;width:420px">
+      <div class="item"><span class="dot" style="background:#e3b341"></span><span class="what">rust-analyzer</span><span class="detail">isn't installed</span></div>
+      <div class="item" style="padding-top:0"><span style="width:8px"></span><span class="mono" style="color:#b4b6bd">rustup component add rust-analyzer</span><span class="btn" style="margin-left:auto">Copy</span><span class="btn pri">Try Again</span></div>
+    </div>
+    <div class="strip" style="position:absolute;left:0;right:0;bottom:0"><span class="si">Keymap: VS Code</span><span class="si hot"><span style="color:#e3b341">{ }</span> Rust</span></div>
+  </div>
+
+  <div class="panel" style="left:32px;top:290px;width:590px;height:200px">
+    <div style="padding:10px 12px;font-size:12px;color:#8e9099">Stopped: red, with why and Restart. A notice says so once.</div>
+    <div class="card" style="right:10px;bottom:30px;width:400px">
+      <div class="item"><span class="dot" style="background:#f0807a"></span><span class="what">rust-analyzer</span><span class="detail">stopped: out of memory</span><span class="btn pri">⟳ Restart</span></div>
+    </div>
+    <div class="strip" style="position:absolute;left:0;right:0;bottom:0"><span class="si">Keymap: VS Code</span><span class="si hot"><span style="color:#f0807a">{ }</span> Rust</span></div>
+  </div>
+
+  <div class="panel" style="left:658px;top:290px;width:590px;height:200px">
+    <div style="padding:10px 12px;font-size:12px;color:#8e9099">A language with no plugin of its own: the general Language Servers plugin answers.</div>
+    <div class="card" style="right:10px;bottom:30px;width:400px">
+      <div class="head"><span class="title">Go</span><span class="from">from Language Servers</span></div>
+      <div class="sep"></div>
+      <div class="item"><span class="dot" style="background:#a6d189"></span><span class="what">gopls</span><span class="detail">Ready · 180 MB</span><span class="btn">⟳ Restart</span></div>
+    </div>
+    <div class="strip" style="position:absolute;left:0;right:0;bottom:0"><span class="si">Keymap: VS Code</span><span class="si hot"><span style="color:#a6d189">{ }</span> Go</span></div>
+  </div>
+
+  <div class="panel" style="left:32px;top:518px;width:1216px;height:250px">
+    <div style="padding:10px 12px;font-size:12px;color:#8e9099;width:560px">No language: <b style="color:#d4d5da">Plain Text</b> has no { }. A click, or Change Language Mode… (Ctrl K M), lists every language plugins add, and suggests a plugin for the extension when none adds it.</div>
+    <div class="card" style="right:10px;bottom:30px;width:420px">
+      <div class="pick">
+        <div style="height:28px;display:flex;align-items:center;padding:0 8px;font-size:12.5px;color:#eef0f3;border-bottom:1px solid #2c2d33;margin-bottom:4px">Select Language Mode<span style="margin-left:auto;color:#7a7d86;font-size:12px">notes.conf</span></div>
+        <div class="prow on">Plain Text<span class="detail">current</span></div>
+        <div class="prow">C++<span class="detail">C/C++</span></div>
+        <div class="prow">JavaScript<span class="detail">JavaScript</span></div>
+        <div class="prow">Python<span class="detail">Python</span></div>
+        <div class="prow">Rust<span class="detail">Rust</span></div>
+        <div class="prow">TOML<span class="detail">TOML</span></div>
+      </div>
+    </div>
+    <div class="strip" style="position:absolute;left:0;right:0;bottom:0"><span class="si">Keymap: VS Code</span><span class="si hot">Plain Text</span></div>
+    <div class="note" style="left:14px;top:84px;width:560px">
+      <b>For plugin authors</b>, one new host call replaces the panel for a language plugin:<br>
+      <span class="mono" style="color:#b4b6bd">set-language-status(language, items)</span><br>
+      where each item has a name, a state (ready, busy, warning, error), a detail, an optional progress from 0 to 100, and an optional button: its label and the command it runs. The card is built from them, so every language looks the same. A plugin can still keep a panel for something else; the shared LSP client stops making one.
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

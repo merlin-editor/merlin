@@ -3,7 +3,7 @@
 name = "merlin-layouts"
 title = "merlin Layouts"
 description = "UI density, chrome & font presets"
-api = "0.8"
+api = "0.9"
 
 [[packs]]
 label = "Compact"

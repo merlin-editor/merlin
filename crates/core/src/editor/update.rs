@@ -95,13 +95,10 @@ impl Editor {
             Event::FileConfig { path, config } => self.file_config(&path, config),
             Event::AutoSave(why) => self.auto_save(why, &mut fx),
             Event::TermTitle { id, title } => self.terminal_title(id, title),
-            Event::TaskOutput { id, text } => {
-                self.debug_build_output(id, &text);
-                self.task_output(id, &text);
-            }
+            Event::TaskOutput { id, text } => self.task_output(id, &text),
             Event::TermExited { id, code } => {
                 self.terminal_exited(id, code);
-                self.task_exited(id, code);
+                self.task_exited(id, code, &mut fx);
                 self.debug_build_exited(id, code, &mut fx);
             }
             Event::Restore(ws) => self.restore(ws),
@@ -163,13 +160,34 @@ impl Editor {
                 tokens,
             } => self.tokens_came(&path, layer, lines, tokens),
             Event::SetSymbols { path, symbols } => self.symbols_came(&path, symbols),
-            Event::SetTasks { plugin, tasks } => self.tasks_came(plugin, tasks),
+            Event::SetTasks { plugin, set, tasks } => self.tasks_came(plugin, set, tasks),
             Event::SetTests {
                 plugin,
                 path,
+                group,
+                label,
                 tests,
-            } => self.set_plugin_tests(plugin, &path, tests),
+            } => self.set_plugin_tests(plugin, &path, group, label, tests),
             Event::SetTestResults { plugin, results } => self.set_plugin_results(&plugin, results),
+            Event::SetTestRun {
+                plugin,
+                group,
+                running,
+                seconds,
+            } => self.set_test_run(&plugin, &group, running, seconds),
+            Event::RunInTerminal {
+                plugin,
+                id,
+                name,
+                command,
+            } => {
+                self.run_for_plugin(plugin, id, &name, &command, &mut fx);
+            }
+            Event::StartDebugging {
+                plugin,
+                target,
+                fallback,
+            } => self.debug_for_plugin(plugin, *target, fallback, &mut fx),
             Event::RunTask(name) => self.run_task_named(&name, &mut fx),
             Event::RegisterKeys { plugin, keys } => self.register_keys(plugin, keys),
             Event::WhichKey(tick) => self.which_key_due(tick),
@@ -209,7 +227,6 @@ impl Editor {
             Event::Definitions(places) => self.definitions_came(places, &mut fx),
             Event::FilesRead(files) => {
                 self.tasks_read(&files, &mut fx);
-                self.tests_read(&files);
                 self.compare_files_read(&files, &mut fx);
                 self.peek_files_read(&files);
                 self.link_files_read(&files);
@@ -251,7 +268,6 @@ impl Editor {
             Event::Renamed { from, to } => self.renamed(from, to),
             Event::Trashed(path) => self.trashed(path),
             Event::Tree(files) => {
-                self.tests_listed(&files, &mut fx);
                 let tree = self.tree.get_or_insert_with(Default::default);
                 tree.files = files;
                 tree.built_for = None;
@@ -481,13 +497,14 @@ impl Editor {
     }
 
     /// The tasks a plugin offers, in place of what it offered before.
-    fn tasks_came(&mut self, plugin: String, mut tasks: Vec<Task>) {
+    fn tasks_came(&mut self, plugin: String, set: String, mut tasks: Vec<Task>) {
         for task in &mut tasks {
             task.plugin = Some(plugin.clone());
         }
-        self.tasks.plugins.retain(|(p, _)| *p != plugin);
+        let key = (plugin, set);
+        self.tasks.plugins.retain(|(k, _)| *k != key);
         if !tasks.is_empty() {
-            self.tasks.plugins.push((plugin, tasks));
+            self.tasks.plugins.push((key, tasks));
         }
         self.build_views();
     }

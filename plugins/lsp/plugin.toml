@@ -1,6 +1,6 @@
 name = "lsp"
 title = "Language"
-api = "0.8"
+api = "0.9"
 component = "target/wasm32-wasip2/release/lsp.wasm"
 # The palette searches the project's symbols with this command.
 symbols = "project-symbols"

@@ -1,11 +1,13 @@
 name = "catch2"
 title = "Catch2"
 description = "Catch2 test discovery & runner for C++"
-api = "0.8"
+api = "0.9"
 component = "target/wasm32-wasip2/release/catch2.wasm"
 
 [permissions]
 editor-read = true
+# To run ctest and read how the tests went.
+terminal = true
 
 [[languages]]
 id = "cpp"

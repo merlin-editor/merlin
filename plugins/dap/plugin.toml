@@ -1,6 +1,6 @@
 name = "dap"
 title = "Debugger"
-api = "0.8"
+api = "0.9"
 component = "target/wasm32-wasip2/release/dap.wasm"
 
 [permissions]

@@ -97,11 +97,9 @@ pub use overview::{MINIMAP_COLUMNS, MinimapLine, MinimapView, ScrollbarView};
 pub use save::{AutoSave, AutoSaveWhy, FileConfig};
 pub use settings::Settings;
 pub use tabs::GroupView;
-pub use tasks::{Task, TaskGroup, from_cargo, from_package, from_tasks_file};
+pub use tasks::{Task, TaskGroup, from_tasks_file};
 pub use terminal::{TermOp, TermSession, TerminalView};
-pub use testing::{
-    Outcome, PluginTest, PluginTestResult, TestFailureView, TestLensView, rust_tests,
-};
+pub use testing::{Outcome, PluginTest, PluginTestResult, TestFailureView, TestLensView};
 pub use text_view::{CaretView, InlayView, LineView, OVERSCAN, TextView};
 pub use workspace::{GroupState, Tab, Workspace};
 pub use wrap::Row as WrapRow;

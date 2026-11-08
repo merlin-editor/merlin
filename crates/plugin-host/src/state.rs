@@ -412,9 +412,43 @@ impl host::Host for State {
         self.snapshot.root.display().to_string()
     }
 
-    fn set_tasks(&mut self, tasks: Vec<types::Task>) {
+    fn list_files(&mut self) -> Result<Vec<String>, String> {
+        self.need(self.permissions.workspace_read, "workspace-read")?;
+        let root = &self.snapshot.root;
+        if root.as_os_str().is_empty() {
+            return Err("no workspace yet".into());
+        }
+        const MAX: usize = 50_000;
+        let mut files: Vec<String> = ignore::WalkBuilder::new(root)
+            .build()
+            .flatten()
+            .filter(|e| e.file_type().is_some_and(|t| t.is_file()))
+            .filter_map(|e| Some(e.path().strip_prefix(root).ok()?.display().to_string()))
+            .take(MAX)
+            .collect();
+        files.sort();
+        Ok(files)
+    }
+
+    fn read_file(&mut self, path: String) -> Result<String, String> {
+        self.need(self.permissions.workspace_read, "workspace-read")?;
+        let root = &self.snapshot.root;
+        if root.as_os_str().is_empty() {
+            return Err("no workspace yet".into());
+        }
+        // Within the workspace only, however the path is written.
+        let full = root.join(&path).canonicalize().map_err(|e| e.to_string())?;
+        let inside = root.canonicalize().is_ok_and(|r| full.starts_with(r));
+        if !inside {
+            return Err(format!("{path} is outside the workspace"));
+        }
+        std::fs::read_to_string(&full).map_err(|e| e.to_string())
+    }
+
+    fn set_tasks(&mut self, set: String, tasks: Vec<types::Task>) {
         self.events.push(Event::SetTasks {
             plugin: self.name.clone(),
+            set,
             tasks: tasks
                 .into_iter()
                 .map(|t| merlin_core::Task {
@@ -432,10 +466,18 @@ impl host::Host for State {
         });
     }
 
-    fn set_tests(&mut self, path: String, tests: Vec<types::TestItem>) {
+    fn set_tests(
+        &mut self,
+        path: String,
+        group: String,
+        label: String,
+        tests: Vec<types::TestItem>,
+    ) {
         self.events.push(Event::SetTests {
             plugin: self.name.clone(),
             path: self.snapshot.local(&path),
+            group,
+            label,
             tests: tests
                 .into_iter()
                 .map(|t| merlin_core::PluginTest {
@@ -468,23 +510,38 @@ impl host::Host for State {
         });
     }
 
+    fn set_test_run(&mut self, group: String, running: bool, seconds: Option<f64>) {
+        self.events.push(Event::SetTestRun {
+            plugin: self.name.clone(),
+            group,
+            running,
+            seconds,
+        });
+    }
+
+    fn run_in_terminal(&mut self, id: String, name: String, command: String) -> Result<(), String> {
+        self.need(self.permissions.terminal, "terminal")?;
+        self.events.push(Event::RunInTerminal {
+            plugin: self.name.clone(),
+            id,
+            name,
+            command,
+        });
+        Ok(())
+    }
+
+    fn start_debugging(&mut self, target: types::DebugTarget, fallback: Option<String>) {
+        self.events.push(Event::StartDebugging {
+            plugin: self.name.clone(),
+            target: Box::new(debug_target(target)),
+            fallback,
+        });
+    }
+
     fn set_debug_targets(&mut self, targets: Vec<types::DebugTarget>) {
         self.events.push(Event::SetDebugTargets {
             plugin: self.name.clone(),
-            targets: targets
-                .into_iter()
-                .map(|t| merlin_core::DebugTarget {
-                    name: t.name,
-                    debugger: t.debugger,
-                    language: t.language,
-                    program: t.program,
-                    args: t.args,
-                    build: t.build,
-                    detail: t.detail,
-                    launch: t.launch,
-                    plugin: None,
-                })
-                .collect(),
+            targets: targets.into_iter().map(debug_target).collect(),
         });
     }
 
@@ -825,5 +882,20 @@ pub(super) fn diagnostic(
         source,
         code,
         link,
+    }
+}
+
+/// A plugin's thing to debug as the editor's.
+fn debug_target(t: types::DebugTarget) -> merlin_core::DebugTarget {
+    merlin_core::DebugTarget {
+        name: t.name,
+        debugger: t.debugger,
+        language: t.language,
+        program: t.program,
+        args: t.args,
+        build: t.build,
+        detail: t.detail,
+        launch: t.launch,
+        plugin: None,
     }
 }

@@ -280,6 +280,8 @@ pub struct PageView {
     pub failed: bool,
     pub read: bool,
     pub write: bool,
+    pub workspace_read: bool,
+    pub terminal: bool,
     pub processes: Vec<String>,
     pub running: Vec<(String, u32, Option<u64>)>,
     pub memory: usize,

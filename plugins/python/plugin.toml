@@ -1,7 +1,7 @@
 name = "python"
 title = "Python"
 description = "Python syntax, pytest & pyright"
-api = "0.8"
+api = "0.9"
 component = "target/wasm32-wasip2/release/python_language.wasm"
 symbols = "project-symbols"
 

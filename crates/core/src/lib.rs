@@ -33,8 +33,7 @@ pub use editor::{
     SearchHit, Settings, Side, SideView, SignatureView, StatusView, SyncKind, SyncOutcome,
     SyncState, TabView, Task, TaskGroup, TermOp, TermSession, TerminalView, TextView, ThemeKind,
     ToastView, UiEvent, UserKey, VimCursor, VimLineItem, VimLineView, VimMode, VimSettings,
-    VimView, When, WhichKeyItem, WhichKeyView, WindowView, Workspace, from_cargo, from_package,
-    from_tasks_file,
+    VimView, When, WhichKeyItem, WhichKeyView, WindowView, Workspace, from_tasks_file,
 };
 pub use editor::{
     BreakBoxView, BreakField, BreakMark, Breakpoint, BreakpointState, DAP, DebugBarView,

@@ -206,21 +206,48 @@ pub enum Event {
         path: PathBuf,
         ranges: Vec<(u32, u32)>,
     },
-    /// A plugin's tasks for Run Task, replacing its earlier ones.
+    /// A plugin's tasks for Run Task, replacing its earlier ones from the
+    /// same set.
     SetTasks {
         plugin: String,
+        set: String,
         tasks: Vec<Task>,
     },
-    /// A plugin's tests in a file, replacing its earlier ones there.
+    /// A plugin's tests in a file, replacing its earlier ones there: the
+    /// Tests view lists them under `group`, such as a crate, as `label`.
     SetTests {
         plugin: String,
         path: PathBuf,
+        group: String,
+        label: String,
         tests: Vec<PluginTest>,
     },
     /// How a plugin's tests went.
     SetTestResults {
         plugin: String,
         results: Vec<PluginTestResult>,
+    },
+    /// A plugin's group of tests started or ended, and how long it took.
+    SetTestRun {
+        plugin: String,
+        group: String,
+        running: bool,
+        seconds: Option<f64>,
+    },
+    /// A plugin runs a command line in a terminal tab, and hears what it
+    /// printed as [`Effect::PluginTerminal`] with `id`.
+    RunInTerminal {
+        plugin: String,
+        id: String,
+        name: String,
+        command: String,
+    },
+    /// A plugin starts debugging something, or runs `fallback` in a
+    /// terminal without a debugger for its language.
+    StartDebugging {
+        plugin: String,
+        target: Box<DebugTarget>,
+        fallback: Option<String>,
     },
     /// Runs a task by name, as a plugin asks.
     RunTask(String),
@@ -565,6 +592,14 @@ pub enum Effect {
     PluginCommand {
         plugin: String,
         command: String,
+    },
+    /// A command line a plugin ran in a terminal, or one of its tests',
+    /// ended: all it printed, and its exit code.
+    PluginTerminal {
+        plugin: String,
+        id: String,
+        output: String,
+        code: Option<i32>,
     },
     /// A command for the plugin driving a debugger, such as `debug.start`
     /// or `debug.step-over`, with what it reads: what to start, for

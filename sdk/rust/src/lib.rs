@@ -138,6 +138,10 @@ pub trait Plugin: 'static {
     /// The user accepted or rejected a diff shown with [`host::show_diff`].
     fn review(&mut self, _id: &str, _accepted: bool) {}
 
+    /// A command line from [`host::run_in_terminal`], or one of the
+    /// plugin's tests', ended: all it printed, and its exit code.
+    fn terminal(&mut self, _id: &str, _output: &str, _code: Option<i32>) {}
+
     /// Colours `text` as `language`, one of the languages in the
     /// manifest, by its id or an extension: for diffs and code blocks.
     fn colour_text(&mut self, _language: &str, _text: &str) -> Vec<Token> {
@@ -374,6 +378,12 @@ macro_rules! export {
             fn colour_text(language: String, text: String) -> Vec<$crate::Token> {
                 $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
                     $crate::Plugin::colour_text(p, &language, &text)
+                })
+            }
+
+            fn on_terminal(id: String, output: String, code: Option<i32>) {
+                $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
+                    $crate::Plugin::terminal(p, &id, &output, code)
                 })
             }
         }

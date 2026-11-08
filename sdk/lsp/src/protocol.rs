@@ -387,11 +387,10 @@ pub(crate) fn debug_targets(tasks: &BTreeMap<String, (String, String)>) -> Vec<D
         .collect()
 }
 
-/// rust-analyzer's runnables in a file: its tests, each with the cargo
-/// command line that runs it, and its binaries and benches, as tasks by
-/// name with their command line and kind.
-pub(crate) fn runnables(list: &[Value]) -> (Vec<TestItem>, Vec<RunTask>) {
-    let mut tests = Vec::new();
+/// rust-analyzer's runnables in a file: its binaries and benches, as tasks
+/// by name with their command line and kind. Its tests are left to the
+/// language's plugin, which runs them and reads their results.
+pub(crate) fn runnables(list: &[Value]) -> Vec<RunTask> {
     let mut tasks = Vec::new();
     for r in list {
         let args = &r["args"];
@@ -417,22 +416,11 @@ pub(crate) fn runnables(list: &[Value]) -> (Vec<TestItem>, Vec<RunTask>) {
         if !exec.is_empty() {
             command = format!("{command} -- {}", exec.join(" "));
         }
-        if let Some(name) = label.strip_prefix("test ") {
-            let Some(line) = r["location"]["targetSelectionRange"]["start"]["line"].as_u64() else {
-                continue;
-            };
-            let short = name.rsplit("::").next().unwrap_or(name);
-            tests.push(TestItem {
-                id: name.to_string(),
-                label: short.to_string(),
-                line: line as u32,
-                command: Some(command),
-            });
-        } else if let Some(bin) = label.strip_prefix("run ") {
+        if let Some(bin) = label.strip_prefix("run ") {
             tasks.push((format!("Run {bin}"), (command, "bin".to_string())));
         } else if let Some(bench) = label.strip_prefix("bench ") {
             tasks.push((format!("Bench {bench}"), (command, "bench".to_string())));
         }
     }
-    (tests, tasks)
+    tasks
 }

@@ -293,6 +293,7 @@ impl Session {
                 | Effect::OpenUrl(_)
                 | Effect::Terminal(_)
                 | Effect::PluginCommand { .. }
+                | Effect::PluginTerminal { .. }
                 | Effect::Debug { .. }
                 | Effect::LocateDebuggers(_)
                 | Effect::ListProcesses

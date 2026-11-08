@@ -1,7 +1,7 @@
 name = "rust"
 title = "Rust"
 description = "Syntax, tests, Cargo tasks & rust-analyzer"
-api = "0.8"
+api = "0.9"
 component = "target/wasm32-wasip2/release/rust_language.wasm"
 symbols = "project-symbols"
 
@@ -9,6 +9,10 @@ symbols = "project-symbols"
 editor-read = true
 editor-write = true
 processes = ["rust-analyzer"]
+# To find the project's tests and read its Cargo.toml files.
+workspace-read = true
+# To run cargo test and read how the tests went.
+terminal = true
 
 [[languages]]
 id = "rust"

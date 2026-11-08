@@ -1,20 +1,42 @@
-//! Tasks and tests: Run Task's list from the project's files, each task in
-//! a terminal of its own, and the Tests view with its results.
+//! Tasks and tests: Run Task's list from the project's file and plugins,
+//! each task in a terminal of its own, and the Tests view with what
+//! plugins find, run and report.
 
 use merlin_core::script::Session;
-use merlin_core::{Effect, Event, TaskGroup, TermOp, from_cargo, from_package, from_tasks_file};
+use merlin_core::{Effect, Event, PluginTest, Task, TaskGroup, TermOp, from_tasks_file};
+
+/// A plugin's task, with a command line or run in the plugin.
+fn task(name: &str, command: Option<&str>, group: TaskGroup, source: &str) -> Task {
+    Task {
+        name: name.into(),
+        command: command.map(Into::into),
+        group,
+        source: source.into(),
+        plugin: None,
+    }
+}
 
 fn project() -> Session {
     let mut s = Session::new("fn a() {}\n", Some("src/main.rs"), 100, 24);
     s.files.insert("src/main.rs".into(), s.text());
-    s.files.insert(
-        "Cargo.toml".into(),
-        "[workspace]\nmembers = [\"crates/core\"]\n".into(),
-    );
-    s.files.insert(
-        "package.json".into(),
-        r#"{ "name": "site", "scripts": { "dev": "vite", "lint": "eslint ." } }"#.into(),
-    );
+    s.send(Event::SetTasks {
+        plugin: "rust".into(),
+        set: "cargo".into(),
+        tasks: vec![
+            task(
+                "cargo test --workspace",
+                None,
+                TaskGroup::Test,
+                "Cargo.toml",
+            ),
+            task(
+                "cargo build --release",
+                Some("cargo build --release"),
+                TaskGroup::Build,
+                "Cargo.toml",
+            ),
+        ],
+    });
     s.files.insert(
         ".merlin/tasks.toml".into(),
         "[tasks]\ncheck-budgets = \"scripts/budgets.sh\"\n\n[tasks.watch]\ncommand = \"cargo watch -x check\"\ngroup = \"build\"\n".into(),
@@ -35,23 +57,7 @@ fn spawned(s: &Session) -> Vec<String> {
 }
 
 #[test]
-fn tasks_come_from_cargo_npm_and_the_projects_own_file() {
-    let cargo = from_cargo("[package]\nname = \"x\"\n");
-    let names: Vec<&str> = cargo.iter().map(|t| t.name.as_str()).collect();
-    assert_eq!(
-        names,
-        [
-            "cargo test",
-            "cargo build --release",
-            "cargo run",
-            "cargo clippy"
-        ]
-    );
-    assert_eq!(cargo[0].group, TaskGroup::Test);
-    let npm = from_package(r#"{"scripts":{"test":"jest","dev":"vite --port \"3000\""}}"#);
-    assert_eq!(npm[0].command.as_deref(), Some("npm run test"));
-    assert_eq!(npm[0].group, TaskGroup::Test);
-    assert_eq!(npm[1].name, "dev");
+fn tasks_come_from_the_projects_own_file() {
     let own = from_tasks_file("[tasks.lint]\ncommand = 'cargo clippy'\ngroup = \"test\"\n");
     assert_eq!(own[0].name, "lint");
     assert_eq!(own[0].command.as_deref(), Some("cargo clippy"));
@@ -71,6 +77,7 @@ fn run_task_lists_them_grouped_and_runs_one_in_its_own_terminal() {
     assert!(labels.contains(&"check-budgets"));
     assert_eq!(palette.extras[0].heading.as_deref(), Some("Test"));
     assert_eq!(palette.extras[0].detail, "Cargo.toml");
+    assert_eq!(palette.extras[0].chip.as_deref(), Some("rust"));
     assert_eq!(palette.items[0].1.as_deref(), Some("Ctrl+; A"));
     let watch = labels.iter().position(|l| *l == "watch").unwrap();
     assert_eq!(palette.extras[watch].detail, ".merlin/tasks.toml");
@@ -117,54 +124,103 @@ fn run_task_lists_them_grouped_and_runs_one_in_its_own_terminal() {
 fn the_build_task_key_runs_the_first_build_task() {
     let mut s = project();
     s.run("key ctrl+shift+b");
-    assert_eq!(spawned(&s), ["cargo build --release"]);
+    assert_eq!(
+        spawned(&s),
+        ["cargo watch -x check"],
+        "the project's own first"
+    );
+}
+
+#[test]
+fn a_plugins_sets_of_tasks_replace_only_themselves() {
+    let mut s = project();
+    s.send(Event::SetTasks {
+        plugin: "rust".into(),
+        set: "rust-analyzer".into(),
+        tasks: vec![task(
+            "cargo run --bin merlin",
+            Some("cargo run --bin merlin"),
+            TaskGroup::Build,
+            "bin",
+        )],
+    });
+    s.send(Event::SetTasks {
+        plugin: "rust".into(),
+        set: "cargo".into(),
+        tasks: vec![task("cargo test", None, TaskGroup::Test, "Cargo.toml")],
+    });
+    s.run("cmd task.run");
+    let labels: Vec<String> = s
+        .editor
+        .window_view()
+        .palette
+        .unwrap()
+        .items
+        .into_iter()
+        .map(|(l, _)| l)
+        .collect();
+    assert!(labels.contains(&"cargo test".to_string()), "{labels:?}");
+    assert!(
+        labels.contains(&"cargo run --bin merlin".to_string()),
+        "{labels:?}"
+    );
+    assert!(
+        !labels.contains(&"cargo build --release".to_string()),
+        "{labels:?}"
+    );
 }
 
 const SAVING: &str = "use x::y;\n\n#[test]\nfn trims_on_save() {\n    let text = \"a\\nb\";\n    assert_eq!(text, \"a\\nb\\n\");\n}\n\n#[test]\nfn auto_save_after_a_delay() {\n    assert_eq!(1 + 1, 2);\n}\n";
 
-const OUTPUT: &str = "\
-❯ cargo test -p demo --test saving
-   Compiling demo v0.1.0
-     Running tests/saving.rs (target/debug/deps/saving-170921b8c002b1d9)
-
-running 2 tests
-test auto_save_after_a_delay ... ok
-test trims_on_save ... FAILED
-
-failures:
-
----- trims_on_save stdout ----
-
-thread 'trims_on_save' (251039) panicked at crates/demo/tests/saving.rs:6:5:
-assertion `left == right` failed
-  left: \"a\\nb\"
- right: \"a\\nb\\n\"
-note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
-
-
-failures:
-    trims_on_save
-
-test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.40s
-";
-
 fn tested() -> Session {
     let mut s = Session::new(SAVING, Some("crates/demo/tests/saving.rs"), 100, 30);
-    s.files
-        .insert("crates/demo/tests/saving.rs".into(), SAVING.into());
-    s.files.insert(
-        "Cargo.toml".into(),
-        "[workspace]\nmembers = [\"crates/demo\"]\n".into(),
-    );
-    s.files.insert(
-        "crates/demo/Cargo.toml".into(),
-        "[package]\nname = \"demo\"\n".into(),
-    );
-    s.files.insert(
-        "crates/demo/src/lib.rs".into(),
-        "pub fn f() {}\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn unit() {}\n}\n".into(),
-    );
+    s.send(Event::RegisterPlugin {
+        plugin: "rust".into(),
+        commands: Vec::new(),
+    });
     s
+}
+
+/// What the Rust plugin says it found.
+fn found(s: &mut Session) {
+    let test = |id: &str, label: &str, line| PluginTest {
+        id: id.into(),
+        label: label.into(),
+        line,
+        command: None,
+    };
+    s.send(Event::SetTests {
+        plugin: "rust".into(),
+        path: "crates/demo/src/lib.rs".into(),
+        group: "demo".into(),
+        label: "src/lib.rs".into(),
+        tests: vec![test("crates/demo/src/lib.rs::unit", "unit", 4)],
+    });
+    s.send(Event::SetTests {
+        plugin: "rust".into(),
+        path: "crates/demo/tests/saving.rs".into(),
+        group: "demo".into(),
+        label: "tests/saving.rs".into(),
+        tests: vec![
+            test(
+                "crates/demo/tests/saving.rs::trims_on_save",
+                "trims_on_save",
+                3,
+            ),
+            test(
+                "crates/demo/tests/saving.rs::auto_save_after_a_delay",
+                "auto_save_after_a_delay",
+                9,
+            ),
+        ],
+    });
+}
+
+fn asked(s: &Session, command: &str) -> bool {
+    s.effects.contains(&Effect::PluginCommand {
+        plugin: "rust".into(),
+        command: command.into(),
+    })
 }
 
 fn labels(s: &Session) -> Vec<String> {
@@ -181,9 +237,11 @@ fn labels(s: &Session) -> Vec<String> {
 }
 
 #[test]
-fn the_tests_view_finds_tests_by_crate_and_file_and_runs_them() {
+fn the_tests_view_lists_plugins_tests_by_group_and_file_and_runs_them() {
     let mut s = tested();
     s.run("cmd view.tests");
+    assert!(asked(&s, "find-tests"), "plugins are asked for their tests");
+    found(&mut s);
     assert_eq!(
         labels(&s),
         [
@@ -205,18 +263,45 @@ fn the_tests_view_finds_tests_by_crate_and_file_and_runs_them() {
     s.send(Event::Ui(merlin_core::UiEvent::Press(
         view.tests[0].links[0].1.clone(),
     )));
-    assert_eq!(
-        spawned(&s),
-        ["cargo test -p demo --test saving trims_on_save"]
-    );
-    let id = s.editor.window_view().terminal.unwrap().sessions[0].id;
-    s.send(Event::TaskOutput {
-        id,
-        text: OUTPUT.into(),
+    assert!(asked(
+        &s,
+        "run-test:crates/demo/tests/saving.rs::trims_on_save"
+    ));
+    s.send(Event::SetTestRun {
+        plugin: "rust".into(),
+        group: "demo".into(),
+        running: true,
+        seconds: None,
     });
-    s.send(Event::TermExited {
-        id,
-        code: Some(101),
+    assert_eq!(labels(&s)[0], "demo running");
+    let result = |id: &str, outcome, message: &str, line| merlin_core::PluginTestResult {
+        id: id.into(),
+        outcome: Some(outcome),
+        message: message.into(),
+        line,
+    };
+    s.send(Event::SetTestResults {
+        plugin: "rust".into(),
+        results: vec![
+            result(
+                "crates/demo/tests/saving.rs::trims_on_save",
+                merlin_core::Outcome::Failed,
+                "left: \"a\\nb\"  right: \"a\\nb\\n\"",
+                Some(5),
+            ),
+            result(
+                "crates/demo/tests/saving.rs::auto_save_after_a_delay",
+                merlin_core::Outcome::Passed,
+                "",
+                None,
+            ),
+        ],
+    });
+    s.send(Event::SetTestRun {
+        plugin: "rust".into(),
+        group: "demo".into(),
+        running: false,
+        seconds: Some(0.4),
     });
     assert_eq!(labels(&s)[0], "demo 0.4s");
     let view = s.editor.window_view();
@@ -241,20 +326,81 @@ fn the_tests_view_finds_tests_by_crate_and_file_and_runs_them() {
         text.lines.iter().find(|l| l.line == 9).unwrap().test,
         Some(true)
     );
-    assert!(
-        text.tests[0]
-            .status
-            .as_ref()
-            .unwrap()
-            .0
-            .starts_with("✕ failed")
-    );
-    // Run Failed runs just it again.
+    // Run Failed, Run All, a group's and a file's go to the plugin.
     s.run("cmd tests.run_failed");
+    assert!(asked(&s, "run-tests:failed"));
+    s.run("cmd tests.run_all");
+    assert!(asked(&s, "run-tests:all"));
+    s.run("cmd tests.run_file");
+    assert!(asked(&s, "run-tests:file:crates/demo/tests/saving.rs"));
+    s.run("cmd view.tests");
+    s.send(Event::Ui(merlin_core::UiEvent::Press(
+        "t:run:r:demo".into(),
+    )));
+    assert!(asked(&s, "run-tests:group:demo"));
+}
+
+#[test]
+fn a_tests_command_line_runs_in_the_terminal_and_its_plugin_hears_the_output() {
+    let mut s = tested();
+    s.send(Event::SetTests {
+        plugin: "catch2".into(),
+        path: "crates/demo/tests/saving.rs".into(),
+        group: String::new(),
+        label: String::new(),
+        tests: vec![PluginTest {
+            id: "trims".into(),
+            label: "trims_on_save".into(),
+            line: 3,
+            command: Some("ctest -R trims".into()),
+        }],
+    });
+    s.run("key ctrl+home; key down; key down; key down; cmd tests.run_at_cursor");
     assert_eq!(
-        spawned(&s).last().unwrap(),
-        "cargo test --workspace -- trims_on_save"
+        spawned(&s).last().map(String::as_str),
+        Some("ctest -R trims")
     );
+    let id = s.editor.window_view().terminal.unwrap().sessions[0].id;
+    s.send(Event::TaskOutput {
+        id,
+        text: "1/1 Test #1: trims ... Passed".into(),
+    });
+    s.effects.clear();
+    s.send(Event::TermExited { id, code: Some(0) });
+    assert_eq!(
+        s.effects,
+        [Effect::PluginTerminal {
+            plugin: "catch2".into(),
+            id: "trims".into(),
+            output: "1/1 Test #1: trims ... Passed".into(),
+            code: Some(0),
+        }]
+    );
+}
+
+#[test]
+fn a_plugin_runs_a_command_line_and_hears_what_it_printed() {
+    let mut s = tested();
+    s.send(Event::RunInTerminal {
+        plugin: "rust".into(),
+        id: "run-1".into(),
+        name: "cargo test".into(),
+        command: "cargo test --workspace".into(),
+    });
+    assert_eq!(spawned(&s), ["cargo test --workspace"]);
+    let id = s.editor.window_view().terminal.unwrap().sessions[0].id;
+    s.send(Event::TaskOutput {
+        id,
+        text: "test result: ok".into(),
+    });
+    s.effects.clear();
+    s.send(Event::TermExited { id, code: Some(0) });
+    assert!(s.effects.contains(&Effect::PluginTerminal {
+        plugin: "rust".into(),
+        id: "run-1".into(),
+        output: "test result: ok".into(),
+        code: Some(0),
+    }));
 }
 
 #[test]
@@ -268,6 +414,7 @@ fn plugins_add_tasks_and_tests_that_they_run_and_report() {
     s.files.insert("tests/test_parse.py".into(), s.text());
     s.send(Event::SetTasks {
         plugin: "netlify".into(),
+        set: String::new(),
         tasks: vec![merlin_core::Task {
             name: "Deploy preview".into(),
             command: None,
@@ -301,6 +448,8 @@ fn plugins_add_tasks_and_tests_that_they_run_and_report() {
     s.send(Event::SetTests {
         plugin: "python".into(),
         path: "tests/test_parse.py".into(),
+        group: String::new(),
+        label: String::new(),
         tests: vec![
             test("p1", "test_empty_input", 0),
             test("p2", "test_unicode", 3),
@@ -330,33 +479,6 @@ fn plugins_add_tasks_and_tests_that_they_run_and_report() {
     assert_eq!(view.lines[0].test, Some(false));
     s.run("cmd view.tests");
     assert_eq!(labels(&s)[0], "python ");
-}
-
-#[test]
-fn a_test_run_without_capturing_says_why_it_failed_too() {
-    let mut s = tested();
-    s.run("cmd view.tests");
-    s.run("cmd tests.run_all");
-    let id = s.editor.window_view().terminal.unwrap().sessions[0].id;
-    let text = "\
-     Running tests/saving.rs (target/debug/deps/saving-17)
-
-running 1 test
-thread 'trims_on_save' (5) panicked at crates/demo/tests/saving.rs:6:5:
-assertion `left == right` failed
-  left: 1
- right: 2
-note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
-test trims_on_save ... FAILED
-
-test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
-";
-    s.send(Event::TaskOutput {
-        id,
-        text: text.into(),
-    });
-    let view = s.editor.text_views().remove(0);
-    assert_eq!(view.failures[0].text, "left: 1  right: 2");
 }
 
 #[test]

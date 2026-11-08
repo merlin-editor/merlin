@@ -196,6 +196,16 @@ impl App {
                 queue.extend(self.host.run_command(&plugin, &command, snapshot));
                 self.panels_for = None;
             }
+            Effect::PluginTerminal {
+                plugin,
+                id,
+                output,
+                code,
+            } => {
+                let snapshot = self.snapshot();
+                queue.extend(self.host.terminal(&plugin, &id, &output, code, snapshot));
+                self.panels_for = None;
+            }
             Effect::PluginClick { plugin, button } => {
                 let snapshot = self.snapshot();
                 queue.extend(self.host.click(&plugin, &button, snapshot));

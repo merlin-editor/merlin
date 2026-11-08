@@ -1,6 +1,6 @@
-//! Tasks, as VS Code's Run Task has them: the commands a project's
-//! Cargo.toml, package.json and `.merlin/tasks.toml` offer, and those
-//! plugins add. Each runs in a terminal tab of its own, named after it.
+//! Tasks, as VS Code's Run Task has them: the commands the project's
+//! `.merlin/tasks.toml` offers, and those plugins add, such as cargo's
+//! and npm's. Each runs in a terminal tab of its own, named after it.
 
 use std::path::PathBuf;
 
@@ -8,9 +8,6 @@ use super::{Editor, Effect, Focus, Palette, Source};
 
 /// The project's own tasks, for Configure Tasks to open.
 pub(crate) const TASKS_FILE: &str = ".merlin/tasks.toml";
-
-/// The files tasks come from, in the order Run Task lists them.
-const FILES: [&str; 3] = ["Cargo.toml", "package.json", TASKS_FILE];
 
 /// What a task is for, for the group Run Task lists it in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
@@ -60,14 +57,19 @@ pub(crate) struct Run {
     pub command: String,
     /// Its exit code once it's done.
     pub exited: Option<i32>,
+    /// The plugin that ran it, and its id for the run, to hear what it
+    /// printed.
+    pub plugin: Option<(String, String)>,
+    /// All it printed, kept for its plugin until it exits.
+    pub output: Option<String>,
 }
 
 #[derive(Debug, Default)]
 pub(crate) struct Tasks {
     /// What the project's files offer, as last read.
     pub found: Vec<Task>,
-    /// Each plugin's, by plugin.
-    pub plugins: Vec<(String, Vec<Task>)>,
+    /// Each plugin's, by plugin and the set they came in.
+    pub plugins: Vec<((String, String), Vec<Task>)>,
     /// What to do once the files are read: list them, or run the first in
     /// a group.
     pub asking: Option<Ask>,
@@ -94,84 +96,6 @@ fn unquote(value: &str) -> String {
         Some(s) => s.replace("\\\"", "\"").replace("\\\\", "\\"),
         None => v.to_string(),
     }
-}
-
-/// The tasks a Cargo.toml offers: test, build and clippy, across the
-/// workspace when it is one, and run when it's a package.
-pub fn from_cargo(text: &str) -> Vec<Task> {
-    let sections: Vec<&str> = text
-        .lines()
-        .map(str::trim)
-        .filter(|l| l.starts_with('['))
-        .collect();
-    let workspace = sections.contains(&"[workspace]");
-    let package = sections.contains(&"[package]");
-    if !workspace && !package {
-        return Vec::new();
-    }
-    let all = if workspace { " --workspace" } else { "" };
-    let task = |name: String, group| Task {
-        command: Some(name.clone()),
-        name,
-        group,
-        source: "Cargo.toml".into(),
-        plugin: None,
-    };
-    let mut tasks = vec![
-        task(format!("cargo test{all}"), TaskGroup::Test),
-        task("cargo build --release".into(), TaskGroup::Build),
-    ];
-    if package {
-        tasks.push(task("cargo run".into(), TaskGroup::Build));
-    }
-    tasks.push(task(format!("cargo clippy{all}"), TaskGroup::Build));
-    tasks
-}
-
-/// A package.json's scripts, each run with npm.
-pub fn from_package(text: &str) -> Vec<Task> {
-    let Some(at) = text.find("\"scripts\"") else {
-        return Vec::new();
-    };
-    let rest = &text[at + 9..];
-    let Some(open) = rest.find('{') else {
-        return Vec::new();
-    };
-    // The strings in the object, in pairs, up to its closing brace.
-    let mut strings = Vec::new();
-    let mut chars = rest[open + 1..].chars();
-    while let Some(c) = chars.next() {
-        match c {
-            '}' => break,
-            '"' => {
-                let mut s = String::new();
-                while let Some(c) = chars.next() {
-                    match c {
-                        '\\' => s.extend(chars.next()),
-                        '"' => break,
-                        c => s.push(c),
-                    }
-                }
-                strings.push(s);
-            }
-            _ => {}
-        }
-    }
-    strings
-        .chunks(2)
-        .filter(|pair| pair.len() == 2)
-        .map(|pair| Task {
-            name: pair[0].clone(),
-            command: Some(format!("npm run {}", pair[0])),
-            group: match pair[0].as_str() {
-                "test" => TaskGroup::Test,
-                "build" | "dev" | "start" => TaskGroup::Build,
-                _ => TaskGroup::Other,
-            },
-            source: "package.json".into(),
-            plugin: None,
-        })
-        .collect()
 }
 
 /// `.merlin/tasks.toml`'s tasks: `name = "command"` under `[tasks]`, or a
@@ -268,9 +192,16 @@ impl Editor {
             }
             _ => return,
         };
-        // The files may have changed since: read them again each time.
+        // The files may have changed since: plugins read theirs again, as
+        // the project's own is.
+        for plugin in &self.plugins {
+            fx.push(Effect::PluginCommand {
+                plugin: plugin.name.clone(),
+                command: "find-tasks".into(),
+            });
+        }
         self.tasks.asking = Some(ask);
-        fx.push(Effect::ReadFiles(FILES.iter().map(PathBuf::from).collect()));
+        fx.push(Effect::ReadFiles(vec![PathBuf::from(TASKS_FILE)]));
     }
 
     /// The task files, read: lists or runs what was asked for.
@@ -278,24 +209,11 @@ impl Editor {
         let Some(ask) = self.tasks.asking else {
             return;
         };
-        let text = |name: &str| {
-            files
-                .iter()
-                .find(|(p, _)| p == &PathBuf::from(name))
-                .and_then(|(_, t)| t.as_deref())
-        };
-        if FILES
-            .iter()
-            .all(|f| !files.iter().any(|(p, _)| p == &PathBuf::from(f)))
-        {
+        let Some((_, text)) = files.iter().find(|(p, _)| p == &PathBuf::from(TASKS_FILE)) else {
             return;
-        }
+        };
         self.tasks.asking = None;
-        let mut found = Vec::new();
-        found.extend(text("Cargo.toml").map(from_cargo).unwrap_or_default());
-        found.extend(text("package.json").map(from_package).unwrap_or_default());
-        found.extend(text(TASKS_FILE).map(from_tasks_file).unwrap_or_default());
-        self.tasks.found = found;
+        self.tasks.found = text.as_deref().map(from_tasks_file).unwrap_or_default();
         match ask {
             Ask::List => self.pick_task(),
             Ask::First(group) => match self.first_task(group) {
@@ -367,25 +285,57 @@ impl Editor {
             term,
             command: command.to_string(),
             exited: None,
+            plugin: None,
+            output: None,
         });
         term
     }
 
-    /// A task's terminal ended.
-    pub(crate) fn task_exited(&mut self, term: u64, code: Option<i32>) {
-        if let Some(run) = self.tasks.runs.iter_mut().find(|r| r.term == term) {
-            run.exited = Some(code.unwrap_or(-1));
-            self.build_views();
+    /// Runs `command` in a terminal tab named `name` for a plugin, which
+    /// hears all it printed, by `id`, once it ends.
+    pub(crate) fn run_for_plugin(
+        &mut self,
+        plugin: String,
+        id: String,
+        name: &str,
+        command: &str,
+        fx: &mut Vec<Effect>,
+    ) -> u64 {
+        let term = self.start_command(name, command, fx);
+        if let Some(run) = self.tasks.runs.last_mut() {
+            run.plugin = Some((plugin, id));
         }
+        term
     }
 
-    /// What a task printed, once it ends.
-    pub(crate) fn task_output(&mut self, term: u64, text: &str) {
-        self.tests_output(term, text);
-        let run = self.tasks.runs.iter().rev().find(|r| r.term == term);
-        if let Some(name) = run.map(|r| r.name.clone()) {
-            self.task_problems(&name, text);
+    /// A task's terminal ended: its plugin hears how, if a plugin ran it.
+    pub(crate) fn task_exited(&mut self, term: u64, code: Option<i32>, fx: &mut Vec<Effect>) {
+        let Some(run) = self.tasks.runs.iter_mut().find(|r| r.term == term) else {
+            return;
+        };
+        run.exited = Some(code.unwrap_or(-1));
+        if let Some((plugin, id)) = run.plugin.clone() {
+            fx.push(Effect::PluginTerminal {
+                plugin,
+                id,
+                output: run.output.take().unwrap_or_default(),
+                code,
+            });
         }
+        self.build_views();
+    }
+
+    /// What a task printed, once it ends: kept for its plugin until it
+    /// exits.
+    pub(crate) fn task_output(&mut self, term: u64, text: &str) {
+        let Some(run) = self.tasks.runs.iter_mut().rev().find(|r| r.term == term) else {
+            return;
+        };
+        if run.plugin.is_some() {
+            run.output = Some(text.to_string());
+        }
+        let name = run.name.clone();
+        self.task_problems(&name, text);
     }
 
     /// The tasks still running, for the status bar.

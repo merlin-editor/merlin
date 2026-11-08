@@ -1,4 +1,4 @@
-package merlin:plugin@0.5.0;
+package merlin:plugin@0.6.0;
 
 interface types {
   /// What a run of text is, for its colour.
@@ -315,9 +315,9 @@ interface types {
 
   /// A test in a file, for the Tests view and ▶ Run Test over its line,
   /// from 0. One with a command line runs in the editor's test terminal,
-  /// which reads cargo's results; one without runs in the plugin, as
-  /// `run-command` with `run-test:<id>` or `debug-test:<id>`, and the
-  /// plugin sends its results.
+  /// and its output comes to `on-terminal` with the test's id. One
+  /// without runs in the plugin, as `run-command` with `run-test:<id>` or
+  /// `debug-test:<id>`. Either way the plugin sends its results.
   record test-item {
     id: string,
     label: string,
@@ -524,6 +524,12 @@ interface host {
 
   /// The folder the editor is working in.
   workspace-root: func() -> string;
+  /// The project's files, relative to the workspace root, as the Explorer
+  /// lists them: without what git ignores. Needs `workspace-read`.
+  list-files: func() -> result<list<string>, string>;
+  /// A file's text as it is on disk. The path is relative to the
+  /// workspace root, or absolute within it. Needs `workspace-read`.
+  read-file: func(path: string) -> result<string, string>;
 
   /// Shows a message in the status bar.
   notify: func(message: string);
@@ -616,16 +622,37 @@ interface host {
   /// Closes a diff that was answered some other way.
   close-diff: func(id: string);
 
-  /// Replaces this plugin's tasks in Run Task.
-  set-tasks: func(tasks: list<task>);
+  /// Replaces this plugin's tasks in Run Task that came as `set`, such as
+  /// `cargo`: a plugin may have several sets, from different places. Run
+  /// Task asks for them with `find-tasks` as it opens.
+  set-tasks: func(set: string, tasks: list<task>);
 
   /// Replaces this plugin's tests in a file, which the Tests view lists
-  /// and the file shows ▶ Run Test over. In a Rust file they take the
-  /// place of the editor's own search for `#[test]`.
-  set-tests: func(path: string, tests: list<test-item>);
+  /// under `group`, such as a crate, as `label`, such as `tests/find.rs`,
+  /// and the file shows ▶ Run Test over. An empty group is the plugin's
+  /// own. Run All, Run Failed, a group's and a file's ▶ come to the plugin
+  /// as `run-command` with `run-tests:all`, `run-tests:failed`,
+  /// `run-tests:group:<group>` and `run-tests:file:<path>`, for its tests
+  /// without a command line. The editor asks for them all with
+  /// `find-tests` when the Tests view first shows.
+  set-tests: func(path: string, group: string, label: string, tests: list<test-item>);
 
   /// How this plugin's tests went, by id.
   set-test-results: func(results: list<test-result>);
+
+  /// A group's tests started, or ended, and how long they took in seconds.
+  /// An empty group is all of the plugin's.
+  set-test-run: func(group: string, running: bool, seconds: option<f64>);
+
+  /// Runs a command line in a terminal tab named `name`, in place of an
+  /// earlier run of that name, as a task runs. All it printed comes to
+  /// `on-terminal` with `id` once it ends. Needs `terminal`.
+  run-in-terminal: func(id: string, name: string, command: string) -> result<_, string>;
+
+  /// Starts debugging `target`, as F5 on it would. Without a debugger for
+  /// its language, `fallback`, if any, runs in a terminal instead, such as
+  /// the program under gdb.
+  start-debugging: func(target: debug-target, fallback: option<string>);
 
   /// Runs a task by name, as Run Task does: the editor's own, or any
   /// plugin's.
@@ -721,4 +748,7 @@ world plugin {
   /// its id or an extension: a diff of a file, or a code block in Markdown.
   /// Positions are within the text.
   export colour-text: func(language: string, text: string) -> list<token>;
+  /// A command line from `run-in-terminal`, or a test's, ended: all it
+  /// printed, and its exit code, if it had one.
+  export on-terminal: func(id: string, output: string, code: option<s32>);
 }

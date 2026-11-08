@@ -471,8 +471,7 @@ impl Lsp {
                 if server.opened.get(&path) == Some(&version)
                     && let Some(list) = result.as_array()
                 {
-                    let (tests, tasks) = runnables(list);
-                    host::set_tests(&path, &tests);
+                    let tasks = runnables(list);
                     let before = server.tasks.len();
                     server.tasks.extend(tasks);
                     if server.tasks.len() != before {
@@ -486,7 +485,7 @@ impl Lsp {
                                 detail: detail.clone(),
                             })
                             .collect();
-                        host::set_tasks(&tasks);
+                        host::set_tasks(program, &tasks);
                         host::set_debug_targets(&debug_targets(&server.tasks));
                     }
                 }

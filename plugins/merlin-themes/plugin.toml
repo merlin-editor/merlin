@@ -3,7 +3,7 @@
 name = "merlin-themes"
 title = "merlin Themes"
 description = "Dark and light colour themes"
-api = "0.8"
+api = "0.9"
 
 [[themes]]
 label = "Sumi"

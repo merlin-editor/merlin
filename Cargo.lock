@@ -1907,6 +1907,7 @@ name = "merlin-plugins"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "ignore",
  "merlin-core",
  "serde",
  "serde_json",

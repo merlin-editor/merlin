@@ -323,8 +323,6 @@ pub(crate) struct Session {
     pub state: DebugState,
     /// The build's terminal while it runs first.
     pub building: Option<u64>,
-    /// A test's file, when its binary is found in what the build printed.
-    pub binary_for: Option<String>,
     pub threads: Vec<DebugThread>,
     pub stacks: HashMap<u32, Vec<StackFrame>>,
     /// The frame shown, by thread and frame id.
@@ -841,8 +839,24 @@ mod tests {
     }
 
     #[test]
-    fn a_tests_binary_comes_from_what_its_build_printed() {
+    fn a_plugin_starts_debugging_or_its_fallback_without_a_debugger() {
         let mut e = Editor::new("fn main() {}\n", Some(PathBuf::from("src/main.rs")));
+        let target = DebugTarget {
+            name: "Test parses".into(),
+            language: "rust".into(),
+            program: "target/debug/deps/demo-1a2b".into(),
+            args: vec!["parses".into()],
+            ..Default::default()
+        };
+        let fx = e.update(Event::StartDebugging {
+            plugin: "rust".into(),
+            target: Box::new(target.clone()),
+            fallback: Some("rust-gdb --args target/debug/deps/demo-1a2b parses".into()),
+        });
+        assert!(
+            fx.iter().any(|f| matches!(f, Effect::Terminal(_))),
+            "without a debugger, the fallback runs in a terminal: {fx:?}"
+        );
         e.update(Event::RegisterDebuggers {
             plugin: "rust".into(),
             debuggers: vec![Debugger {
@@ -859,24 +873,10 @@ mod tests {
             plugin: "dap".into(),
             commands: Vec::new(),
         });
-        let mut fx = Vec::new();
-        let target = DebugTarget {
-            name: "Test parses".into(),
-            language: "rust".into(),
-            args: vec!["parses".into()],
-            build: "cargo test --no-run -p demo".into(),
-            ..Default::default()
-        };
-        e.debug_test(target, "src/main.rs".into(), &mut fx);
-        let term = e.debug_building().expect("the build runs");
-        e.update(Event::TaskOutput {
-            id: term,
-            text: "   Compiling demo\n  Executable unittests src/main.rs (target/debug/deps/demo-1a2b)\n"
-                .into(),
-        });
-        let fx = e.update(Event::TermExited {
-            id: term,
-            code: Some(0),
+        let fx = e.update(Event::StartDebugging {
+            plugin: "rust".into(),
+            target: Box::new(target),
+            fallback: None,
         });
         let start = fx.iter().find_map(|f| match f {
             Effect::Debug {
@@ -894,24 +894,6 @@ mod tests {
             start.launch.contains("\"args\":[\"parses\"]"),
             "{}",
             start.launch
-        );
-    }
-
-    #[test]
-    fn a_binary_wrapped_by_the_terminal_is_joined() {
-        let text = "  Executable unittests src/main.rs (target/debug/deps/dbgdemo-79f066730ab665\nf5)\n  Executable tests/find.rs (target/debug/deps/find-12)\n";
-        assert_eq!(
-            executables(text),
-            [
-                (
-                    "src/main.rs".to_string(),
-                    "target/debug/deps/dbgdemo-79f066730ab665f5".to_string()
-                ),
-                (
-                    "tests/find.rs".to_string(),
-                    "target/debug/deps/find-12".to_string()
-                ),
-            ]
         );
     }
 

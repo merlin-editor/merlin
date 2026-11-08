@@ -267,6 +267,13 @@ impl Frame<'_> {
             (page.read, "Read the open files".into()),
             (page.write, "Change files".into()),
         ];
+        // Only plugins that ask for these say so: most never do.
+        if page.workspace_read {
+            perms.push((true, "Read the project's files".into()));
+        }
+        if page.terminal {
+            perms.push((true, "Run command lines in a terminal".into()));
+        }
         if page.processes.is_empty() {
             perms.push((false, "Start programs".into()));
         } else {

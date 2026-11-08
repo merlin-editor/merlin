@@ -1,8 +1,9 @@
 //! Tests, as VS Code's Testing view and rust-analyzer's lenses have them:
-//! the project's tests in a tree by crate and file, ▶ Run Test and Debug
-//! over each one in its file, a mark in the gutter for how it went, and a
-//! failure's message under the line that failed. Tests run as tasks do,
-//! in the terminal, and the results come from what cargo prints.
+//! the project's tests in a tree by group, such as a crate, and file, ▶ Run
+//! Test and Debug over each one in its file, a mark in the gutter for how
+//! it went, and a failure's message under the line that failed. Plugins
+//! find the tests, run them and say how they went: the Rust plugin with
+//! cargo, say.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -16,7 +17,7 @@ use crate::style::Hue;
 pub(crate) const TESTS: &str = "merlin.tests";
 
 /// The name test runs' terminal goes by, as one tab.
-const RUN: &str = "cargo test";
+const RUN: &str = "Tests";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Outcome {
@@ -40,12 +41,15 @@ pub(crate) struct TestFile {
     pub tests: Vec<TestCase>,
 }
 
-/// A crate's tests, or a plugin's.
+/// A group of a plugin's tests, such as a crate's.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub(crate) struct TestRoot {
+    /// The group's name, or the plugin's for its own.
     pub name: String,
-    /// What finds and runs them: `cargo`, or a plugin's name.
+    /// The plugin that finds and runs them.
     pub kind: String,
+    /// The group as the plugin names it: empty for its own.
+    pub group: String,
     pub files: Vec<TestFile>,
     /// How long its last run took, in seconds.
     pub time: Option<f64>,
@@ -67,19 +71,12 @@ pub(crate) struct Tests {
     pub roots: Vec<TestRoot>,
     /// Results by test: `path::name`.
     pub results: HashMap<String, TestResult>,
-    /// The files asked for to find the tests in.
-    reading: Option<Vec<PathBuf>>,
-    /// Waiting for the project's files, to find the tests.
-    listing: bool,
+    /// Plugins were asked for every test, as the view first showed.
     pub found: bool,
-    /// The project's Cargo.toml is a workspace's.
-    workspace: bool,
-    /// Runs the tests a saved file has, or its crate's.
+    /// Runs the tests a saved file has, or its language's.
     pub on_save: bool,
     /// Roots and files folded in the view.
     folded: HashSet<String>,
-    /// The terminal the tests run in, and the crate the run was for.
-    run: Option<(u64, Option<String>)>,
     /// Goes up whenever a test or result changes, for what's drawn.
     pub version: u64,
     /// Plugins' tests, by file.
@@ -112,6 +109,7 @@ pub struct PluginTestResult {
 pub(crate) struct PluginFile {
     pub plugin: String,
     pub path: String,
+    pub group: String,
     pub tests: Vec<PluginTest>,
 }
 
@@ -128,189 +126,6 @@ pub(crate) enum Scope {
 /// A test's key in the results: its file and name.
 pub(crate) fn test_key(path: &str, name: &str) -> String {
     format!("{path}::{name}")
-}
-
-/// The tests in Rust source: functions marked `#[test]`, or a test
-/// attribute such as `#[tokio::test]`, with the line of each `fn`.
-pub fn rust_tests(text: &str) -> Vec<(String, usize)> {
-    let mut out = Vec::new();
-    let mut marked = false;
-    for (i, line) in text.lines().enumerate() {
-        let t = line.trim();
-        if t.starts_with("#[") {
-            let attr = t.trim_start_matches("#[");
-            if attr.starts_with("test]") || attr.contains("::test") {
-                marked = true;
-            }
-            continue;
-        }
-        if !marked || t.is_empty() || t.starts_with("//") {
-            continue;
-        }
-        marked = false;
-        let Some(at) = t.find("fn ") else { continue };
-        let name: String = t[at + 3..]
-            .chars()
-            .take_while(|c| c.is_alphanumeric() || *c == '_')
-            .collect();
-        if !name.is_empty() {
-            out.push((name, i));
-        }
-    }
-    out
-}
-
-/// A Cargo.toml's package name.
-fn package_name(text: &str) -> Option<String> {
-    let mut in_package = false;
-    for line in text.lines().map(str::trim) {
-        if line.starts_with('[') {
-            in_package = line == "[package]";
-        } else if in_package
-            && let Some((k, v)) = line.split_once('=')
-            && k.trim() == "name"
-        {
-            return Some(v.trim().trim_matches('"').to_string());
-        }
-    }
-    None
-}
-
-/// What one test run printed, as cargo and libtest print it.
-#[derive(Debug, Default, PartialEq)]
-pub(crate) struct Report {
-    /// Each test: the target it's in (`tests/find.rs`, or `src/lib.rs`
-    /// for unit tests), the crate a unit target names, its name, and how
-    /// it went.
-    pub tests: Vec<(String, Option<String>, String, Outcome)>,
-    /// Each failure's message and where it failed, by test name.
-    pub failures: HashMap<String, (String, Option<(String, usize)>)>,
-    /// Each target's time, in seconds.
-    pub times: Vec<(String, Option<String>, f64)>,
-}
-
-/// Reads cargo test's output.
-pub(crate) fn parse_report(text: &str) -> Report {
-    let mut report = Report::default();
-    let mut target = String::new();
-    let mut unit: Option<String> = None;
-    let mut failing: Option<String> = None;
-    let mut message: Vec<String> = Vec::new();
-    let mut at: Option<(String, usize)> = None;
-    let mut panicked = false;
-    let finish = |report: &mut Report,
-                  failing: &mut Option<String>,
-                  message: &mut Vec<String>,
-                  at: &mut Option<(String, usize)>| {
-        if let Some(name) = failing.take() {
-            let lines: Vec<String> = std::mem::take(message);
-            // An assertion's left and right say more than its first line.
-            let sides: Vec<&String> = lines
-                .iter()
-                .filter(|l| l.starts_with("left:") || l.starts_with("right:"))
-                .collect();
-            let text = if sides.is_empty() {
-                lines.join(" ")
-            } else {
-                sides
-                    .iter()
-                    .map(|s| s.as_str())
-                    .collect::<Vec<_>>()
-                    .join("  ")
-            };
-            report.failures.insert(name, (text, at.take()));
-        }
-    };
-    for raw in text.lines() {
-        let line = raw.trim();
-        if let Some(rest) = line.strip_prefix("Running ") {
-            // `Running unittests src/lib.rs (target/debug/deps/merlin_core-…)`
-            // or `Running tests/find.rs (target/debug/deps/find-…)`.
-            let rest = rest.strip_prefix("unittests ").unwrap_or(rest);
-            let (path, bin) = rest.split_once(" (").unwrap_or((rest, ""));
-            target = path.to_string();
-            unit = (!path.starts_with("tests/")).then(|| {
-                let file = bin.rsplit('/').next().unwrap_or(bin);
-                file.rsplit_once('-')
-                    .map_or(file, |(name, _)| name)
-                    .to_string()
-            });
-            continue;
-        }
-        if line.starts_with("Doc-tests ") {
-            target.clear();
-            continue;
-        }
-        if let Some(rest) = line.strip_prefix("test ")
-            && let Some((name, how)) = rest.rsplit_once(" ... ")
-            && !target.is_empty()
-        {
-            let outcome = match how {
-                "ok" => Outcome::Passed,
-                "FAILED" => Outcome::Failed,
-                _ if how.starts_with("ignored") => Outcome::Skipped,
-                _ => continue,
-            };
-            report
-                .tests
-                .push((target.clone(), unit.clone(), name.to_string(), outcome));
-            continue;
-        }
-        if let Some(rest) = line.strip_prefix("test result: ")
-            && let Some(secs) = rest
-                .rsplit_once("finished in ")
-                .and_then(|(_, t)| t.trim_end_matches('s').parse::<f64>().ok())
-            && !target.is_empty()
-        {
-            report.times.push((target.clone(), unit.clone(), secs));
-            continue;
-        }
-        if let Some(name) = line
-            .strip_prefix("---- ")
-            .and_then(|l| l.strip_suffix(" stdout ----"))
-        {
-            finish(&mut report, &mut failing, &mut message, &mut at);
-            failing = Some(name.to_string());
-            panicked = false;
-            continue;
-        }
-        // Without its output captured, a test's panic is printed as it
-        // happens, under no heading of its own.
-        if failing.is_none()
-            && line.contains("panicked at ")
-            && let Some(name) = line
-                .strip_prefix("thread '")
-                .and_then(|l| l.split_once('\''))
-                .map(|(name, _)| name)
-        {
-            failing = Some(name.to_string());
-        }
-        if failing.is_none() {
-            continue;
-        }
-        // The message ends at the note about backtraces, or the list of
-        // failures.
-        if line == "failures:" || line.starts_with("note: run with") {
-            finish(&mut report, &mut failing, &mut message, &mut at);
-            panicked = false;
-            continue;
-        }
-        if let Some(rest) = line.split_once("panicked at ").map(|(_, r)| r) {
-            // `crates/core/tests/saving.rs:28:5:`
-            let mut parts = rest.trim_end_matches(':').rsplitn(3, ':');
-            let (_col, line_no, path) = (parts.next(), parts.next(), parts.next());
-            if let (Some(path), Some(n)) = (path, line_no.and_then(|n| n.parse::<usize>().ok())) {
-                at = Some((path.to_string(), n.saturating_sub(1)));
-            }
-            panicked = true;
-            continue;
-        }
-        if panicked && !line.is_empty() {
-            message.push(line.to_string());
-        }
-    }
-    finish(&mut report, &mut failing, &mut message, &mut at);
-    report
 }
 
 /// A test's lens, the row over its `fn`, in the text view.
@@ -362,20 +177,13 @@ impl Editor {
         let mut out = DocTests::default();
         let path = doc.buffer.path.as_ref().map(|p| p.display().to_string());
         if let Some(path) = path.filter(|_| doc.review.is_none()) {
-            let from_plugin: Vec<(String, usize)> = self
+            let found: Vec<(String, usize)> = self
                 .tests
                 .plugin_files
                 .iter()
                 .filter(|f| f.path == path)
                 .flat_map(|f| f.tests.iter().map(|t| (t.label.clone(), t.line as usize)))
                 .collect();
-            let found = if !from_plugin.is_empty() {
-                from_plugin
-            } else if path.ends_with(".rs") && self.has_rust_tests() {
-                rust_tests(&doc.buffer.text())
-            } else {
-                Vec::new()
-            };
             for (i, (name, line)) in found.into_iter().enumerate() {
                 if line > 0 {
                     out.lenses.insert(line - 1, i);
@@ -510,138 +318,17 @@ impl Editor {
         }
     }
 
-    /// Whether built-in Rust test discovery is enabled: when language
-    /// plugins are loaded, only if the Rust language plugin is installed.
-    fn has_rust_tests(&self) -> bool {
-        self.languages.is_empty() || self.languages.iter().any(|(_, l)| l.id == "rust")
-    }
-
-    /// Finds the project's tests, the first time the view shows: the
-    /// project's files are listed, then its crates' and Rust files read.
+    /// Asks every plugin for its tests, the first time the view shows.
     pub(crate) fn find_tests(&mut self, fx: &mut Vec<Effect>) {
-        if !self.has_rust_tests()
-            || self.tests.found
-            || self.tests.listing
-            || self.tests.reading.is_some()
-        {
+        if std::mem::replace(&mut self.tests.found, true) {
             return;
         }
-        self.tests.listing = true;
-        // The host sends the list only when it changed: the Explorer's may
-        // be it.
-        match self
-            .tree
-            .as_ref()
-            .map(|t| t.files.clone())
-            .filter(|f| !f.is_empty())
-        {
-            Some(files) => self.tests_listed(&files, fx),
-            None => fx.push(Effect::ListTree),
+        for plugin in &self.plugins {
+            fx.push(Effect::PluginCommand {
+                plugin: plugin.name.clone(),
+                command: "find-tests".into(),
+            });
         }
-    }
-
-    /// The project's files, listed: reads what has tests in it.
-    pub(crate) fn tests_listed(&mut self, files: &[String], fx: &mut Vec<Effect>) {
-        if !std::mem::take(&mut self.tests.listing) {
-            return;
-        }
-        let wanted: Vec<PathBuf> = files
-            .iter()
-            .filter(|f| {
-                f.ends_with("Cargo.toml")
-                    || (f.ends_with(".rs") && (f.starts_with("tests/") || f.contains("/tests/")))
-                    || (f.ends_with(".rs") && (f.starts_with("src/") || f.contains("/src/")))
-            })
-            .map(PathBuf::from)
-            .collect();
-        self.tests.reading = Some(wanted.clone());
-        fx.push(Effect::ReadFiles(wanted));
-    }
-
-    /// The crates' and Rust files read: the tree of tests.
-    pub(crate) fn tests_read(&mut self, files: &[(PathBuf, Option<String>)]) {
-        let Some(wanted) = &self.tests.reading else {
-            return;
-        };
-        if files.len() != wanted.len() || files.iter().zip(wanted).any(|((p, _), w)| p != w) {
-            return;
-        }
-        self.tests.reading = None;
-        self.tests.found = true;
-        // Each crate, by its folder, deepest first.
-        let mut crates: Vec<(String, String)> = files
-            .iter()
-            .filter(|(p, _)| p.file_name().is_some_and(|n| n == "Cargo.toml"))
-            .filter_map(|(p, text)| {
-                let text = text.as_deref()?;
-                if p == Path::new("Cargo.toml") && text.lines().any(|l| l.trim() == "[workspace]") {
-                    self.tests.workspace = true;
-                }
-                let dir = p
-                    .parent()
-                    .map(|d| d.display().to_string())
-                    .unwrap_or_default();
-                Some((dir, package_name(text)?))
-            })
-            .collect();
-        crates.sort_by_key(|(dir, _)| std::cmp::Reverse(dir.len()));
-        let mut roots: Vec<TestRoot> = Vec::new();
-        for (path, text) in files {
-            let (Some(text), Some(name)) = (text.as_deref(), path.to_str()) else {
-                continue;
-            };
-            if !name.ends_with(".rs") {
-                continue;
-            }
-            let tests = rust_tests(text);
-            if tests.is_empty() {
-                continue;
-            }
-            let Some((dir, krate)) = crates
-                .iter()
-                .find(|(dir, _)| dir.is_empty() || name.starts_with(&format!("{dir}/")))
-            else {
-                continue;
-            };
-            let label = match dir.is_empty() {
-                true => name.to_string(),
-                false => name[dir.len() + 1..].to_string(),
-            };
-            let file = TestFile {
-                path: name.to_string(),
-                label,
-                tests: tests
-                    .into_iter()
-                    .map(|(name, line)| TestCase { name, line })
-                    .collect(),
-            };
-            match roots.iter_mut().find(|r| r.name == *krate) {
-                Some(root) => root.files.push(file),
-                None => roots.push(TestRoot {
-                    name: krate.clone(),
-                    kind: "cargo".into(),
-                    files: vec![file],
-                    ..TestRoot::default()
-                }),
-            }
-        }
-        for root in &mut roots {
-            root.files.sort_by(|a, b| a.label.cmp(&b.label));
-        }
-        roots.sort_by(|a, b| a.name.cmp(&b.name));
-        // Crates start folded but the first, as the view has room for.
-        for root in roots.iter().skip(1) {
-            self.tests.folded.insert(format!("r:{}", root.name));
-        }
-        // Plugins' tests stay, after cargo's.
-        let plugins: Vec<TestRoot> = std::mem::take(&mut self.tests.roots)
-            .into_iter()
-            .filter(|r| r.kind != "cargo")
-            .collect();
-        roots.extend(plugins);
-        self.tests.roots = roots;
-        self.tests.version += 1;
-        self.build_views();
     }
 
     /// The crate and file a test's key names.
@@ -655,299 +342,71 @@ impl Editor {
         None
     }
 
-    fn file_place(&self, path: &str) -> Option<(&TestRoot, &TestFile)> {
-        self.tests
-            .roots
-            .iter()
-            .find_map(|r| r.files.iter().find(|f| f.path == path).map(|f| (r, f)))
-    }
-
-    /// Runs some tests in the test terminal, or one under the debugger in
-    /// a terminal of its own.
+    /// Runs some tests: one with a command line in the test terminal, the
+    /// rest by their plugins, as `run-test:<id>`, `debug-test:<id>` or
+    /// `run-tests:<scope>`.
     pub(crate) fn run_tests(&mut self, scope: Scope, debug: bool, fx: &mut Vec<Effect>) {
-        // The results are matched to the tree, which builds while cargo
-        // does.
         self.find_tests(fx);
-        if let Scope::Test(key) = &scope
-            && let Some((plugin, test)) = self.plugin_test(key)
-        {
-            return self.run_plugin_test(&plugin, &test, debug, fx);
-        }
-        if let Scope::Root(name) = &scope
-            && let Some(root) = self
-                .tests
-                .roots
-                .iter()
-                .find(|r| r.name == *name && r.kind != "cargo")
-        {
-            let keys: Vec<String> = root
-                .files
-                .iter()
-                .flat_map(|f| f.tests.iter().map(|t| test_key(&f.path, &t.name)))
-                .collect();
-            for key in keys {
-                if let Some((plugin, test)) = self.plugin_test(&key) {
-                    self.run_plugin_test(&plugin, &test, false, fx);
-                }
-            }
-            return;
-        }
-        if let Scope::File(path) = &scope {
-            let keys: Vec<String> = self
-                .tests
-                .plugin_files
-                .iter()
-                .filter(|f| f.path == *path)
-                .flat_map(|f| f.tests.iter().map(|t| test_key(&f.path, &t.label)))
-                .collect();
-            if !keys.is_empty() {
-                for key in keys {
-                    if let Some((plugin, test)) = self.plugin_test(&key) {
-                        self.run_plugin_test(&plugin, &test, false, fx);
-                    }
-                }
-                return;
-            }
-        }
-        // The crate's target for a file: an integration test's own, or
-        // the crate's unit tests with the file's tests named.
-        let target = |file: &TestFile, names: &[&str]| -> String {
-            match file
-                .label
-                .strip_prefix("tests/")
-                .and_then(|f| f.strip_suffix(".rs"))
-            {
-                Some(stem) if !stem.contains('/') => {
-                    let filter = names.join(" ");
-                    format!(" --test {stem} {filter}").trim_end().to_string()
-                }
-                _ => format!(" -- {}", names.join(" ")),
-            }
-        };
-        let (command, krate) = match &scope {
-            Scope::All => {
-                let all = if self.tests.workspace {
-                    " --workspace"
-                } else {
-                    ""
-                };
-                (format!("cargo test{all}"), None)
-            }
-            Scope::Root(name) => (format!("cargo test -p {name}"), Some(name.clone())),
-            Scope::File(path) => {
-                let Some((root, file)) = self.file_place(path) else {
-                    return self.notify("No tests in this file".into());
-                };
-                let names: Vec<&str> = match file.label.starts_with("tests/") {
-                    true => Vec::new(),
-                    false => file.tests.iter().map(|t| t.name.as_str()).collect(),
-                };
-                (
-                    format!("cargo test -p {}{}", root.name, target(file, &names)),
-                    Some(root.name.clone()),
-                )
-            }
+        let (plugins, what): (Vec<String>, String) = match &scope {
             Scope::Test(key) => {
-                let Some((root, file, name)) = self.test_place(key) else {
-                    return self.notify("Open the Tests view to find the tests first".into());
+                return match self.plugin_test(key) {
+                    Some((plugin, test)) => self.run_plugin_test(&plugin, &test, debug, fx),
+                    None => self.notify("Open the Tests view to find the tests first".into()),
                 };
-                (
-                    format!(
-                        "cargo test -p {}{}",
-                        root.name,
-                        target(file, &[name.as_str()])
-                    ),
-                    Some(root.name.clone()),
-                )
             }
-            Scope::Failed => {
-                let failed: Vec<String> = self
-                    .tests
+            Scope::File(path) => (
+                self.tests
+                    .plugin_files
+                    .iter()
+                    .filter(|f| f.path == *path)
+                    .map(|f| f.plugin.clone())
+                    .collect(),
+                format!("file:{path}"),
+            ),
+            Scope::Root(name) => {
+                let Some(root) = self.tests.roots.iter().find(|r| r.name == *name) else {
+                    return;
+                };
+                (vec![root.kind.clone()], format!("group:{}", root.group))
+            }
+            Scope::All => (
+                self.tests.roots.iter().map(|r| r.kind.clone()).collect(),
+                "all".into(),
+            ),
+            Scope::Failed => (
+                self.tests
                     .results
                     .iter()
                     .filter(|(_, r)| r.outcome == Outcome::Failed)
-                    .filter_map(|(k, _)| k.rsplit_once("::").map(|(_, n)| n.to_string()))
-                    .collect();
-                if failed.is_empty() {
-                    return self.notify("No tests failed".into());
-                }
-                let all = if self.tests.workspace {
-                    " --workspace"
-                } else {
-                    ""
-                };
-                (format!("cargo test{all} -- {}", failed.join(" ")), None)
-            }
+                    .filter_map(|(key, _)| self.plugin_test(key).map(|(plugin, _)| plugin))
+                    .collect(),
+                "failed".into(),
+            ),
         };
-        if debug
-            && let Scope::Test(key) = &scope
-            && let Some((root, file, name)) = self.test_place(key)
-            && self.has_debugger_for("rust")
-        {
-            // Under the debugger: built with `--no-run`, then its binary,
-            // from what cargo printed, started with the test's name.
-            let only = match file
-                .label
-                .strip_prefix("tests/")
-                .and_then(|f| f.strip_suffix(".rs"))
-            {
-                Some(stem) if !stem.contains('/') => format!(" --test {stem}"),
-                _ => String::new(),
-            };
-            let target = super::DebugTarget {
-                name: format!("Test {name}"),
-                language: "rust".into(),
-                args: vec![
-                    name.clone(),
-                    "--nocapture".into(),
-                    "--test-threads=1".into(),
-                ],
-                build: format!("cargo test --no-run -p {}{only}", root.name),
-                ..Default::default()
-            };
-            let label = file.label.clone();
-            return self.debug_test(target, label, fx);
+        let mut plugins = plugins;
+        plugins.sort();
+        plugins.dedup();
+        if plugins.is_empty() {
+            return self.notify(match scope {
+                Scope::Failed => "No tests failed".into(),
+                Scope::File(_) => "No tests in this file".into(),
+                _ => "No tests found".into(),
+            });
         }
-        if debug {
-            // Under rust-gdb, in the terminal, as a runner cargo starts the
-            // test with.
-            let command = command.replacen(
-                "cargo test",
-                "cargo test --config \"target.'cfg(all())'.runner='rust-gdb -q --args'\"",
-                1,
-            );
-            let name = match &scope {
-                Scope::Test(key) => key.rsplit("::").next().unwrap_or(key).to_string(),
-                _ => "tests".into(),
-            };
-            self.start_command(&format!("Debug {name}"), &command, fx);
+        for plugin in plugins {
+            fx.push(Effect::PluginCommand {
+                plugin,
+                command: format!("run-tests:{what}"),
+            });
+        }
+    }
+
+    /// A file saved: with On Save, its tests run, or, in a file without
+    /// any, all of its language plugin's.
+    pub(crate) fn tests_saved(&mut self, doc: u64, fx: &mut Vec<Effect>) {
+        if !self.tests.on_save {
             return;
         }
-        for root in &mut self.tests.roots {
-            root.running = krate.as_ref().is_none_or(|k| *k == root.name);
-        }
-        let term = self.start_command(RUN, &command, fx);
-        self.tests.run = Some((term, krate));
-        self.tests.version += 1;
-        self.build_views();
-    }
-
-    /// A test run's output: each test's result.
-    pub(crate) fn tests_output(&mut self, term: u64, text: &str) {
-        let krate = match &self.tests.run {
-            Some((t, k)) if *t == term => k.clone(),
-            // A test task run from Run Task counts too.
-            _ if self
-                .tasks
-                .runs
-                .iter()
-                .any(|r| r.term == term && r.command.starts_with("cargo test")) =>
-            {
-                None
-            }
-            _ => return,
-        };
-        self.tests.run = None;
-        let report = parse_report(text);
-        let now = self.now;
-        let mut times: HashMap<String, f64> = HashMap::new();
-        for (target, unit, name, outcome) in &report.tests {
-            let Some((key, root)) =
-                self.match_test(target, unit.as_deref(), krate.as_deref(), name)
-            else {
-                continue;
-            };
-            let (message, at) = report.failures.get(name).cloned().unwrap_or_default();
-            let at = at
-                .filter(|(p, _)| self.file_place(p).is_some())
-                .or_else(|| {
-                    (*outcome == Outcome::Failed)
-                        .then(|| self.test_place(&key))
-                        .flatten()
-                        .and_then(|(_, file, n)| {
-                            let t = file.tests.iter().find(|t| t.name == n)?;
-                            Some((file.path.clone(), t.line))
-                        })
-                });
-            self.tests.results.insert(
-                key,
-                TestResult {
-                    outcome: *outcome,
-                    message,
-                    at,
-                    when: now,
-                },
-            );
-            times.entry(root).or_default();
-        }
-        // Each target's time goes to the crate its tests are in.
-        for (target, unit, secs) in &report.times {
-            let root = report
-                .tests
-                .iter()
-                .filter(|(t, u, _, _)| t == target && u == unit)
-                .find_map(|(t, u, name, _)| {
-                    self.match_test(t, u.as_deref(), krate.as_deref(), name)
-                })
-                .map(|(_, root)| root);
-            if let Some(root) = root {
-                *times.entry(root).or_default() += secs;
-            }
-        }
-        for root in &mut self.tests.roots {
-            if let Some(t) = times.get(&root.name) {
-                root.time = Some(*t);
-            }
-            root.running = false;
-        }
-        self.tests.version += 1;
-        self.build_views();
-    }
-
-    /// The test a line of cargo's output names: its key and crate.
-    fn match_test(
-        &self,
-        target: &str,
-        unit: Option<&str>,
-        krate: Option<&str>,
-        name: &str,
-    ) -> Option<(String, String)> {
-        let short = name.rsplit("::").next().unwrap_or(name);
-        let modules: Vec<&str> = name.split("::").collect();
-        let mut best: Option<(usize, String, String)> = None;
-        for root in &self.tests.roots {
-            let snake = root.name.replace('-', "_");
-            if unit.is_some_and(|u| u != snake) || krate.is_some_and(|k| k != root.name) {
-                continue;
-            }
-            for file in &root.files {
-                let fits = match unit {
-                    Some(_) => !file.label.starts_with("tests/"),
-                    None => file.label == target,
-                };
-                if !fits || !file.tests.iter().any(|t| t.name == short) {
-                    continue;
-                }
-                // The file whose path has most of the test's modules.
-                let score = modules.iter().filter(|m| file.label.contains(*m)).count();
-                if best.as_ref().is_none_or(|(s, _, _)| score > *s) {
-                    best = Some((score, test_key(&file.path, short), root.name.clone()));
-                }
-            }
-        }
-        if best.is_none() && unit.is_none() {
-            // A plugin's test in the target's file.
-            let file =
-                self.tests.plugin_files.iter().find(|f| {
-                    f.path.ends_with(target) && f.tests.iter().any(|t| t.label == short)
-                })?;
-            return Some((test_key(&file.path, short), file.plugin.clone()));
-        }
-        best.map(|(_, key, root)| (key, root))
-    }
-
-    /// A Rust file saved: its tests found again, and run with On Save.
-    pub(crate) fn tests_saved(&mut self, doc: u64, fx: &mut Vec<Effect>) {
         let Some(i) = self.index_of(doc) else { return };
         let Some(path) = self.docs[i]
             .buffer
@@ -957,30 +416,21 @@ impl Editor {
         else {
             return;
         };
-        if !path.ends_with(".rs") || !self.tests.found {
-            return;
+        if self.tests.plugin_files.iter().any(|f| f.path == path) {
+            return self.run_tests(Scope::File(path), false, fx);
         }
-        let found = rust_tests(&self.docs[i].buffer.text());
-        let mut root_name = None;
-        for root in &mut self.tests.roots {
-            if let Some(file) = root.files.iter_mut().find(|f| f.path == path) {
-                file.tests = found
-                    .iter()
-                    .map(|(name, line)| TestCase {
-                        name: name.clone(),
-                        line: *line,
-                    })
-                    .collect();
-                root_name = Some(root.name.clone());
-            }
-        }
-        self.tests.version += 1;
-        self.build_views();
-        if self.tests.on_save {
-            match root_name {
-                Some(_) => self.run_tests(Scope::File(path), false, fx),
-                None => self.run_tests(Scope::All, false, fx),
-            }
+        let ext = path.rsplit_once('.').map_or("", |(_, e)| e);
+        let owner = self.languages.iter().find_map(|(plugin, l)| {
+            l.extensions
+                .iter()
+                .any(|e| e.eq_ignore_ascii_case(ext))
+                .then(|| plugin.clone())
+        });
+        if let Some(plugin) = owner.filter(|p| self.tests.roots.iter().any(|r| r.kind == *p)) {
+            fx.push(Effect::PluginCommand {
+                plugin,
+                command: "run-tests:all".into(),
+            });
         }
     }
 
@@ -997,8 +447,8 @@ impl Editor {
         })
     }
 
-    /// Runs a plugin's test: its command line in the test terminal, or
-    /// in the plugin.
+    /// Runs a plugin's test: its command line in the test terminal, whose
+    /// output the plugin hears, or in the plugin.
     fn run_plugin_test(
         &mut self,
         plugin: &str,
@@ -1007,26 +457,8 @@ impl Editor {
         fx: &mut Vec<Effect>,
     ) {
         match (&test.command, debug) {
-            // A cargo test runs under the debugger: built with `--no-run`,
-            // then its binary given what followed `--`.
-            (Some(command), true)
-                if command.starts_with("cargo test") && self.has_debugger_for("rust") =>
-            {
-                let (cargo, rest) = command.split_once(" -- ").unwrap_or((command, ""));
-                let mut args: Vec<String> = rest.split_whitespace().map(String::from).collect();
-                args.extend(["--nocapture".into(), "--test-threads=1".into()]);
-                let target = super::DebugTarget {
-                    name: format!("Test {}", test.label),
-                    language: "rust".into(),
-                    args,
-                    build: cargo.replacen("cargo test", "cargo test --no-run", 1),
-                    ..Default::default()
-                };
-                self.debug_test(target, String::new(), fx);
-            }
             (Some(command), false) => {
-                let term = self.start_command(RUN, command, fx);
-                self.tests.run = Some((term, None));
+                self.run_for_plugin(plugin.to_string(), test.id.clone(), RUN, command, fx);
             }
             _ => {
                 let what = if debug { "debug-test" } else { "run-test" };
@@ -1038,9 +470,16 @@ impl Editor {
         }
     }
 
-    /// A plugin's tests in a file: shown in the file, and in the view
-    /// under the plugin unless cargo's tree has them.
-    pub(crate) fn set_plugin_tests(&mut self, plugin: String, path: &Path, tests: Vec<PluginTest>) {
+    /// A plugin's tests in a file: shown in the file, and in the view under
+    /// their group.
+    pub(crate) fn set_plugin_tests(
+        &mut self,
+        plugin: String,
+        path: &Path,
+        group: String,
+        label: String,
+        tests: Vec<PluginTest>,
+    ) {
         let path = path.display().to_string();
         let t = &mut self.tests;
         t.plugin_files
@@ -1048,9 +487,13 @@ impl Editor {
         for root in t.roots.iter_mut().filter(|r| r.kind == plugin) {
             root.files.retain(|f| f.path != path);
         }
-        if !tests.is_empty() && !path.ends_with(".rs") {
+        if !tests.is_empty() {
             let file = TestFile {
-                label: path.clone(),
+                label: if label.is_empty() {
+                    path.clone()
+                } else {
+                    label
+                },
                 path: path.clone(),
                 tests: tests
                     .iter()
@@ -1060,28 +503,70 @@ impl Editor {
                     })
                     .collect(),
             };
-            match t.roots.iter_mut().find(|r| r.kind == plugin) {
+            match t
+                .roots
+                .iter_mut()
+                .find(|r| r.kind == plugin && r.group == group)
+            {
                 Some(root) => {
                     root.files.push(file);
                     root.files.sort_by(|a, b| a.label.cmp(&b.label));
                 }
-                None => t.roots.push(TestRoot {
-                    name: plugin.clone(),
-                    kind: plugin.clone(),
-                    files: vec![file],
-                    ..TestRoot::default()
-                }),
+                None => {
+                    let name = if group.is_empty() {
+                        plugin.clone()
+                    } else {
+                        group.clone()
+                    };
+                    // Groups start folded but the first, as the view has
+                    // room for.
+                    if !t.roots.is_empty() {
+                        t.folded.insert(format!("r:{name}"));
+                    }
+                    t.roots.push(TestRoot {
+                        name,
+                        kind: plugin.clone(),
+                        group: group.clone(),
+                        files: vec![file],
+                        ..TestRoot::default()
+                    });
+                    t.roots
+                        .sort_by(|a, b| (&a.kind, &a.name).cmp(&(&b.kind, &b.name)));
+                }
             }
-        }
-        t.roots.retain(|r| r.kind == "cargo" || !r.files.is_empty());
-        if !tests.is_empty() {
             t.plugin_files.push(PluginFile {
                 plugin,
                 path,
+                group,
                 tests,
             });
         }
+        t.roots.retain(|r| !r.files.is_empty());
         t.version += 1;
+        self.build_views();
+    }
+
+    /// A plugin's group of tests started or ended: all its groups for the
+    /// empty one.
+    pub(crate) fn set_test_run(
+        &mut self,
+        plugin: &str,
+        group: &str,
+        running: bool,
+        seconds: Option<f64>,
+    ) {
+        for root in self
+            .tests
+            .roots
+            .iter_mut()
+            .filter(|r| r.kind == plugin && (group.is_empty() || r.group == group))
+        {
+            root.running = running;
+            if seconds.is_some() {
+                root.time = seconds;
+            }
+        }
+        self.tests.version += 1;
         self.build_views();
     }
 
@@ -1128,12 +613,13 @@ impl Editor {
             .filter(|f| f.plugin == plugin)
             .map(|f| f.tests.len())
             .sum();
-        let tasks = self
+        let tasks: usize = self
             .tasks
             .plugins
             .iter()
-            .find(|(p, _)| p == plugin)
-            .map_or(0, |(_, t)| t.len());
+            .filter(|((p, _), _)| p == plugin)
+            .map(|(_, t)| t.len())
+            .sum();
         let mut out = Vec::new();
         if tests > 0 {
             out.push(format!("Tests {tests}"));
@@ -1200,9 +686,7 @@ impl Editor {
                 _ => ('○', Hue::Grey),
             }
         };
-        if !self.tests.found {
-            nodes.push(Node::Styled("Finding tests…".into(), Tone::Muted));
-        } else if self.tests.roots.is_empty() {
+        if self.tests.roots.is_empty() {
             nodes.push(Node::Styled("No tests found".into(), Tone::Muted));
         }
         let several = self
@@ -1225,14 +709,8 @@ impl Editor {
             nodes.push(Node::Entry(Entry {
                 label: root.name.clone(),
                 icon: Some(mark(outcome, root.running)),
-                // Each source is named once there are several: cargo dimmed,
-                // a plugin in its chip.
-                detail: if several && root.kind == "cargo" {
-                    root.kind.clone()
-                } else {
-                    String::new()
-                },
-                chip: (root.kind != "cargo").then(|| root.kind.clone()),
+                // Each plugin is named in its chip once there are several.
+                chip: several.then(|| root.kind.clone()),
                 badge: match (root.running, outcome, root.time) {
                     (true, _, _) => "running".into(),
                     (_, None, _) => "not run".into(),

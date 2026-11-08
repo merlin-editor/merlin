@@ -117,29 +117,6 @@ pub(crate) fn json_string(s: &str) -> String {
     out
 }
 
-/// The test binaries cargo's `--no-run` printed, as source and binary:
-/// `Executable unittests src/lib.rs (target/debug/deps/x-1a2b)`. A
-/// terminal may have wrapped the line at its width, so the binary runs on
-/// to its closing bracket across lines.
-pub(super) fn executables(text: &str) -> Vec<(String, String)> {
-    let mut found = Vec::new();
-    let mut rest = text;
-    while let Some(at) = rest.find("Executable ") {
-        rest = &rest[at + "Executable ".len()..];
-        let Some(close) = rest.find(')') else { break };
-        let entry: String = rest[..close]
-            .chars()
-            .filter(|c| *c != '\n' && *c != '\r')
-            .collect();
-        rest = &rest[close..];
-        let entry = entry.strip_prefix("unittests ").unwrap_or(&entry);
-        if let Some((src, bin)) = entry.split_once(" (") {
-            found.push((src.trim().to_string(), bin.trim().to_string()));
-        }
-    }
-    found
-}
-
 impl Editor {
     /// F5: reads launch.toml first, unless a run is on, then goes on.
     pub(super) fn debug_read_then(&mut self, without_debugger: bool, fx: &mut Vec<Effect>) {
@@ -404,7 +381,6 @@ impl Editor {
             start,
             state: DebugState::Starting,
             building: None,
-            binary_for: None,
             threads: Vec::new(),
             stacks: HashMap::new(),
             frame: None,
@@ -487,48 +463,24 @@ impl Editor {
             .any(|d| d.languages.iter().any(|l| l == language))
     }
 
-    /// Debugs a test: its binary comes from what its build prints.
-    pub(crate) fn debug_test(&mut self, target: DebugTarget, file: String, fx: &mut Vec<Effect>) {
+    /// Debugs what a plugin asks for, or runs its fallback in a terminal
+    /// when no debugger is there for the language.
+    pub(crate) fn debug_for_plugin(
+        &mut self,
+        plugin: String,
+        mut target: DebugTarget,
+        fallback: Option<String>,
+        fx: &mut Vec<Effect>,
+    ) {
         if self.debug.running() || self.debug_building().is_some() {
             return self.notify("A run is on already: Shift+F5 stops it".into());
         }
+        if let Some(command) = fallback.filter(|_| !self.has_debugger_for(&target.language)) {
+            self.start_command(&format!("Debug {}", target.name), &command, fx);
+            return;
+        }
+        target.plugin = Some(plugin);
         self.launch_target(target, fx);
-        if let Some(session) = &mut self.debug.session {
-            session.binary_for = Some(file);
-        }
-    }
-
-    /// All a build printed, when it ends: a test's binary is found in it,
-    /// from cargo's `Executable unittests src/lib.rs (target/debug/…)`.
-    pub(crate) fn debug_build_output(&mut self, term: u64, text: &str) {
-        if self.debug_building() != Some(term) {
-            return;
-        }
-        let root = self.root.clone();
-        let Some(session) = &mut self.debug.session else {
-            return;
-        };
-        let Some(file) = session.binary_for.clone() else {
-            return;
-        };
-        let binaries = executables(text);
-        // The file's own target, or the crate's library, then its binary.
-        let pick = binaries
-            .iter()
-            .find(|(src, _)| *src == file)
-            .or_else(|| match file.starts_with("tests/") {
-                true => None,
-                false => ["src/lib.rs", "src/main.rs"]
-                    .iter()
-                    .find_map(|want| binaries.iter().find(|(src, _)| src == want)),
-            })
-            .or(binaries.first());
-        if let Some((_, bin)) = pick {
-            let program = root.join(bin).display().to_string();
-            let launch = format!("{{\"program\":{}}}", json_string(&program));
-            session.start.launch = merge_json(&[&session.start.launch, &launch]);
-            session.start.program = program;
-        }
     }
 
     /// A build run first ended: the run starts if it worked.
@@ -542,17 +494,6 @@ impl Editor {
             return;
         }
         if code == Some(0) {
-            let no_binary = self
-                .debug
-                .session
-                .as_ref()
-                .is_some_and(|s| s.binary_for.is_some() && s.start.program.is_empty());
-            if no_binary {
-                self.debug.session = None;
-                self.build_views();
-                return self
-                    .error("The test built, but cargo didn't say where its binary is".into());
-            }
             return self.start_driver(fx);
         }
         let session = self.debug.session.take();

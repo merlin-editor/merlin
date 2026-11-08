@@ -316,7 +316,7 @@ fn data_only_plugins_have_no_panel_and_ask_nothing() {
     fs::create_dir_all(&dir).unwrap();
     fs::write(
         dir.join("plugin.toml"),
-        "name = \"looks\"\ntitle = \"Looks\"\napi = \"0.8\"\n\n[[packs]]\nlabel = \"Flat\"\nfile = \"flat.toml\"\n",
+        "name = \"looks\"\ntitle = \"Looks\"\napi = \"0.9\"\n\n[[packs]]\nlabel = \"Flat\"\nfile = \"flat.toml\"\n",
     )
     .unwrap();
     fs::write(dir.join("flat.toml"), "[layout]\ngap = 0\n").unwrap();
@@ -529,6 +529,7 @@ fn catch2_plugin_discovers_cpp_tests_and_skips_other_languages() {
         plugin,
         path,
         tests,
+        ..
     }) = events.iter().find(|e| matches!(e, Event::SetTests { .. }))
     else {
         panic!("expected SetTests from catch2 plugin, got: {events:?}");

@@ -68,6 +68,8 @@ impl App {
             failed: p.failed,
             read: p.permissions.editor_read,
             write: p.permissions.editor_write,
+            workspace_read: p.permissions.workspace_read,
+            terminal: p.permissions.terminal,
             processes: p.permissions.processes,
             memory: p.memory,
             busy: p.busy,

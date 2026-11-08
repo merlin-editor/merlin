@@ -367,11 +367,15 @@ impl<P: Plugin> Plugin for WithLsp<P> {
         cmds
     }
 
-    /// The inner plugin's own commands go to it, the rest to the client.
+    /// A command either lists goes to it alone; one neither lists, such as
+    /// the editor's `find-tests`, to both.
     fn run_command(&mut self, id: &str) {
-        if self.inner.commands().iter().any(|c| c.id == id) {
+        let lists = |commands: Vec<Command>| commands.iter().any(|c| c.id == id);
+        let (inner, lsp) = (lists(self.inner.commands()), lists(self.lsp.commands()));
+        if inner || !lsp {
             self.inner.run_command(id);
-        } else {
+        }
+        if lsp || !inner {
             self.lsp.run_command(id);
         }
     }
@@ -388,6 +392,10 @@ impl<P: Plugin> Plugin for WithLsp<P> {
 
     fn review(&mut self, id: &str, accepted: bool) {
         self.inner.review(id, accepted);
+    }
+
+    fn terminal(&mut self, id: &str, output: &str, code: Option<i32>) {
+        self.inner.terminal(id, output, code);
     }
 
     fn buffer(&mut self, event: BufferEvent) {

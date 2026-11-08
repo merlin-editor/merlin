@@ -256,6 +256,12 @@ pub struct Permissions {
     /// starts a run, and reports the run.
     #[serde(default)]
     pub debugger: bool,
+    /// Reads the project's files from disk, not only the open one.
+    #[serde(default)]
+    pub workspace_read: bool,
+    /// Runs command lines in terminal tabs, as tasks do, when it likes.
+    #[serde(default)]
+    pub terminal: bool,
 }
 
 impl Permissions {
@@ -268,6 +274,8 @@ impl Permissions {
         (self.editor_read || !wanted.editor_read)
             && (self.editor_write || !wanted.editor_write)
             && (self.debugger || !wanted.debugger)
+            && (self.workspace_read || !wanted.workspace_read)
+            && (self.terminal || !wanted.terminal)
             && wanted.processes.iter().all(|p| self.processes.contains(p))
     }
 }

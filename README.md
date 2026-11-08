@@ -264,7 +264,7 @@ merlin comes with:
 # plugin.toml
 name = "my-looks"
 title = "My Looks"
-api = "0.8"
+api = "0.9"
 
 [[themes]]          # shows in the colour or icon theme picker
 label = "My Theme"
@@ -673,7 +673,7 @@ The manifest says what the plugin may do:
 ```toml
 name = "word-count"
 title = "Word Count"
-api = "0.8"
+api = "0.9"
 component = "target/wasm32-wasip2/release/word_count.wasm"
 
 [permissions]
@@ -681,6 +681,8 @@ editor-read = true
 editor-write = true
 # Programs it may start. They run with your rights, outside the sandbox.
 processes = ["wc"]
+# Also: workspace-read = true, to read the project's files, and
+# terminal = true, to run command lines in a terminal tab.
 ```
 
 The first time a plugin asks for permissions, its panel shows what it wants
@@ -716,6 +718,18 @@ What else plugins get, besides commands and panels:
   `merlin-grammar` a tree-sitter grammar takes a dozen lines (see
   `plugins/rust`), building against `sdk/grammar/wasm-include` instead of a
   system C library.
+- **Tests and tasks.** `host::set_tests(path, group, label, tests)` lists a
+  file's tests in the Tests view, under a group such as a crate, with ▶ Run
+  Test over each. Run All, Run Failed, a group's and a file's come to the
+  plugin as `run-tests:all`, `run-tests:failed`, `run-tests:group:<group>`
+  and `run-tests:file:<path>`, and a test's as `run-test:<id>` or
+  `debug-test:<id>`. `host::run_in_terminal` runs a command line in a
+  terminal tab, and `terminal` gets all it printed when it ends, to read
+  into `host::set_test_results` and `set_test_run`. `host::set_tasks(set,
+  tasks)` adds to Run Task, which asks with `find-tasks` as it opens; the
+  Tests view asks with `find-tests`. `host::start_debugging` debugs
+  something, with a command line to run instead when there's no debugger.
+  The `rust` plugin does all of it for cargo.
 - **Settings.** Defaults go in the manifest's `[settings]`; the user's and
   the workspace's `[plugins.<name>]` override them. Read them with
   `settings::text("server")`, `settings::flag(...)`, `settings::integer(...)`

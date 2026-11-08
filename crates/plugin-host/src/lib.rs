@@ -51,7 +51,7 @@ use bindings::merlin::plugin::{host, types};
 
 /// The API version this host implements. A manifest names the version it was
 /// built for and loads only on an exact match while the API is 0.x.
-pub const API_VERSION: &str = "0.8";
+pub const API_VERSION: &str = "0.9";
 
 /// Roughly six billion instructions per call, about a second. It stops a
 /// plugin stuck in a loop, and leaves room for a language plugin to colour
@@ -704,6 +704,23 @@ impl PluginHost {
             .1
     }
 
+    /// A command line the plugin ran in a terminal, or one of its tests',
+    /// ended: all it printed, and its exit code.
+    pub fn terminal(
+        &mut self,
+        plugin: &str,
+        id: &str,
+        output: &str,
+        code: Option<i32>,
+        snapshot: Snapshot,
+    ) -> Vec<Event> {
+        let Some(i) = self.index(plugin) else {
+            return Vec::new();
+        };
+        self.call(i, snapshot, |b, s| b.call_on_terminal(s, id, output, code))
+            .1
+    }
+
     pub fn review(
         &mut self,
         plugin: &str,
@@ -1026,6 +1043,15 @@ fn permission_card(manifest: &Manifest) -> Panel {
     }
     if p.editor_write {
         nodes.push(Node::Text("• change the open file".into()));
+    }
+    if p.workspace_read {
+        nodes.push(Node::Text("• read the project's files".into()));
+    }
+    if p.terminal {
+        nodes.push(Node::Styled(
+            "• run command lines in a terminal, with your rights".into(),
+            Tone::Warning,
+        ));
     }
     for program in &p.processes {
         nodes.push(Node::Styled(
