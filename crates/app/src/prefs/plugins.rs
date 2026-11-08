@@ -29,6 +29,7 @@ impl App {
                     (String::new(), Tone::Normal)
                 };
                 PluginSummary {
+                    mark: mark(&p),
                     what: describe(&p),
                     name: p.name,
                     title: p.title,
@@ -50,6 +51,7 @@ impl App {
             .collect();
         settings.sort_by(|a, b| a.0.cmp(&b.0));
         Some(PageView {
+            mark: mark(&p),
             commands: self.editor.plugin_commands(&p.name),
             installed: self.install_link(&p).is_some(),
             uninstall_armed: self.uninstall_armed.as_deref() == Some(name),
@@ -149,4 +151,14 @@ impl App {
         events.push(self.plugin_summaries());
         events
     }
+}
+
+/// A plugin's tile, as its manifest gives it.
+pub(crate) fn mark(p: &merlin_plugins::PluginInfo) -> (String, merlin_core::style::Hue) {
+    merlin_core::plugin_mark(
+        &p.title,
+        p.badge.as_deref(),
+        p.hue.as_deref(),
+        !p.looks.is_empty(),
+    )
 }

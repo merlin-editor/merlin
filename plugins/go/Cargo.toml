@@ -1,5 +1,5 @@
 [package]
-name = "lsp"
+name = "go-language"
 version = "0.1.0"
 edition = "2024"
 publish = false
@@ -8,8 +8,10 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-merlin-lsp = { path = "../../sdk/lsp" }
 merlin-plugin = { path = "../../sdk/rust" }
+merlin-grammar = { path = "../../sdk/grammar" }
+merlin-lsp = { path = "../../sdk/lsp" }
+tree-sitter-go = "0.25"
 
 [profile.release]
 opt-level = "s"

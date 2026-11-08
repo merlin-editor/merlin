@@ -174,18 +174,7 @@ impl Editor {
                 "edit.rename" => Some("rename"),
                 _ => None,
             };
-            if let Some(command) = asks {
-                return self.has_lsp(command);
-            }
-            let Some((plugin, command)) = id.split_once('.') else {
-                return true;
-            };
-            if !["lsp"].contains(&plugin) {
-                return true;
-            }
-            self.plugins
-                .iter()
-                .any(|p| p.name == plugin && p.commands.iter().any(|c| c.id == command))
+            asks.is_none_or(|command| self.has_lsp(command))
         };
         let mut items: Vec<&'static str> = ITEMS
             .iter()
@@ -731,12 +720,15 @@ impl Editor {
             return Some(PopupView {
                 anchor: (x.max(gutter), y),
                 kind: PopupKind::Exception {
-                    // Rust's are panics.
-                    title: match self.plugin_language().map(|l| l.id.as_str()) {
-                        Some("rust") => "Paused on a panic",
-                        _ => "Paused on an exception",
-                    }
-                    .into(),
+                    // As the language calls them: Rust's are panics.
+                    title: {
+                        let what = self
+                            .plugin_language()
+                            .and_then(|l| l.exception.as_deref())
+                            .unwrap_or("exception");
+                        let an = what.starts_with(['a', 'e', 'i', 'o', 'u']);
+                        format!("Paused on {} {what}", if an { "an" } else { "a" })
+                    },
                     message,
                 },
             });

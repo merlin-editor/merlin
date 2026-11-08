@@ -28,7 +28,6 @@ mod palette;
 mod peek;
 mod side;
 mod widgets;
-pub(in crate::gui) use side::plugin_badge;
 
 use super::canvas::{Canvas, Face, Pictures, Rect, Text};
 use super::scene::Prim;
@@ -565,6 +564,9 @@ impl Frame<'_> {
         }
         if let Some(toast) = &view.toast {
             self.toast(toast, a.editor);
+        }
+        if let Some(card) = &view.language_card {
+            self.language_card(card, w, h);
         }
         if let Some(palette) = &view.palette {
             self.palette(palette, w, h);

@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::protocol::uri;
+use crate::spec::Spec;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) enum Status {
@@ -181,14 +182,6 @@ pub(crate) struct Server {
     /// server loaded from it.
     #[serde(default)]
     pub folders: BTreeSet<String>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub(crate) struct Problem {
-    pub line: u32,
-    pub column: u32,
-    pub severity: u8,
-    pub message: String,
 }
 
 impl Server {
@@ -389,15 +382,44 @@ impl Server {
         }
     }
 
-    pub(crate) fn status_line(&self) -> (String, Tone) {
+    /// How it's doing, for the language card, with Restart, and how to
+    /// install it when it isn't.
+    pub(crate) fn status_item(&self, spec: &Spec) -> StatusItem {
+        let mut item = StatusItem {
+            name: self.program.clone(),
+            state: StatusState::Ready,
+            detail: "Ready".into(),
+            progress: None,
+            hint: None,
+            action: Some(("Restart".into(), "restart".into())),
+            extensions: spec.files.iter().map(|(e, _)| e.to_string()).collect(),
+        };
         match &self.status {
-            Status::Starting => ("starting…".into(), Tone::Muted),
-            Status::Failed(err) => (err.clone(), Tone::Error),
-            Status::Ready if self.progress.is_empty() => ("ready".into(), Tone::Muted),
+            Status::Starting => {
+                item.state = StatusState::Busy;
+                item.detail = "Starting".into();
+            }
+            // `couldn't start x: No such file or directory (os error 2)`.
+            Status::Failed(err) if err.contains("os error 2") => {
+                item.state = StatusState::Warning;
+                item.detail = "isn't installed".into();
+                item.hint = spec.install.map(String::from);
+                item.action = Some(("Try Again".into(), "restart".into()));
+            }
+            Status::Failed(err) => {
+                item.state = StatusState::Error;
+                item.detail = format!("stopped: {err}");
+            }
             Status::Ready => {
-                let work: Vec<&str> = self.progress.values().map(String::as_str).collect();
-                (work.join(", "), Tone::Warning)
+                // `Indexing: 45%`, as `$/progress` left it.
+                if let Some(work) = self.progress.values().next() {
+                    let (what, done) = work.split_once(": ").unwrap_or((work, ""));
+                    item.state = StatusState::Busy;
+                    item.detail = what.to_string();
+                    item.progress = done.trim_end_matches('%').parse().ok();
+                }
             }
         }
+        item
     }
 }

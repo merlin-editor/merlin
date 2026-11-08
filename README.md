@@ -27,11 +27,12 @@ looking at [ttt](https://github.com/eugenioenko/ttt), and merlin keeps both:
 | `wit/merlin.wit` | The plugin API. |
 | `sdk/rust` | `merlin-plugin`, the Rust SDK for writing plugins. |
 | `sdk/grammar` | `merlin-grammar`: colour a language in a plugin with a tree-sitter grammar. |
-| `plugins/rust`, `python`, `javascript`, `json`, `toml` | Those languages and their tree-sitter colours. |
+| `sdk/lsp` | `merlin-lsp`: a language server client a language plugin embeds with its own servers. |
+| `plugins/rust`, `python`, `javascript`, `go`, `cpp` | Those languages: colours, language servers, and their tests, tasks and debuggers. |
+| `plugins/json`, `toml` | Those languages and their tree-sitter colours. |
+| `plugins/catch2` | Catch2 tests for C++ projects, beside the `cpp` plugin. |
 | `plugins/word-count` | Small example plugin: commands, a key, a panel and a button. |
-| `plugins/lsp` | Language servers: diagnostics, hover, go-to-definition, completion, code actions, format, rename, references. |
 | `plugins/dap` | The Debugger: speaks the Debug Adapter Protocol to the debuggers language plugins declare. |
-| `plugins/cpp` | C and C++: the languages and their colours. |
 | `plugins/merlin-themes` | Eight colour themes, as data. |
 | `plugins/testbed` | Exercises the plugin API for the host's tests. |
 
@@ -377,7 +378,7 @@ auto_save_delay = 1000           # milliseconds, with after_delay
 # Only when a condition holds, with VS Code's `when` context keys:
 "ctrl+l" = { command = "edit.delete_line", when = "editorTextFocus && editorHasSelection" }
 
-[plugins.lsp]               # a plugin's settings, by its name
+[plugins.rust]              # a plugin's settings, by its name
 ```
 
 A project's `.editorconfig` files win over these for the files they
@@ -589,32 +590,32 @@ The OpenCode chat, a port of ttt's, lives in its own repository,
 
 ## Language support
 
-Languages work as in VS Code, where extensions add them, and the ones that
-come with merlin are plugins too. Plugins do everything a language needs:
-add the language (its file extensions, name and comment markers), colour it,
-colour pieces of it for diffs and Markdown code blocks, list its symbols and
-say where it folds.
+Languages work as in VS Code, where extensions add them. merlin itself
+knows none but plain text and Markdown: every language is a plugin, and you
+install the ones you use. A language's plugin does everything for it: adds
+the language (its file extensions, name, comment markers and indent rules),
+colours it, runs its language server, reads its compiler's problems in
+task output, and finds its tests, tasks and programs to debug.
 
-- **`rust`, `python`, `javascript`, `json`, `toml`** add those languages
-  and colour them with their tree-sitter grammars, through `sdk/grammar`.
-  Each change recolours only the lines whose meaning changed: about 3 ms a
-  key in a 2,600-line file.
-
-- **`lsp`** runs the language server for the open file (rust-analyzer,
-  gopls, clangd, pyright or typescript-language-server, whichever you have
-  on `PATH` and allow). Besides errors, hover, definitions and completion,
-  it takes the server's semantic colours (over the base colours, as VS Code
-  does), its symbols (for the Outline, breadcrumbs and Go to Symbol), and
-  its folding ranges.
+- **`rust`, `python`, `javascript`, `go`** colour their languages with
+  tree-sitter grammars, through `sdk/grammar`, and run their language
+  servers (rust-analyzer, pyright, typescript-language-server and gopls)
+  through `sdk/lsp`. Each change recolours only the lines whose meaning
+  changed: about 3 ms a key in a 2,600-line file. Besides errors, hover,
+  definitions and completion, the server gives semantic colours (over the
+  base colours, as VS Code does), symbols (for the Outline, breadcrumbs and
+  Go to Symbol), and folding ranges. `rust` also finds cargo's tests and
+  tasks, and `javascript` npm's scripts.
 - **`cpp`** adds C and C++ (`.c`, `.h`, `.cpp`, `.cc`, `.cxx`, `.hpp`,
-  `.hh` and the rest) and colours them with a lexer, as a VS Code grammar
-  does. With `lsp` and clangd too, you get clangd's colours, symbols and
-  folds over it.
+  `.hh` and the rest), colours them with a lexer, as a VS Code grammar
+  does, and runs clangd. C++ has no test system of its own, so tests come
+  from a plugin for the one you use: **`catch2`** finds Catch2's tests and
+  runs them through ctest.
+- **`json`, `toml`** colour those languages.
 
 ```sh
-(cd plugins/lsp && cargo build --release)
 (cd plugins/cpp && cargo build --release)
-merlin --plugin plugins/cpp --plugin plugins/lsp src/main.cpp
+merlin --plugin plugins/cpp src/main.cpp
 ```
 
 Copy or link the plugin folders into `~/.config/merlin/plugins/` to load
@@ -647,9 +648,10 @@ type checks while typing are experimental and off by default.
 cargo test
 ```
 
-The plugin-host tests need the word-count, testbed, lsp and cpp plugins
-built first (`cargo build --release` in each folder). The LSP tests run against a
-fake server (`plugins/lsp/tests/fake/`), so they need no language server. Several core
+The plugin-host tests need the word-count, testbed, rust and cpp plugins
+built first (`cargo build --release` in each folder). The LSP tests run the
+rust plugin against a fake server (`plugins/rust/tests/fake/`), so they
+need no language server. Several core
 tests are named after ttt bugs whose class this design rules out: undo
 clearing the unsaved state, nested undo groups, paste going to the wrong
 field, stale find matches, panel state reset on redraw, and UTF-16 columns.
@@ -666,13 +668,16 @@ That makes a working plugin with a command, a panel and saved state, using
 the Rust SDK in `sdk/rust`. Implement the `Plugin` trait's methods you need;
 the rest default to doing nothing. Rebuild while merlin runs and the plugin
 reloads within a quarter of a second. Plugins in `~/.config/merlin/plugins/`
-load at startup. word-count is a short example; lsp a full one.
+load at startup. word-count is a short example; rust a full one.
 
 The manifest says what the plugin may do:
 
 ```toml
 name = "word-count"
 title = "Word Count"
+# Its tile in the plugin lists: two letters and a colour.
+badge = "WC"
+hue = "green"
 api = "0.9"
 component = "target/wasm32-wasip2/release/word_count.wasm"
 
@@ -708,7 +713,13 @@ What else plugins get, besides commands and panels:
   `~/.local/share/merlin/secrets/<plugin>.toml`, readable only by you.
   `Node::secret_input` shows dots while typing one.
 - **Languages.** `[[languages]]` in the manifest adds one, with `id`,
-  `name`, `extensions`, `line-comment` and `block-comment`.
+  `name`, `extensions`, `line-comment` and `block-comment`;
+  `indent-after`, what a line ends with for Enter to indent the next
+  (Python's `[":"]`); and `exception`, what the language calls one, for
+  the debugger's card (Rust's `"panic"`).
+  `merlin-lsp`'s `WithLsp::new(plugin, "Name", &[SERVER])` adds a language
+  server client to a plugin, with a `Spec` for each of its servers: the
+  program, its arguments, the files it serves and how to install it.
   `host::set_tokens(path, layer, lines, tokens)` colours a file: the
   `Base` layer replaces the editor's own grammar, and `Semantic` goes over
   it. `host::set_symbols` and `host::set_folds` give its symbols and fold
@@ -730,6 +741,15 @@ What else plugins get, besides commands and panels:
   Tests view asks with `find-tests`. `host::start_debugging` debugs
   something, with a command line to run instead when there's no debugger.
   The `rust` plugin does all of it for cargo.
+- **Problems in task output.** `[[problem-matchers]]` read a compiler's
+  problems out of what a task prints, as VS Code's problem matchers do:
+  `lines`, one after another, each a `regex` and the groups with the
+  problem's `file`, `line`, `column`, `severity`, `code` and `message` (0
+  for the whole line). `between` is a pattern for lines that may come
+  between them, and `link` a page about a problem's code, with `{code}`
+  where it goes. The `rust` plugin's reads rustc's two-line problems, and
+  `python`'s a traceback. Lines no plugin's matcher takes are read as
+  `path:line:col: severity: message`, which most tools print.
 - **Settings.** Defaults go in the manifest's `[settings]`; the user's and
   the workspace's `[plugins.<name>]` override them. Read them with
   `settings::text("server")`, `settings::flag(...)`, `settings::integer(...)`

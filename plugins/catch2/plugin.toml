@@ -1,6 +1,8 @@
 name = "catch2"
 title = "Catch2"
 description = "Catch2 test discovery & runner for C++"
+badge = "C2"
+hue = "green"
 api = "0.9"
 component = "target/wasm32-wasip2/release/catch2.wasm"
 

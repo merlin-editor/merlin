@@ -1,6 +1,8 @@
 name = "cpp"
 title = "C/C++"
 description = "C & C++ syntax, outlines & clangd"
+badge = "C+"
+hue = "blue"
 api = "0.9"
 component = "target/wasm32-wasip2/release/cpp.wasm"
 symbols = "project-symbols"

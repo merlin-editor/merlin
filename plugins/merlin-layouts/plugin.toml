@@ -3,6 +3,8 @@
 name = "merlin-layouts"
 title = "merlin Layouts"
 description = "UI density, chrome & font presets"
+badge = "UI"
+hue = "purple"
 api = "0.9"
 
 [[packs]]

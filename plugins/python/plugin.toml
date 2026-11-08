@@ -1,6 +1,8 @@
 name = "python"
 title = "Python"
 description = "Python syntax, pytest & pyright"
+badge = "PY"
+hue = "cyan"
 api = "0.9"
 component = "target/wasm32-wasip2/release/python_language.wasm"
 symbols = "project-symbols"
@@ -15,6 +17,17 @@ id = "python"
 name = "Python"
 extensions = ["py", "pyi"]
 line-comment = "#"
+# A line ending in a colon opens a block.
+indent-after = [":"]
+
+# A traceback: the last frame in the project, its own files rather than
+# the libraries', then the exception at the end.
+[[problem-matchers]]
+lines = [
+    { regex = '^\s*File "([^/"][^"]*)", line (\d+)', file = 1, line = 2 },
+    { regex = '^[A-Za-z_][\w.]*(?:: .*)?$', message = 0 },
+]
+between = '^\s'
 
 [[debuggers]]
 id = "debugpy"

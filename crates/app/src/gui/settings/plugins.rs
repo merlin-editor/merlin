@@ -27,8 +27,7 @@ impl Frame<'_> {
                 self.s_round(r, 6.0, clip, p.hover);
             }
             self.plugin_mark(
-                &row.name,
-                &row.title,
+                &row.mark,
                 r.x + 10.0,
                 r.y + 8.0,
                 26.0,
@@ -125,8 +124,7 @@ impl Frame<'_> {
     /// A plugin's mark: its monogram on a tinted square in its accent hue.
     pub(super) fn plugin_mark(
         &mut self,
-        name: &str,
-        title: &str,
+        (letters, hue): &(String, merlin_core::style::Hue),
         x: f32,
         y: f32,
         size: f32,
@@ -134,23 +132,22 @@ impl Frame<'_> {
         clip: Rect,
     ) {
         let p = self.p;
-        let (letters, hue) = crate::gui::frame::plugin_badge(name, title);
         let colour = if on {
-            crate::theme::hue(&p, hue)
+            crate::theme::hue(&p, *hue)
         } else {
             p.muted
         };
         let r = Rect::new(x, y, size, size);
         self.s_round(r, 6.0, clip, mix(colour, p.island, 0.18));
         let face = Face::ui((size * 0.39).round()).bold();
-        let lw = self.text.width(&letters, face);
-        self.s_row_text(&letters, face, x + (size - lw) / 2.0, y, size, colour, clip);
+        let lw = self.text.width(letters, face);
+        self.s_row_text(letters, face, x + (size - lw) / 2.0, y, size, colour, clip);
     }
 
     pub(super) fn plugin_detail(&mut self, page: &PageView, c: &mut Ctx) {
         let p = self.p;
         let clip = c.clip;
-        self.plugin_mark(&page.name, &page.title, c.x, c.y, 34.0, page.enabled, clip);
+        self.plugin_mark(&page.mark, c.x, c.y, 34.0, page.enabled, clip);
         let right = c.x + c.w;
         // Its switch, then Reload and Output.
         let sw = Rect::new(right - 34.0, c.y + 7.0, 34.0, 20.0);

@@ -706,7 +706,7 @@ impl Editor {
             let outcome = self.outcome_of(keys());
             let id = format!("r:{}", root.name);
             let open = !self.tests.folded.contains(&id);
-            nodes.push(Node::Entry(Entry {
+            nodes.push(Node::entry(Entry {
                 label: root.name.clone(),
                 icon: Some(mark(outcome, root.running)),
                 // Each plugin is named in its chip once there are several.
@@ -734,7 +734,7 @@ impl Editor {
                 let keys = file.tests.iter().map(|t| test_key(&file.path, &t.name));
                 let outcome = self.outcome_of(keys);
                 let open = !self.tests.folded.contains(&id);
-                nodes.push(Node::Entry(Entry {
+                nodes.push(Node::entry(Entry {
                     label: file.label.clone(),
                     icon: Some(mark(outcome, root.running)),
                     depth: 1,
@@ -749,7 +749,7 @@ impl Editor {
                 for test in &file.tests {
                     let key = test_key(&file.path, &test.name);
                     let outcome = self.tests.results.get(&key).map(|r| r.outcome);
-                    nodes.push(Node::Entry(Entry {
+                    nodes.push(Node::entry(Entry {
                         label: test.name.clone(),
                         icon: Some(mark(outcome, root.running)),
                         depth: 2,
@@ -761,7 +761,7 @@ impl Editor {
             }
         }
         if !self.tasks.runs.is_empty() {
-            nodes.push(Node::Entry(Entry {
+            nodes.push(Node::entry(Entry {
                 id: "t:sec".into(),
                 label: "Tasks".into(),
                 heading: true,
@@ -773,7 +773,7 @@ impl Editor {
                     Some(0) => (('○', Hue::Grey), "done".to_string()),
                     Some(_) => (('✕', Hue::Red), "failed".to_string()),
                 };
-                nodes.push(Node::Entry(Entry {
+                nodes.push(Node::entry(Entry {
                     id: format!("t:task:{}", run.term),
                     label: run.name.clone(),
                     icon: Some(icon),

@@ -4,11 +4,41 @@
 
 pub mod lex;
 
-use merlin_lsp::{CPP_SERVER, WithLsp};
+use merlin_lsp::{Spec, WithLsp};
 use merlin_plugin::prelude::*;
 use merlin_plugin::text::utf16_column;
 
 use lex::Kind;
+
+/// clangd configured for low memory and CPU overhead: precompiled headers on
+/// disk instead of in RAM, low-priority background indexing, and glibc heap
+/// trimming after requests.
+const CPP_SERVER: Spec = Spec {
+    program: "clangd",
+    args: &[
+        "--pch-storage=disk",
+        "--background-index-priority=low",
+        "--malloc-trim",
+        "-j=2",
+    ],
+    files: &[
+        ("c", "c"),
+        ("h", "c"),
+        ("cc", "cpp"),
+        ("cpp", "cpp"),
+        ("cxx", "cpp"),
+        ("c++", "cpp"),
+        ("hpp", "cpp"),
+        ("hh", "cpp"),
+        ("hxx", "cpp"),
+        ("h++", "cpp"),
+        ("ipp", "cpp"),
+        ("inl", "cpp"),
+        ("tpp", "cpp"),
+    ],
+    settings: None,
+    install: Some("sudo apt install clangd"),
+};
 
 const EXTENSIONS: &[&str] = &[
     "c", "h", "cpp", "cc", "cxx", "c++", "hpp", "hh", "hxx", "h++", "ipp", "inl", "tpp",

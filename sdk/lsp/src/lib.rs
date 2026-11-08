@@ -1,7 +1,7 @@
 //! Shared Language Server Protocol client for Merlin language plugins.
 //!
-//! Can be embedded into a single-language plugin (`Lsp::new("Rust", &[RUST_SERVER])`)
-//! or used standalone across all configured servers (`Lsp::default()`).
+//! A language plugin brings its own servers and embeds it:
+//! `WithLsp::new(Rust::new(), "Rust", &[RUST_SERVER])`.
 
 mod features;
 mod handlers;
@@ -11,28 +11,27 @@ mod spec;
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use merlin_plugin::{
-    BufferEvent, Command, Node, Panel, Plugin, Position, ProcessEvent, Token, Tone, host,
-};
+use merlin_plugin::{BufferEvent, Command, Panel, Plugin, ProcessEvent, StatusItem, Token, host};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::features::Formatting;
 use crate::protocol::{file_edits, uri};
-use crate::server::{Problem, Request, Server, Status};
-pub use crate::spec::{
-    CPP_SERVER, GO_SERVER, JS_SERVER, PYTHON_SERVER, RUST_SERVER, SERVERS, Spec,
-};
+use crate::server::{Request, Server, Status};
+pub use crate::spec::Spec;
 
 #[derive(Serialize, Deserialize)]
 pub struct Lsp {
-    #[serde(skip, default = "default_title")]
+    // The plugin's own, put back after a restore.
+    #[serde(skip)]
     pub(crate) title: &'static str,
-    #[serde(skip, default = "default_specs")]
+    #[serde(skip)]
     pub(crate) specs: &'static [Spec],
     pub(crate) servers: Vec<Server>,
     pub(crate) signature: bool,
-    pub(crate) problems: BTreeMap<String, Vec<Problem>>,
+    /// What `report_status` sent last, so it sends only changes.
+    #[serde(skip)]
+    pub(crate) reported: String,
     /// Code actions most recently offered to the picker, by id, with the
     /// workspace edit each applies.
     pub(crate) actions: BTreeMap<String, Value>,
@@ -49,20 +48,6 @@ pub struct Lsp {
     pub(crate) rename_at: Option<(String, (u32, u32))>,
 }
 
-fn default_title() -> &'static str {
-    "Language Servers"
-}
-
-fn default_specs() -> &'static [Spec] {
-    SERVERS
-}
-
-impl Default for Lsp {
-    fn default() -> Self {
-        Self::new("Language Servers", SERVERS)
-    }
-}
-
 impl Lsp {
     pub fn new(title: &'static str, specs: &'static [Spec]) -> Self {
         Self {
@@ -70,7 +55,7 @@ impl Lsp {
             specs,
             servers: Vec::new(),
             signature: false,
-            problems: BTreeMap::new(),
+            reported: String::new(),
             actions: BTreeMap::new(),
             next_action: 0,
             batches: BTreeMap::new(),
@@ -86,7 +71,6 @@ impl Lsp {
             Command::new("hover", format!("{prefix}: Show Hover")).key("alt+k"),
             Command::new("definition", format!("{prefix}: Go to Definition")).key("alt+d"),
             Command::new("complete", format!("{prefix}: Complete")).key("ctrl+space"),
-            Command::new("problems", format!("{prefix}: Show Problems")).key("alt+p"),
             Command::new("restart", format!("{prefix}: Restart Servers")),
             // Ctrl+. in the editor, which offers them its own way.
             Command::new("code-actions", format!("{prefix}: Code Actions")),
@@ -129,7 +113,6 @@ impl Lsp {
                 "textDocument/completion",
                 Request::Completion { manual: true },
             ),
-            "problems" => host::focus_panel(),
             "restart" => {
                 for server in self.servers.drain(..) {
                     if let Some(process) = server.process {
@@ -233,57 +216,21 @@ impl Lsp {
         }
     }
 
-    pub fn panel(&mut self) -> Option<Panel> {
-        let mut panel = Panel::new(self.title);
-        if self.servers.is_empty() {
-            let names: Vec<&str> = self.specs.iter().map(|s| s.program).collect();
-            panel = panel
-                .styled(
-                    "Open a source file to start its language server.",
-                    Tone::Muted,
-                )
-                .styled(format!("Knows: {}", names.join(", ")), Tone::Muted);
-        }
-        for server in &self.servers {
-            let (status, tone) = server.status_line();
-            panel = panel.node(Node::styled(format!("{}: {status}", server.program), tone));
-        }
-        let count: usize = self.problems.values().map(Vec::len).sum();
-        panel = panel.divider().heading(match count {
-            0 => "No problems".to_string(),
-            1 => "1 problem".to_string(),
-            n => format!("{n} problems"),
-        });
-        // The active file's problems first.
-        let active = self.active().map(|(p, _, _)| p);
-        let root = format!("{}/", host::workspace_root());
-        let mut files: Vec<&String> = self.problems.keys().collect();
-        files.sort_by_key(|p| Some(*p) != active.as_ref());
-        for path in files.into_iter().take(10) {
-            panel = panel.styled(path.strip_prefix(&root).unwrap_or(path), Tone::Strong);
-            for p in self.problems[path].iter().take(20) {
-                let (mark, tone) = if p.severity == 1 {
-                    ("E", Tone::Error)
-                } else {
-                    ("W", Tone::Warning)
-                };
-                let label = format!("{mark} {}: {}", p.line + 1, p.message);
-                panel = panel.item(format!("go:{}:{}:{path}", p.line, p.column), label, tone);
-            }
-        }
-        Some(panel)
-    }
-
-    pub fn click(&mut self, button: &str) {
-        let mut parts = button.splitn(4, ':');
-        if let (Some("go"), Some(line), Some(column), Some(path)) =
-            (parts.next(), parts.next(), parts.next(), parts.next())
-        {
-            let at = Position {
-                line: line.parse().unwrap_or(0),
-                column: column.parse().unwrap_or(0),
-            };
-            host::open_at(path, at);
+    /// How each server is doing, for the language card, sent when it
+    /// changes.
+    pub fn report_status(&mut self) {
+        let lines: Vec<StatusItem> = self
+            .servers
+            .iter()
+            .filter_map(|server| {
+                let spec = self.specs.iter().find(|s| s.program == server.program)?;
+                Some(server.status_item(spec))
+            })
+            .collect();
+        let sent = format!("{lines:?}");
+        if sent != self.reported {
+            self.reported = sent;
+            host::set_status("servers", &lines);
         }
     }
 
@@ -308,6 +255,7 @@ impl Plugin for Lsp {
 
     fn run_command(&mut self, id: &str) {
         Lsp::run_command(self, id);
+        self.report_status();
     }
 
     fn submit(&mut self, input: &str, text: &str) {
@@ -320,18 +268,12 @@ impl Plugin for Lsp {
 
     fn buffer(&mut self, event: BufferEvent) {
         Lsp::buffer(self, event);
+        self.report_status();
     }
 
     fn process(&mut self, process: u32, event: ProcessEvent) {
         Lsp::process(self, process, event);
-    }
-
-    fn panel(&mut self) -> Option<Panel> {
-        Lsp::panel(self)
-    }
-
-    fn click(&mut self, button: &str) {
-        Lsp::click(self, button);
+        self.report_status();
     }
 
     fn save_state(&self) -> Option<Vec<u8>> {
@@ -377,6 +319,7 @@ impl<P: Plugin> Plugin for WithLsp<P> {
         }
         if lsp || !inner {
             self.lsp.run_command(id);
+            self.lsp.report_status();
         }
     }
 
@@ -401,29 +344,24 @@ impl<P: Plugin> Plugin for WithLsp<P> {
     fn buffer(&mut self, event: BufferEvent) {
         self.inner.buffer(event.clone());
         self.lsp.buffer(event);
+        self.lsp.report_status();
     }
 
     fn process(&mut self, process: u32, event: ProcessEvent) {
         self.inner.process(process, event.clone());
         self.lsp.process(process, event);
+        self.lsp.report_status();
     }
 
     /// The inner plugin's panel, if it has one, over the client's.
+    /// The inner plugin's panel: the client's servers are in the
+    /// language card instead.
     fn panel(&mut self) -> Option<Panel> {
-        let lsp = self.lsp.panel();
-        match (self.inner.panel(), lsp) {
-            (Some(mut inner), Some(lsp)) => {
-                inner = inner.divider();
-                inner.nodes.extend(lsp.nodes);
-                Some(inner)
-            }
-            (inner, lsp) => inner.or(lsp),
-        }
+        self.inner.panel()
     }
 
     fn click(&mut self, button: &str) {
         self.inner.click(button);
-        self.lsp.click(button);
     }
 
     fn colour_text(&mut self, language: &str, text: &str) -> Vec<Token> {

@@ -563,12 +563,17 @@ impl Editor {
             .rev()
             .find(|c| !c.is_whitespace())
             .copied();
-        let python = self.extension() == "py";
         let opener = PAIRS
             .iter()
             .find(|(open, close)| open != close && Some(*open) == last)
             .map(|(_, close)| *close);
-        let opens = opener.is_some() || (python && last == Some(':'));
+        // And after what the language says opens a block, such as `:`.
+        let before: String = chars[..col].iter().collect();
+        let before = before.trim_end();
+        let opens = opener.is_some()
+            || self
+                .plugin_language()
+                .is_some_and(|l| l.indent_after.iter().any(|e| before.ends_with(e.as_str())));
         let unit = self.indent().unit();
         // A line of only indentation keeps none of it.
         let from = if indent.chars().count() == col && col > 0 {

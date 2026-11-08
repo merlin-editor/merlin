@@ -307,6 +307,7 @@ impl App {
                 .plugins()
                 .into_iter()
                 .map(|p| PluginRow {
+                    mark: plugins::mark(&p),
                     memory: p.memory as u64
                         + p.processes
                             .iter()

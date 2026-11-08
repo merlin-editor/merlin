@@ -14,7 +14,7 @@ use crate::protocol::{
     debug_targets, file_edits, flatten_symbols, hover_text, inlay_hint, path_of, position,
     runnables, semantic_tokens, signature, symbol_kind,
 };
-use crate::server::{Problem, Request, Status};
+use crate::server::{Request, Status};
 
 impl Lsp {
     pub(crate) fn on_message(&mut self, program: &str, message: Value) {
@@ -96,31 +96,6 @@ impl Lsp {
                 message: d["message"].as_str().unwrap_or_default().to_string(),
             })
             .collect();
-        let mut problems: Vec<Problem> = Vec::new();
-        for d in &diagnostics {
-            let problem = Problem {
-                line: d.start.line,
-                column: d.start.column,
-                severity: match d.severity {
-                    Severity::Error => 1,
-                    Severity::Warning => 2,
-                    _ => continue,
-                },
-                message: d.message.lines().next().unwrap_or_default().to_string(),
-            };
-            // Servers repeat themselves, such as one syntax error per token.
-            let seen = problems
-                .iter()
-                .any(|p| p.line == problem.line && p.message == problem.message);
-            if !seen {
-                problems.push(problem);
-            }
-        }
-        if problems.is_empty() {
-            self.problems.remove(path);
-        } else {
-            self.problems.insert(path.to_string(), problems);
-        }
         let detailed: Vec<DetailedDiagnostic> = list
             .iter()
             .zip(diagnostics)

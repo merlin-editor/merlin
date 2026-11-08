@@ -499,8 +499,8 @@ fn a_tasks_errors_become_problems_until_it_runs_clean() {
     };
     s.send(Event::TaskOutput {
         id,
-        text: "error[E0425]: cannot find value `b` in this scope\n --> src/main.rs:1:10\n\
-warning: unused import\n --> src/lib.rs:2:5\n"
+        text: "src/main.rs:1:10: error: cannot find value `b` in this scope\n\
+src/lib.rs:2:5: warning: unused import\n"
             .into(),
     });
     assert_eq!(counts(&s), "⊗ 1  ⚠ 1");

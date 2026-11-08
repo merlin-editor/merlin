@@ -34,11 +34,11 @@ const EXAMPLE: &str = "\
 # doesn't know go to the debugger as they are.
 [[debug]]
 name = \"my program\"
-program = \"target/debug/my-program\"
+program = \"build/my-program\"
 args = []
 # A task's name or a command, run first.
-build = \"cargo build\"
-# env = { RUST_LOG = \"info\" }
+build = \"make\"
+# env = { LOG_LEVEL = \"info\" }
 
 # [[debug]]
 # name = \"attach\"

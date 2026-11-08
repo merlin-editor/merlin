@@ -427,19 +427,15 @@ impl Editor {
             nodes.push(Node::Styled("No matching plugins.".into(), Tone::Muted));
         }
         for p in shown {
-            let icon = match p.name.as_str() {
-                "rust" => file_icon("lib.rs", self.nerd),
-                "cpp" => file_icon("main.cpp", self.nerd),
-                "python" => (file_icon("main.py", self.nerd).0, Hue::Cyan),
-                "javascript" => file_icon("index.js", self.nerd),
-                "json" => (file_icon("data.json", self.nerd).0, Hue::Green),
-                "toml" => (file_icon("Cargo.toml", self.nerd).0, Hue::Cyan),
-                "catch2" => (icon(Icon::Testing, self.nerd), Hue::Green),
-                "dap" => (icon(Icon::Debug, self.nerd), Hue::Orange),
-                n if n.starts_with("merlin-") => (icon(Icon::Plugin, self.nerd), Hue::Purple),
-                _ => (icon(Icon::Plugin, self.nerd), Hue::Blue),
+            // A language's file icon, in the plugin's colour.
+            let glyph = match self.languages.iter().find(|(plugin, _)| *plugin == p.name) {
+                Some((_, l)) => {
+                    let ext = l.extensions.first().map_or("", String::as_str);
+                    file_icon(&format!("file.{ext}"), self.nerd).0
+                }
+                None => icon(Icon::Plugin, self.nerd),
             };
-            nodes.push(Node::Entry(crate::panel::Entry {
+            nodes.push(Node::entry(crate::panel::Entry {
                 id: format!("plugin:{}", p.name),
                 label: p.title.clone(),
                 detail: match self.plugin_gives(&p.name) {
@@ -447,7 +443,8 @@ impl Editor {
                     gives if p.what.is_empty() => gives,
                     gives => format!("{} · {gives}", p.what),
                 },
-                icon: Some(icon),
+                icon: Some((glyph, p.mark.1)),
+                monogram: Some(p.mark.0.clone()),
                 badge: p.tag.clone(),
                 badge_tone: p.tone,
                 ..Default::default()
@@ -471,7 +468,7 @@ impl Editor {
             .into_iter()
             .map(|s| {
                 let (glyph, hue) = symbol_icon(&s.kind);
-                Node::Entry(Entry {
+                Node::entry(Entry {
                     id: format!("o:{}", s.line),
                     label: s.name,
                     depth: s.depth,
@@ -521,7 +518,7 @@ impl Editor {
                 current: current.as_deref(),
                 nerd: self.nerd,
             };
-            let mut nodes: Vec<Node> = tree.rows(&marks).into_iter().map(Node::Entry).collect();
+            let mut nodes: Vec<Node> = tree.rows(&marks).into_iter().map(Node::entry).collect();
             // A name being typed goes where the file will be: under its
             // folder, or in place of what's renamed.
             if let Some(edit) = &tree.edit {
@@ -593,14 +590,14 @@ impl Editor {
         for (i, hit) in search.hits.iter().enumerate().take(SHOWN_HITS) {
             if last != Some(&hit.path) {
                 let count = search.hits.iter().filter(|h| h.path == hit.path).count();
-                nodes.push(Node::Entry(self.file_entry(
+                nodes.push(Node::entry(self.file_entry(
                     format!("f:{}", hit.path),
                     Path::new(&hit.path),
                     count.to_string(),
                 )));
                 last = Some(&hit.path);
             }
-            nodes.push(Node::Entry(Entry {
+            nodes.push(Node::entry(Entry {
                 id: format!("h:{i}"),
                 label: hit.text.trim().to_string(),
                 depth: 1,
@@ -669,7 +666,7 @@ impl Editor {
             .map(|(p, _)| p)
             .collect();
         if !conflicts.is_empty() {
-            nodes.push(Node::Entry(Entry {
+            nodes.push(Node::entry(Entry {
                 id: "sec:x".into(),
                 label: "Merge Conflicts".into(),
                 badge: conflicts.len().to_string(),
@@ -679,7 +676,7 @@ impl Editor {
             }));
             for path in conflicts {
                 let (dir, name) = path.rsplit_once('/').unwrap_or(("", path));
-                nodes.push(Node::Entry(Entry {
+                nodes.push(Node::entry(Entry {
                     id: format!("cx:{path}"),
                     label: name.to_string(),
                     icon: Some(file_icon(name, self.nerd)),
@@ -723,7 +720,7 @@ impl Editor {
                         .any(|m| m.from == *p && m.staged == (key == "s"))
                 })
                 .count();
-            nodes.push(Node::Entry(Entry {
+            nodes.push(Node::entry(Entry {
                 id: format!("sec:{key}"),
                 label: title.to_string(),
                 badge: (list.len() - hidden).to_string(),
@@ -770,7 +767,7 @@ impl Editor {
                     }
                     None => dir.to_string(),
                 };
-                nodes.push(Node::Entry(Entry {
+                nodes.push(Node::entry(Entry {
                     id: format!("c{}:{path}", if staged_list { "s" } else { "" }),
                     label: name.to_string(),
                     tone: if moved.is_some() {
@@ -807,7 +804,7 @@ impl Editor {
                             ("Discard".into(), format!("hd:{path}:{i}")),
                         ]
                     };
-                    nodes.push(Node::Entry(Entry {
+                    nodes.push(Node::entry(Entry {
                         id: format!("hk:{key}:{path}:{i}"),
                         label: format!("@@ {}", change.line),
                         detail: change.summary.clone(),
@@ -868,7 +865,7 @@ impl Editor {
         let mut nodes = Vec::new();
         for (path, mut list) in by_file {
             list.sort_by_key(|d| (d.severity, d.start));
-            nodes.push(Node::Entry(self.file_entry(
+            nodes.push(Node::entry(self.file_entry(
                 format!("f:{}", path.display()),
                 path,
                 list.len().to_string(),
@@ -879,7 +876,7 @@ impl Editor {
                     Severity::Warning => (Icon::Warning, Hue::Warned),
                     _ => (Icon::Info, Hue::Blue),
                 };
-                nodes.push(Node::Entry(Entry {
+                nodes.push(Node::entry(Entry {
                     id: format!("p:{}", problems.len()),
                     label: d.message.lines().next().unwrap_or_default().to_string(),
                     depth: 1,

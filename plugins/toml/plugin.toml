@@ -1,6 +1,8 @@
 name = "toml"
 title = "TOML"
 description = "Syntax highlighting & code folding"
+badge = "TM"
+hue = "cyan"
 api = "0.9"
 component = "target/wasm32-wasip2/release/toml_language.wasm"
 

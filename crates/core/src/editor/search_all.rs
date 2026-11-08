@@ -1100,7 +1100,7 @@ const DESCRIPTIONS: &[(&str, &str)] = &[
     ("icons.pick", "previewed as you move through them"),
     ("terminal.new", "in the panel"),
     ("task.build", "the default build task"),
-    ("task.run", "from tasks.toml, Cargo.toml or a plugin"),
+    ("task.run", "from tasks.toml or a plugin"),
     (
         "macro.record",
         "the keys typed and commands run, until it's run again",

@@ -1,5 +1,7 @@
 name = "dap"
 title = "Debugger"
+badge = "DB"
+hue = "orange"
 api = "0.9"
 component = "target/wasm32-wasip2/release/dap.wasm"
 

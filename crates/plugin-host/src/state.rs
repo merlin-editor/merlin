@@ -445,6 +445,31 @@ impl host::Host for State {
         std::fs::read_to_string(&full).map_err(|e| e.to_string())
     }
 
+    fn set_status(&mut self, set: String, items: Vec<types::StatusItem>) {
+        use merlin_core::lang::{StatusLine, StatusState};
+        self.events.push(Event::SetStatus {
+            plugin: self.name.clone(),
+            set,
+            lines: items
+                .into_iter()
+                .map(|i| StatusLine {
+                    name: i.name,
+                    state: match i.state {
+                        types::StatusState::Ready => StatusState::Ready,
+                        types::StatusState::Busy => StatusState::Busy,
+                        types::StatusState::Warning => StatusState::Warning,
+                        types::StatusState::Error => StatusState::Error,
+                    },
+                    detail: i.detail,
+                    progress: i.progress,
+                    hint: i.hint,
+                    action: i.action,
+                    extensions: i.extensions,
+                })
+                .collect(),
+        });
+    }
+
     fn set_tasks(&mut self, set: String, tasks: Vec<types::Task>) {
         self.events.push(Event::SetTasks {
             plugin: self.name.clone(),

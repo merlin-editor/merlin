@@ -19,6 +19,7 @@ fn session() -> Session {
             extensions: vec!["cpp".into()],
             line_comment: Some("//".into()),
             block_comment: None,
+            ..Default::default()
         }],
     });
     s
@@ -197,6 +198,7 @@ fn plugin(s: &mut Session, name: &str, language: Option<&str>, key: &str) {
                 extensions: vec![ext.into()],
                 line_comment: None,
                 block_comment: None,
+                ..Default::default()
             }],
         });
     }

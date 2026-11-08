@@ -9,6 +9,14 @@ pub struct Manifest {
     pub title: String,
     #[serde(default)]
     pub description: Option<String>,
+    /// Two letters for its tile in the plugin lists, such as `RS`; the
+    /// title's first letters without.
+    #[serde(default)]
+    pub badge: Option<String>,
+    /// The tile's colour: blue, green, yellow, orange, red, purple, cyan
+    /// or grey.
+    #[serde(default)]
+    pub hue: Option<String>,
     pub api: String,
     /// The component file, relative to the plugin folder. A plugin that
     /// only adds data, such as colour themes, has none.
@@ -30,6 +38,10 @@ pub struct Manifest {
     /// of them, layered over a theme. A theme is a pack too.
     #[serde(default)]
     pub packs: Vec<ManifestTheme>,
+    /// How to read problems in tasks' output, as VS Code's problem
+    /// matchers do: rustc's, say, or Python's tracebacks.
+    #[serde(default, rename = "problem-matchers")]
+    pub problem_matchers: Vec<ManifestMatcher>,
     /// Debuggers the plugin brings, for languages it adds or others.
     #[serde(default)]
     pub debuggers: Vec<ManifestDebugger>,
@@ -42,11 +54,6 @@ pub struct Manifest {
     /// `show-project-symbols`.
     #[serde(default)]
     pub symbols: Option<String>,
-    /// Steps aside for files a language plugin with features of its own
-    /// adds: a client for every language server, say, beside plugins that
-    /// bring their own.
-    #[serde(default)]
-    pub fallback: bool,
 }
 
 /// A debugger, as `[[debuggers]]` in a manifest declares it.
@@ -192,6 +199,17 @@ pub(super) fn manifest_events(manifest: &Manifest) -> Vec<Event> {
             command: command.clone(),
         });
     }
+    let matchers: Vec<_> = manifest
+        .problem_matchers
+        .iter()
+        .filter_map(|m| m.to_core().ok())
+        .collect();
+    if !matchers.is_empty() {
+        events.push(Event::RegisterProblemMatchers {
+            plugin: plugin.clone(),
+            matchers,
+        });
+    }
     if !manifest.debuggers.is_empty() {
         events.push(Event::RegisterDebuggers {
             debuggers: manifest
@@ -203,6 +221,69 @@ pub(super) fn manifest_events(manifest: &Manifest) -> Vec<Event> {
         });
     }
     events
+}
+
+/// A problem matcher, as `[[problem-matchers]]` declares it: `lines` one
+/// after another, each a `regex` and the groups with the problem's
+/// `file`, `line`, `column`, `severity`, `code` and `message`.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct ManifestMatcher {
+    pub lines: Vec<ManifestMatcherLine>,
+    /// A pattern for lines that may come between them.
+    #[serde(default)]
+    pub between: Option<String>,
+    /// A page about a problem's code, with `{code}` where it goes.
+    #[serde(default)]
+    pub link: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct ManifestMatcherLine {
+    pub regex: String,
+    #[serde(default)]
+    pub file: Option<usize>,
+    #[serde(default)]
+    pub line: Option<usize>,
+    #[serde(default)]
+    pub column: Option<usize>,
+    #[serde(default)]
+    pub severity: Option<usize>,
+    #[serde(default)]
+    pub code: Option<usize>,
+    #[serde(default)]
+    pub message: Option<usize>,
+}
+
+impl ManifestMatcher {
+    pub(super) fn to_core(&self) -> Result<merlin_core::lang::ProblemMatcher> {
+        if self.lines.is_empty() {
+            bail!("a problem matcher has no lines");
+        }
+        let regex = |r: &str| {
+            regex::Regex::new(r).with_context(|| format!("problem matcher pattern {r:?}"))
+        };
+        Ok(merlin_core::lang::ProblemMatcher {
+            lines: self
+                .lines
+                .iter()
+                .map(|l| {
+                    Ok(merlin_core::lang::MatcherLine {
+                        regex: regex(&l.regex)?,
+                        file: l.file,
+                        line: l.line,
+                        column: l.column,
+                        severity: l.severity,
+                        code: l.code,
+                        message: l.message,
+                    })
+                })
+                .collect::<Result<_>>()?,
+            between: self.between.as_deref().map(regex).transpose()?,
+            link: self.link.clone(),
+        })
+    }
 }
 
 /// A theme or pack: its name in the pickers, and its file, relative to the
@@ -224,6 +305,10 @@ pub struct ManifestLanguage {
     pub line_comment: Option<String>,
     #[serde(default)]
     pub block_comment: Option<(String, String)>,
+    #[serde(default)]
+    pub indent_after: Vec<String>,
+    #[serde(default)]
+    pub exception: Option<String>,
 }
 
 impl ManifestLanguage {
@@ -238,6 +323,8 @@ impl ManifestLanguage {
                 .collect(),
             line_comment: self.line_comment.clone(),
             block_comment: self.block_comment.clone(),
+            indent_after: self.indent_after.clone(),
+            exception: self.exception.clone(),
         }
     }
 }
@@ -336,10 +423,16 @@ pub(super) fn save_grant(data_dir: &Path, dir: &str, permissions: &Permissions) 
 /// Reads a plugin's manifest.
 pub fn manifest(dir: &Path) -> Result<Manifest> {
     let path = dir.join("plugin.toml");
-    toml::from_str(
+    let manifest: Manifest = toml::from_str(
         &fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?,
     )
-    .with_context(|| format!("parsing {}", path.display()))
+    .with_context(|| format!("parsing {}", path.display()))?;
+    for matcher in &manifest.problem_matchers {
+        matcher
+            .to_core()
+            .with_context(|| format!("in {}", path.display()))?;
+    }
+    Ok(manifest)
 }
 
 /// Allows the plugin in `dir` what its manifest asks for, as installing it
@@ -363,4 +456,87 @@ pub fn grant(config: &Config, dir: &Path) -> Result<(Manifest, Vec<String>)> {
         allowed.push("start the debuggers plugins name, and drive them".to_string());
     }
     Ok((manifest, allowed))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use merlin_core::Severity;
+    use merlin_core::editor::{Found, problems};
+
+    use super::*;
+
+    /// What a plugin's own matchers find in `out`.
+    fn found(plugin: &str, out: &str) -> Vec<Found> {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins").join(plugin);
+        let manifest = super::manifest(&dir).unwrap();
+        let matchers: Vec<_> = manifest
+            .problem_matchers
+            .iter()
+            .map(|m| m.to_core().unwrap())
+            .collect();
+        problems(out, &matchers.iter().collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn rust_reads_rustcs_problems() {
+        let out = "error[E0308]: mismatched types\n \
+ --> src/main.rs:5:23\n\
+warning: unused variable: `x`\n \
+ --> src/lib.rs:3:9\n\
+error: could not compile `app` (bin \"app\") due to 1 previous error\n";
+        let found = found("rust", out);
+        assert_eq!(found.len(), 2, "{found:?}");
+        assert_eq!(found[0].path, PathBuf::from("src/main.rs"));
+        assert_eq!((found[0].line, found[0].column), (4, 22));
+        assert_eq!(found[0].code, "E0308");
+        assert_eq!(found[0].message, "mismatched types");
+        assert_eq!(
+            found[0].link,
+            "https://doc.rust-lang.org/error_codes/E0308.html"
+        );
+        assert_eq!(found[1].severity, Severity::Warning);
+    }
+
+    #[test]
+    fn javascript_reads_typescripts_problems() {
+        let found = found(
+            "javascript",
+            "src/a.ts(3,5): error TS2322: Type 'string' is not 'number'.\n",
+        );
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!((found[0].line, found[0].column), (2, 4));
+        assert_eq!(found[0].code, "TS2322");
+        assert_eq!(found[0].message, "Type 'string' is not 'number'.");
+    }
+
+    #[test]
+    fn python_reads_a_traceback_at_the_projects_last_frame() {
+        let out = "Traceback (most recent call last):\n  \
+File \"app/main.py\", line 9, in <module>\n    main()\n  \
+File \"app/main.py\", line 4, in main\n    print(nme)\n  \
+File \"/usr/lib/python3/x.py\", line 1, in f\n\
+NameError: name 'nme' is not defined\n";
+        let found = found("python", out);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].path, PathBuf::from("app/main.py"));
+        assert_eq!(found[0].line, 3);
+        assert_eq!(found[0].message, "NameError: name 'nme' is not defined");
+    }
+
+    #[test]
+    fn a_bad_pattern_stops_the_plugin_loading() {
+        let dir = std::env::temp_dir().join(format!("merlin-matcher-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("plugin.toml"),
+            "name = \"bad\"\ntitle = \"Bad\"\napi = \"0.9\"\n\
+             [[problem-matchers]]\nlines = [{ regex = '(', file = 1 }]\n",
+        )
+        .unwrap();
+        let err = format!("{:#}", super::manifest(&dir).unwrap_err());
+        assert!(err.contains("problem matcher pattern"), "{err}");
+        fs::remove_dir_all(dir).unwrap();
+    }
 }

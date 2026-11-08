@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A fake language server for the LSP plugin's tests. It speaks just enough
+"""A fake language server for the language server tests. It speaks just enough
 LSP over stdio: diagnostics on open, hover, definition, completion, semantic
 tokens, symbols and folding ranges."""
 

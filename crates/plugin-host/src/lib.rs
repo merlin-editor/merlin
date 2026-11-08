@@ -175,6 +175,9 @@ pub struct PluginInfo {
     pub name: String,
     pub title: String,
     pub description: Option<String>,
+    /// Its tile's letters and colour, as its manifest gives them.
+    pub badge: Option<String>,
+    pub hue: Option<String>,
     /// Where it was loaded from.
     pub dir: PathBuf,
     pub api: String,
@@ -673,21 +676,10 @@ impl PluginHost {
             {
                 continue;
             }
-            if self.plugins[i].manifest.fallback && self.claimed(snapshot.path.as_deref()) {
-                continue;
-            }
             let (_, mut more) = self.call(i, snapshot.clone(), |b, s| b.call_on_buffer(s, &event));
             events.append(&mut more);
         }
         events
-    }
-
-    /// Whether a running language plugin with features of its own adds the
-    /// file at `path`, for a fallback plugin to leave it be.
-    fn claimed(&self, path: Option<&str>) -> bool {
-        self.plugins
-            .iter()
-            .any(|p| p.instance.is_some() && !p.pure_language && p.handles_path(path))
     }
 
     pub fn submit(
@@ -1006,6 +998,8 @@ impl PluginHost {
                     name: m.name.clone(),
                     title: m.title.clone(),
                     description: m.description.clone(),
+                    badge: m.badge.clone(),
+                    hue: m.hue.clone(),
                     dir: PathBuf::from(&p.dir),
                     api: m.api.clone(),
                     data_only: m.component.is_none(),

@@ -188,6 +188,11 @@ pub enum Event {
         plugin: String,
         languages: Vec<Language>,
     },
+    /// How a plugin reads problems in tasks' output.
+    RegisterProblemMatchers {
+        plugin: String,
+        matchers: Vec<crate::lang::ProblemMatcher>,
+    },
     /// Colours for a file from a plugin, for lines `lines` (end excluded),
     /// or for all of it.
     SetTokens {
@@ -205,6 +210,13 @@ pub enum Event {
     SetFolds {
         path: PathBuf,
         ranges: Vec<(u32, u32)>,
+    },
+    /// A plugin's lines for the language card, replacing its earlier ones
+    /// from the same set.
+    SetStatus {
+        plugin: String,
+        set: String,
+        lines: Vec<crate::lang::StatusLine>,
     },
     /// A plugin's tasks for Run Task, replacing its earlier ones from the
     /// same set.
@@ -498,6 +510,39 @@ pub struct PluginSummary {
     /// How it runs: "runs programs", "sandboxed", "data only", "off".
     pub tag: String,
     pub tone: crate::panel::Tone,
+    /// Its tile's letters and colour: [`plugin_mark`].
+    pub mark: (String, crate::style::Hue),
+}
+
+/// A plugin's tile: the letters and colour its manifest gives, or its
+/// title's first letters, in purple for a plugin of looks and blue for
+/// others.
+pub fn plugin_mark(
+    title: &str,
+    badge: Option<&str>,
+    hue: Option<&str>,
+    looks: bool,
+) -> (String, crate::style::Hue) {
+    use crate::style::Hue;
+    let letters = match badge.map(str::trim).filter(|b| !b.is_empty()) {
+        Some(badge) => badge.chars().take(2).collect(),
+        None => {
+            let mut letters: String = title
+                .split_whitespace()
+                .filter_map(|w| w.chars().next())
+                .take(2)
+                .collect::<String>()
+                .to_uppercase();
+            if letters.chars().count() < 2 {
+                letters = title.chars().take(2).collect::<String>().to_uppercase();
+            }
+            letters
+        }
+    };
+    let hue = hue
+        .and_then(Hue::named)
+        .unwrap_or(if looks { Hue::Purple } else { Hue::Blue });
+    (letters, hue)
 }
 
 /// A command and the keys that run it, for the Keys settings.

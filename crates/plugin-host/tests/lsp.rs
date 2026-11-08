@@ -1,5 +1,6 @@
-//! Runs the LSP plugin against a fake `rust-analyzer`. Build it first:
-//! `cargo build --release --manifest-path plugins/lsp/Cargo.toml`
+//! Runs the Rust plugin's language server client against a fake
+//! `rust-analyzer`. Build it first:
+//! `cargo build --release --manifest-path plugins/rust/Cargo.toml`
 
 use std::path::{Path, PathBuf};
 use std::sync::Once;
@@ -9,11 +10,11 @@ use merlin_core::{Completion, Event, Severity};
 use merlin_plugins::{BufferEvent, Config, PluginHost, Snapshot};
 
 fn plugin_dir() -> PathBuf {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/lsp");
-    let wasm = dir.join("target/wasm32-wasip2/release/lsp.wasm");
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/rust");
+    let wasm = dir.join("target/wasm32-wasip2/release/rust_language.wasm");
     assert!(
         wasm.exists(),
-        "build the lsp plugin first (see the top of this file)"
+        "build the rust plugin first (see the top of this file)"
     );
     dir
 }
@@ -33,11 +34,18 @@ fn use_fake_server() {
     });
 }
 
+/// An empty project, so the plugin has no Cargo.toml files to read.
+fn root() -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("merlin-lsp-root-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
 fn snapshot() -> Snapshot {
     Snapshot {
         path: Some("src/main.rs".into()),
         text: "fn main() {\n    let v = Vec::new();\n    v.\n}\n".into(),
-        root: std::env::temp_dir(),
+        root: root(),
         cursor: (2, 6),
         selection: None,
         changed: None,
@@ -92,7 +100,7 @@ fn pushed_and_pulled_diagnostics_arrive_together() {
 #[test]
 fn hover_keeps_its_markdown_for_the_card_to_draw() {
     let mut host = started();
-    host.run_command("lsp", "hover", snapshot());
+    host.run_command("rust", "hover", snapshot());
     let event = wait_for(&mut host, "hover", |e| matches!(e, Event::ShowHover(_)));
     let Event::ShowHover(text) = event else {
         unreachable!()
@@ -103,7 +111,7 @@ fn hover_keeps_its_markdown_for_the_card_to_draw() {
 #[test]
 fn definition_opens_the_location() {
     let mut host = started();
-    host.run_command("lsp", "definition", snapshot());
+    host.run_command("rust", "definition", snapshot());
     let event = wait_for(&mut host, "definition", |e| {
         matches!(e, Event::OpenAt { .. })
     });
@@ -119,7 +127,7 @@ fn definition_opens_the_location() {
 #[test]
 fn completions_come_sorted_with_their_insert_text() {
     let mut host = started();
-    host.run_command("lsp", "complete", snapshot());
+    host.run_command("rust", "complete", snapshot());
     let event = wait_for(&mut host, "completions", |e| {
         matches!(e, Event::ShowCompletions(_))
     });
@@ -202,7 +210,7 @@ fn semantic_tokens_symbols_and_folds_come_from_the_server() {
 fn code_actions_come_with_their_edits_and_one_chosen_is_made() {
     use merlin_core::lang::{ActionKind, FileEdit};
     let mut host = started();
-    host.run_command("lsp", "code-actions", snapshot());
+    host.run_command("rust", "code-actions", snapshot());
     let event = wait_for(&mut host, "code actions", |e| {
         matches!(e, Event::ShowCodeActions(_))
     });
@@ -221,7 +229,7 @@ fn code_actions_come_with_their_edits_and_one_chosen_is_made() {
         ],
         "a bare command and a disabled action are left out"
     );
-    let events = host.pick("lsp", "code-actions", &actions[1].id, snapshot());
+    let events = host.pick("rust", "code-actions", &actions[1].id, snapshot());
     let edits = events.into_iter().find_map(|e| match e {
         Event::ApplyEdits(edits) => Some(edits),
         _ => None,
@@ -241,7 +249,7 @@ fn format_edits(
     command: &str,
     snapshot: Snapshot,
 ) -> Vec<merlin_core::lang::TextEdit> {
-    let mut events = host.run_command("lsp", command, snapshot);
+    let mut events = host.run_command("rust", command, snapshot);
     let found = |events: &[Event]| {
         events.iter().find_map(|e| match e {
             Event::ApplyEdits(files) => Some(files[0].edits.clone()),
@@ -284,7 +292,7 @@ fn a_file_not_in_git_saves_unformatted_and_says_so_once() {
     let mut host = started();
     let mut said = 0;
     for _ in 0..2 {
-        let events = host.run_command("lsp", "format-changed", snapshot());
+        let events = host.run_command("rust", "format-changed", snapshot());
         said += events
             .iter()
             .filter(|e| matches!(e, Event::Notify(t) if t.contains("isn't in git")))
@@ -322,7 +330,7 @@ fn wait_on_v(host: &mut PluginHost, what: &str, matches: impl Fn(&Event) -> bool
 fn rename_says_how_far_a_name_reaches_then_renames_or_sends_it_to_review() {
     use merlin_core::lang::{FileEdit, RenameInfo};
     let mut host = started();
-    host.run_command("lsp", "rename", on_v());
+    host.run_command("rust", "rename", on_v());
     let event = wait_on_v(&mut host, "the rename's reach", |e| {
         matches!(e, Event::ShowRename(_))
     });
@@ -342,7 +350,7 @@ fn rename_says_how_far_a_name_reaches_then_renames_or_sends_it_to_review() {
         path: "src/main.rs".into(),
         edits: vec![((1, 8), (1, 9), "w".into()), ((2, 4), (2, 5), "w".into())],
     }];
-    host.submit("lsp", "rename-review", "w", on_v());
+    host.submit("rust", "rename-review", "w", on_v());
     let event = wait_on_v(&mut host, "the review", |e| {
         matches!(e, Event::ShowRenameReview(_))
     });
@@ -351,11 +359,11 @@ fn rename_says_how_far_a_name_reaches_then_renames_or_sends_it_to_review() {
     };
     assert_eq!(review, edits);
     // Each rename is prepared first.
-    host.run_command("lsp", "rename", on_v());
+    host.run_command("rust", "rename", on_v());
     wait_on_v(&mut host, "the reach", |e| {
         matches!(e, Event::ShowRename(_))
     });
-    host.submit("lsp", "rename", "w", on_v());
+    host.submit("rust", "rename", "w", on_v());
     let event = wait_on_v(&mut host, "the edits", |e| {
         matches!(e, Event::ApplyEdits(_))
     });
@@ -369,9 +377,9 @@ fn rename_says_how_far_a_name_reaches_then_renames_or_sends_it_to_review() {
 fn a_name_the_server_cant_rename_says_why() {
     let mut host = started();
     // Once it's ready, renames are prepared.
-    host.run_command("lsp", "hover", snapshot());
+    host.run_command("rust", "hover", snapshot());
     wait_for(&mut host, "a hover", |e| matches!(e, Event::ShowHover(_)));
-    host.run_command("lsp", "rename", snapshot());
+    host.run_command("rust", "rename", snapshot());
     let event = wait_for(&mut host, "why", |e| matches!(e, Event::ShowRename(_)));
     let Event::ShowRename(info) = event else {
         unreachable!()
@@ -386,7 +394,7 @@ fn a_name_the_server_cant_rename_says_why() {
 fn references_come_for_the_peek_view() {
     use merlin_core::lang::Location;
     let mut host = started();
-    host.run_command("lsp", "references", on_v());
+    host.run_command("rust", "references", on_v());
     let event = wait_on_v(&mut host, "references", |e| {
         matches!(e, Event::ShowReferences(_))
     });

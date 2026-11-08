@@ -1,6 +1,8 @@
 name = "javascript"
 title = "JavaScript"
 description = "JS & TypeScript syntax, tasks & tsserver"
+badge = "JS"
+hue = "yellow"
 api = "0.9"
 component = "target/wasm32-wasip2/release/javascript_language.wasm"
 symbols = "project-symbols"
@@ -25,3 +27,9 @@ name = "TypeScript"
 extensions = ["ts", "tsx"]
 line-comment = "//"
 block-comment = ["/*", "*/"]
+
+# TypeScript's compiler: `src/a.ts(3,5): error TS2322: message`.
+[[problem-matchers]]
+lines = [
+    { regex = '^(\S+?)\((\d+),(\d+)\): (error|warning|info) (TS\d+): (.*)$', file = 1, line = 2, column = 3, severity = 4, code = 5, message = 6 },
+]

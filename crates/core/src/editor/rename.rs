@@ -605,7 +605,7 @@ impl Editor {
                     }
                 }
             };
-            nodes.push(Node::Entry(entry));
+            nodes.push(Node::entry(entry));
         }
         nodes
     }

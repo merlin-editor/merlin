@@ -25,9 +25,11 @@ mod matcher;
 pub use actions::{FORMAT_FILE, FORMAT_SELECTION};
 pub use format::{FORMAT_WAIT_MS, FormatOnSave};
 pub use groups::Edge;
+pub use matcher::{Found, problems};
 pub(crate) mod guides;
 mod keymap;
 mod keys;
+mod language;
 mod layout;
 mod link;
 mod macros;
@@ -91,6 +93,7 @@ pub use dialog::DialogView;
 pub use files::{FileOp, FilePick};
 pub use find::{FindAction, FindView};
 pub use keymap::{UserKey, When};
+pub use language::{LanguageCardHit, LanguageCardView, LanguageRowView, StatusMark};
 pub use layout::Rect as CellRect;
 pub use menu::MenuView;
 pub use overview::{MINIMAP_COLUMNS, MinimapLine, MinimapView, ScrollbarView};
@@ -530,6 +533,8 @@ pub struct Editor {
     colours: colours::TextColours,
     /// Languages plugins added, with the plugin that added each.
     languages: Vec<(String, Language)>,
+    /// How plugins read problems in tasks' output, by plugin.
+    problem_matchers: Vec<(String, crate::lang::ProblemMatcher)>,
     /// The document and version the Outline was built for.
     outline_for: Option<(u64, u64)>,
     /// The project's name, for the title bar.
@@ -540,6 +545,10 @@ pub struct Editor {
     problems: Vec<(PathBuf, u32, u32)>,
     /// The plugins loaded, for the Plugins view.
     plugin_list: Vec<PluginSummary>,
+    /// Plugins' lines for the language card, by plugin and set.
+    status_lines: Vec<((String, String), Vec<crate::lang::StatusLine>)>,
+    /// Whether the language card is open.
+    language_card: bool,
     /// Colour themes and icon themes by name, and the one of each in use.
     themes: [Vec<String>; 2],
     theme: [String; 2],
@@ -661,6 +670,7 @@ impl Editor {
             clicks: 0,
             outline_for: None,
             languages: Vec::new(),
+            problem_matchers: Vec::new(),
             colours: Default::default(),
             user_keys: Vec::new(),
             keymap: keymap::builtin(),
@@ -685,6 +695,8 @@ impl Editor {
             log: Vec::new(),
             problems: Vec::new(),
             plugin_list: Vec::new(),
+            status_lines: Vec::new(),
+            language_card: false,
             themes: [Vec::new(), Vec::new()],
             theme: [String::new(), String::new()],
         };

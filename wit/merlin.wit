@@ -295,6 +295,33 @@ interface types {
     kind: inlay-kind,
   }
 
+  /// How something in the language card is doing.
+  enum status-state {
+    ready,
+    busy,
+    warning,
+    error,
+  }
+
+  /// A line in the language card, which the status bar's language item
+  /// opens: a language server and how it's doing, say. The worst state
+  /// colours the item's { }, and a busy line's detail shows beside it.
+  record status-item {
+    name: string,
+    state: status-state,
+    /// Such as `Ready`, or `Indexing · 214/480 crates`.
+    detail: string,
+    /// How far along it is, from 0 to 100, while busy.
+    progress: option<u8>,
+    /// A command line shown under it, with Copy: how to install it, say.
+    hint: option<string>,
+    /// A button: its label, and the command it runs in the plugin.
+    action: option<tuple<string, string>>,
+    /// The extensions of the files it's for; empty for every file of the
+    /// plugin's languages.
+    extensions: list<string>,
+  }
+
   /// What a task is for: the group Run Task lists it in.
   enum task-group {
     test,
@@ -490,7 +517,7 @@ interface types {
 /// What the editor offers a plugin. Calls that need a permission check the
 /// plugin's manifest and return an error naming the permission if denied.
 interface host {
-  use types.{framing, pick-item, position, selection, text-change, diagnostic, detailed-diagnostic, code-action, file-edit, rename-info, location, project-symbol, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint, signature, task, test-item, test-result, debug-target, debug-launch, function-stop, breakpoint, debug-state, debug-thread, stack-frame, debug-variable, breakpoint-state, stop-filter, inline-value, output-kind};
+  use types.{status-item, framing, pick-item, position, selection, text-change, diagnostic, detailed-diagnostic, code-action, file-edit, rename-info, location, project-symbol, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint, signature, task, test-item, test-result, debug-target, debug-launch, function-stop, breakpoint, debug-state, debug-thread, stack-frame, debug-variable, breakpoint-state, stop-filter, inline-value, output-kind};
 
   /// Text of the active buffer. Needs `editor-read`.
   active-text: func() -> result<string, string>;
@@ -621,6 +648,9 @@ interface host {
 
   /// Closes a diff that was answered some other way.
   close-diff: func(id: string);
+
+  /// Replaces this plugin's lines in the language card that came as `set`.
+  set-status: func(set: string, items: list<status-item>);
 
   /// Replaces this plugin's tasks in Run Task that came as `set`, such as
   /// `cargo`: a plugin may have several sets, from different places. Run

@@ -186,6 +186,8 @@ pub struct CaptureView {
 pub struct PluginRow {
     pub name: String,
     pub title: String,
+    /// Its tile's letters and colour.
+    pub mark: (String, merlin_core::style::Hue),
     pub on: bool,
     pub failed: bool,
     /// Bytes: its own, and its programs'.
@@ -272,6 +274,8 @@ pub enum SettingsAction {
 pub struct PageView {
     pub name: String,
     pub title: String,
+    /// Its tile's letters and colour.
+    pub mark: (String, merlin_core::style::Hue),
     pub dir: PathBuf,
     pub api: String,
     pub data_only: bool,

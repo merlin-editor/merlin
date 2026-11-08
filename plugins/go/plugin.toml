@@ -1,0 +1,21 @@
+name = "go"
+title = "Go"
+description = "Go syntax & gopls"
+badge = "GO"
+hue = "cyan"
+api = "0.9"
+component = "target/wasm32-wasip2/release/go_language.wasm"
+symbols = "project-symbols"
+
+[permissions]
+editor-read = true
+editor-write = true
+processes = ["gopls"]
+
+[[languages]]
+id = "go"
+name = "Go"
+extensions = ["go"]
+line-comment = "//"
+block-comment = ["/*", "*/"]
+exception = "panic"

@@ -153,6 +153,11 @@ impl Editor {
                 self.languages
                     .extend(languages.into_iter().map(|l| (plugin.clone(), l)));
             }
+            Event::RegisterProblemMatchers { plugin, matchers } => {
+                self.problem_matchers.retain(|(p, _)| *p != plugin);
+                self.problem_matchers
+                    .extend(matchers.into_iter().map(|m| (plugin.clone(), m)));
+            }
             Event::SetTokens {
                 path,
                 layer,
@@ -160,6 +165,7 @@ impl Editor {
                 tokens,
             } => self.tokens_came(&path, layer, lines, tokens),
             Event::SetSymbols { path, symbols } => self.symbols_came(&path, symbols),
+            Event::SetStatus { plugin, set, lines } => self.status_came(plugin, set, lines),
             Event::SetTasks { plugin, set, tasks } => self.tasks_came(plugin, set, tasks),
             Event::SetTests {
                 plugin,

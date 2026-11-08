@@ -140,6 +140,10 @@ pub(super) const CHORDS: &[(&str, &str, &str)] = &[
 impl Editor {
     pub(crate) fn key(&mut self, key: Key, fx: &mut Vec<Effect>) {
         self.which_key_key();
+        // Any key puts the language card away; Escape does only that.
+        if std::mem::take(&mut self.language_card) && key.code == KeyCode::Esc {
+            return;
+        }
         // A terminal with the keys takes nearly all of them.
         if self.terminal_key(key, fx) {
             return;

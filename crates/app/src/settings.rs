@@ -71,7 +71,7 @@ const USER_TEMPLATE: &str = r#"# merlin settings. Saving this file applies them.
 # keys = "I// NOTE: <Esc>j"
 
 # Plugins' settings, by plugin name:
-# [plugins.lsp]
+# [plugins.rust]
 "#;
 
 const WORKSPACE_TEMPLATE: &str = r#"# Settings for this folder, over your own (Preferences: Open User Settings).

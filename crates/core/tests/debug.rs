@@ -23,6 +23,8 @@ fn project() -> Session {
             extensions: vec!["rs".into()],
             line_comment: Some("//".into()),
             block_comment: None,
+            exception: Some("panic".into()),
+            ..Default::default()
         }],
     });
     s.send(Event::RegisterDebuggers {

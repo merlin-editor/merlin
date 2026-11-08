@@ -2,6 +2,11 @@
 //! status bar, the debug toolbar and notices.
 
 use super::*;
+use merlin_core::lang::StatusState;
+use merlin_core::{LanguageCardHit, LanguageCardView, StatusMark};
+
+/// The room a status bar item's mark takes before its text.
+const MARK_W: f32 = 20.0;
 
 impl Frame<'_> {
     pub(super) fn title_bar(&mut self, view: &WindowView, w: f32) {
@@ -326,7 +331,8 @@ impl Frame<'_> {
         let mut left_items = Vec::new();
         let mut right_items = Vec::new();
         for (i, item) in view.status.iter().enumerate() {
-            let tw = self.text.width(&item.text, face);
+            // The language's { } or a spinner goes before its text.
+            let tw = self.text.width(&item.text, face) + item.mark.map_or(0.0, |_| MARK_W);
             if item.right {
                 right_items.push((i, item, tw));
             } else {
@@ -345,16 +351,23 @@ impl Frame<'_> {
         for &(i, item, tw) in right_items.iter().rev() {
             rx -= tw;
             let r = Rect::new(rx - 6.0, bar.y + 3.0, tw + 12.0, STATUS_H - 6.0);
-            if item.clickable && self.hovered(r) {
+            if item.open || (item.clickable && self.hovered(r)) {
                 self.canvas.round(r, 5.0, p.hover);
             }
             let last = i + 1 == view.status.len();
             let colour = if last { p.chip_text } else { p.muted };
+            let tx = match item.mark {
+                Some(mark) => {
+                    self.status_mark(mark, rx, bar.y);
+                    rx + MARK_W
+                }
+                None => rx,
+            };
             self.text.draw_in_row(
                 &mut self.canvas,
                 &item.text,
                 face,
-                rx,
+                tx,
                 bar.y,
                 STATUS_H,
                 colour,
@@ -595,5 +608,197 @@ impl Frame<'_> {
             self.hit(b, Hit::Ui(UiEvent::ToastButton(i)));
             bx -= 8.0;
         }
+    }
+
+    /// A state's colour: green, the accent while busy, amber or red.
+    fn state_colour(&self, state: StatusState) -> u32 {
+        match state {
+            StatusState::Ready => self.p.success,
+            StatusState::Busy => self.p.accent,
+            StatusState::Warning => self.p.warning,
+            StatusState::Error => self.p.error,
+        }
+    }
+
+    /// A status bar item's mark at `x`: the language's { } in its state's
+    /// colour, or a spinner while something is busy.
+    fn status_mark(&mut self, mark: StatusMark, x: f32, y: f32) {
+        match mark {
+            StatusMark::Braces(state) if state != StatusState::Busy => {
+                let colour = self.state_colour(state);
+                let face = Face::mono(11.5).bold();
+                let bar = Rect::new(x, y, MARK_W, STATUS_H);
+                self.text
+                    .draw_in_row(&mut self.canvas, "{}", face, x, y, STATUS_H, colour, bar);
+            }
+            _ => self.spinner(x + 1.0, y + (STATUS_H - 10.0) / 2.0),
+        }
+    }
+
+    /// A ring with its head in the accent, 10 across, from `x`, `y`.
+    fn spinner(&mut self, x: f32, y: f32) {
+        let p = self.p;
+        let ring = Rect::new(x, y, 10.0, 10.0);
+        self.canvas.outline(ring, 5.0, 1.5, p.faint, p.ground);
+        self.canvas
+            .round(Rect::new(x + 3.5, y, 3.0, 3.0), 1.5, p.accent);
+    }
+
+    /// The card the language item opens, over the status bar's right end:
+    /// what the language's plugin reports, then the file's problems, format
+    /// on save and tests.
+    pub(super) fn language_card(&mut self, card: &LanguageCardView, w: f32, h: f32) {
+        let p = self.p;
+        let (cw, head_h, row_h, hint_h) = (400.0_f32.min(w - 20.0), 36.0, 32.0, 28.0);
+        let rows_h: f32 = card
+            .rows
+            .iter()
+            .map(|r| row_h + if r.hint.is_some() { hint_h } else { 0.0 })
+            .sum();
+        let ch = head_h + 1.0 + rows_h + 8.0;
+        let r = Rect::new(w - cw - 10.0, h - STATUS_H - ch - 6.0, cw, ch);
+        self.canvas.shadow(r, 8.0, theme::is_light(&p));
+        self.canvas.outline(r, 8.0, 1.0, p.border, p.widget);
+        self.hit(r, Hit::Block);
+        // The language, the plugin it's from, and its settings.
+        let (title_f, small) = (Face::ui(13.0).bold(), Face::ui(11.5));
+        let mut x = r.x + 12.0;
+        self.text.draw_in_row(
+            &mut self.canvas,
+            &card.title,
+            title_f,
+            x,
+            r.y,
+            head_h,
+            p.bright,
+            r,
+        );
+        x += self.text.width(&card.title, title_f) + 8.0;
+        self.text.draw_in_row(
+            &mut self.canvas,
+            &card.from,
+            small,
+            x,
+            r.y,
+            head_h,
+            p.faint,
+            r,
+        );
+        if card.settings {
+            let label = "Plugin settings";
+            let lw = self.text.width(label, Face::ui(12.0));
+            let l = Rect::new(r.right() - 12.0 - lw, r.y + 8.0, lw, head_h - 16.0);
+            let colour = if self.hovered(l) { p.bright } else { p.accent };
+            self.text.draw_in_row(
+                &mut self.canvas,
+                label,
+                Face::ui(12.0),
+                l.x,
+                r.y,
+                head_h,
+                colour,
+                r,
+            );
+            self.hit(l, Hit::Ui(UiEvent::LanguageCard(LanguageCardHit::Settings)));
+        }
+        self.canvas
+            .fill(Rect::new(r.x, r.y + head_h, r.w, 1.0), p.border);
+        let mut y = r.y + head_h + 5.0;
+        for (i, row) in card.rows.iter().enumerate() {
+            self.language_row(row, i, r, y, row_h);
+            y += row_h;
+            if let Some(hint) = &row.hint {
+                let mono = Face::mono(12.0);
+                let copy = Rect::new(r.right() - 12.0 - 52.0, y + 2.0, 52.0, 22.0);
+                let room = copy.x - r.x - 37.0 - 8.0;
+                let text = self.text.fit(hint, mono, room);
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    &text,
+                    mono,
+                    r.x + 29.0,
+                    y,
+                    hint_h - 2.0,
+                    p.text,
+                    r,
+                );
+                let (bg, fg) = self.button_colours(false, self.hovered(copy));
+                self.canvas.round(copy, 5.0, bg);
+                let f = Face::ui(12.0);
+                let cx = copy.x + (copy.w - self.text.width("Copy", f)) / 2.0;
+                self.text
+                    .draw_in_row(&mut self.canvas, "Copy", f, cx, copy.y, copy.h, fg, copy);
+                self.hit(
+                    copy,
+                    Hit::Ui(UiEvent::LanguageCard(LanguageCardHit::Copy(i))),
+                );
+                y += hint_h;
+            }
+        }
+    }
+
+    /// One of the card's rows: its dot, name and detail, then its progress
+    /// and its button or link at the right.
+    fn language_row(
+        &mut self,
+        row: &merlin_core::LanguageRowView,
+        i: usize,
+        card: Rect,
+        y: f32,
+        h: f32,
+    ) {
+        let p = self.p;
+        let dot = row.state.map_or(p.faint, |s| self.state_colour(s));
+        if row.state == Some(StatusState::Busy) {
+            self.spinner(card.x + 11.0, y + (h - 10.0) / 2.0);
+        } else {
+            self.canvas.round(
+                Rect::new(card.x + 12.0, y + (h - 8.0) / 2.0, 8.0, 8.0),
+                4.0,
+                dot,
+            );
+        }
+        // At the right: the button or link, and the progress before it.
+        let mut right = card.right() - 12.0;
+        let hit = Hit::Ui(UiEvent::LanguageCard(LanguageCardHit::Row(i)));
+        if let Some((label, primary)) = &row.button {
+            let f = Face::ui(12.0);
+            let bw = self.text.width(label, f) + 18.0;
+            let b = Rect::new(right - bw, y + (h - 22.0) / 2.0, bw, 22.0);
+            let (bg, fg) = self.button_colours(*primary, self.hovered(b));
+            self.canvas.round(b, 5.0, bg);
+            self.text
+                .draw_in_row(&mut self.canvas, label, f, b.x + 9.0, b.y, b.h, fg, b);
+            self.hit(b, hit);
+            right = b.x - 10.0;
+        } else if let Some(link) = &row.link {
+            let f = Face::ui(12.0);
+            let lw = self.text.width(link, f);
+            let l = Rect::new(right - lw, y + 6.0, lw, h - 12.0);
+            let colour = if self.hovered(l) { p.bright } else { p.accent };
+            self.text
+                .draw_in_row(&mut self.canvas, link, f, l.x, y, h, colour, card);
+            self.hit(l, hit);
+            right = l.x - 10.0;
+        }
+        if let Some(done) = row.progress {
+            let track = Rect::new(right - 90.0, y + (h - 3.0) / 2.0, 90.0, 3.0);
+            self.canvas.round(track, 1.5, p.chip);
+            let part = f32::from(done.min(100)) / 100.0;
+            self.canvas.round(
+                Rect::new(track.x, track.y, track.w * part, 3.0),
+                1.5,
+                p.accent,
+            );
+            right = track.x - 10.0;
+        }
+        let (name_f, detail_f) = (Face::ui(12.5).medium(), Face::ui(12.0));
+        let x = card.x + 29.0;
+        self.text
+            .draw_in_row(&mut self.canvas, &row.name, name_f, x, y, h, p.bright, card);
+        let dx = x + self.text.width(&row.name, name_f) + 9.0;
+        let detail = self.text.fit(&row.detail, detail_f, (right - dx).max(0.0));
+        self.text
+            .draw_in_row(&mut self.canvas, &detail, detail_f, dx, y, h, p.muted, card);
     }
 }

@@ -8,13 +8,21 @@ mod cargo;
 use std::collections::{BTreeMap, BTreeSet};
 
 use merlin_grammar::Grammar;
-use merlin_lsp::{RUST_SERVER, WithLsp};
+use merlin_lsp::{Spec, WithLsp};
 use merlin_plugin::{
     BufferEvent, DebugTarget, Plugin, Task, TaskGroup, TestItem, TestOutcome, TestResult, Token,
     host,
 };
 
 use crate::cargo::{Outcome, TestFile};
+
+const RUST_SERVER: Spec = Spec {
+    program: "rust-analyzer",
+    args: &[],
+    files: &[("rs", "rust")],
+    settings: None,
+    install: Some("rustup component add rust-analyzer"),
+};
 
 merlin_plugin::export!(WithLsp<Rust> => WithLsp::new(Rust::new(), "Rust", &[RUST_SERVER]));
 

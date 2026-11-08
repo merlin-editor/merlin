@@ -42,8 +42,8 @@ pub enum Node {
         tone: Tone,
     },
     /// A row in a tree or list of the editor's own views: a file, a search
-    /// hit, a problem.
-    Entry(Entry),
+    /// hit, a problem. Boxed, as it's much the biggest.
+    Entry(Box<Entry>),
     /// Markdown: headings, lists, quotes, code blocks.
     Markdown(String),
     /// A text field. A secret one shows dots instead of the text.
@@ -80,6 +80,12 @@ pub enum Node {
     },
 }
 
+impl Node {
+    pub fn entry(entry: Entry) -> Node {
+        Node::Entry(Box::new(entry))
+    }
+}
+
 /// A checkbox: ticked, not, or some of what it's for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Check {
@@ -112,6 +118,9 @@ pub struct Entry {
     /// A folder's open or closed arrow.
     pub twisty: Option<char>,
     pub icon: Option<(char, Hue)>,
+    /// Letters on a tile in place of the icon, in its colour, as a
+    /// plugin's.
+    pub monogram: Option<String>,
     /// Dimmed text after the label, such as the folder a file is in.
     pub detail: String,
     /// At the right edge: a count or a git letter.

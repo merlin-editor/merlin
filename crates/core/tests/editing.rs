@@ -355,8 +355,21 @@ fn a_closing_bracket_alone_on_a_line_goes_back_a_level() {
 }
 
 #[test]
-fn enter_after_a_colon_indents_python() {
+fn enter_indents_after_what_the_language_says_opens_a_block() {
     let mut s = Session::new("", Some("a.py"), 60, 10);
+    s.run("type if x:\\npass");
+    assert_eq!(s.text(), "if x:\npass", "no plugin, no rule");
+    let mut s = Session::new("", Some("a.py"), 60, 10);
+    s.send(Event::RegisterLanguages {
+        plugin: "python".into(),
+        languages: vec![merlin_core::lang::Language {
+            id: "python".into(),
+            name: "Python".into(),
+            extensions: vec!["py".into()],
+            indent_after: vec![":".into()],
+            ..Default::default()
+        }],
+    });
     s.run("type if x:\\npass");
     assert_eq!(s.text(), "if x:\n    pass");
 }

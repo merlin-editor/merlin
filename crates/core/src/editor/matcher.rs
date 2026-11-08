@@ -1,13 +1,15 @@
 //! Problems from a task's output, as VS Code's problem matchers find them:
-//! rustc's and cargo's, the `path:line:col: message` most compilers and
-//! linters print, TypeScript's `path(line,col)`, and Python's tracebacks.
-//! Each task's go in with the language servers' problems, under the task,
-//! and its next run replaces them.
+//! the matchers language plugins bring, such as rustc's or Python's
+//! tracebacks, then the `path:line:col: message` most compilers and
+//! linters print. Each task's go in with the language servers' problems,
+//! under the task, and its next run replaces them.
 
 use std::path::PathBuf;
 
+use regex::Captures;
+
 use super::Editor;
-use crate::lang::{Diagnostic, Severity};
+use crate::lang::{Diagnostic, MatcherLine, ProblemMatcher, Severity};
 
 /// What problems from a task are kept under, by its name.
 fn key(task: &str) -> String {
@@ -24,6 +26,8 @@ pub struct Found {
     pub severity: Severity,
     pub message: String,
     pub code: String,
+    /// A page about its code, if the matcher knows one.
+    pub link: String,
 }
 
 /// A path as a tool prints it, if it looks like one: no spaces, a file
@@ -66,101 +70,118 @@ fn located(s: &str) -> Option<(PathBuf, u32, u32, &str)> {
     Some((path, line.max(1) - 1, column.max(1) - 1, rest))
 }
 
-/// rustc's header: `error[E0308]: mismatched types`.
-fn rust_header(line: &str) -> Option<(Severity, String, String)> {
-    let (head, message) = line.split_once(": ")?;
-    let (word, code) = match head.split_once('[') {
-        Some((w, c)) => (w, c.strip_suffix(']')?.to_string()),
-        None => (head, String::new()),
-    };
-    let severity = match word {
-        "error" => Severity::Error,
-        "warning" => Severity::Warning,
-        _ => return None,
-    };
-    Some((severity, code, message.trim().to_string()))
+/// What a plugin's matcher has read of a problem so far.
+#[derive(Default)]
+struct Partial {
+    file: Option<String>,
+    line: Option<String>,
+    column: Option<String>,
+    severity: Option<String>,
+    code: Option<String>,
+    message: Option<String>,
 }
 
-/// Every problem in a task's output, in the order printed.
-pub fn problems(text: &str) -> Vec<Found> {
-    let lines: Vec<&str> = text.lines().collect();
+impl Partial {
+    fn take(&mut self, line: &MatcherLine, caps: &Captures) {
+        let group = |i: Option<usize>| {
+            i.and_then(|i| caps.get(i))
+                .map(|m| m.as_str().trim().to_string())
+        };
+        let parts = [
+            (&mut self.file, line.file),
+            (&mut self.line, line.line),
+            (&mut self.column, line.column),
+            (&mut self.severity, line.severity),
+            (&mut self.code, line.code),
+            (&mut self.message, line.message),
+        ];
+        for (part, i) in parts {
+            if let Some(text) = group(i) {
+                *part = Some(text);
+            }
+        }
+    }
+
+    /// The problem, if it says where.
+    fn finish(self, link: Option<&str>) -> Option<Found> {
+        let path = path_of(self.file.as_deref()?)?;
+        let line: u32 = self.line?.parse().ok()?;
+        let column: u32 = self.column.and_then(|c| c.parse().ok()).unwrap_or(1);
+        let code = self.code.unwrap_or_default();
+        Some(Found {
+            path,
+            line: line.max(1) - 1,
+            column: column.max(1) - 1,
+            severity: self
+                .severity
+                .and_then(|w| severity_of(&w))
+                .unwrap_or(Severity::Error),
+            message: self.message.unwrap_or_default(),
+            link: match link {
+                Some(link) if !code.is_empty() => link.replace("{code}", &code),
+                _ => String::new(),
+            },
+            code,
+        })
+    }
+}
+
+/// Reads `line` with a plugin's matcher, `at` how far it is: whether the
+/// line was the matcher's, and a problem when it's the last of one.
+fn step(
+    matcher: &ProblemMatcher,
+    line: &str,
+    at: &mut Option<(usize, Partial)>,
+    found: &mut Vec<Found>,
+) -> bool {
+    let link = matcher.link.as_deref();
+    if let Some((next, partial)) = at
+        && let Some(caps) = matcher.lines[*next].regex.captures(line)
+    {
+        partial.take(&matcher.lines[*next], &caps);
+        *next += 1;
+        if *next == matcher.lines.len()
+            && let Some((_, partial)) = at.take()
+        {
+            found.extend(partial.finish(link));
+        }
+        return true;
+    }
+    // A first line starts again, as a traceback's next frame does.
+    if let Some(first) = matcher.lines.first()
+        && let Some(caps) = first.regex.captures(line)
+    {
+        let mut partial = Partial::default();
+        partial.take(first, &caps);
+        *at = None;
+        match matcher.lines.len() {
+            1 => found.extend(partial.finish(link)),
+            _ => *at = Some((1, partial)),
+        }
+        return true;
+    }
+    if at.is_some() && matcher.between.as_ref().is_some_and(|b| b.is_match(line)) {
+        return true;
+    }
+    *at = None;
+    false
+}
+
+/// Every problem in a task's output, in the order printed: the plugins'
+/// matchers' first, and the line most tools print for the rest.
+pub fn problems(text: &str, matchers: &[&ProblemMatcher]) -> Vec<Found> {
     let mut found = Vec::new();
-    let mut header: Option<(Severity, String, String)> = None;
-    // A Python traceback's last frame in the project, waiting for its
-    // exception's line.
-    let mut frame: Option<(PathBuf, u32)> = None;
-    for (i, raw) in lines.iter().enumerate() {
+    let mut progress: Vec<Option<(usize, Partial)>> = matchers.iter().map(|_| None).collect();
+    for (i, raw) in text.lines().enumerate() {
         let line = raw.trim_end();
-        // rustc: the header, then `  --> path:line:col` under it.
-        if let Some(h) = rust_header(line) {
-            header = Some(h);
+        let mut theirs = false;
+        for (matcher, at) in matchers.iter().zip(&mut progress) {
+            theirs |= step(matcher, line, at, &mut found);
+        }
+        if theirs {
             continue;
         }
-        if let Some(at) = line.trim_start().strip_prefix("--> ") {
-            if let (Some((severity, code, message)), Some((path, l, c, _))) =
-                (header.take(), located(at))
-            {
-                found.push(Found {
-                    path,
-                    line: l,
-                    column: c,
-                    severity,
-                    message,
-                    code,
-                });
-            }
-            continue;
-        }
-        // Python: `  File "app/x.py", line 3, in main`.
-        if let Some(rest) = line.trim_start().strip_prefix("File \"")
-            && let Some((path, rest)) = rest.split_once("\", line ")
-        {
-            let n: String = rest.chars().take_while(char::is_ascii_digit).collect();
-            if let (Some(path), Ok(n)) = (path_of(path), n.parse::<u32>()) {
-                // The project's own files, not the libraries'.
-                if path.is_relative() {
-                    frame = Some((path, n.max(1) - 1));
-                }
-            }
-            continue;
-        }
-        if let Some((path, l)) = &frame
-            && !line.starts_with(' ')
-            && !line.is_empty()
-            && !line.starts_with("Traceback")
-        {
-            found.push(Found {
-                path: path.clone(),
-                line: *l,
-                column: 0,
-                severity: Severity::Error,
-                message: line.to_string(),
-                code: String::new(),
-            });
-            frame = None;
-            continue;
-        }
-        // TypeScript: `src/a.ts(3,5): error TS2322: message`.
-        if let Some((path, rest)) = line.split_once('(')
-            && let Some((at, rest)) = rest.split_once("): ")
-            && let Some((l, c)) = at.split_once(',')
-            && let (Some(path), Ok(l), Ok(c)) = (path_of(path), l.parse::<u32>(), c.parse::<u32>())
-        {
-            let (word, message) = rest.split_once(": ").unwrap_or(("error", rest));
-            let (word, code) = word.split_once(' ').unwrap_or((word, ""));
-            if let Some(severity) = severity_of(word) {
-                found.push(Found {
-                    path,
-                    line: l.max(1) - 1,
-                    column: c.max(1) - 1,
-                    severity,
-                    message: message.trim().to_string(),
-                    code: code.to_string(),
-                });
-            }
-            continue;
-        }
-        // Most others: `path:line:col: error: message`, or with no word,
+        // Most tools: `path:line:col: error: message`, or with no word,
         // an error, as linters often print.
         if let Some((path, l, c, rest)) = located(line.trim_start()) {
             let rest = rest.trim();
@@ -185,6 +206,7 @@ pub fn problems(text: &str) -> Vec<Found> {
                 severity,
                 message: message.to_string(),
                 code: String::new(),
+                link: String::new(),
             });
         }
     }
@@ -226,7 +248,9 @@ impl Editor {
             .collect();
         self.diagnostics.retain(|(k, _), _| *k != key);
         let mut by_path: Vec<(PathBuf, Vec<Diagnostic>)> = Vec::new();
-        for f in problems(text) {
+        let matchers: Vec<&ProblemMatcher> =
+            self.problem_matchers.iter().map(|(_, m)| m).collect();
+        for f in problems(text, &matchers) {
             let first = f.message.lines().next().unwrap_or_default();
             let shown_already = self.diagnostics.iter().any(|((k, p), list)| {
                 !k.starts_with("task:")
@@ -238,11 +262,6 @@ impl Editor {
             if shown_already {
                 continue;
             }
-            let link = if f.code.starts_with('E') && f.code.len() == 5 {
-                format!("https://doc.rust-lang.org/error_codes/{}.html", f.code)
-            } else {
-                String::new()
-            };
             let d = Diagnostic {
                 start: (f.line, f.column),
                 end: (f.line, f.column + 1),
@@ -250,7 +269,7 @@ impl Editor {
                 message: f.message,
                 source: task.to_string(),
                 code: f.code,
-                link,
+                link: f.link,
             };
             match by_path.iter_mut().find(|(p, _)| *p == f.path) {
                 Some((_, list)) => list.push(d),
@@ -274,8 +293,39 @@ impl Editor {
 mod tests {
     use super::*;
 
+    fn line(regex: &str, groups: [Option<usize>; 6]) -> MatcherLine {
+        let [file, line, column, severity, code, message] = groups;
+        MatcherLine {
+            regex: regex::Regex::new(regex).unwrap(),
+            file,
+            line,
+            column,
+            severity,
+            code,
+            message,
+        }
+    }
+
+    /// rustc's, as the Rust plugin has it.
+    fn rustc() -> ProblemMatcher {
+        ProblemMatcher {
+            lines: vec![
+                line(
+                    r"^(error|warning)(?:\[(E\d{4})\])?: (.+)$",
+                    [None, None, None, Some(1), Some(2), Some(3)],
+                ),
+                line(
+                    r"^\s*--> (.+):(\d+):(\d+)$",
+                    [Some(1), Some(2), Some(3), None, None, None],
+                ),
+            ],
+            between: None,
+            link: Some("https://doc.rust-lang.org/error_codes/{code}.html".into()),
+        }
+    }
+
     #[test]
-    fn rustc_says_where_under_its_header() {
+    fn a_plugins_matcher_reads_its_lines_in_turn() {
         let out = "   Compiling app v0.1.0\n\
 error[E0308]: mismatched types\n \
  --> src/main.rs:5:23\n  \
@@ -284,13 +334,47 @@ error[E0308]: mismatched types\n \
 warning: unused variable: `x`\n \
  --> src/lib.rs:3:9\n\
 error: could not compile `app` (bin \"app\") due to 1 previous error\n";
-        let found = problems(out);
-        assert_eq!(found.len(), 2);
+        let found = problems(out, &[&rustc()]);
+        assert_eq!(found.len(), 2, "{found:?}");
         assert_eq!(found[0].path, PathBuf::from("src/main.rs"));
         assert_eq!((found[0].line, found[0].column), (4, 22));
         assert_eq!(found[0].code, "E0308");
         assert_eq!(found[0].message, "mismatched types");
+        assert_eq!(
+            found[0].link,
+            "https://doc.rust-lang.org/error_codes/E0308.html"
+        );
         assert_eq!(found[1].severity, Severity::Warning);
+        assert_eq!(found[1].link, "", "no code, no link");
+        assert!(problems(out, &[]).is_empty(), "without the plugin");
+    }
+
+    #[test]
+    fn what_comes_between_lines_waits_and_a_first_line_starts_again() {
+        let traceback = ProblemMatcher {
+            lines: vec![
+                line(
+                    r#"^\s*File "([^/"][^"]*)", line (\d+)"#,
+                    [Some(1), Some(2), None, None, None, None],
+                ),
+                line(
+                    r"^[A-Za-z_][\w.]*(?:: .*)?$",
+                    [None, None, None, None, None, Some(0)],
+                ),
+            ],
+            between: Some(regex::Regex::new(r"^\s").unwrap()),
+            link: None,
+        };
+        let out = "Traceback (most recent call last):\n  \
+File \"app/main.py\", line 9, in <module>\n    main()\n  \
+File \"app/main.py\", line 4, in main\n    print(nme)\n  \
+File \"/usr/lib/python3/x.py\", line 1, in f\n\
+NameError: name 'nme' is not defined\n";
+        let found = problems(out, &[&traceback]);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].path, PathBuf::from("app/main.py"));
+        assert_eq!(found[0].line, 3);
+        assert_eq!(found[0].message, "NameError: name 'nme' is not defined");
     }
 
     #[test]
@@ -299,35 +383,13 @@ error: could not compile `app` (bin \"app\") due to 1 previous error\n";
 main.c:3:1: warning: unused function 'f'\n\
 pkg/x.go:7:2: undefined: foo\n\
 See https://example.com:443/x for more\n";
-        let found = problems(out);
+        let found = problems(out, &[]);
         assert_eq!(found.len(), 3, "{found:?}");
         assert_eq!(found[0].severity, Severity::Error);
         assert_eq!(found[0].message, "expected ';' before 'return'");
         assert_eq!(found[1].severity, Severity::Warning);
         assert_eq!(found[2].path, PathBuf::from("pkg/x.go"));
         assert_eq!(found[2].message, "undefined: foo");
-    }
-
-    #[test]
-    fn typescript_puts_the_place_in_brackets() {
-        let found = problems("src/a.ts(3,5): error TS2322: Type 'string' is not 'number'.\n");
-        assert_eq!(found.len(), 1);
-        assert_eq!((found[0].line, found[0].column), (2, 4));
-        assert_eq!(found[0].code, "TS2322");
-    }
-
-    #[test]
-    fn a_python_traceback_points_at_the_projects_last_frame() {
-        let out = "Traceback (most recent call last):\n  \
-File \"app/main.py\", line 9, in <module>\n    main()\n  \
-File \"app/main.py\", line 4, in main\n    print(nme)\n  \
-File \"/usr/lib/python3/x.py\", line 1, in f\n\
-NameError: name 'nme' is not defined\n";
-        let found = problems(out);
-        assert_eq!(found.len(), 1);
-        assert_eq!(found[0].path, PathBuf::from("app/main.py"));
-        assert_eq!(found[0].line, 3);
-        assert_eq!(found[0].message, "NameError: name 'nme' is not defined");
     }
 
     #[test]
@@ -340,7 +402,11 @@ NameError: name 'nme' is not defined\n";
     #[test]
     fn plain_output_finds_nothing() {
         assert!(
-            problems("   Finished `dev` profile in 0.1s\nhello: world\n12:30 done\n").is_empty()
+            problems(
+                "   Finished `dev` profile in 0.1s\nhello: world\n12:30 done\n",
+                &[&rustc()]
+            )
+            .is_empty()
         );
     }
 }

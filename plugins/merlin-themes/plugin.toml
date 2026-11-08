@@ -3,6 +3,8 @@
 name = "merlin-themes"
 title = "merlin Themes"
 description = "Dark and light colour themes"
+badge = "TH"
+hue = "purple"
 api = "0.9"
 
 [[themes]]

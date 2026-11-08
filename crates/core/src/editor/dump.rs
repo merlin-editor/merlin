@@ -140,11 +140,18 @@ impl Editor {
             .filter(|s| !s.right)
             .map(|s| s.text.as_str())
             .collect();
-        let right: Vec<&str> = view
+        // The language's { } as its state, and a spinner as ⟳.
+        let right: Vec<String> = view
             .status
             .iter()
             .filter(|s| s.right)
-            .map(|s| s.text.as_str())
+            .map(|s| match s.mark {
+                Some(super::StatusMark::Braces(state)) => {
+                    format!("{{{}}} {}", format!("{state:?}").to_lowercase(), s.text)
+                }
+                Some(super::StatusMark::Spinner) => format!("⟳ {}", s.text),
+                None => s.text.clone(),
+            })
             .collect();
         let problem = view
             .problem
@@ -157,6 +164,26 @@ impl Editor {
             left.join("  "),
             right.join("   ")
         );
+        if let Some(card) = &view.language_card {
+            let _ = writeln!(o, "language card: {} · {}", card.title, card.from);
+            for row in &card.rows {
+                let state = row
+                    .state
+                    .map_or("·".to_string(), |s| format!("{s:?}").to_lowercase());
+                let more: String = [
+                    row.progress.map(|p| format!(" {p}%")),
+                    row.button.as_ref().map(|(b, _)| format!(" [{b}]")),
+                    row.link.as_ref().map(|l| format!(" <{l}>")),
+                ]
+                .into_iter()
+                .flatten()
+                .collect();
+                let _ = writeln!(o, "  {state} {}: {}{more}", row.name, row.detail);
+                if let Some(hint) = &row.hint {
+                    let _ = writeln!(o, "    {hint} [Copy]");
+                }
+            }
+        }
         if let Some(toast) = &view.toast {
             let kind = if toast.error { "error" } else { "notice" };
             let buttons: String = toast.buttons.iter().map(|b| format!(" [{b}]")).collect();

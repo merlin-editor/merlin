@@ -161,6 +161,40 @@ pub struct Language {
     pub extensions: Vec<String>,
     pub line_comment: Option<String>,
     pub block_comment: Option<(String, String)>,
+    /// What a line ends with for Enter to indent the next a level more,
+    /// as brackets do: Python's `:`.
+    pub indent_after: Vec<String>,
+    /// What the language calls an exception, such as Rust's `panic`, for
+    /// the card when a run stops on one.
+    pub exception: Option<String>,
+}
+
+/// How a plugin reads problems out of a task's output, as a VS Code
+/// extension's problem matcher does: lines one after another, each a
+/// pattern and which of its groups say what.
+#[derive(Clone, Debug)]
+pub struct ProblemMatcher {
+    pub lines: Vec<MatcherLine>,
+    /// What may come between the lines, such as a traceback's indented
+    /// ones; nothing may without it.
+    pub between: Option<regex::Regex>,
+    /// A page about a problem's code, with `{code}` where it goes.
+    pub link: Option<String>,
+}
+
+/// A line of a [`ProblemMatcher`]: its pattern, and the group with each
+/// part of the problem, 0 for the whole line.
+#[derive(Clone, Debug)]
+pub struct MatcherLine {
+    pub regex: regex::Regex,
+    pub file: Option<usize>,
+    /// From 1, as tools print them.
+    pub line: Option<usize>,
+    pub column: Option<usize>,
+    /// `error`, `warning`, `note` or `info`; an error without it.
+    pub severity: Option<usize>,
+    pub code: Option<usize>,
+    pub message: Option<usize>,
 }
 
 /// Colours, symbols or folds from a plugin, before they're placed: lines
@@ -180,4 +214,32 @@ pub struct PluginSymbol {
     pub start: (u32, u32),
     pub end: (u32, u32),
     pub depth: u32,
+}
+
+/// How something in the language card is doing, worst last.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub enum StatusState {
+    #[default]
+    Ready,
+    Busy,
+    Warning,
+    Error,
+}
+
+/// A line a plugin puts in the language card: a language server and how
+/// it's doing, say.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct StatusLine {
+    pub name: String,
+    pub state: StatusState,
+    pub detail: String,
+    /// How far along it is, from 0 to 100, while busy.
+    pub progress: Option<u8>,
+    /// A command line shown under it, with Copy.
+    pub hint: Option<String>,
+    /// A button's label, and the command it runs in the plugin.
+    pub action: Option<(String, String)>,
+    /// The extensions of the files it's for; empty for every file of the
+    /// plugin's languages.
+    pub extensions: Vec<String>,
 }

@@ -143,6 +143,7 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
     ("merge.accept_all_current", "Merge: Accept All Current"),
     ("merge.complete", "Merge: Complete Merge"),
     ("view.tests", "View: Tests"),
+    ("language.status", "View: Language Status"),
     ("tests.run_all", "Test: Run All Tests"),
     ("tests.run_failed", "Test: Rerun Failed Tests"),
     ("tests.run_file", "Test: Run Tests in Current File"),
@@ -349,6 +350,7 @@ impl Editor {
             }
             "view.problems" => self.show_bottom(views::PROBLEMS),
             "view.hover" => self.hover_at_cursor(fx),
+            "language.status" => self.toggle_language_card(),
             "edit.quick_fix" => self.code_actions(fx),
             "edit.format" => self.format_file(fx),
             "edit.rename" => self.rename(fx),

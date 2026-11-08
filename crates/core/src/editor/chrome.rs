@@ -25,6 +25,8 @@ pub(crate) struct StatusItem {
     pub text: String,
     pub style: Style,
     pub action: Option<Action>,
+    /// The language's { }, or a spinner, before the text.
+    pub mark: Option<super::StatusMark>,
     /// Whether it's one of the cursor and file facts at the right end.
     pub right: bool,
 }
@@ -221,8 +223,15 @@ impl Editor {
                 ),
                 Some(Action::Run("vim.toggle")),
             ),
-            (self.language(), None),
         ];
+        // What a language server is busy with, then the language, which
+        // opens its card.
+        let card = Some(Action::Run("language.status"));
+        let busy = self.language_busy();
+        if let Some(busy) = &busy {
+            right.push((busy.clone(), card.clone()));
+        }
+        right.push((self.language(), card));
         let left_w: usize = left.iter().map(|(t, ..)| str_width(t)).sum();
         // A diagnostic under the cursor needs room more than the encoding.
         let wanted = |r: &[(String, Option<Action>)]| {
@@ -240,14 +249,23 @@ impl Editor {
                 text,
                 style,
                 action,
+                mark: None,
                 right: false,
             });
         }
-        for (text, action) in right {
+        let last = right.len() - 1;
+        let state = self.language_state();
+        for (i, (text, action)) in right.into_iter().enumerate() {
+            let mark = match i {
+                _ if i == last => state.map(super::StatusMark::Braces),
+                _ if busy.as_deref() == Some(text.as_str()) => Some(super::StatusMark::Spinner),
+                _ => None,
+            };
             items.push(StatusItem {
                 text: format!(" {text}  "),
                 style: Style::Status,
                 action,
+                mark,
                 right: true,
             });
         }
@@ -265,7 +283,8 @@ impl Editor {
             .next()
     }
 
-    /// The language of the active file, as the status bar names it.
+    /// The language of the active file, as the status bar names it: as a
+    /// plugin adds it, or Markdown, the one the editor knows itself.
     pub(crate) fn language(&self) -> String {
         if let Some(lang) = self.plugin_language() {
             return lang.name.clone();
@@ -276,25 +295,11 @@ impl Editor {
             .as_ref()
             .map(|r| &r.path)
             .or(doc.buffer.path.as_ref());
-        let name = match path.and_then(|p| p.extension()).and_then(|e| e.to_str()) {
-            Some("md") => "Markdown",
-            Some("rs") => "Rust",
-            Some("py" | "pyi") => "Python",
-            Some("js" | "mjs" | "cjs" | "jsx") => "JavaScript",
-            Some("json") => "JSON",
-            Some("toml") => "TOML",
-            Some("ts" | "tsx") => "TypeScript",
-            Some("go") => "Go",
-            Some("c" | "h") => "C",
-            Some("cc" | "cpp" | "hpp") => "C++",
-            Some("sh") => "Shell",
-            Some("lua") => "Lua",
-            Some("yaml" | "yml") => "YAML",
-            Some("html") => "HTML",
-            Some("css") => "CSS",
+        match path.and_then(|p| p.extension()).and_then(|e| e.to_str()) {
+            Some("md" | "markdown") => "Markdown",
             _ => "Plain Text",
-        };
-        name.into()
+        }
+        .into()
     }
 
     /// Errors and warnings from every plugin, in every file.

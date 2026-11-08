@@ -3,8 +3,24 @@
 //! for bounded memory usage, and Run Task's npm scripts from package.json.
 
 use merlin_grammar::Grammar;
-use merlin_lsp::{JS_SERVER, WithLsp};
+use merlin_lsp::{Spec, WithLsp};
 use merlin_plugin::{BufferEvent, Plugin, Task, TaskGroup, Token, host};
+
+/// typescript-language-server with a bounded tsserver heap.
+const JS_SERVER: Spec = Spec {
+    program: "typescript-language-server",
+    args: &["--stdio"],
+    files: &[
+        ("ts", "typescript"),
+        ("tsx", "typescriptreact"),
+        ("js", "javascript"),
+        ("mjs", "javascript"),
+        ("cjs", "javascript"),
+        ("jsx", "javascriptreact"),
+    ],
+    settings: Some(r#"{"tsserver":{"maxTsServerMemory":512}}"#),
+    install: Some("npm install -g typescript-language-server typescript"),
+};
 
 merlin_plugin::export!(WithLsp<JavaScript> => WithLsp::new(JavaScript::new(), "JavaScript", &[JS_SERVER]));
 

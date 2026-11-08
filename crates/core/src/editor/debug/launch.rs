@@ -220,8 +220,8 @@ impl Editor {
             .collect();
         if items.is_empty() {
             self.notify(
-                "Nothing to debug was found. Open a file whose language plugin finds programs, \
-                 such as a Rust main.rs"
+                "Nothing to debug was found. Open a file whose language plugin finds programs \
+                 to debug, or add one to .merlin/launch.toml"
                     .into(),
             );
             return;

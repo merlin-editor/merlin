@@ -862,8 +862,8 @@ impl Frame<'_> {
     /// and a badge and buttons at the end. Returns where its checkbox,
     /// arrow and buttons are, to click.
     pub(super) fn entry(&mut self, e: &Entry, row: Rect, clip: Rect) -> EntryHits {
-        if let Some(plugin_name) = e.id.strip_prefix("plugin:") {
-            return self.plugin_entry(plugin_name, e, row, clip);
+        if e.id.starts_with("plugin:") {
+            return self.plugin_entry(e, row, clip);
         }
         let p = self.p;
         let mut x = row.x + 8.0 + e.depth as f32 * 14.0;
@@ -1158,17 +1158,19 @@ impl Frame<'_> {
     /// A two-line card for a plugin in the Plugins sidebar: a tinted monogram
     /// badge on the left, bold title and status pill on the first line, and
     /// full-width description on the second line.
-    fn plugin_entry(&mut self, plugin_name: &str, e: &Entry, row: Rect, clip: Rect) -> EntryHits {
+    fn plugin_entry(&mut self, e: &Entry, row: Rect, clip: Rect) -> EntryHits {
         let p = self.p;
         let mid = row.y + row.h / 2.0;
         let tile_size = if self.compact { 28.0 } else { 32.0 };
         let tile = Rect::new(row.x + 8.0, mid - tile_size / 2.0, tile_size, tile_size);
-        let (letters, hue) = plugin_badge(plugin_name, &e.label);
+        let (letters, hue) = match (&e.monogram, e.icon) {
+            (Some(letters), Some((_, hue))) => (letters.clone(), hue),
+            _ => merlin_core::plugin_mark(&e.label, None, None, false),
+        };
         let accent = if e.badge_tone == Tone::Muted {
             p.muted
         } else {
-            e.icon
-                .map_or_else(|| theme::hue(&p, hue), |(_, h)| theme::hue(&p, h))
+            theme::hue(&p, hue)
         };
         self.canvas.round(tile, 7.0, mix(accent, p.island, 0.16));
         let mark_face = Face::ui((tile_size * 0.38).round()).bold();
@@ -1252,36 +1254,6 @@ impl Frame<'_> {
         }
 
         EntryHits::default()
-    }
-}
-
-/// A plugin's two-letter monogram and accent hue for its icon tile.
-pub(in crate::gui) fn plugin_badge(name: &str, title: &str) -> (String, merlin_core::style::Hue) {
-    use merlin_core::style::Hue;
-    match name {
-        "rust" => ("RS".into(), Hue::Orange),
-        "cpp" => ("C+".into(), Hue::Blue),
-        "python" => ("PY".into(), Hue::Cyan),
-        "javascript" => ("JS".into(), Hue::Yellow),
-        "json" => ("{}".into(), Hue::Green),
-        "toml" => ("TM".into(), Hue::Cyan),
-        "catch2" => ("C2".into(), Hue::Green),
-        "dap" => ("DB".into(), Hue::Orange),
-        "merlin-themes" => ("TH".into(), Hue::Purple),
-        "merlin-icons" => ("IC".into(), Hue::Purple),
-        "merlin-layouts" => ("UI".into(), Hue::Purple),
-        _ => {
-            let mut letters: String = title
-                .split_whitespace()
-                .filter_map(|w| w.chars().next())
-                .take(2)
-                .collect::<String>()
-                .to_uppercase();
-            if letters.chars().count() < 2 {
-                letters = title.chars().take(2).collect::<String>().to_uppercase();
-            }
-            (letters, Hue::Blue)
-        }
     }
 }
 

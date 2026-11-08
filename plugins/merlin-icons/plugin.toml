@@ -2,6 +2,8 @@
 name = "merlin-icons"
 title = "merlin Icons"
 description = "File and UI icon themes"
+badge = "IC"
+hue = "purple"
 api = "0.9"
 
 # Icon themes, for Preferences: File Icon Theme.

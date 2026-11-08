@@ -32,6 +32,8 @@ pub enum UiEvent {
     Crumb(usize),
     /// A status bar item, by its index in [`WindowView::status`].
     Status(usize),
+    /// Something in the language card.
+    LanguageCard(super::LanguageCardHit),
     /// A panel's focusable element, by its index among the panel's targets
     /// (see [`SideView::targets`]).
     Target {
@@ -176,6 +178,8 @@ pub struct WindowView {
     pub merge_bar: Option<super::merge_editor::MergeBarView>,
     pub crumbs: Vec<String>,
     pub status: Vec<StatusView>,
+    /// The card the language item opens, while it's open.
+    pub language_card: Option<super::LanguageCardView>,
     /// The problem under the cursor, for the middle of the status bar.
     pub problem: Option<(String, bool)>,
     pub palette: Option<PaletteView>,
@@ -274,6 +278,10 @@ pub struct StatusView {
     pub accent: bool,
     /// Drawn in the error colour, as conflicts left are.
     pub error: bool,
+    /// A mark before its text: the language's { }, or a spinner.
+    pub mark: Option<super::StatusMark>,
+    /// Its card is open.
+    pub open: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -482,6 +490,8 @@ impl Editor {
                 clickable: item.action.is_some(),
                 accent: item.style == crate::style::Style::StatusAccent,
                 error: item.style == crate::style::Style::StatusError,
+                open: self.language_card && item.action == Some(Action::Run("language.status")),
+                mark: item.mark,
             })
             .collect();
         let problem = self.cursor_mark().map(|m| {
@@ -613,6 +623,7 @@ impl Editor {
             merge_bar: self.merge_bar(),
             crumbs,
             status,
+            language_card: self.language_card_view(),
             problem,
             palette,
             toast,
@@ -638,7 +649,12 @@ impl Editor {
     }
 
     pub(crate) fn ui(&mut self, event: UiEvent, fx: &mut Vec<Effect>) {
+        // A click elsewhere puts the language card away.
+        if !matches!(event, UiEvent::LanguageCard(_) | UiEvent::Status(_)) {
+            self.language_card = false;
+        }
         match event {
+            UiEvent::LanguageCard(hit) => self.language_card_click(hit, fx),
             UiEvent::ContextItem(i) => self.context_item(i, fx),
             UiEvent::Hover(button) => self.hover_button(button, fx),
             UiEvent::Action(i) => self.action_clicked(i, fx),

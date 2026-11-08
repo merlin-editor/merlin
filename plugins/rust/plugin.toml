@@ -1,6 +1,8 @@
 name = "rust"
 title = "Rust"
 description = "Syntax, tests, Cargo tasks & rust-analyzer"
+badge = "RS"
+hue = "orange"
 api = "0.9"
 component = "target/wasm32-wasip2/release/rust_language.wasm"
 symbols = "project-symbols"
@@ -20,6 +22,16 @@ name = "Rust"
 extensions = ["rs"]
 line-comment = "//"
 block-comment = ["/*", "*/"]
+exception = "panic"
+
+# rustc's problems in a task's output: `error[E0308]: mismatched types`,
+# then `  --> src/main.rs:5:23` under it.
+[[problem-matchers]]
+lines = [
+    { regex = '^(error|warning)(?:\[(E\d{4})\])?: (.+)$', severity = 1, code = 2, message = 3 },
+    { regex = '^\s*--> (.+):(\d+):(\d+)$', file = 1, line = 2, column = 3 },
+]
+link = "https://doc.rust-lang.org/error_codes/{code}.html"
 
 # Debuggers for Rust, best first; the first one installed is used.
 [[debuggers]]

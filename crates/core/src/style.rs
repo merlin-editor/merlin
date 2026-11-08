@@ -155,6 +155,23 @@ pub enum Hue {
     Link,
 }
 
+impl Hue {
+    /// A colour by the name settings and manifests give it.
+    pub fn named(name: &str) -> Option<Hue> {
+        Some(match name.trim().to_ascii_lowercase().as_str() {
+            "blue" => Hue::Blue,
+            "green" => Hue::Green,
+            "yellow" => Hue::Yellow,
+            "orange" => Hue::Orange,
+            "red" => Hue::Red,
+            "purple" => Hue::Purple,
+            "cyan" => Hue::Cyan,
+            "grey" | "gray" => Hue::Grey,
+            _ => return None,
+        })
+    }
+}
+
 /// Columns a character takes: 0 for combining marks, 2 for wide ones.
 /// Control characters count as 1.
 pub fn char_width(c: char) -> usize {

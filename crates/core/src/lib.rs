@@ -26,14 +26,15 @@ pub mod symbols;
 pub use editor::{
     AutoSave, AutoSaveWhy, Command, ContextItem, ContextView, DialogView, Editor, Effect, Event,
     FORMAT_WAIT_MS, FileConfig, FileOp, FilePick, FindAction, FindView, Focus, FormatOnSave,
-    GitAction, GitMove, HoverButton, KeyBinding, Keymap, LeaderKey, Macro, MacroView, MenuView,
-    MergeBarView, MergeKind, MergeNote, MergePaneView, MergeRow, MergeSide, MergeState, MergeView,
-    MouseKind, Outcome, PaletteExtra, PaletteIcon, PaletteView, PluginSummary, PluginTest,
-    PluginTestResult, Pointer, PopupKind, PopupView, ProblemView, RailItem, SETTINGS_PAGE,
-    SearchHit, Settings, Side, SideView, SignatureView, StatusView, SyncKind, SyncOutcome,
-    SyncState, TabView, Task, TaskGroup, TermOp, TermSession, TerminalView, TextView, ThemeKind,
-    ToastView, UiEvent, UserKey, VimCursor, VimLineItem, VimLineView, VimMode, VimSettings,
-    VimView, When, WhichKeyItem, WhichKeyView, WindowView, Workspace, from_tasks_file,
+    GitAction, GitMove, HoverButton, KeyBinding, Keymap, LanguageCardHit, LanguageCardView,
+    LanguageRowView, LeaderKey, Macro, MacroView, MenuView, MergeBarView, MergeKind, MergeNote,
+    MergePaneView, MergeRow, MergeSide, MergeState, MergeView, MouseKind, Outcome, PaletteExtra,
+    PaletteIcon, PaletteView, PluginSummary, PluginTest, plugin_mark, PluginTestResult, Pointer, PopupKind,
+    PopupView, ProblemView, RailItem, SETTINGS_PAGE, SearchHit, Settings, Side, SideView,
+    SignatureView, StatusMark, StatusView, SyncKind, SyncOutcome, SyncState, TabView, Task,
+    TaskGroup, TermOp, TermSession, TerminalView, TextView, ThemeKind, ToastView, UiEvent, UserKey,
+    VimCursor, VimLineItem, VimLineView, VimMode, VimSettings, VimView, When, WhichKeyItem,
+    WhichKeyView, WindowView, Workspace, from_tasks_file,
 };
 pub use editor::{
     BreakBoxView, BreakField, BreakMark, Breakpoint, BreakpointState, DAP, DebugBarView,

@@ -403,10 +403,10 @@ pub(crate) fn task_id(task: &Task) -> String {
 const EXAMPLE: &str = "\
 # Tasks for Run Task. Each runs in a terminal tab of its own.
 [tasks]
-# lint = \"cargo clippy --all-targets\"
+# lint = \"make lint\"
 
 # A table can say what the task is for: test, build or other.
 # [tasks.watch]
-# command = \"cargo watch -x check\"
+# command = \"make watch\"
 # group = \"build\"
 ";

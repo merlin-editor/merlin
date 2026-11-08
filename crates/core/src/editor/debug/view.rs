@@ -79,7 +79,7 @@ impl Editor {
     pub(crate) fn debug_nodes(&self) -> Vec<Node> {
         let mut nodes = Vec::new();
         let heading = |label: &str| {
-            Node::Entry(Entry {
+            Node::entry(Entry {
                 id: format!("dbg:h:{label}"),
                 label: label.into(),
                 heading: true,
@@ -105,7 +105,7 @@ impl Editor {
                     ready: true,
                 });
                 let target_entry = |t: &DebugTarget| {
-                    Node::Entry(Entry {
+                    Node::entry(Entry {
                         id: format!("dbg:t:{}", t.name),
                         label: t.name.clone(),
                         icon: Some((
@@ -126,7 +126,7 @@ impl Editor {
                     })
                 };
                 if !self.debug.launch.is_empty() || self.debug.launch_error.is_some() {
-                    nodes.push(Node::Entry(Entry {
+                    nodes.push(Node::entry(Entry {
                         id: "dbg:h:launch".into(),
                         label: "From launch.toml".into(),
                         heading: true,
@@ -150,7 +150,7 @@ impl Editor {
                 if targets.is_empty() {
                     nodes.push(Node::Styled(
                         "Nothing yet. Language plugins list what can be debugged when they see \
-                         it, as rust-analyzer does for a crate's binaries."
+                         it, such as a project's programs."
                             .into(),
                         Tone::Muted,
                     ));
@@ -200,7 +200,7 @@ impl Editor {
                     }
                     DebugState::Ended(_) => ("Ended".into(), Tone::Muted),
                 };
-                nodes.push(Node::Entry(Entry {
+                nodes.push(Node::entry(Entry {
                     id: "dbg:session".into(),
                     label: session.start.name.clone(),
                     icon: Some((
@@ -227,7 +227,7 @@ impl Editor {
                         Tone::Muted,
                     )),
                 }
-                nodes.push(Node::Entry(Entry {
+                nodes.push(Node::entry(Entry {
                     id: "dbg:h:watch".into(),
                     label: "Watch".into(),
                     heading: true,
@@ -238,7 +238,7 @@ impl Editor {
                     let open = value.as_ref().is_some_and(|v| {
                         v.children != 0 && self.debug.expanded.contains(&v.children)
                     });
-                    nodes.push(Node::Entry(Entry {
+                    nodes.push(Node::entry(Entry {
                         id: format!("dbg:w:{i}:{}", value.as_ref().map_or(0, |v| v.children)),
                         label: match &value {
                             Some(v) => format!("{expr} = {}", short_value(&v.value)),
@@ -303,7 +303,7 @@ impl Editor {
             } else {
                 String::new()
             };
-            nodes.push(Node::Entry(Entry {
+            nodes.push(Node::entry(Entry {
                 id: format!("dbg:b:{}", b.id),
                 label: file,
                 check: Some(if b.enabled {
@@ -333,7 +333,7 @@ impl Editor {
         if !self.debug.filters.is_empty() {
             nodes.push(heading("Stop on"));
             for f in &self.debug.filters {
-                nodes.push(Node::Entry(Entry {
+                nodes.push(Node::entry(Entry {
                     id: format!("dbg:f:{}", f.id),
                     label: f.label.clone(),
                     check: Some(if f.on {
@@ -367,7 +367,7 @@ impl Editor {
                     multiline: false,
                 });
             }
-            nodes.push(Node::Entry(Entry {
+            nodes.push(Node::entry(Entry {
                 id: format!("dbg:v:{}:{}:{parent}:{}", v.children, nodes.len(), v.name),
                 label: if scope || v.value.is_empty() {
                     v.name.clone()
@@ -385,7 +385,7 @@ impl Editor {
                     Some(children) => {
                         self.variable_nodes(session, children, v.children, depth + 1, nodes)
                     }
-                    None => nodes.push(Node::Entry(Entry {
+                    None => nodes.push(Node::entry(Entry {
                         id: format!("dbg:wait:{}", v.children),
                         label: "…".into(),
                         depth: depth + 1,
@@ -418,7 +418,7 @@ impl Editor {
         for t in &threads {
             let depth = several as usize;
             if several {
-                nodes.push(Node::Entry(Entry {
+                nodes.push(Node::entry(Entry {
                     id: format!("dbg:th:{}", t.id),
                     label: t.name.clone(),
                     icon: Some(('●', if t.paused { Hue::Yellow } else { Hue::Green })),
@@ -446,7 +446,7 @@ impl Editor {
                 if f.library && !unfolded {
                     let run = frames[i..].iter().take_while(|f| f.library).count();
                     if run > 1 {
-                        nodes.push(Node::Entry(Entry {
+                        nodes.push(Node::entry(Entry {
                             id: format!("dbg:lib:{}", t.id),
                             label: format!("{run} frames in libraries"),
                             depth,
@@ -463,7 +463,7 @@ impl Editor {
                     .and_then(|p| p.file_name())
                     .map(|n| format!("{}:{}", n.to_string_lossy(), f.line + 1))
                     .unwrap_or_default();
-                nodes.push(Node::Entry(Entry {
+                nodes.push(Node::entry(Entry {
                     id: format!("dbg:fr:{}:{}", t.id, f.id),
                     label: f.name.clone(),
                     depth,

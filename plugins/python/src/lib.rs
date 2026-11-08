@@ -3,8 +3,18 @@
 //! `diagnosticMode = "openFilesOnly"` for low CPU and memory usage.
 
 use merlin_grammar::Grammar;
-use merlin_lsp::{PYTHON_SERVER, WithLsp};
+use merlin_lsp::{Spec, WithLsp};
 use merlin_plugin::prelude::*;
+
+/// pyright configured to analyze open files only, avoiding whole-workspace
+/// and virtualenv background indexing spikes.
+const PYTHON_SERVER: Spec = Spec {
+    program: "pyright-langserver",
+    args: &["--stdio"],
+    files: &[("py", "python"), ("pyi", "python")],
+    settings: Some(r#"{"python":{"analysis":{"diagnosticMode":"openFilesOnly"}}}"#),
+    install: Some("npm install -g pyright"),
+};
 
 struct Python(Grammar);
 

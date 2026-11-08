@@ -210,6 +210,7 @@ fn the_plugins_view_lists_plugins_and_opens_their_pages() {
         what: "Language servers".into(),
         tag: "runs programs".into(),
         tone: Tone::Warning,
+        mark: ("LA".into(), merlin_core::style::Hue::Blue),
     }]));
     let rail = s.editor.window_view().rail;
     let i = rail
