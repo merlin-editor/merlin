@@ -54,7 +54,7 @@ This document tracks the design and implementation for distributing **Merlin Edi
 
 ---
 
-## 4. One-Line Installer & Updater (Built; Untried Until a Release Exists)
+## 4. One-Line Installer & Updater (Built; Tried Against a Local Release)
 
 - **Script**: `scripts/install.sh`
 - **Command**:
@@ -66,7 +66,7 @@ This document tracks the design and implementation for distributing **Merlin Edi
   - Installs to `~/.local/bin/merlin` (or `$MERLIN_INSTALL_DIR`), and says so if that folder isn't on `$PATH`.
   - Re-running the command acts as an updater: it asks the GitHub Releases API for the latest tag, compares it with `merlin --version` (which prints `merlin v<version>`), and downloads only when they differ.
   - Windows is handled only under a POSIX shell (Git Bash, MSYS2, Cygwin).
-  - It doesn't check the `.sha256` it could download, and installs only the binary (section 9, A4).
+  - It checks the archive against the release's `.sha256` (with `sha256sum` or `shasum`) and installs nothing on a mismatch. It puts the archive's `plugins/` in `$XDG_DATA_HOME/merlin/bundled/` (`~/.local/share/merlin/bundled/`), where merlin finds the plugins that come with it. `MERLIN_RELEASE_URL` takes the archives from elsewhere, to try a release before publishing it.
 
 ---
 
@@ -243,10 +243,16 @@ would install, and it updates from the registry like any other.
 - Tests: first run installs all; uninstall then restart leaves it gone; an
   older bundled version doesn't downgrade a newer one from Browse.
 
-**A4. `install.sh` checks what it downloads.** Verify the archive against its
-`.sha256` (`sha256sum` or `shasum -a 256`), and refuse on a mismatch. Unpack
-`plugins/` into `~/.local/share/merlin/bundled/`. Try it against the draft
-release before publishing.
+**A4. `install.sh` checks what it downloads (done).** It verifies the archive
+against its `.sha256` and refuses a mismatch, and puts `plugins/` in
+`~/.local/share/merlin/bundled/`. It also compares `merlin --version` exactly,
+so `v0.1.0` no longer counts as up to date for `v0.1.01`. Tried on 2026-11-09
+with archives built as `ci.yml` builds them, served with
+`MERLIN_RELEASE_URL=file://…`: it installed, merlin then installed all 13
+plugins from there, and a tampered archive was refused. Not tried: macOS,
+Git Bash on Windows, and a real draft release (step 6 of A5). On Windows,
+merlin.exe finds its data folder from `HOME`, which may not be set outside
+Git Bash.
 
 **A5. A release checklist**, as `docs/releasing.md`:
 1. CI green on `main`.
