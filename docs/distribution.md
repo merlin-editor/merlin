@@ -254,14 +254,15 @@ Git Bash on Windows, and a real draft release (step 6 of A5). On Windows,
 merlin.exe finds its data folder from `HOME`, which may not be set outside
 Git Bash.
 
-**A5. A release checklist**, as `docs/releasing.md`:
-1. CI green on `main`.
-2. Bump `version` in the root `Cargo.toml`, and write the release notes.
-3. If the API or plugins changed: the registry PR (A3), merged and published.
-4. If the API changed: `sdk-v<api>` first, and wait for crates.io.
-5. Tag `v<version>` and push it. Check the draft has 5 archives, each with
-   `plugins/`.
-6. Try `install.sh` against the draft, then publish it.
+**A5. A release checklist (done).** [releasing.md](releasing.md) gives the
+order: check, version, SDK if the API changed, the registry if plugins
+changed, tag, try the draft with `install.sh`, publish. It also covers
+undoing a bad tag or draft. `scripts/release-check.sh <version>` checks the
+preconditions and changes nothing: a clean tree at `origin/main`, the
+workspace version, a free tag, CI passed, the SDK on crates.io, and every
+plugin of merlin's own in the registry at its current version for this API,
+built from unchanged source. On 2026-11-09 it passed everything for 0.1.0
+except CI, which was still running, and the uncommitted script itself.
 
 **Decide**, *macOS and Windows signing*: unsigned binaries work through
 `install.sh` (curl sets no quarantine flag), but a `.zip` downloaded in a
