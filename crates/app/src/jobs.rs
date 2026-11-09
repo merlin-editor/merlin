@@ -33,11 +33,13 @@ pub(crate) enum Lane {
     Git,
     /// The system's file dialogs, which wait on the user.
     Ask,
+    /// The plugin registries: their indexes, and downloads.
+    Net,
 }
 
 pub(crate) struct Jobs {
     /// One sender per lane; none when jobs run as they're asked for.
-    lanes: Option<[Sender<Job>; 4]>,
+    lanes: Option<[Sender<Job>; 5]>,
     done: Receiver<Finish>,
     /// Jobs done at once, for scripts, whose output must be the same
     /// every run.
@@ -68,7 +70,13 @@ impl Jobs {
             tx
         };
         Self {
-            lanes: Some([lane("disk"), lane("scan"), lane("git"), lane("ask")]),
+            lanes: Some([
+                lane("disk"),
+                lane("scan"),
+                lane("git"),
+                lane("ask"),
+                lane("net"),
+            ]),
             done,
             inline: VecDeque::new(),
             pending: 0,

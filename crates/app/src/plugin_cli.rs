@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use merlin_plugins::registry::{self, Loaded, Source};
-use merlin_plugins::{Config, Manifest, Permissions, package};
+use merlin_plugins::{Config, Manifest, package};
 
 use crate::settings;
 
@@ -34,7 +34,7 @@ fn plugins_dir() -> Result<PathBuf> {
 }
 
 /// Fetches a URL over HTTPS, at most `limit` bytes of it.
-fn fetch(url: &str, limit: u64) -> Result<Vec<u8>> {
+pub(crate) fn fetch(url: &str, limit: u64) -> Result<Vec<u8>> {
     let mut response = ureq::get(url)
         .header("User-Agent", concat!("merlin/", env!("CARGO_PKG_VERSION")))
         .call()
@@ -262,7 +262,7 @@ fn from_registry(item: &str, indexes: &[Loaded], plugins: &Path, data: &Path) ->
     }
     if let Some(why) = &version.yanked {
         eprintln!(
-            "Note: {} {} was yanked: {why}",
+            "Note: {} {} was withdrawn by its owners: {why}",
             wanted.name, version.version
         );
     }
@@ -277,7 +277,7 @@ fn why_none(entry: &registry::Entry) -> String {
     let api = merlin_plugins::API_VERSION;
     if entry.versions.iter().any(|v| v.api == api) {
         format!(
-            "{} has no version to install: they're yanked, blocked or pre-releases",
+            "{} has no version to install: they're withdrawn, blocked or pre-releases",
             entry.title
         )
     } else {
@@ -373,7 +373,7 @@ fn update(names: &[String], _usage: &str) -> Result<()> {
                 mine.version, mine.source
             );
         } else if let Some(why) = entry.version(&mine.version).and_then(|v| v.yanked.as_ref()) {
-            eprintln!("{name} {} was yanked: {why}", mine.version);
+            eprintln!("{name} {} was withdrawn by its owners: {why}", mine.version);
         }
         let Some(newest) = entry.newest() else {
             eprintln!("{name}: {}", why_none(entry));
@@ -389,7 +389,7 @@ fn update(names: &[String], _usage: &str) -> Result<()> {
                 "{name} {} asks to do more than {} could:",
                 newest.version, mine.version
             );
-            for (what, _) in more(&allowed, &newest.permissions) {
+            for (what, _) in newest.permissions.beyond(&allowed) {
                 println!("  • {what}");
             }
             println!("  Install it with `merlin plugin install {name}` to allow that.");
@@ -407,16 +407,6 @@ fn update(names: &[String], _usage: &str) -> Result<()> {
         println!("Everything's up to date");
     }
     Ok(())
-}
-
-/// What `wanted` asks for that `allowed` doesn't give, in words.
-fn more(allowed: &Permissions, wanted: &Permissions) -> Vec<(String, bool)> {
-    let had = allowed.described();
-    wanted
-        .described()
-        .into_iter()
-        .filter(|w| !had.contains(w))
-        .collect()
 }
 
 /// `merlin plugin uninstall <name>...`: removes each, and what it was

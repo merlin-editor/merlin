@@ -49,6 +49,7 @@ exact paddings, follow the window's existing helpers (`Frame`, `Canvas`,
 | `PluginSettings.dc.html` | Plugin settings with types and scopes | A plugin's page with Settings first and Allowed and Adds as tabs. Typed rows (choice, chips, segmented, switch, path) with descriptions and keys. The Workspace tab with "Yours: … ↺ Use yours", and a user-only setting greyed. Notices and Log level on every plugin. The `[settings.<key>]` schema and `on-setting-changed`. |
 | `PluginHome.dc.html` | One home for managing plugins | The Plugins side view and its rail icon go; the rail holds plugins' own views. Settings › Plugins with Installed and Browse, a switch on every row, and the switch's menu with Turn Off in This Workspace; the row says "off here" and the page has a banner. The ways in: the palette, the language card, a notice, settings search. |
 | `PluginDocument.dc.html` | A PDF from a plugin: a tiled surface | `[[editors]]` opens `.pdf` in an ordinary tab with the plugin's toolbar (page, zoom, Fit Width) and thumbnails. merlin scrolls and zooms and asks for tiles with `render-tile` on the plugin's own thread; a tile on its way is hatched. The plugin's `set-text-boxes` lets merlin select, copy, Find and give the selection a right-click menu. A corner card, for the mock-up only, shows tiles in view and picture memory against the budget. |
+| `PluginBrowse.dc.html` | Browsing and installing from the registry (two artboards) | Browse beside Installed in Settings › Plugins: every plugin from every source A to Z, each marked ✓ installed, update, or greyed when nothing is built for this merlin. A plugin's page from the signed index with Install and Report, what installing lets it do (outside the sandbox in amber), and its versions with the one Install picks and withdrawn ones struck through. An Install? card only for plugins that leave the sandbox, and progress in the status bar. The second artboard: Updates first in Installed with Update All; an update that wants more (Allow and Update, Skip This Version); a withdrawn version; a blocked plugin turned off and locked; a list that can't be reached, fails its signature or has expired; a plugin not built for this API; a linked plugin; the same name in two sources; the Versions tab; and the CLI it shares code with. |
 
 `Hover.dc.html`, `Format.dc.html` and `Rename.dc.html` came later, and
 the user approved them on 2026-11-05 too, as they did `GitSync.dc.html`,
@@ -77,3 +78,8 @@ made on 2026-11-08 from `docs/plugin-research.md`, and wait for review.
 
 The six `Plugin*.dc.html` artboards were approved on 2026-11-08 and are being
 built in the order in `docs/plugin-research.md`.
+
+`PluginBrowse.dc.html` was made on 2026-11-09 for phase 4 of
+`docs/plugin-registry.md`, approved the same day ("Looks great"), and built.
+The mock-up's "Use the network" permission doesn't exist; pages list the
+permissions the manifest has.

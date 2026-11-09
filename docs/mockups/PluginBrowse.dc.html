@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Browse the plugin registry</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#08090a}
+.board{width:1620px;display:flex;background:#08090a;font-family:Inter,sans-serif}
+.board+.board{margin-top:40px}
+.w{width:1280px;height:800px;background:#0f1012;color:#d4d5da;display:flex;flex-direction:column;font-size:13px;overflow:hidden;position:relative;flex-shrink:0}
+.notes{flex:1;padding:28px 24px;display:flex;flex-direction:column;gap:16px;color:#8e9099;font-size:12.5px;line-height:1.5;min-width:0}
+.notes h3{margin:0 0 4px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#7c9cff}
+.notes b{color:#d4d5da;font-weight:600}
+.notes p{margin:0}
+.bar{height:40px;display:flex;align-items:center;gap:10px;padding:0 12px;flex-shrink:0}
+.logo{width:20px;height:20px;border-radius:5px;background:#7c9cff;color:#0f1012;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
+.search{margin:0 auto;width:400px;height:26px;border-radius:7px;background:#1c1d21;border:1px solid #2c2d33;color:#8e9099;display:flex;align-items:center;gap:8px;padding:0 10px;font-size:12.5px;box-sizing:border-box}
+.kbd{font-size:11px;background:#26272c;border-radius:4px;padding:1px 6px;color:#b4b6bd}
+.mid{flex:1;display:flex;gap:6px;padding-right:6px;min-height:0}
+.rail{width:44px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:6px;padding-top:6px}
+.ri{width:30px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:#7a7d86;font-size:14px}
+.island{background:#17181b;border-radius:10px;display:flex;flex-direction:column;min-width:0;overflow:hidden;position:relative}
+.tabs{height:32px;display:flex;align-items:center;gap:3px;padding:0 6px;flex-shrink:0}
+.tab{height:24px;padding:0 10px;border-radius:6px;display:flex;align-items:center;gap:6px;color:#8e9099;font-size:12.5px;white-space:nowrap}
+.tab.on{background:#26272c;color:#eef0f3;box-shadow:inset 0 0 0 1px #2c2d33}
+.ic{width:14px;height:14px;border-radius:3px;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;background:#3a2a1e;color:#f5a97f;flex-shrink:0}
+.split{flex:1;display:flex;min-height:0}
+.nav{width:176px;padding:12px 8px;display:flex;flex-direction:column;gap:2px;flex-shrink:0}
+.nv{height:30px;display:flex;align-items:center;gap:10px;padding:0 10px;border-radius:6px;font-size:13px;color:#b4b6bd}
+.nv.on{background:#26272c;color:#eef0f3}
+.nv .c{margin-left:auto;font-size:11px;color:#8e9099}
+.nv .dot{margin-left:auto;font-size:10.5px;font-weight:600;background:#2c3a5e;color:#c8d4ff;border-radius:8px;padding:0 6px;height:16px;display:flex;align-items:center}
+.body{flex:1;overflow:hidden;padding:14px 22px 0 18px;min-width:0;display:flex;flex-direction:column;position:relative}
+.find{height:32px;border:1px solid #2c2d33;border-radius:7px;background:#1f2024;display:flex;align-items:center;gap:8px;padding:0 10px;font-size:13px;color:#8e9099;box-sizing:border-box;flex-shrink:0}
+.scope{display:flex;gap:18px;font-size:12.5px;margin-top:12px;border-bottom:1px solid #222328;flex-shrink:0}
+.scope span{padding-bottom:8px;color:#8e9099}
+.scope span.on{color:#eef0f3;box-shadow:inset 0 -2px 0 #7c9cff}
+.cols{flex:1;display:flex;min-height:0;margin-top:12px}
+.plist{width:300px;flex-shrink:0;padding-right:10px;border-right:1px solid #222328;display:flex;flex-direction:column;gap:2px}
+.lt{display:flex;gap:20px;margin-bottom:10px;border-bottom:1px solid #222328;padding-left:4px}
+.lt span{height:28px;display:flex;align-items:center;gap:5px;font-size:12.5px;color:#8e9099}
+.lt span.on{color:#eef0f3;box-shadow:inset 0 -2px 0 #7c9cff}
+.lt .n{font-size:11px;color:#7a7d86}
+.lfind{height:30px;border:1px solid #2c2d33;border-radius:6px;background:#1a1b1e;display:flex;align-items:center;padding:0 10px;font-size:12px;color:#7a7d86;margin-bottom:6px;gap:8px}
+.lfind.typing{border-color:#3d4d7a;color:#eef0f3}
+.src{display:flex;align-items:center;gap:6px;font-size:11px;color:#7a7d86;padding:0 4px 6px}
+.src .r{margin-left:auto;color:#7c9cff}
+.gh{font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#7a7d86;padding:8px 10px 4px;display:flex;align-items:center}
+.gh .more{margin-left:auto;text-transform:none;letter-spacing:0;font-weight:500;color:#7c9cff;font-size:11.5px}
+.pi{height:44px;display:flex;align-items:center;gap:10px;padding:0 10px;border-radius:6px;flex-shrink:0}
+.pi.on{background:#26272c}
+.pi.dim .pn,.pi.dim .pico{opacity:.5}
+.pn{font-size:12.5px;color:#eef0f3;line-height:1.3;min-width:0}
+.pn div{font-size:11px;color:#8e9099;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pm{margin-left:auto;display:flex;align-items:center;gap:8px;flex-shrink:0}
+.pico{width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0}
+.sw{width:30px;height:18px;border-radius:9px;background:#2c2d33;position:relative;flex-shrink:0}
+.sw::after{content:"";position:absolute;left:3px;top:3px;width:12px;height:12px;border-radius:50%;background:#8e9099}
+.sw.on{background:#7c9cff}
+.sw.on::after{left:15px;background:#0f1012}
+.sw.lock{opacity:.4}
+.chip{font-size:10.5px;border-radius:4px;padding:1px 6px;font-weight:500;background:#24252a;color:#8e9099;white-space:nowrap}
+.chip.a{background:#2e2618;color:#e6b45c}
+.chip.b{background:#1f2638;color:#9ab0ff}
+.chip.g{background:#1b2a20;color:#7cc48a}
+.chip.r{background:#33191a;color:#f0807a}
+.page{flex:1;padding:0 0 0 18px;min-width:0;color:#8e9099;font-size:12.5px;display:flex;flex-direction:column;position:relative}
+.ph{display:flex;align-items:center;gap:12px}
+.ph .big{width:38px;height:38px;border-radius:9px;font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.ph .t1{font-size:16px;font-weight:600;color:#eef0f3}
+.ph .t2{font-size:11.5px;color:#8e9099;margin-top:2px}
+.ph .t2 a{color:#7c9cff;text-decoration:none}
+.btn{height:28px;border-radius:6px;padding:0 12px;font-size:12.5px;display:inline-flex;align-items:center;gap:6px;border:1px solid #2c2d33;background:#1f2024;color:#d4d5da;white-space:nowrap;box-sizing:border-box;font-family:Inter,sans-serif}
+.btn.p{background:#7c9cff;border-color:#7c9cff;color:#0f1012;font-weight:600}
+.btn.q{border-color:transparent;background:transparent;color:#8e9099;padding:0 6px}
+.btn.sm{height:24px;font-size:12px;padding:0 9px}
+.desc{margin:14px 0 0;color:#b4b6bd;line-height:1.55;font-size:13px;max-width:620px}
+.sec{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#8e9099;margin:20px 0 6px;display:flex;align-items:center;gap:8px}
+.perm{display:flex;align-items:center;gap:9px;font-size:12.5px;min-height:26px;color:#d4d5da}
+.perm .i{width:16px;text-align:center;flex-shrink:0}
+.perm .ok{color:#7cc48a}
+.perm .warn{color:#e6b45c}
+.perm .no{color:#5a5c63}
+.perm .s{color:#7a7d86;font-size:11.5px;margin-left:4px}
+.key{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#b4b6bd;background:#202126;border-radius:4px;padding:0 5px}
+.vt{width:100%;border-collapse:collapse;font-size:12px;max-width:620px}
+.vt td{height:28px;border-bottom:1px solid #222328;color:#b4b6bd;padding-right:14px;white-space:nowrap}
+.vt td:last-child{padding-right:0;text-align:right;width:100%}
+.vt tr.dim td{color:#5a5c63}
+.vt .v{font-family:'JetBrains Mono',monospace;color:#eef0f3}
+.vt tr.dim .v{color:#5a5c63}
+.vt s{color:#7a7d86}
+.banner{border-radius:8px;padding:10px 12px;display:flex;align-items:center;gap:10px;font-size:12.5px;line-height:1.45}
+.banner.a{border:1px solid #3a3320;background:#221f16;color:#e6d4a8}
+.banner.r{border:1px solid #4a2526;background:#251516;color:#f2c3c0}
+.banner.b{border:1px solid #2c3a5e;background:#171c2a;color:#c8d4ff}
+.banner.n{border:1px solid #2c2d33;background:#1a1b1e;color:#b4b6bd}
+.banner .acts{margin-left:auto;display:flex;gap:6px;flex-shrink:0}
+.card{position:absolute;background:#1c1d21;border:1px solid #2c2d33;border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.55);padding:14px 16px;box-sizing:border-box}
+.card h4{margin:0;font-size:13.5px;color:#eef0f3;font-weight:600}
+.card .sub{font-size:12px;color:#8e9099;margin:4px 0 8px;line-height:1.45}
+.card .acts{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
+.status{height:24px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px;color:#8e9099;flex-shrink:0}
+.status .prog{display:flex;align-items:center;gap:8px;color:#c8d4ff}
+.pbar{width:80px;height:4px;border-radius:2px;background:#26272c;overflow:hidden}
+.pbar i{display:block;height:100%;width:42%;background:#7c9cff}
+.tag{position:absolute;font-size:10.5px;font-weight:700;color:#0f1012;background:#7c9cff;border-radius:50%;width:18px;height:18px;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 3px #0f1012}
+/* the states board */
+.grid{width:1620px;display:grid;grid-template-columns:repeat(3,1fr);gap:20px;font-family:Inter,sans-serif}
+.st{background:#0f1012;border-radius:10px;padding:16px;color:#d4d5da;font-size:13px;display:flex;flex-direction:column;gap:10px;min-height:330px;box-sizing:border-box;position:relative}
+.st h2{margin:0;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#7c9cff}
+.st .say{font-size:12px;color:#8e9099;line-height:1.5;margin:0}
+.st .say b{color:#d4d5da;font-weight:600}
+.mini{background:#17181b;border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:2px}
+.notice{background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;padding:10px 12px;font-size:12.5px;display:flex;flex-direction:column;gap:8px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
+.notice .h{display:flex;gap:8px;align-items:flex-start;line-height:1.45}
+.notice .acts{display:flex;gap:6px;justify-content:flex-end}
+.term{background:#0b0c0d;border-radius:8px;padding:10px 12px;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#b4b6bd;line-height:1.6;white-space:pre}
+.term .c{color:#7a7d86}
+.term .y{color:#e6b45c}
+</style>
+</helmet>
+
+<!-- ============ Board 1: Browse and install ============ -->
+<div class="board">
+<div class="w">
+  <div class="bar"><div class="logo">m</div><span style="font-weight:600;color:#eef0f3">merlin</span><span style="font-size:12px;color:#8e9099">⑂ editor-rework</span><div class="search">⌕ Search files, commands, symbols and text <span class="kbd" style="margin-left:auto">Ctrl Shift P</span></div></div>
+  <div class="mid">
+    <div class="rail"><div class="ri">❐</div><div class="ri">⌕</div><div class="ri">⑂</div><div class="ri">⚗</div><div class="ri">▷</div><div class="ri">☰</div></div>
+    <div class="island" style="flex:1">
+      <div class="tabs"><div class="tab"><span class="ic">RS</span>state.rs</div><div class="tab on">⚙ Settings</div></div>
+      <div class="split">
+        <div class="nav">
+          <div class="nv">◉ Appearance</div>
+          <div class="nv">☰ Text Editor</div>
+          <div class="nv">▯ Files</div>
+          <div class="nv">⌨ Keyboard Shortcuts</div>
+          <div class="nv on">⧉ Plugins<span class="dot">2</span></div>
+        </div>
+        <div class="body">
+          <div class="find">⌕ Search settings</div>
+          <div class="cols" style="margin-top:14px">
+            <div class="plist">
+              <div class="lt"><span>Installed <span class="n">11</span></span><span class="on">Browse <span class="n">13</span></span></div>
+              <div class="lfind">⌕ Search 13 plugins…</div>
+              <div class="src">merlin registry · checked 2 min ago<span class="r">↻</span></div>
+              <div class="pi"><span class="pico" style="background:#1d2a33;color:#7cc4e6">C+</span><div class="pn">C/C++<div>C &amp; C++ syntax, outlines &amp; clangd</div></div><div class="pm"><span class="chip g">✓ installed</span></div></div>
+              <div class="pi"><span class="pico" style="background:#2e1f24;color:#f08ca8">DB</span><div class="pn">Debugger<div>Debugging through DAP</div></div><div class="pm"><span style="font-size:11px;color:#7a7d86">0.1.0</span></div></div>
+              <div class="pi on"><span class="pico" style="background:#1d2a33;color:#7cc4e6">GO</span><div class="pn">Go<div>Go syntax, tests &amp; gopls</div></div><div class="pm"><span style="font-size:11px;color:#7a7d86">0.1.0</span></div></div>
+              <div class="pi"><span class="pico" style="background:#2e2c18;color:#e6d45c">JS</span><div class="pn">JavaScript<div>JS &amp; TypeScript syntax, tasks</div></div><div class="pm"><span class="chip g">✓ installed</span></div></div>
+              <div class="pi"><span class="pico" style="background:#24252a;color:#b4b6bd">PD</span><div class="pn">PDF<div>Opens .pdf files in a tab</div></div><div class="pm"><span style="font-size:11px;color:#7a7d86">0.1.0</span></div></div>
+              <div class="pi"><span class="pico" style="background:#1d2a33;color:#7cc4e6">PY</span><div class="pn">Python<div>Python syntax, pytest &amp; pyright</div></div><div class="pm"><span class="chip b">update</span></div></div>
+              <div class="pi"><span class="pico" style="background:#3a2a1e;color:#f5a97f">RS</span><div class="pn">Rust<div>Syntax, tests, Cargo &amp; rust-analyzer</div></div><div class="pm"><span class="chip g">✓ installed</span></div></div>
+              <div class="pi dim"><span class="pico" style="background:#2a2238;color:#c4a7e7">ZG</span><div class="pn">Zig<div>Zig syntax &amp; zls</div></div><div class="pm"><span class="chip">for 0.13</span></div></div>
+              <div style="font-size:11.5px;color:#7a7d86;padding:8px 10px 0;line-height:1.5">Not in a registry? <span class="key">merlin plugin install &lt;folder&gt;</span></div>
+            </div>
+            <div class="page">
+              <div class="ph">
+                <span class="big" style="background:#1d2a33;color:#7cc4e6">GO</span>
+                <div style="flex:1;min-width:0"><div class="t1">Go</div><div class="t2">go · 0.1.0 · MIT · by marc-cr1810 · <a>github.com/merlin-editor/merlin ↗</a></div></div>
+                <span class="btn q">⚑ Report</span>
+                <span class="btn p" style="position:relative">Install<span class="tag" style="right:-8px;top:-10px">1</span></span>
+              </div>
+              <p class="desc">Go syntax highlighting, outlines and folding, <span class="key">go test</span> in the Tests view, and gopls for hovers, completions and problems.</p>
+
+              <div class="sec">Installing lets it</div>
+              <div class="perm"><span class="i ok">✓</span>Read the files you open, and the workspace's files</div>
+              <div class="perm"><span class="i ok">✓</span>Add commands, a language and tasks</div>
+              <div class="perm"><span class="i warn">⚠</span>Run <span class="key">gopls</span> and <span class="key">go</span> on your computer<span class="s">outside merlin's sandbox, with your permissions</span></div>
+              <div class="perm"><span class="i no">—</span><span style="color:#7a7d86">Use the network</span></div>
+              <div class="perm"><span class="i no">—</span><span style="color:#7a7d86">Change files</span></div>
+
+              <div class="sec">Versions</div>
+              <table class="vt">
+                <tr><td class="v">0.1.0</td><td>API 0.14</td><td>9 Nov 2026</td><td>412 KB</td><td><span class="chip b">installs</span></td></tr>
+                <tr class="dim"><td class="v"><s>0.0.9</s></td><td>API 0.14</td><td>2 Nov 2026</td><td>409 KB</td><td><span class="chip a">withdrawn: gopls never stops</span></td></tr>
+                <tr class="dim"><td class="v">0.0.8</td><td>API 0.13</td><td>28 Oct 2026</td><td>398 KB</td><td>for an older merlin</td></tr>
+              </table>
+              <div style="margin-top:8px;font-size:11.5px;color:#7a7d86">Built in the registry's CI from commit <span class="key">1c58427</span> · SHA-256 checked on download</div>
+
+              <div class="card" style="right:0;top:42px;width:340px">
+                <span class="tag" style="left:-9px;top:-9px">2</span><h4>Install Go?</h4>
+                <div class="sub">It will be able to run programs on your computer, outside merlin's sandbox:</div>
+                <div class="perm"><span class="i warn">⚠</span><span class="key">gopls</span> <span class="key">go</span></div>
+                <div class="sub" style="margin:6px 0 0">You can see and change this later on its page.</div>
+                <div class="acts"><span class="btn">Cancel</span><span class="btn p">Install</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="status"><span>⑂ editor-rework</span><span>⊘ 0  ⚠ 2</span><span class="prog" style="margin-left:24px;position:relative"><span class="tag" style="position:static;width:16px;height:16px;font-size:10px">3</span>Installing Go <span class="pbar"><i></i></span> 172 of 412 KB</span><span style="margin-left:auto">Spaces: 4</span><span>UTF-8</span><span>{ } Rust</span></div>
+</div>
+
+<div class="notes">
+  <div><h3>Browse</h3><p>The second tab beside <b>Installed</b>, where the “no registry yet” text is now. It lists every plugin from every enabled source, A to Z, and the box filters by name and description. Each row says whether you have it: <b>✓ installed</b>, <b>update</b>, or a greyed <b>for 0.13</b> when nothing is built for this merlin.</p></div>
+  <div><h3>A plugin's page</h3><p>Only what the signed index says: title, name, newest version, licence, owners, repository and description. <b>Report</b> opens an issue on the registry from its template.</p></div>
+  <div><h3>Permissions first</h3><p>What installing lets it do, before anything downloads, in the words <b>merlin plugin install</b> uses. Anything outside the sandbox (programs, network, files) is amber. Only those plugins get the <b>Install?</b> card. Plugins that stay in the sandbox install on the first click.</p></div>
+  <div><h3>Versions</h3><p>The one <b>Install</b> picks is marked: the newest that isn't withdrawn or blocked and is built for this API. A withdrawn version is struck through with its reason. Older APIs are greyed.</p></div>
+  <div><h3>①②③</h3><p>Install, then the card for a plugin that leaves the sandbox, then progress.</p></div>
+  <div><h3>Installing</h3><p>Progress in the status bar, so you can leave the page. After it, the plugin loads with no restart, the row says <b>✓ installed</b>, and the page turns into its Installed page.</p></div>
+</div>
+</div>
+
+<!-- ============ Board 2: updates and the other states ============ -->
+<div class="board" style="display:block;padding:0">
+<div class="grid">
+
+  <div class="st">
+    <h2>1 · Updates in Installed</h2>
+    <div class="mini">
+      <div class="lt" style="margin-bottom:6px"><span class="on">Installed <span class="n">11</span></span><span>Browse</span></div>
+      <div class="gh">Updates · 2<span class="more">Update All</span></div>
+      <div class="pi"><span class="pico" style="background:#1d2a33;color:#7cc4e6">PY</span><div class="pn">Python<div>0.1.0 → 0.2.0</div></div><div class="pm"><span class="btn sm">Update</span></div></div>
+      <div class="pi"><span class="pico" style="background:#262b3d;color:#9ab0ff">OC</span><div class="pn">OpenCode<div>0.4.1 → 0.5.0 · wants more</div></div><div class="pm"><span class="btn sm">Review…</span></div></div>
+      <div class="gh">All</div>
+      <div class="pi"><span class="pico" style="background:#1d2a33;color:#7cc4e6">C+</span><div class="pn">C/C++<div>C &amp; C++ syntax, outlines &amp; clangd</div></div><div class="pm"><span class="sw on"></span></div></div>
+      <div class="pi"><span class="pico" style="background:#3a2a1e;color:#f5a97f">RS</span><div class="pn">Rust<div>Syntax, tests, Cargo &amp; rust-analyzer</div></div><div class="pm"><span class="sw on"></span></div></div>
+    </div>
+    <p class="say">Updates go first, with <b>Update All</b>. The Plugins page in the nav shows how many. merlin checks every source <b>at start and every 6 hours</b>. Nothing updates by itself, and an update loads in place with no restart.</p>
+  </div>
+
+  <div class="st">
+    <h2>2 · An update that wants more</h2>
+    <div class="mini" style="padding:14px">
+      <div class="ph"><span class="big" style="background:#262b3d;color:#9ab0ff;width:30px;height:30px;font-size:11px">OC</span><div><div class="t1" style="font-size:14px">OpenCode</div><div class="t2">opencode · 0.4.1 installed · 0.5.0 out</div></div></div>
+      <div class="banner a" style="margin-top:12px;flex-direction:column;align-items:stretch">
+        <div>0.5.0 also wants to:</div>
+        <div class="perm" style="color:#e6d4a8"><span class="i warn">⚠</span>Use the network<span class="s" style="color:#b8a47a">api.opencode.ai</span></div>
+        <div class="perm" style="color:#e6d4a8"><span class="i warn">⚠</span>Run <span class="key">git</span></div>
+        <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:4px"><span class="btn sm">Skip This Version</span><span class="btn sm p">Allow and Update</span></div>
+      </div>
+    </div>
+    <p class="say">An update that asks for more than you allowed doesn't go with <b>Update All</b>. Its row says <b>wants more</b>, and its page shows only what's new. <b>Skip This Version</b> hides it until a newer one comes out.</p>
+  </div>
+
+  <div class="st">
+    <h2>3 · You have a withdrawn version</h2>
+    <div class="mini" style="padding:14px">
+      <div class="ph"><span class="big" style="background:#1d2a33;color:#7cc4e6;width:30px;height:30px;font-size:11px">PY</span><div><div class="t1" style="font-size:14px">Python</div><div class="t2">python · 0.2.1 · from merlin</div></div></div>
+      <div class="banner a" style="margin-top:12px">⚠<div>Its owners withdrew 0.2.1: <i>“Deletes untitled files on save.”</i> 0.2.2 fixes it.</div><div class="acts"><span class="btn sm p">Update</span></div></div>
+    </div>
+    <div class="mini"><div class="pi"><span class="pico" style="background:#1d2a33;color:#7cc4e6">PY</span><div class="pn">Python<div>0.2.1 · withdrawn</div></div><div class="pm"><span class="chip a">⚠ update</span><span class="sw on"></span></div></div></div>
+    <p class="say">It keeps running, since the owners withdrew it, not the maintainers. It goes to the top of Updates in amber. With no newer version, the banner says so and has no button.</p>
+  </div>
+
+  <div class="st">
+    <h2>4 · Blocked by the registry</h2>
+    <div class="notice"><div class="h"><span style="color:#f0807a">⛔</span><div><b style="color:#eef0f3;font-weight:600">TodoSync was turned off.</b> The merlin registry blocked it: <i>“Sends your files to a server its page doesn't name.”</i></div></div><div class="acts"><span class="btn sm">Show</span><span class="btn sm">Uninstall</span></div></div>
+    <div class="mini" style="padding:14px">
+      <div class="ph"><span class="big" style="background:#24252a;color:#8e9099;width:30px;height:30px;font-size:11px">TS</span><div style="flex:1"><div class="t1" style="font-size:14px">TodoSync</div><div class="t2">todo-sync · 1.2.0 · blocked</div></div><span class="sw lock"></span></div>
+      <div class="banner r" style="margin-top:12px">Blocked by the merlin registry's maintainers. It can't be turned back on.<div class="acts"><span class="btn sm">Uninstall</span></div></div>
+    </div>
+    <p class="say">A block arrives with the next index, turns the plugin off at once, and the notice says why. Its switch is locked off. You can uninstall it, but not turn it back on. In Browse it's hidden unless you search for its name.</p>
+  </div>
+
+  <div class="st">
+    <h2>5 · When the list can't be used</h2>
+    <div class="banner n">Couldn't reach the merlin registry. Showing the list from 3 days ago. Installing needs it.<div class="acts"><span class="btn sm">Try Again</span></div></div>
+    <div class="banner r">The merlin registry's list didn't pass its signature check, so merlin isn't using it. Showing the last good one, from 9 Nov.<div class="acts"><span class="btn sm">Details</span></div></div>
+    <div class="banner a">The merlin registry's list ran out on 8 Dec and hasn't been renewed. Showing it, but nothing installs from it.</div>
+    <p class="say">A banner over the Browse list, never a notice. A list that fails a check is never used: not one that's <b>unsigned</b>, <b>expired</b>, or <b>older than one already seen</b> (a rollback). merlin falls back to the last good one, read-only. <b>Details</b> opens merlin's Output with the reason.</p>
+  </div>
+
+  <div class="st">
+    <h2>6 · Not for this merlin</h2>
+    <div class="mini" style="padding:14px">
+      <div class="ph"><span class="big" style="background:#2a2238;color:#c4a7e7;width:30px;height:30px;font-size:11px">ZG</span><div style="flex:1"><div class="t1" style="font-size:14px">Zig</div><div class="t2">zig · 0.3.0 · MIT · by zig-friends</div></div><span class="btn sm" style="opacity:.45">Install</span></div>
+      <div class="banner n" style="margin-top:12px">Not yet updated for this version of merlin. It needs plugin API 0.14, and its newest, 0.3.0, is for 0.13.</div>
+    </div>
+    <p class="say">While the API is 0.x it must match exactly, so the page says what's missing and offers nothing. When its owners publish for 0.14, the row loses its grey.</p>
+    <div class="mini"><div class="pi"><span class="pico" style="background:#2a2238;color:#c4a7e7">MY</span><div class="pn">My Plugin<div>my-plugin · linked from ~/code/my-plugin</div></div><div class="pm"><span class="chip">linked</span><span class="sw on"></span></div></div></div>
+    <p class="say">A plugin you linked with <b>merlin plugin install &lt;folder&gt;</b> says so and is never updated or replaced from a registry.</p>
+  </div>
+
+  <div class="st">
+    <h2>7 · The same name in two sources</h2>
+    <div class="mini">
+      <div class="src" style="padding-top:2px">merlin · acme<span class="r">↻</span></div>
+      <div class="pi"><span class="pico" style="background:#3a2a1e;color:#f5a97f">RS</span><div class="pn">Rust<div>Syntax, tests, Cargo &amp; rust-analyzer</div></div><div class="pm"><span class="chip">merlin</span><span class="chip g">✓</span></div></div>
+      <div class="pi on"><span class="pico" style="background:#3a2a1e;color:#f5a97f">RS</span><div class="pn">Rust<div>acme's fork, with Bazel</div></div><div class="pm"><span class="chip">acme</span></div></div>
+    </div>
+    <div class="notice"><div class="h"><div><b style="color:#eef0f3;font-weight:600">Replace Rust from merlin with acme's?</b> Its settings stay. It will update only from acme, and asks again for what it's allowed.</div></div><div class="acts"><span class="btn sm">Cancel</span><span class="btn sm p">Replace</span></div></div>
+    <p class="say">The line over the list names each enabled source, with ↻ to check again. With more than one, from <b>[plugin-sources]</b>, each row says where it comes from.</p>
+  </div>
+
+  <div class="st">
+    <h2>8 · An installed plugin's page</h2>
+    <div class="mini" style="padding:14px">
+      <div class="ph"><span class="big" style="background:#1d2a33;color:#7cc4e6;width:30px;height:30px;font-size:11px">GO</span><div style="flex:1"><div class="t1" style="font-size:14px">Go</div><div class="t2">go · 0.1.0 from merlin · up to date · <a>repository ↗</a></div></div><span class="btn sm q">⚑ Report</span><span class="sw on"></span></div>
+      <div class="scope" style="margin-top:12px"><span>Settings</span><span>Allowed</span><span>Adds</span><span class="on">Versions</span></div>
+      <table class="vt" style="margin-top:6px">
+        <tr><td class="v">0.1.0</td><td>9 Nov 2026</td><td><span class="chip g">installed</span></td></tr>
+        <tr class="dim"><td class="v">0.0.8</td><td>28 Oct 2026</td><td>for an older merlin</td></tr>
+      </table>
+    </div>
+    <p class="say">The approved page, plus the version and source under the name, <b>Report</b>, and a <b>Versions</b> tab. Uninstall stays at the bottom of the page and in the switch's menu, as built.</p>
+  </div>
+
+  <div class="st">
+    <h2>9 · The same from the terminal</h2>
+    <div class="term"><span class="c">$</span> merlin plugin update
+<span class="y">python 0.2.1 was yanked: Deletes untitled files…</span>
+Updated Python from 0.2.1 to 0.2.2
+opencode 0.5.0 asks to do more than 0.4.1 could:
+  • Use the network: api.opencode.ai
+  • Run git
+  Install it with `merlin plugin install opencode`
+  to allow that.</div>
+    <p class="say">As built today. In the window, “yanked” reads <b>withdrawn</b>, and the CLI will say that too. Browse uses the same code (<b>registry::load</b>, <b>registry::install</b>), so the window and the terminal agree, and an update one makes shows in the other.</p>
+  </div>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1620,"height":1980}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

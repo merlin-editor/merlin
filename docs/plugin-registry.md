@@ -6,8 +6,9 @@ spec behind phases 1–4 of section 6 in [distribution.md](distribution.md).
 Phases 1 to 3 are built: packages (sections 2 and 4), installing,
 searching, updating and uninstalling from the command line against signed
 indexes (sections 6 and 7), and the registry itself (sections 3 and 5), which
-published its first index on 2026-11-09 with Merlin's 13 bundled plugins. The
-Browse tab isn't built yet.
+published its first index on 2026-11-09 with Merlin's 13 bundled plugins.
+Phase 4, Browse in Settings › Plugins, is built too
+(`docs/mockups/PluginBrowse.dc.html`, `crates/app/src/browse.rs`).
 
 ---
 
@@ -387,13 +388,26 @@ update from the registry like any other.
    version is the API version.
 2. **Index and sources (done)**: the `index.json` types, `minisign-verify`,
    serial and expiry checks, `[plugin-sources]`, `search`, `update`,
-   `uninstall`. Turning off a blocked plugin by itself waits for the editor to
-   fetch the index at start (phase 4); `merlin plugin update` reports it.
+   `uninstall`. `merlin plugin update` reports a blocked plugin; the editor
+   turns it off (phase 4).
 3. **Registry repo (done)**: the layout, container, `check.yml`, `publish.yml`,
    `resign.yml`, the key, and entries for Merlin's own plugins, pinned to
    merlin `1c58427`. GitHub Pages serves `gh-pages`.
-4. **Browse**: the Browse tab in Settings › Plugins, update badges, yank
-   warnings, the permissions prompt. Needs an approved mock-up first.
+4. **Browse (done)**: Browse beside Installed in Settings › Plugins, as in
+   `docs/mockups/PluginBrowse.dc.html`. merlin checks every source on its own
+   thread a few seconds after the window opens, every 6 hours, and when
+   Browse opens on a list older than 10 minutes; ↻ checks at once. Installs
+   and updates run there too, one at a time, with progress in the status bar,
+   and the plugin starts without a restart. Install asks first only for a
+   plugin that runs programs outside the sandbox, or that replaces the same
+   name from another source. Installed lists Updates first, with Update All
+   for those that ask for nothing new; one that asks for more waits on its
+   page for Allow and Update or Skip This Version (kept in
+   `skipped-updates.toml` in the data folder). Withdrawn (yanked) versions
+   and blocked plugins get banners; a blocked one is turned off, at start
+   too from the last good index, and can't be turned back on. Banners say
+   when a source can't be reached, its index expired, or failed a check.
+   The window and the CLI say "withdrawn" for yanked.
 5. **Bundling**: release archives carry the registry's packages.
 
 ---

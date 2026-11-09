@@ -51,6 +51,13 @@ impl App {
             mark: mark(&p),
             commands: self.editor.plugin_commands(&p.name),
             installed: self.install_link(&p).is_some(),
+            registry: self.browse.registry_page(
+                &p.name,
+                self.browse
+                    .updates(&|_| None)
+                    .into_iter()
+                    .find(|u| u.name == p.name),
+            ),
             uninstall_armed: self.uninstall_armed.as_deref() == Some(name),
             running: p
                 .processes
@@ -166,6 +173,16 @@ impl App {
         let mut events = Vec::new();
         match action {
             // Off everywhere goes in your settings; on, it's on here too.
+            PageAction::Enable(name, on) if on && self.browse.is_blocked(&name).is_some() => {
+                events.push(Event::Error(format!(
+                    "{name} can't be turned back on: a registry blocked it"
+                )));
+            }
+            PageAction::EnableHere(name, true) if self.browse.is_blocked(&name).is_some() => {
+                events.push(Event::Error(format!(
+                    "{name} can't be turned back on: a registry blocked it"
+                )));
+            }
             PageAction::Enable(name, on) => {
                 events.extend(self.host.set_enabled(&name, on));
                 events.extend(self.list_off(false, &name, !on));
@@ -212,6 +229,7 @@ impl App {
                         Ok(()) => {
                             let data = merlin_plugins::Config::standard().data_dir;
                             let _ = merlin_plugins::package::record(&data, &name, None);
+                            self.browse.installed.remove(&name);
                             events.push(Event::Notify(format!(
                                 "Uninstalled {}. Its folder is in the bin.",
                                 info.title

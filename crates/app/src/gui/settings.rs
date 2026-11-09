@@ -12,6 +12,7 @@ use crate::prefs::{
 use crate::theme::mix;
 
 mod appearance;
+mod browse;
 mod keys;
 mod plugins;
 mod rows;
@@ -45,6 +46,8 @@ enum ListOf {
     Packs(Vec<(String, String)>),
     /// A plugin row's menu.
     PluginMenu(crate::prefs::PluginRow),
+    /// Browse's Install? card.
+    Confirm(crate::browse::ConfirmView),
 }
 
 impl Ctx {
@@ -184,6 +187,7 @@ impl<'a> Frame<'a> {
         if let Some((under, of)) = c.list.take() {
             match &of {
                 ListOf::PluginMenu(row) => self.plugin_menu(under, row, r),
+                ListOf::Confirm(card) => self.confirm_card(under, card, r),
                 _ => self.choice_list(under, &of, r),
             }
         }
@@ -223,7 +227,24 @@ impl<'a> Frame<'a> {
                 row,
             );
             let n = v.changed[i];
-            if n > 0 {
+            if cat == Category::Plugins && v.updates > 0 {
+                // Updates waiting, as a count on the accent.
+                let label = v.updates.to_string();
+                let f = Face::ui(10.5).bold();
+                let tw = self.text.width(&label, f);
+                let pill = Rect::new(row.right() - 10.0 - tw - 12.0, y + 7.0, tw + 12.0, 16.0);
+                self.canvas.round(pill, 8.0, mix(p.accent, p.island, 0.3));
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    &label,
+                    f,
+                    pill.x + 6.0,
+                    pill.y,
+                    pill.h,
+                    p.bright,
+                    row,
+                );
+            } else if n > 0 {
                 let label = n.to_string();
                 let f = Face::ui(11.0);
                 let tw = self.text.width(&label, f);

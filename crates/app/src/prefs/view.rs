@@ -324,6 +324,8 @@ impl App {
             }
         });
 
+        let updates = self.browse.updates(&|_| None);
+        let blocked = self.browse.blocked();
         let plugins: Vec<PluginRow> = if ui.category == Category::Plugins {
             self.host
                 .plugins()
@@ -332,6 +334,12 @@ impl App {
                     mark: plugins::mark(&p),
                     what: super::describe(&p),
                     off_here: self.off_here(&p.name),
+                    linked: self.install_link(&p).is_some(),
+                    blocked: blocked.iter().any(|(n, _)| *n == p.name),
+                    update: updates
+                        .iter()
+                        .find(|u| u.name == p.name)
+                        .map(|u| u.withdrawn.is_some()),
                     waiting: p.waiting,
                     memory: p.memory as u64
                         + p.processes
@@ -388,6 +396,12 @@ impl App {
             capture,
             plugins,
             page,
+            browse: if ui.category == Category::Plugins {
+                self.browse_view()
+            } else {
+                Default::default()
+            },
+            updates: updates.len(),
             file: self.scope_file(),
             folder: self.root.file_name().map_or_else(
                 || "this folder".into(),

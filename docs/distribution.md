@@ -102,7 +102,8 @@ The full spec for the package format, the registry repo, `index.json`, signing a
 2. **Phase 1 (Done, API 0.14)**: `.merlin` package format, `merlin plugin pack`, local archive installation, and staging directory swaps.
 3. **Phase 2 (Done)**: Sources configuration, index verification (`minisign-verify`), and CLI search/update commands.
 4. **Phase 3 (Done)**: Registry at `merlin-editor/plugins` with reproducible CI builds and signing; its first index, with Merlin's 13 bundled plugins, went live on 2026-11-09.
-5. **Phase 4 (Next)**: In-app "Browse" tab in Settings › Plugins with update indicators.
+5. **Phase 4 (Done)**: Browse in Settings › Plugins, with updates, withdrawn and blocked plugins, and the permissions prompt (`docs/plugin-registry.md` 9).
+6. **Phase 5 (Next)**: Release archives carry the registry's packages.
 
 ---
 
@@ -130,8 +131,8 @@ Of section 7, the `install` hints in 7.2 and the Windows fallback in 7.4 are bui
 - **Problem**: Standard user accounts on Windows often lack permission to create UNIX symbolic links unless Developer Mode is enabled.
 - **Solution**: `merlin plugin install <dir>` links with `std::os::windows::fs::symlink_dir` on Windows. If that fails, it packs the folder and installs the package instead, saying it's a copy that needs installing again after a rebuild (`crates/plugin-host/src/package.rs`, `link`). Not yet tried on Windows itself.
 
-### 7.5 Yanks & Security Revocations (Partly Built)
-- **Built**: `merlin plugin install` and `update` never choose a yanked or blocked version, and `update` warns about an installed one. The Settings badge below waits for phase 4.
+### 7.5 Yanks & Security Revocations (Built)
+- **Built**: `merlin plugin install` and `update` never choose a yanked or blocked version, and `update` warns about an installed one. Settings › Plugins shows an installed yanked version as withdrawn with its reason and offers the update, and turns a blocked plugin off and keeps it off. The wording below is the plan's; the editor says "withdrawn".
 - **Problem**: Mitigating compromised or critically buggy plugin versions after release.
 - **Solution**: In `index.json`, versions can have `"yanked": "Reason / CVE"`.
   - Yanked versions are hidden from registry search.

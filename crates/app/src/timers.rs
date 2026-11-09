@@ -84,6 +84,7 @@ impl App {
             self.editor.macro_playing().then(Instant::now),
             self.terminals.due(),
             self.frame_due,
+            self.browse.due,
         ]
         .into_iter()
         .flatten()
@@ -106,6 +107,9 @@ impl App {
         if self.window_focused && self.fetch_due.is_some_and(|at| at <= now) {
             self.fetch_due = Some(now + FETCH_EVERY);
             self.fetch_later();
+        }
+        if self.browse.due.is_some_and(|at| at <= now) {
+            self.check_registry_later();
         }
         if self.settle.is_some_and(|at| at <= now) {
             self.settle = None;

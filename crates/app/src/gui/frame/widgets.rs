@@ -201,7 +201,7 @@ impl Frame<'_> {
 
     /// A button's ground and text: the accent for the primary one, a chip
     /// for the rest, lighter while hovered.
-    pub(super) fn button_colours(&self, primary: bool, hovered: bool) -> (u32, u32) {
+    pub(crate) fn button_colours(&self, primary: bool, hovered: bool) -> (u32, u32) {
         let p = self.p;
         if primary {
             let bg = if hovered {
@@ -216,7 +216,7 @@ impl Frame<'_> {
     }
 
     /// `glyph` in the middle of `r`.
-    pub(super) fn centred(&mut self, glyph: &str, face: Face, r: Rect, colour: u32, clip: Rect) {
+    pub(crate) fn centred(&mut self, glyph: &str, face: Face, r: Rect, colour: u32, clip: Rect) {
         let gw = self.text.width(glyph, face);
         self.text.draw_in_row(
             &mut self.canvas,

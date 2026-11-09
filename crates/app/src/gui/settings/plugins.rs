@@ -58,17 +58,33 @@ impl Frame<'_> {
         }
         let mut y = bar.bottom() + 10.0;
         if ui.list_tab == ListTab::Browse {
-            y = self.plugins_browse(c.x, y, list_w, clip);
+            y = self.browse_list(&v.browse, ui, c.x, y, list_w, clip);
         } else {
-            // The filter, then the plugins it lets through.
+            // The filter, then updates, then the plugins it lets through.
             let typing = ui
                 .editing
                 .as_ref()
                 .filter(|e| e.key == PLUGIN_FILTER)
                 .map(|e| e.text.as_str());
             let field = Rect::new(c.x, y, list_w, 30.0);
-            self.filter_field(&ui.plugin_filter, typing, field, clip);
+            self.filter_field(
+                &ui.plugin_filter,
+                typing,
+                "Filter installed plugins…",
+                field,
+                clip,
+            );
             y += 38.0;
+            if !v.browse.updates.is_empty() {
+                y = self.updates_list(
+                    &v.browse.updates,
+                    v.browse.busy.as_deref(),
+                    c.x,
+                    y,
+                    list_w,
+                    clip,
+                );
+            }
             let filter = ui.plugin_filter.trim().to_lowercase();
             let shown: Vec<&PluginRow> = v
                 .plugins
@@ -115,8 +131,13 @@ impl Frame<'_> {
             list: None,
             picked: None,
         };
-        if let Some(page) = &v.page {
-            self.plugin_detail(page, &v.ui, &mut d);
+        if ui.list_tab == ListTab::Browse {
+            if let Some(page) = &v.browse.page {
+                self.browse_page(page, &v.browse, &mut d);
+            }
+        } else if let Some(page) = &v.page {
+            let busy = v.browse.busy.as_deref() == Some(page.name.as_str());
+            self.plugin_detail(page, &v.ui, busy, &mut d);
         }
         if d.list.is_some() {
             c.list = d.list.take();
@@ -180,12 +201,20 @@ impl Frame<'_> {
             }
             x = m.x - 4.0;
         }
-        let chip = if row.failed {
+        let chip = if row.blocked {
+            Some("blocked")
+        } else if row.failed {
             Some("failed")
+        } else if row.update == Some(true) {
+            Some("⚠ update")
+        } else if row.update.is_some() {
+            Some("update")
         } else if row.off_here {
             Some("off here")
         } else if row.waiting {
             Some("needs OK")
+        } else if row.linked {
+            Some("linked")
         } else {
             None
         };
@@ -227,7 +256,14 @@ impl Frame<'_> {
     }
 
     /// The filter over the plugin list: what's typed, or its hint.
-    fn filter_field(&mut self, value: &str, typing: Option<&str>, r: Rect, clip: Rect) {
+    pub(super) fn filter_field(
+        &mut self,
+        value: &str,
+        typing: Option<&str>,
+        hint: &str,
+        r: Rect,
+        clip: Rect,
+    ) {
         let p = self.p;
         let border = if typing.is_some() {
             p.accent
@@ -249,15 +285,7 @@ impl Frame<'_> {
                 );
             }
             None if value.is_empty() => {
-                self.s_row_text(
-                    "Filter installed plugins…",
-                    face,
-                    inner.x,
-                    r.y,
-                    r.h,
-                    p.faint,
-                    inner,
-                );
+                self.s_row_text(hint, face, inner.x, r.y, r.h, p.faint, inner);
             }
             None => {
                 self.s_row_text(value, face, inner.x, r.y, r.h, p.text, inner);
@@ -268,34 +296,6 @@ impl Frame<'_> {
             clip,
             Hit::Settings(SettingsAction::Edit(PLUGIN_FILTER.into(), false)),
         );
-    }
-
-    /// Browse, until merlin has a registry: how to add a plugin.
-    fn plugins_browse(&mut self, x: f32, mut y: f32, w: f32, clip: Rect) -> f32 {
-        let p = self.p;
-        let face = Face::ui(12.5);
-        for (text, mono) in [
-            (
-                "merlin has no plugin registry yet. To add a plugin, build it and install it from its folder:",
-                false,
-            ),
-            ("merlin plugin install <folder>", true),
-            ("Or start your own:", false),
-            ("merlin plugin new <name>", true),
-        ] {
-            if mono {
-                let r = Rect::new(x, y, w, 30.0);
-                self.s_round(r, 6.0, clip, p.chip);
-                self.s_row_text(text, Face::mono(11.5), x + 10.0, y, 30.0, p.bright, clip);
-                y += 40.0;
-            } else {
-                let h = self.text.wrapped_height(text, face, w);
-                self.text
-                    .draw(&mut self.canvas, text, face, x, y, p.text, clip, Some(w));
-                y += h + 10.0;
-            }
-        }
-        y
     }
 
     /// A plugin row's menu: on or off, here or everywhere; Reload, its
@@ -468,7 +468,13 @@ impl Frame<'_> {
         self.s_row_text(letters, face, x + (size - lw) / 2.0, y, size, colour, clip);
     }
 
-    pub(super) fn plugin_detail(&mut self, page: &PageView, ui: &SettingsUiView, c: &mut Ctx) {
+    pub(super) fn plugin_detail(
+        &mut self,
+        page: &PageView,
+        ui: &SettingsUiView,
+        busy: bool,
+        c: &mut Ctx,
+    ) {
         let p = self.p;
         let clip = c.clip;
         self.plugin_mark(&page.mark, c.x, c.y, 34.0, page.enabled, clip);
@@ -503,6 +509,19 @@ impl Frame<'_> {
             self.s_hit(b, clip, Hit::Settings(SettingsAction::Page(action)));
             bx -= 8.0;
         }
+        if let Some(url) = page.registry.as_ref().and_then(|r| r.report.clone()) {
+            let r = self.s_button(
+                "⚑ Report",
+                bx,
+                c.y + 4.0,
+                false,
+                Some(Hit::Settings(SettingsAction::Browse(
+                    crate::browse::BrowseAction::Open(url),
+                ))),
+                clip,
+            );
+            bx = r.x - 8.0;
+        }
         let tclip = Rect::new(c.x, c.y, bx - c.x - 8.0, 40.0).intersect(clip);
         self.s_row_text(
             &page.title,
@@ -514,7 +533,18 @@ impl Frame<'_> {
             tclip,
         );
         // What it is and what it costs now, in a line.
-        let mut sub = vec![page.name.clone(), format!("API {}", page.api)];
+        let mut sub = vec![page.name.clone()];
+        if let Some(reg) = &page.registry {
+            let news = if reg.blocked.is_some() {
+                "blocked"
+            } else if reg.update.is_some() {
+                "update out"
+            } else {
+                "up to date"
+            };
+            sub.push(format!("{} from {} · {news}", reg.version, reg.source));
+        }
+        sub.push(format!("API {}", page.api));
         if !page.data_only {
             sub.push(format!("{} in merlin", bytes(page.memory as u64)));
         }
@@ -550,6 +580,9 @@ impl Frame<'_> {
         if page.off_here {
             self.off_here_banner(page, c);
         }
+        if let Some(reg) = &page.registry {
+            self.registry_banners(&page.name, reg, busy, c);
+        }
 
         // Settings first, with what it may do and what it adds beside.
         let allowed = allowed(page);
@@ -563,6 +596,11 @@ impl Frame<'_> {
             ),
             ("Adds", adds, PageTab::Adds),
         ];
+        let versions = page.registry.as_ref().map(|r| r.versions.as_slice());
+        let tabs: Vec<(&str, usize, PageTab)> = tabs
+            .into_iter()
+            .chain(versions.map(|v| ("Versions", v.len(), PageTab::Versions)))
+            .collect();
         let bar = Rect::new(c.x, c.y, c.w, 30.0);
         self.s_fill(
             Rect::new(bar.x, bar.bottom() - 1.0, bar.w, 1.0),
@@ -594,6 +632,18 @@ impl Frame<'_> {
         c.y += bar.h + 4.0;
 
         match ui.page_tab {
+            PageTab::Versions => {
+                c.y += 4.0;
+                match versions {
+                    Some(rows) => self.versions_table(rows, c),
+                    None => {
+                        let what =
+                            "It wasn't installed from a registry, so it has no versions to list.";
+                        self.s_row_text(what, Face::ui(12.5), c.x, c.y + 8.0, 24.0, p.muted, clip);
+                        c.y += 36.0;
+                    }
+                }
+            }
             PageTab::Settings if page.rows.is_empty() => {
                 c.y += 8.0;
                 let what = if page.data_only {

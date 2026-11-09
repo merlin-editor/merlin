@@ -365,8 +365,31 @@ fn last_serial(data_dir: &Path, source: &str) -> u64 {
 pub struct Loaded {
     pub source: Source,
     pub index: Index,
-    /// Why it couldn't fetch a new index, when this is the last good one.
-    pub stale: Option<String>,
+    /// Why it couldn't use a new index, when this is the last good one.
+    pub stale: Option<Stale>,
+}
+
+/// Why a source's last good index is shown instead of a new one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Stale {
+    pub kind: StaleKind,
+    pub why: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StaleKind {
+    /// The index or its signature couldn't be downloaded.
+    Unreachable,
+    /// It downloaded, but had expired: the registry hasn't re-signed it.
+    Expired,
+    /// It downloaded and failed a check: its signature, format or serial.
+    Rejected,
+}
+
+impl std::fmt::Display for Stale {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.why)
+    }
 }
 
 /// Fetches `source`'s index and checks it, keeping it as the last good
@@ -375,15 +398,31 @@ pub struct Loaded {
 pub fn load(source: &Source, data_dir: &Path, fetch: Fetch, now: i64) -> Result<Loaded> {
     let last = last_serial(data_dir, &source.name);
     let fresh = (|| {
-        let index = fetch(&source.url, MAX_INDEX)?;
-        let signature = fetch(&format!("{}.minisig", source.url), 64 * 1024)?;
-        let parsed = check(source, &index, &signature, now, last)?;
-        let dir = cache_dir(data_dir, &source.name);
-        fs::create_dir_all(&dir)?;
-        fs::write(dir.join("index.json"), &index)?;
-        fs::write(dir.join("index.json.minisig"), &signature)?;
-        fs::write(dir.join("serial"), parsed.serial.to_string())?;
-        anyhow::Ok(parsed)
+        let got = fetch(&source.url, MAX_INDEX).and_then(|index| {
+            let signature = fetch(&format!("{}.minisig", source.url), 64 * 1024)?;
+            Ok((index, signature))
+        });
+        let (index, signature) = got.map_err(|e| (StaleKind::Unreachable, e))?;
+        let parsed = check(source, &index, &signature, now, last).map_err(|e| {
+            // Expired, it's still signed: only the re-signing is late.
+            let expired = check(source, &index, &signature, i64::MIN, last).is_ok();
+            let kind = if expired {
+                StaleKind::Expired
+            } else {
+                StaleKind::Rejected
+            };
+            (kind, e)
+        })?;
+        let saved = (|| {
+            let dir = cache_dir(data_dir, &source.name);
+            fs::create_dir_all(&dir)?;
+            fs::write(dir.join("index.json"), &index)?;
+            fs::write(dir.join("index.json.minisig"), &signature)?;
+            fs::write(dir.join("serial"), parsed.serial.to_string())?;
+            anyhow::Ok(())
+        })();
+        saved.map_err(|e| (StaleKind::Unreachable, e))?;
+        Ok(parsed)
     })();
     match fresh {
         Ok(index) => Ok(Loaded {
@@ -391,25 +430,50 @@ pub fn load(source: &Source, data_dir: &Path, fetch: Fetch, now: i64) -> Result<
             index,
             stale: None,
         }),
-        Err(err) => {
+        Err((kind, err)) => {
             let why = format!("{err:#}");
-            let dir = cache_dir(data_dir, &source.name);
-            let cached = fs::read(dir.join("index.json"))
-                .and_then(|i| Ok((i, fs::read(dir.join("index.json.minisig"))?)));
-            let Ok((index, signature)) = cached else {
-                bail!("{why}");
-            };
-            // The last good one is still checked against the keys, but may
-            // have expired since.
-            let index = check(source, &index, &signature, i64::MIN, last)
-                .map_err(|e| anyhow::anyhow!("{why}; and the last good index: {e:#}"))?;
-            Ok(Loaded {
-                source: source.clone(),
-                index,
-                stale: Some(why),
-            })
+            match cached(source, data_dir) {
+                Ok(index) => Ok(Loaded {
+                    source: source.clone(),
+                    index,
+                    stale: Some(Stale { kind, why }),
+                }),
+                Err(e) if e.is::<NoCache>() => bail!("{why}"),
+                Err(e) => bail!("{why}; and the last good index: {e:#}"),
+            }
         }
     }
+}
+
+/// There's no last good index kept for a source.
+#[derive(Debug)]
+struct NoCache;
+
+impl std::fmt::Display for NoCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("no index has been downloaded yet")
+    }
+}
+
+impl std::error::Error for NoCache {}
+
+/// `source`'s last good index, from the data folder, without the network:
+/// still checked against its keys, but it may have expired since.
+pub fn cached(source: &Source, data_dir: &Path) -> Result<Index> {
+    let dir = cache_dir(data_dir, &source.name);
+    let (Ok(index), Ok(signature)) = (
+        fs::read(dir.join("index.json")),
+        fs::read(dir.join("index.json.minisig")),
+    ) else {
+        return Err(NoCache.into());
+    };
+    check(
+        source,
+        &index,
+        &signature,
+        i64::MIN,
+        last_serial(data_dir, &source.name),
+    )
 }
 
 /// Downloads `version` of `name` from `loaded`, checks it against the
@@ -749,7 +813,26 @@ mod tests {
             .insert(format!("{URL}.minisig"), old_sig);
         let loaded = load(&reg.source, &tmp.0, &fetch, now()).unwrap();
         assert_eq!(loaded.index.serial, 4, "the last good one stays");
-        assert!(loaded.stale.unwrap().contains("older than number 4"));
+        let stale = loaded.stale.unwrap();
+        assert_eq!(stale.kind, StaleKind::Rejected);
+        assert!(stale.why.contains("older than number 4"));
+    }
+
+    #[test]
+    fn an_expired_index_is_told_from_a_bad_one() {
+        let tmp = Temp::new("expired");
+        let reg = Registry::new();
+        let fetch = |u: &str, l: u64| reg.fetch(u, l);
+        reg.publish(1, FUTURE, "{}");
+        load(&reg.source, &tmp.0, &fetch, now()).unwrap();
+        reg.publish(2, "2001-01-01T00:00:00Z", "{}");
+        let stale = load(&reg.source, &tmp.0, &fetch, now())
+            .unwrap()
+            .stale
+            .unwrap();
+        assert_eq!(stale.kind, StaleKind::Expired);
+        // The network isn't needed to read the last good one.
+        assert_eq!(cached(&reg.source, &tmp.0).unwrap().serial, 1);
     }
 
     #[test]
@@ -767,7 +850,9 @@ mod tests {
 
         let offline = |u: &str, _: u64| -> Result<Vec<u8>> { bail!("{u}: no network") };
         let loaded = load(&reg.source, &tmp.0, &offline, now()).unwrap();
-        assert!(loaded.stale.as_deref().unwrap().contains("no network"));
+        let stale = loaded.stale.as_ref().unwrap();
+        assert_eq!(stale.kind, StaleKind::Unreachable);
+        assert!(stale.why.contains("no network"));
         let entry = &loaded.index.plugins["demo"];
         let err = install(
             &loaded,

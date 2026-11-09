@@ -1,3 +1,4 @@
+mod browse;
 mod clipboard;
 mod disk;
 mod editorconfig;
@@ -233,6 +234,8 @@ struct App {
     memory: prefs::Memory,
     /// The desktop asks for light colours, for Follow the system.
     system_light: bool,
+    /// The plugin registries, for Browse and updates.
+    browse: browse::Browse,
 }
 
 impl App {
@@ -340,6 +343,8 @@ impl App {
         if !self.scripted {
             let (mut off, here) = self.off_lists();
             off.extend(here);
+            // And what a registry blocked, whatever the settings say.
+            off.extend(self.browse.blocked().into_iter().map(|(name, _)| name));
             for p in self.host.plugins() {
                 let on = !off.contains(&p.name);
                 if !p.data_only && p.enabled != on {
@@ -857,9 +862,16 @@ fn file_op(root: &Path, op: FileOp) -> Vec<Event> {
         },
     }
 }
-/// Opens a folder in the desktop's file manager.
+/// Opens a folder in the desktop's file manager, or a web page in the
+/// browser.
 pub(crate) fn open_folder(dir: &Path) {
-    let _ = Command::new("xdg-open")
+    #[cfg(target_os = "macos")]
+    let mut command = Command::new("open");
+    #[cfg(windows)]
+    let mut command = Command::new("explorer");
+    #[cfg(not(any(target_os = "macos", windows)))]
+    let mut command = Command::new("xdg-open");
+    let _ = command
         .arg(dir)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
@@ -1122,6 +1134,9 @@ fn main() -> Result<()> {
         }
         let _ = fs::remove_file(&view_path);
     }
+    // The registries as last seen, to know what's blocked before plugins
+    // load.
+    let settings_user = settings_files.each().0;
     let mut app = App {
         zoom: 0.0,
         editor: Editor::new("", None),
@@ -1182,6 +1197,7 @@ fn main() -> Result<()> {
         documents_waiting: Vec::new(),
         memory: prefs::Memory::default(),
         system_light: false,
+        browse: browse::Browse::new(data_dir.clone(), &settings_user, gui),
     };
     app.editor.set_utc_offset(local_utc_offset());
     // Nerd Font icons, except in scripted runs, whose output should read

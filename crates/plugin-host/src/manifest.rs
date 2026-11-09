@@ -575,6 +575,16 @@ impl Permissions {
         what
     }
 
+    /// What `self` asks for that `allowed` doesn't, described, each with
+    /// whether it's outside the sandbox.
+    pub fn beyond(&self, allowed: &Permissions) -> Vec<(String, bool)> {
+        let had = allowed.described();
+        self.described()
+            .into_iter()
+            .filter(|w| !had.contains(w))
+            .collect()
+    }
+
     /// Whether these allow everything `wanted` asks for.
     pub fn covers(&self, wanted: &Permissions) -> bool {
         (self.editor_read || !wanted.editor_read)

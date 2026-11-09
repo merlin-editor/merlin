@@ -17,7 +17,7 @@ use crate::theme::{self, Palette};
 use crate::{App, settings};
 
 mod keys;
-mod plugins;
+pub(crate) mod plugins;
 mod themes;
 mod view;
 
@@ -151,6 +151,8 @@ pub enum PageTab {
     Settings,
     Allowed,
     Adds,
+    /// A registry plugin's versions.
+    Versions,
 }
 
 /// The plugin list's tabs.
@@ -293,6 +295,13 @@ pub struct PluginRow {
     /// Bytes: its own, and its programs'.
     pub memory: u64,
     pub data_only: bool,
+    /// Linked from a folder of its own, never updated from a registry.
+    pub linked: bool,
+    /// A registry blocked it: its switch stays off.
+    pub blocked: bool,
+    /// A registry has a newer version, and whether the one installed was
+    /// withdrawn.
+    pub update: Option<bool>,
 }
 
 /// What the Settings tab shows.
@@ -315,6 +324,10 @@ pub struct SettingsView {
     pub capture: Option<CaptureView>,
     pub plugins: Vec<PluginRow>,
     pub page: Option<PageView>,
+    /// The registries, on the Plugins page.
+    pub browse: crate::browse::BrowseView,
+    /// Updates waiting, for the Plugins page's count.
+    pub updates: usize,
     pub file: PathBuf,
     /// The workspace's folder, by name.
     pub folder: String,
@@ -380,6 +393,7 @@ pub enum SettingsAction {
     PluginMenu(Option<String>),
     ListTab(ListTab),
     Page(PageAction),
+    Browse(crate::browse::BrowseAction),
     OpenFile,
 }
 
@@ -419,6 +433,8 @@ pub struct PageView {
     pub uninstall_armed: bool,
     /// Installed with `merlin plugin install`, so it can be uninstalled.
     pub installed: bool,
+    /// Where a registry install came from, its versions and news.
+    pub registry: Option<crate::browse::RegistryPage>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -567,6 +583,10 @@ impl App {
         if !matches!(action, SettingsAction::Edit(..)) {
             ui.stop_editing();
         }
+        if !matches!(action, SettingsAction::Browse(..)) {
+            self.browse.confirm = None;
+        }
+        let ui = &mut self.settings_ui;
         match action {
             SettingsAction::Category(c) => {
                 ui.category = c;
@@ -625,8 +645,13 @@ impl App {
             }
             SettingsAction::ListTab(tab) => {
                 ui.list_tab = tab;
+                ui.scroll = 0.0;
+                if tab == ListTab::Browse && self.browse.stale() {
+                    self.check_registry_later();
+                }
                 Vec::new()
             }
+            SettingsAction::Browse(action) => self.browse_action(action),
             SettingsAction::PluginMenu(name) => {
                 ui.plugin_menu = name;
                 Vec::new()
