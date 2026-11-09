@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>merlin app icon</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#08090a}
+.board{width:1620px;padding:28px 28px 36px;box-sizing:border-box;background:#08090a;font-family:Inter,sans-serif;color:#d4d5da}
+h1{margin:0 0 4px;font-size:18px;font-weight:600;color:#eef0f3}
+.lead{margin:0 0 22px;font-size:13px;color:#8e9099;line-height:1.5;max-width:1100px}
+.row{display:grid;grid-template-columns:240px 300px 300px 1fr;gap:18px;align-items:stretch;margin-bottom:18px}
+.card{border-radius:12px;padding:16px;box-sizing:border-box}
+.dark{background:#0f1012}
+.light{background:#eceef2}
+.name{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#7c9cff;margin-bottom:6px}
+.say{font-size:12.5px;color:#8e9099;line-height:1.5}
+.say b{color:#d4d5da;font-weight:600}
+.big{display:flex;align-items:center;justify-content:center;height:220px}
+.sizes{display:flex;align-items:flex-end;gap:16px;margin-top:10px}
+.sizes span{display:flex;flex-direction:column;align-items:center;gap:4px;font-size:10px;color:#7a7d86}
+.ctx{display:flex;flex-direction:column;gap:10px}
+.taskbar{height:44px;background:#1f1f1f;border-radius:8px;display:flex;align-items:center;justify-content:center;gap:6px}
+.taskbar .slot{width:36px;height:36px;border-radius:5px;display:flex;align-items:center;justify-content:center}
+.taskbar .slot.on{background:#ffffff14;box-shadow:inset 0 -2px 0 #60cdff}
+.dock{height:68px;background:linear-gradient(#e9ecf3cc,#d9dde6cc);border-radius:18px;display:flex;align-items:center;justify-content:center;gap:10px;border:1px solid #ffffff80}
+.dash{height:64px;background:#2b2b2b;border-radius:14px;display:flex;align-items:center;justify-content:center;gap:12px}
+.ph{background:#8e9099;opacity:.55}
+.lbl{font-size:10px;color:#7a7d86}
+svg{display:block}
+</style>
+</helmet>
+<div class="board">
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <linearGradient id="ga" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#a7bcff"/><stop offset="1" stop-color="#5370e2"/></linearGradient>
+    <linearGradient id="gb" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#b3c5ff"/><stop offset="1" stop-color="#6684f2"/></linearGradient>
+    <linearGradient id="gd" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#b3c5ff"/><stop offset="1" stop-color="#6a86f0"/></linearGradient>
+    <linearGradient id="gdark" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1c1e25"/><stop offset="1" stop-color="#0f1012"/></linearGradient>
+    <linearGradient id="ghat" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#b3c5ff"/><stop offset="1" stop-color="#5f7cec"/></linearGradient>
+  </defs>
+  <!-- A: the tile merlin has now, refined -->
+  <symbol id="a" viewBox="0 0 512 512">
+    <rect x="24" y="24" width="464" height="464" rx="112" fill="url(#ga)"/>
+    <path d="M160 352V228a48 48 0 0 1 96 0v124M256 228a48 48 0 0 1 96 0v124" fill="none" stroke="#0f1012" stroke-width="52" stroke-linecap="round" stroke-linejoin="round"/>
+  </symbol>
+  <!-- B: a merlin (the falcon) in flight, which is also an m -->
+  <symbol id="b" viewBox="0 0 512 512">
+    <rect x="24" y="24" width="464" height="464" rx="112" fill="url(#gdark)"/>
+    <rect x="24.5" y="24.5" width="463" height="463" rx="111.5" fill="none" stroke="#ffffff14"/>
+    <path d="M84 318C122 196 210 176 256 268C302 176 390 196 428 318C384 252 312 236 256 330C200 236 128 252 84 318Z" fill="url(#gb)"/>
+  </symbol>
+  <!-- C: the wizard's hat -->
+  <symbol id="c" viewBox="0 0 512 512">
+    <rect x="24" y="24" width="464" height="464" rx="112" fill="url(#gdark)"/>
+    <rect x="24.5" y="24.5" width="463" height="463" rx="111.5" fill="none" stroke="#ffffff14"/>
+    <path d="M300 100C262 150 224 250 182 346H346C326 262 318 180 300 100Z" fill="url(#ghat)"/>
+    <rect x="118" y="334" width="276" height="44" rx="22" fill="#5f7cec"/>
+    <path d="M276 214l9 25 25 9-25 9-9 25-9-25-25-9 25-9z" fill="#0f1012"/>
+  </symbol>
+  <!-- D: an m whose last stroke is the text cursor -->
+  <symbol id="d" viewBox="0 0 512 512">
+    <rect x="24" y="24" width="464" height="464" rx="112" fill="url(#gdark)"/>
+    <rect x="24.5" y="24.5" width="463" height="463" rx="111.5" fill="none" stroke="#ffffff14"/>
+    <path d="M150 352V228a48 48 0 0 1 96 0v124M246 228a48 48 0 0 1 92 -6" fill="none" stroke="url(#gd)" stroke-width="50" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="336" y="150" width="30" height="230" rx="8" fill="#eef0f3"/>
+  </symbol>
+  <!-- B, refined: the chosen icon -->
+  <linearGradient id="gbr" x1="0.15" y1="0.1" x2="0.85" y2="0.9"><stop offset="0" stop-color="#c3d1ff"/><stop offset="0.55" stop-color="#8da6ff"/><stop offset="1" stop-color="#5f7cec"/></linearGradient>
+  <radialGradient id="glow" cx="0.5" cy="0.42" r="0.55"><stop offset="0" stop-color="#7c9cff" stop-opacity=".18"/><stop offset="1" stop-color="#7c9cff" stop-opacity="0"/></radialGradient>
+  <symbol id="bird" viewBox="0 0 512 512">
+    <path d="M60 344C104 186 210 150 256 258C302 150 408 186 452 344C396 266 318 242 256 350C194 242 116 266 60 344Z" fill="url(#gbr)"/>
+  </symbol>
+  <symbol id="bird-small" viewBox="0 0 512 512">
+    <path d="M52 352C96 170 206 136 256 250C306 136 416 170 460 352C402 290 322 276 256 382C190 276 110 290 52 352Z" fill="#a3b8ff"/>
+  </symbol>
+  <symbol id="br" viewBox="0 0 512 512">
+    <rect x="24" y="24" width="464" height="464" rx="112" fill="url(#gdark)"/>
+    <rect x="24" y="24" width="464" height="464" rx="112" fill="url(#glow)"/>
+    <rect x="24.5" y="24.5" width="463" height="463" rx="111.5" fill="none" stroke="#ffffff18"/>
+    <use href="#bird" x="33" y="40" width="446" height="446"/>
+  </symbol>
+  <symbol id="br-small" viewBox="0 0 512 512">
+    <rect x="16" y="16" width="480" height="480" rx="104" fill="#16181d"/>
+    <use href="#bird-small" x="0" y="-8" width="512" height="512"/>
+  </symbol>
+  <symbol id="br-mac" viewBox="0 0 512 512">
+    <rect x="50" y="56" width="412" height="412" rx="92" fill="#000" opacity=".35" filter="url(#soft)"/>
+    <rect x="50" y="46" width="412" height="412" rx="92" fill="url(#gdark)"/>
+    <rect x="50" y="46" width="412" height="412" rx="92" fill="url(#glow)"/>
+    <rect x="50.5" y="46.5" width="411" height="411" rx="91.5" fill="none" stroke="#ffffff18"/>
+    <use href="#bird" x="86" y="88" width="340" height="340"/>
+  </symbol>
+  <filter id="soft" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="12"/></filter>
+  <symbol id="mono" viewBox="0 0 512 512">
+    <path d="M52 352C96 170 206 136 256 250C306 136 416 170 460 352C402 290 322 276 256 382C190 276 110 290 52 352Z" fill="currentColor"/>
+  </symbol>
+</svg>
+
+<h1>merlin's app icon: B, the merlin, refined</h1>
+<p class="lead">Chosen on 2026-11-09 from the four directions further down. The bird fills more of its frame and has a little more lift. Under 48 px a <b style="color:#d4d5da">heavier drawing</b> takes over, with thicker wings, a flat accent fill and a tighter frame, because the large one's gradient and thin wing tips go soft there. The ground has a faint accent glow behind the bird. macOS gets its own size inside the frame and a shadow, as its icons do. The plain bird, with no frame, is for places that tint an icon a single colour: the macOS menu bar, Windows notifications and Linux trays.</p>
+<div class="row" style="grid-template-columns:300px 300px 1fr">
+  <div class="card dark big" style="height:300px"><svg width="260" height="260"><use href="#br"/></svg></div>
+  <div class="card light big" style="height:300px"><svg width="260" height="260"><use href="#br"/></svg></div>
+  <div class="card dark ctx">
+    <div class="name">Sizes: the large drawing, then the small one from 32 px down</div>
+    <div class="sizes"><span><svg width="128" height="128"><use href="#br"/></svg>128</span><span><svg width="64" height="64"><use href="#br"/></svg>64</span><span><svg width="48" height="48"><use href="#br"/></svg>48</span><span><svg width="32" height="32"><use href="#br-small"/></svg>32</span><span><svg width="24" height="24"><use href="#br-small"/></svg>24</span><span><svg width="16" height="16"><use href="#br-small"/></svg>16</span></div>
+    <div class="say" style="margin-top:6px">The same sizes with the large drawing only: <svg width="32" height="32" style="display:inline-block;vertical-align:middle"><use href="#br"/></svg> <svg width="24" height="24" style="display:inline-block;vertical-align:middle"><use href="#br"/></svg> <svg width="16" height="16" style="display:inline-block;vertical-align:middle"><use href="#br"/></svg>, softer and fainter.</div>
+    <div class="name" style="margin-top:14px">Alone, in one colour</div>
+    <div class="sizes"><span style="color:#eef0f3"><svg width="32" height="32"><use href="#mono"/></svg>dark</span><span style="color:#1d1f24;background:#eceef2;border-radius:6px;padding:4px"><svg width="32" height="32"><use href="#mono"/></svg>light</span><span style="color:#eef0f3"><svg width="18" height="18"><use href="#mono"/></svg>18</span></div>
+  </div>
+</div>
+<div class="row" style="grid-template-columns:1fr 1fr 1fr">
+  <div class="card dark ctx"><div class="name">Windows: taskbar and Start</div>
+    <div class="taskbar"><div class="slot"><div class="ph" style="width:22px;height:22px;border-radius:4px"></div></div><div class="slot on"><svg width="24" height="24"><use href="#br-small"/></svg></div><div class="slot"><div class="ph" style="width:22px;height:22px;border-radius:11px"></div></div><div class="slot"><div class="ph" style="width:22px;height:22px;border-radius:4px"></div></div></div>
+    <div style="background:#202020;border-radius:8px;padding:14px;display:grid;grid-template-columns:repeat(4,1fr);gap:12px;text-align:center;font-size:11px;color:#d0d0d0">
+      <div><div class="ph" style="width:40px;height:40px;border-radius:8px;margin:0 auto 6px"></div>Files</div>
+      <div><svg width="40" height="40" style="margin:0 auto 6px"><use href="#br"/></svg>merlin</div>
+      <div><div class="ph" style="width:40px;height:40px;border-radius:20px;margin:0 auto 6px"></div>Browser</div>
+      <div><div class="ph" style="width:40px;height:40px;border-radius:8px;margin:0 auto 6px"></div>Terminal</div>
+    </div></div>
+  <div class="card dark ctx"><div class="name">macOS: Dock and Launchpad</div>
+    <div class="dock"><div class="ph" style="width:52px;height:52px;border-radius:12px"></div><svg width="60" height="60"><use href="#br-mac"/></svg><div class="ph" style="width:52px;height:52px;border-radius:12px"></div></div>
+    <div style="background:linear-gradient(135deg,#3b4a6b,#1d2333);border-radius:8px;padding:14px;display:flex;justify-content:space-around;text-align:center;font-size:11px;color:#fff">
+      <div><div class="ph" style="width:56px;height:56px;border-radius:13px;margin:0 auto 4px"></div>Notes</div>
+      <div><svg width="64" height="64" style="margin:-4px auto 0"><use href="#br-mac"/></svg>merlin</div>
+      <div><div class="ph" style="width:56px;height:56px;border-radius:13px;margin:0 auto 4px"></div>Xcode</div>
+    </div></div>
+  <div class="card dark ctx"><div class="name">Linux: GNOME dash, and merlin's own title bar</div>
+    <div class="dash"><div class="ph" style="width:44px;height:44px;border-radius:10px"></div><svg width="48" height="48"><use href="#br"/></svg><div class="ph" style="width:44px;height:44px;border-radius:22px"></div></div>
+    <div style="background:#0f1012;border:1px solid #222328;border-radius:8px;height:40px;display:flex;align-items:center;gap:10px;padding:0 12px;font-size:13px">
+      <svg width="20" height="20"><use href="#br-small"/></svg><span style="font-weight:600;color:#eef0f3">merlin</span><span style="font-size:12px;color:#8e9099">⑂ editor-rework</span>
+    </div>
+    <div class="say">The title bar's "m" tile becomes the bird, so the window and its icon match. This is the only change inside merlin.</div></div>
+</div>
+<h1 style="margin-top:30px">The four directions</h1>
+
+<p class="lead">For the installers, the Start menu, the Dock, launchers, the window and the <span style="font-family:monospace">.exe</span>. Each is one shape that holds up at 16 px. All use merlin's accent (#7c9cff) on its dark ground, so the icon, the window and the old "m" tile read as one family. The frame is a rounded square; on macOS it becomes the system's squircle with its shadow.</p>
+
+<!-- Each concept: a row -->
+<div class="row">
+  <div class="card dark"><div class="name">A · The tile</div><div class="say">The <b>"m" tile</b> merlin's title bar already has, refined: a light accent square with a dark, round-stroked m. The most familiar, and the loudest in a taskbar. Plain: many editors are a letter on a square.</div></div>
+  <div class="card dark big"><svg width="200" height="200"><use href="#a"/></svg></div>
+  <div class="card light big"><svg width="200" height="200"><use href="#a"/></svg></div>
+  <div class="card dark ctx">
+    <div class="sizes"><span><svg width="128" height="128"><use href="#a"/></svg>128</span><span><svg width="64" height="64"><use href="#a"/></svg>64</span><span><svg width="32" height="32"><use href="#a"/></svg>32</span><span><svg width="24" height="24"><use href="#a"/></svg>24</span><span><svg width="16" height="16"><use href="#a"/></svg>16</span></div>
+    <div class="taskbar"><div class="slot"><div class="ph" style="width:22px;height:22px;border-radius:4px"></div></div><div class="slot on"><svg width="24" height="24"><use href="#a"/></svg></div><div class="slot"><div class="ph" style="width:22px;height:22px;border-radius:11px"></div></div><div class="slot"><div class="ph" style="width:22px;height:22px;border-radius:4px"></div></div></div>
+    <div style="display:flex;gap:10px"><div class="dock" style="flex:1"><div class="ph" style="width:48px;height:48px;border-radius:11px"></div><svg width="48" height="48"><use href="#a"/></svg><div class="ph" style="width:48px;height:48px;border-radius:11px"></div></div><div class="dash" style="flex:1"><div class="ph" style="width:44px;height:44px;border-radius:10px"></div><svg width="48" height="48"><use href="#a"/></svg><div class="ph" style="width:44px;height:44px;border-radius:22px"></div></div></div>
+    <div class="lbl">Windows taskbar · macOS Dock · GNOME dash</div>
+  </div>
+</div>
+
+<div class="row">
+  <div class="card dark"><div class="name">B · The merlin</div><div class="say">A merlin is a small falcon. Here it's <b>in flight, and its wings are the m</b>. Accent bird on merlin's dark ground. The only one with a story behind the name, and it stays a clean shape at 16 px.</div></div>
+  <div class="card dark big"><svg width="200" height="200"><use href="#b"/></svg></div>
+  <div class="card light big"><svg width="200" height="200"><use href="#b"/></svg></div>
+  <div class="card dark ctx">
+    <div class="sizes"><span><svg width="128" height="128"><use href="#b"/></svg>128</span><span><svg width="64" height="64"><use href="#b"/></svg>64</span><span><svg width="32" height="32"><use href="#b"/></svg>32</span><span><svg width="24" height="24"><use href="#b"/></svg>24</span><span><svg width="16" height="16"><use href="#b"/></svg>16</span></div>
+    <div class="taskbar"><div class="slot"><div class="ph" style="width:22px;height:22px;border-radius:4px"></div></div><div class="slot on"><svg width="24" height="24"><use href="#b"/></svg></div><div class="slot"><div class="ph" style="width:22px;height:22px;border-radius:11px"></div></div><div class="slot"><div class="ph" style="width:22px;height:22px;border-radius:4px"></div></div></div>
+    <div style="display:flex;gap:10px"><div class="dock" style="flex:1"><div class="ph" style="width:48px;height:48px;border-radius:11px"></div><svg width="48" height="48"><use href="#b"/></svg><div class="ph" style="width:48px;height:48px;border-radius:11px"></div></div><div class="dash" style="flex:1"><div class="ph" style="width:44px;height:44px;border-radius:10px"></div><svg width="48" height="48"><use href="#b"/></svg><div class="ph" style="width:44px;height:44px;border-radius:22px"></div></div></div>
+    <div class="lbl">Windows taskbar · macOS Dock · GNOME dash</div>
+  </div>
+</div>
+
+<div class="row">
+  <div class="card dark"><div class="name">C · The hat</div><div class="say">Merlin the <b>wizard's hat</b>, leaning, with a star cut out. Playful and easy to spot, but the wizard reading is the obvious one, and the star is lost below 32 px.</div></div>
+  <div class="card dark big"><svg width="200" height="200"><use href="#c"/></svg></div>
+  <div class="card light big"><svg width="200" height="200"><use href="#c"/></svg></div>
+  <div class="card dark ctx">
+    <div class="sizes"><span><svg width="128" height="128"><use href="#c"/></svg>128</span><span><svg width="64" height="64"><use href="#c"/></svg>64</span><span><svg width="32" height="32"><use href="#c"/></svg>32</span><span><svg width="24" height="24"><use href="#c"/></svg>24</span><span><svg width="16" height="16"><use href="#c"/></svg>16</span></div>
+    <div class="taskbar"><div class="slot"><div class="ph" style="width:22px;height:22px;border-radius:4px"></div></div><div class="slot on"><svg width="24" height="24"><use href="#c"/></svg></div><div class="slot"><div class="ph" style="width:22px;height:22px;border-radius:11px"></div></div><div class="slot"><div class="ph" style="width:22px;height:22px;border-radius:4px"></div></div></div>
+    <div style="display:flex;gap:10px"><div class="dock" style="flex:1"><div class="ph" style="width:48px;height:48px;border-radius:11px"></div><svg width="48" height="48"><use href="#c"/></svg><div class="ph" style="width:48px;height:48px;border-radius:11px"></div></div><div class="dash" style="flex:1"><div class="ph" style="width:44px;height:44px;border-radius:10px"></div><svg width="48" height="48"><use href="#c"/></svg><div class="ph" style="width:44px;height:44px;border-radius:22px"></div></div></div>
+    <div class="lbl">Windows taskbar · macOS Dock · GNOME dash</div>
+  </div>
+</div>
+
+<div class="row">
+  <div class="card dark"><div class="name">D · The cursor</div><div class="say">An m whose <b>last stroke is the text cursor</b>: says "editor" without a bracket or a pen. Accent strokes, white caret, dark ground. At 16 px it reads as two bumps and a bar.</div></div>
+  <div class="card dark big"><svg width="200" height="200"><use href="#d"/></svg></div>
+  <div class="card light big"><svg width="200" height="200"><use href="#d"/></svg></div>
+  <div class="card dark ctx">
+    <div class="sizes"><span><svg width="128" height="128"><use href="#d"/></svg>128</span><span><svg width="64" height="64"><use href="#d"/></svg>64</span><span><svg width="32" height="32"><use href="#d"/></svg>32</span><span><svg width="24" height="24"><use href="#d"/></svg>24</span><span><svg width="16" height="16"><use href="#d"/></svg>16</span></div>
+    <div class="taskbar"><div class="slot"><div class="ph" style="width:22px;height:22px;border-radius:4px"></div></div><div class="slot on"><svg width="24" height="24"><use href="#d"/></svg></div><div class="slot"><div class="ph" style="width:22px;height:22px;border-radius:11px"></div></div><div class="slot"><div class="ph" style="width:22px;height:22px;border-radius:4px"></div></div></div>
+    <div style="display:flex;gap:10px"><div class="dock" style="flex:1"><div class="ph" style="width:48px;height:48px;border-radius:11px"></div><svg width="48" height="48"><use href="#d"/></svg><div class="ph" style="width:48px;height:48px;border-radius:11px"></div></div><div class="dash" style="flex:1"><div class="ph" style="width:44px;height:44px;border-radius:10px"></div><svg width="48" height="48"><use href="#d"/></svg><div class="ph" style="width:44px;height:44px;border-radius:22px"></div></div></div>
+    <div class="lbl">Windows taskbar · macOS Dock · GNOME dash</div>
+  </div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1620,"height":2500}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

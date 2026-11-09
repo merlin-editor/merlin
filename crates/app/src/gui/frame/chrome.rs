@@ -29,9 +29,14 @@ impl Frame<'_> {
         if self.hovered(project) {
             self.canvas.round(project, 6.0, p.hover);
         }
-        self.canvas.round(mark, 5.0, p.accent);
-        let m = "m";
-        self.centred(m, Face::ui(11.0).bold(), mark, p.ground, mark);
+        // merlin's icon, drawn heavier for small sizes.
+        let px = (mark.w * self.canvas.scale).round() as u32;
+        if let Some(icon) = self
+            .pictures
+            .builtin("merlin-icon", ICON, px, self.canvas.bitmaps)
+        {
+            self.canvas.picture(icon, mark.x, mark.y, None, bar);
+        }
         self.text.draw_in_row(
             &mut self.canvas,
             &view.project,
@@ -834,3 +839,6 @@ impl Frame<'_> {
             .draw_in_row(&mut self.canvas, &detail, detail_f, dx, y, h, p.muted, card);
     }
 }
+
+/// merlin's icon for small sizes (`assets/icon/merlin-small.svg`).
+const ICON: &[u8] = include_bytes!("../../../../../assets/icon/merlin-small.svg");

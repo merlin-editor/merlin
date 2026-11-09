@@ -626,7 +626,17 @@ impl ApplicationHandler for Gui<'_> {
             .unwrap_or_else(|| "merlin".into());
         let attributes = Window::default_attributes()
             .with_title(project)
-            .with_inner_size(LogicalSize::new(1440.0, 900.0));
+            .with_inner_size(LogicalSize::new(1440.0, 900.0))
+            .with_window_icon(window_icon());
+        // The app ID Wayland and X11 desktops match to merlin.desktop and
+        // its icon.
+        #[cfg(desktop_linux)]
+        let attributes = {
+            use winit::platform::wayland::WindowAttributesExtWayland;
+            use winit::platform::x11::WindowAttributesExtX11;
+            let attributes = WindowAttributesExtWayland::with_name(attributes, "merlin", "merlin");
+            WindowAttributesExtX11::with_name(attributes, "merlin", "merlin")
+        };
         let window = match event_loop.create_window(attributes) {
             Ok(w) => Arc::new(w),
             Err(err) => {
@@ -1075,4 +1085,30 @@ impl Clicks {
         self.last = Some((now, at, clicks));
         clicks
     }
+}
+
+/// merlin's icon for the window, which Windows and X11 show in the taskbar
+/// and when switching windows (`assets/icon/merlin.svg`). Wayland and
+/// macOS find the icon by the app instead.
+fn window_icon() -> Option<winit::window::Icon> {
+    use resvg::{tiny_skia, usvg};
+    const SVG: &[u8] = include_bytes!("../../../../assets/icon/merlin.svg");
+    const PX: u32 = 128;
+    let tree = usvg::Tree::from_data(SVG, &usvg::Options::default()).ok()?;
+    let mut pixmap = tiny_skia::Pixmap::new(PX, PX)?;
+    let scale = PX as f32 / tree.size().width();
+    resvg::render(
+        &tree,
+        tiny_skia::Transform::from_scale(scale, scale),
+        &mut pixmap.as_mut(),
+    );
+    let rgba = pixmap
+        .pixels()
+        .iter()
+        .flat_map(|p| {
+            let c = p.demultiply();
+            [c.red(), c.green(), c.blue(), c.alpha()]
+        })
+        .collect();
+    winit::window::Icon::from_rgba(rgba, PX, PX).ok()
 }

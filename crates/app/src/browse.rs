@@ -1078,7 +1078,6 @@ fn confirm_view(c: &Confirm) -> ConfirmView {
     }
 }
 
-
 /// Where the plugins that come with merlin are: `plugins/` beside the
 /// executable, as the release archive has it, or the copy `install.sh`
 /// keeps in the data folder. `MERLIN_BUNDLE` names another.

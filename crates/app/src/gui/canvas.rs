@@ -643,7 +643,35 @@ impl Pictures {
         }
         let key = (file.to_path_buf(), px);
         if !self.drawn.contains_key(&key) {
-            let picture = Self::draw(file, px).map(|bitmap| Picture {
+            let picture = std::fs::read(file)
+                .ok()
+                .and_then(|data| Self::draw(&data, px))
+                .map(|bitmap| Picture {
+                    bitmap: bitmaps.add(bitmap),
+                });
+            self.drawn.insert(key.clone(), picture);
+        }
+        *self.drawn.get(&key)?
+    }
+
+    /// An SVG built into merlin, such as its own icon, drawn as [`get`]
+    /// draws a file's; `name` keeps it apart from files.
+    ///
+    /// [`get`]: Self::get
+    pub fn builtin(
+        &mut self,
+        name: &str,
+        svg: &[u8],
+        px: u32,
+        bitmaps: &mut Bitmaps,
+    ) -> Option<Picture> {
+        if self.generation != bitmaps.generation() {
+            self.drawn.clear();
+            self.generation = bitmaps.generation();
+        }
+        let key = (std::path::PathBuf::from(format!("builtin:{name}")), px);
+        if !self.drawn.contains_key(&key) {
+            let picture = Self::draw(svg, px).map(|bitmap| Picture {
                 bitmap: bitmaps.add(bitmap),
             });
             self.drawn.insert(key.clone(), picture);
@@ -686,10 +714,9 @@ impl Pictures {
         })
     }
 
-    fn draw(file: &std::path::Path, px: u32) -> Option<Bitmap> {
+    fn draw(data: &[u8], px: u32) -> Option<Bitmap> {
         use resvg::{tiny_skia, usvg};
-        let data = std::fs::read(file).ok()?;
-        let tree = usvg::Tree::from_data(&data, &usvg::Options::default()).ok()?;
+        let tree = usvg::Tree::from_data(data, &usvg::Options::default()).ok()?;
         let size = tree.size();
         let scale = px as f32 / size.width().max(size.height());
         let (dx, dy) = (

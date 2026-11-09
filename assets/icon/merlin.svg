@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- merlin's app icon: a merlin (the falcon) in flight, whose wings are an m.
+       Approved 2026-11-09 (docs/mockups/AppIcon.dc.html). For 48 px and up. -->
+  <defs>
+    <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1c1e25"/><stop offset="1" stop-color="#0f1012"/></linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.42" r="0.55"><stop offset="0" stop-color="#7c9cff" stop-opacity=".18"/><stop offset="1" stop-color="#7c9cff" stop-opacity="0"/></radialGradient>
+    <linearGradient id="bird" x1="0.15" y1="0.1" x2="0.85" y2="0.9"><stop offset="0" stop-color="#c3d1ff"/><stop offset="0.55" stop-color="#8da6ff"/><stop offset="1" stop-color="#5f7cec"/></linearGradient>
+  </defs>
+  <rect x="24" y="24" width="464" height="464" rx="112" fill="url(#ground)"/>
+  <rect x="24" y="24" width="464" height="464" rx="112" fill="url(#glow)"/>
+  <rect x="24.5" y="24.5" width="463" height="463" rx="111.5" fill="none" stroke="#ffffff" stroke-opacity=".094"/>
+  <path transform="translate(33 40) scale(0.871)" d="M60 344C104 186 210 150 256 258C302 150 408 186 452 344C396 266 318 242 256 350C194 242 116 266 60 344Z" fill="url(#bird)"/>
+</svg>

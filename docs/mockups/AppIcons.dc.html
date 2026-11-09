@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>App icon designs</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@500;600&amp;display=swap" rel="stylesheet">
+<style>
+body { margin: 0; background: #0b0c0e; color: #d4d5da; font-family: Inter, sans-serif; }
+.w {
+  width: 1280px;
+  height: 800px;
+  background: #0f1012;
+  box-sizing: border-box;
+  padding: 36px 44px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  overflow: hidden;
+}
+.header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  border-bottom: 1px solid #1f2127;
+  padding-bottom: 16px;
+}
+.title { font-size: 20px; font-weight: 700; color: #eef0f3; letter-spacing: -0.02em; }
+.subtitle { font-size: 13px; color: #8e9099; }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+  flex: 1;
+}
+
+.card {
+  background: #17181c;
+  border: 1px solid #23252d;
+  border-radius: 12px;
+  padding: 24px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  transition: all 0.15s ease;
+}
+.card:hover {
+  border-color: #353844;
+  background: #191b20;
+}
+.tag {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: #20222a;
+  color: #8e9099;
+}
+.tag.featured {
+  background: #1b263e;
+  color: #7c9cff;
+}
+
+.icon-stage {
+  width: 140px;
+  height: 140px;
+  margin-top: 18px;
+  margin-bottom: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+/* Scaled previews (Dock / Taskbar / Small) */
+.previews {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: #101114;
+  border: 1px solid #1d1f25;
+  padding: 8px 14px;
+  border-radius: 8px;
+  margin-bottom: 18px;
+}
+.preview-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: #636672;
+}
+
+.meta {
+  width: 100%;
+  border-top: 1px solid #202229;
+  padding-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #eef0f3;
+}
+.concept {
+  font-size: 12px;
+  color: #8e9099;
+  line-height: 1.45;
+}
+</style>
+</helmet>
+
+<div class="w">
+  <div class="header">
+    <div>
+      <div class="title">Merlin App Icon Concepts</div>
+      <div class="subtitle">Designed for Linux desktop entries, macOS .icns, and Windows taskbars.</div>
+    </div>
+    <div style="font-size: 12px; color: #7c9cff; font-weight: 500;">Palette: #7c9cff Accent &bull; #0f1012 Deep Charcoal</div>
+  </div>
+
+  <div class="grid">
+    <!-- OPTION A: The Pure Mark -->
+    <div class="card">
+      <span class="tag featured">Option A &bull; Signature</span>
+      <div class="icon-stage">
+        <!-- SVG 128x128 -->
+        <svg width="128" height="128" viewBox="0 0 128 128" fill="none">
+          <defs>
+            <linearGradient id="sq-bg" x1="0" y1="0" x2="128" y2="128" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#1c1e24"/>
+              <stop offset="100%" stop-color="#121317"/>
+            </linearGradient>
+            <linearGradient id="accent-grad" x1="0" y1="0" x2="80" y2="80" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#91adff"/>
+              <stop offset="100%" stop-color="#6a8eff"/>
+            </linearGradient>
+            <filter id="shadow" x="14" y="16" width="100" height="102" filterUnits="userSpaceOnUse">
+              <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#000000" flood-opacity="0.45"/>
+            </filter>
+          </defs>
+          <!-- Squircle Base with bevel -->
+          <rect x="6" y="6" width="116" height="116" rx="28" fill="url(#sq-bg)" stroke="#2d303b" stroke-width="2"/>
+          <!-- Inner Mark -->
+          <g filter="url(#shadow)">
+            <rect x="26" y="26" width="76" height="76" rx="20" fill="url(#accent-grad)"/>
+            <text x="64" y="74" fill="#0f1012" font-family="Inter, sans-serif" font-size="44" font-weight="800" text-anchor="middle">m</text>
+          </g>
+        </svg>
+      </div>
+
+      <!-- Micro previews -->
+      <div class="previews">
+        <div class="preview-item">
+          <svg width="32" height="32" viewBox="0 0 128 128" fill="none">
+            <rect x="6" y="6" width="116" height="116" rx="28" fill="#18191f" stroke="#2d303b" stroke-width="3"/>
+            <rect x="26" y="26" width="76" height="76" rx="20" fill="#7c9cff"/>
+            <text x="64" y="74" fill="#0f1012" font-family="Inter, sans-serif" font-size="44" font-weight="800" text-anchor="middle">m</text>
+          </svg>
+          <span>32px</span>
+        </div>
+        <div class="preview-item">
+          <svg width="22" height="22" viewBox="0 0 128 128" fill="none">
+            <rect x="6" y="6" width="116" height="116" rx="28" fill="#18191f"/>
+            <rect x="24" y="24" width="80" height="80" rx="20" fill="#7c9cff"/>
+            <text x="64" y="76" fill="#0f1012" font-family="Inter, sans-serif" font-size="48" font-weight="900" text-anchor="middle">m</text>
+          </svg>
+          <span>22px</span>
+        </div>
+        <div class="preview-item">
+          <svg width="16" height="16" viewBox="0 0 128 128" fill="none">
+            <rect x="4" y="4" width="120" height="120" rx="30" fill="#7c9cff"/>
+            <text x="64" y="86" fill="#0f1012" font-family="Inter, sans-serif" font-size="70" font-weight="900" text-anchor="middle">m</text>
+          </svg>
+          <span>16px</span>
+        </div>
+      </div>
+
+      <div class="meta">
+        <div class="name">The Window Mark</div>
+        <div class="concept">Direct 1:1 match with the title bar logo badge in Merlin. Familiar, minimal, and immediate.</div>
+      </div>
+    </div>
+
+    <!-- OPTION B: Code Chevron + M -->
+    <div class="card">
+      <span class="tag">Option B &bull; Editor</span>
+      <div class="icon-stage">
+        <svg width="128" height="128" viewBox="0 0 128 128" fill="none">
+          <defs>
+            <linearGradient id="sq-bg-b" x1="0" y1="0" x2="128" y2="128" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#1a1c22"/>
+              <stop offset="100%" stop-color="#101115"/>
+            </linearGradient>
+            <linearGradient id="chevron-grad" x1="20" y1="20" x2="110" y2="110" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#9bb7ff"/>
+              <stop offset="100%" stop-color="#698eff"/>
+            </linearGradient>
+          </defs>
+          <rect x="6" y="6" width="116" height="116" rx="28" fill="url(#sq-bg-b)" stroke="#2b2e38" stroke-width="2"/>
+          <!-- Nested Code Bracket & M -->
+          <path d="M40 44L24 64L40 84" stroke="#7c9cff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M88 44L104 64L88 84" stroke="#7c9cff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M50 78V52L64 68L78 52V78" stroke="#eef0f3" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+
+      <div class="previews">
+        <div class="preview-item">
+          <svg width="32" height="32" viewBox="0 0 128 128" fill="none">
+            <rect x="6" y="6" width="116" height="116" rx="28" fill="#18191f" stroke="#2d303b" stroke-width="3"/>
+            <path d="M40 44L24 64L40 84" stroke="#7c9cff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M88 44L104 64L88 84" stroke="#7c9cff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M50 78V52L64 68L78 52V78" stroke="#eef0f3" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>32px</span>
+        </div>
+        <div class="preview-item">
+          <svg width="22" height="22" viewBox="0 0 128 128" fill="none">
+            <rect x="6" y="6" width="116" height="116" rx="28" fill="#18191f"/>
+            <path d="M40 44L24 64L40 84" stroke="#7c9cff" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M88 44L104 64L88 84" stroke="#7c9cff" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M50 78V52L64 68L78 52V78" stroke="#eef0f3" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>22px</span>
+        </div>
+        <div class="preview-item">
+          <svg width="16" height="16" viewBox="0 0 128 128" fill="none">
+            <rect x="6" y="6" width="116" height="116" rx="28" fill="#7c9cff"/>
+            <path d="M48 80V52L64 70L80 52V80" stroke="#0f1012" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>16px</span>
+        </div>
+      </div>
+
+      <div class="meta">
+        <div class="name">Code Chevrons</div>
+        <div class="concept">Combines the letter 'M' flanked by code delimiters &lt; &gt;. Instantly reads as a software engineer's code editor.</div>
+      </div>
+    </div>
+
+    <!-- OPTION C: The Falcon / Feather Quill -->
+    <div class="card">
+      <span class="tag">Option C &bull; Falcon</span>
+      <div class="icon-stage">
+        <svg width="128" height="128" viewBox="0 0 128 128" fill="none">
+          <defs>
+            <linearGradient id="sq-bg-c" x1="0" y1="0" x2="128" y2="128" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#1b1c23"/>
+              <stop offset="100%" stop-color="#0f1013"/>
+            </linearGradient>
+            <linearGradient id="wing-grad" x1="30" y1="30" x2="100" y2="100" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#8bb0ff"/>
+              <stop offset="50%" stop-color="#7c9cff"/>
+              <stop offset="100%" stop-color="#557be8"/>
+            </linearGradient>
+          </defs>
+          <rect x="6" y="6" width="116" height="116" rx="28" fill="url(#sq-bg-c)" stroke="#2b2e38" stroke-width="2"/>
+          <!-- Stylized Merlin (Bird of Prey) Wing / Origami Fold forming M -->
+          <path d="M30 88L48 38L64 68L80 38L98 88" stroke="url(#wing-grad)" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M44 88L64 74L84 88" stroke="#3d4968" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="64" cy="30" r="4.5" fill="#7c9cff"/>
+        </svg>
+      </div>
+
+      <div class="previews">
+        <div class="preview-item">
+          <svg width="32" height="32" viewBox="0 0 128 128" fill="none">
+            <rect x="6" y="6" width="116" height="116" rx="28" fill="#18191f" stroke="#2d303b" stroke-width="3"/>
+            <path d="M30 88L48 38L64 68L80 38L98 88" stroke="#7c9cff" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>32px</span>
+        </div>
+        <div class="preview-item">
+          <svg width="22" height="22" viewBox="0 0 128 128" fill="none">
+            <rect x="6" y="6" width="116" height="116" rx="28" fill="#18191f"/>
+            <path d="M30 88L48 38L64 68L80 38L98 88" stroke="#7c9cff" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>22px</span>
+        </div>
+        <div class="preview-item">
+          <svg width="16" height="16" viewBox="0 0 128 128" fill="none">
+            <rect x="4" y="4" width="120" height="120" rx="30" fill="#18191f"/>
+            <path d="M30 88L48 38L64 68L80 38L98 88" stroke="#7c9cff" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>16px</span>
+        </div>
+      </div>
+
+      <div class="meta">
+        <div class="name">The Falcon Wings</div>
+        <div class="concept">Nods to Merlin (the swift falcon, descendant of Kestrel). Geometric origami wings sweeping upward into an 'M'.</div>
+      </div>
+    </div>
+
+    <!-- OPTION D: The Sandboxed Wasm Prism -->
+    <div class="card">
+      <span class="tag">Option D &bull; Modern</span>
+      <div class="icon-stage">
+        <svg width="128" height="128" viewBox="0 0 128 128" fill="none">
+          <defs>
+            <linearGradient id="sq-bg-d" x1="0" y1="0" x2="128" y2="128" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#181a20"/>
+              <stop offset="100%" stop-color="#0e0f12"/>
+            </linearGradient>
+            <linearGradient id="cube-top" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#a4beff"/>
+              <stop offset="100%" stop-color="#7c9cff"/>
+            </linearGradient>
+            <linearGradient id="cube-side" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#5a7ce6"/>
+              <stop offset="100%" stop-color="#3b5bb8"/>
+            </linearGradient>
+          </defs>
+          <rect x="6" y="6" width="116" height="116" rx="28" fill="url(#sq-bg-d)" stroke="#2b2e38" stroke-width="2"/>
+          <!-- Isometric Cube / Wasm Component with M cut -->
+          <!-- Top face -->
+          <path d="M64 26L96 44L64 62L32 44L64 26Z" fill="url(#cube-top)"/>
+          <!-- Left face -->
+          <path d="M32 44L64 62V98L32 80V44Z" fill="url(#cube-side)" opacity="0.9"/>
+          <!-- Right face -->
+          <path d="M64 62L96 44V80L64 98V62Z" fill="#324d9c"/>
+          <!-- M contour line cut -->
+          <path d="M48 62L64 71L80 62V79L64 88L48 79V62Z" fill="#141720" stroke="#7c9cff" stroke-width="2"/>
+        </svg>
+      </div>
+
+      <div class="previews">
+        <div class="preview-item">
+          <svg width="32" height="32" viewBox="0 0 128 128" fill="none">
+            <rect x="6" y="6" width="116" height="116" rx="28" fill="#18191f" stroke="#2d303b" stroke-width="3"/>
+            <path d="M64 26L96 44L64 62L32 44L64 26Z" fill="#7c9cff"/>
+            <path d="M32 44L64 62V98L32 80V44Z" fill="#557be8"/>
+            <path d="M64 62L96 44V80L64 98V62Z" fill="#3b5bb8"/>
+          </svg>
+          <span>32px</span>
+        </div>
+        <div class="preview-item">
+          <svg width="22" height="22" viewBox="0 0 128 128" fill="none">
+            <rect x="6" y="6" width="116" height="116" rx="28" fill="#18191f"/>
+            <path d="M64 26L96 44L64 62L32 44L64 26Z" fill="#7c9cff"/>
+            <path d="M32 44L64 62V98L32 80V44Z" fill="#557be8"/>
+            <path d="M64 62L96 44V80L64 98V62Z" fill="#3b5bb8"/>
+          </svg>
+          <span>22px</span>
+        </div>
+        <div class="preview-item">
+          <svg width="16" height="16" viewBox="0 0 128 128" fill="none">
+            <rect x="4" y="4" width="120" height="120" rx="30" fill="#7c9cff"/>
+          </svg>
+          <span>16px</span>
+        </div>
+      </div>
+
+      <div class="meta">
+        <div class="name">The Component Cube</div>
+        <div class="concept">An isometric WebAssembly component module with nested geometry. Highlights the sandboxed, modular architecture.</div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
