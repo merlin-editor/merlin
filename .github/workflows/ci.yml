@@ -81,6 +81,15 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Check the registry answers
+        run: |
+          # What GitHub says for the index and one package, to tell a
+          # registry outage from a problem in merlin.
+          curl -sSIL https://merlin-editor.github.io/plugins/index.json | grep -iE '^(HTTP|location)'
+          url=$(curl -fsS https://merlin-editor.github.io/plugins/index.json |
+            python3 -c "import json,sys; d=json.load(sys.stdin); print(next(v['url'] for e in d['plugins'].values() for v in e['versions']))")
+          curl -sSIL --max-time 60 "$url" | grep -iE '^(HTTP|location)' | cut -c1-120
+
       - name: Fetch the registry's packages
         run: |
           cargo build --bin merlin

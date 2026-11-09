@@ -34,9 +34,47 @@ fn plugins_dir() -> Result<PathBuf> {
     Ok(dir)
 }
 
-/// Fetches a URL over HTTPS, at most `limit` bytes of it.
+/// Fetches a URL over HTTPS, at most `limit` bytes of it. A server error
+/// or a dropped or stalled connection is tried again, up to four times in
+/// all, since GitHub's downloads now and then answer 504.
 pub(crate) fn fetch(url: &str, limit: u64) -> Result<Vec<u8>> {
-    let mut response = ureq::get(url)
+    const PAUSES: [u64; 3] = [2, 6, 15];
+    let mut tries = 0;
+    loop {
+        match fetch_once(url, limit) {
+            Ok(bytes) => return Ok(bytes),
+            Err(err) if tries < PAUSES.len() && worth_retrying(&err) => {
+                eprintln!("{url}: {err:#}; trying again in {} s", PAUSES[tries]);
+                std::thread::sleep(std::time::Duration::from_secs(PAUSES[tries]));
+                tries += 1;
+            }
+            Err(err) => return Err(err),
+        }
+    }
+}
+
+/// Whether a failed fetch may go better next time: a server error or the
+/// connection, not a missing file or a body that's too long.
+fn worth_retrying(err: &anyhow::Error) -> bool {
+    match err.downcast_ref::<ureq::Error>() {
+        Some(ureq::Error::StatusCode(code)) => *code >= 500 || *code == 429,
+        Some(ureq::Error::BodyExceedsLimit(_)) => false,
+        Some(_) => true,
+        None => false,
+    }
+}
+
+/// One try at [`fetch`], giving up on a request that takes over a minute.
+fn fetch_once(url: &str, limit: u64) -> Result<Vec<u8>> {
+    static AGENT: std::sync::OnceLock<ureq::Agent> = std::sync::OnceLock::new();
+    let agent = AGENT.get_or_init(|| {
+        ureq::Agent::config_builder()
+            .timeout_global(Some(std::time::Duration::from_secs(60)))
+            .build()
+            .into()
+    });
+    let mut response = agent
+        .get(url)
         .header("User-Agent", concat!("merlin/", env!("CARGO_PKG_VERSION")))
         .call()
         .with_context(|| format!("fetching {url}"))?;
@@ -497,4 +535,24 @@ fn pack(args: &[String], usage: &str) -> Result<()> {
         packed.sha256
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod fetch_tests {
+    use super::worth_retrying;
+    use anyhow::Context;
+
+    fn failed(err: ureq::Error) -> anyhow::Error {
+        Err::<(), _>(err).context("fetching a URL").unwrap_err()
+    }
+
+    #[test]
+    fn server_errors_and_dropped_connections_are_tried_again() {
+        assert!(worth_retrying(&failed(ureq::Error::StatusCode(504))));
+        assert!(worth_retrying(&failed(ureq::Error::StatusCode(429))));
+        assert!(worth_retrying(&failed(ureq::Error::ConnectionFailed)));
+        assert!(!worth_retrying(&failed(ureq::Error::StatusCode(404))));
+        assert!(!worth_retrying(&failed(ureq::Error::BodyExceedsLimit(10))));
+        assert!(!worth_retrying(&anyhow::anyhow!("doesn't match the index")));
+    }
 }
