@@ -1,3 +1,7 @@
+// A window, not a console program, on Windows: no console opens beside
+// it. `attach_console` gives the command line its output back.
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 mod browse;
 mod clipboard;
 mod disk;
@@ -866,6 +870,20 @@ fn file_op(root: &Path, op: FileOp) -> Vec<Event> {
         },
     }
 }
+/// On Windows, writes to the terminal merlin was started from, if any, so
+/// `merlin --version` and `merlin plugin …` print there although merlin is
+/// a window program. Started from the Start menu, there's none, and
+/// nothing changes.
+fn attach_console() {
+    #[cfg(windows)]
+    // SAFETY: a plain call with no pointers; it fails harmlessly when
+    // there's no parent console or one is attached already.
+    unsafe {
+        use windows_sys::Win32::System::Console::{ATTACH_PARENT_PROCESS, AttachConsole};
+        AttachConsole(ATTACH_PARENT_PROCESS);
+    }
+}
+
 /// Opens a folder in the desktop's file manager, or a web page in the
 /// browser.
 pub(crate) fn open_folder(dir: &Path) {
@@ -1083,6 +1101,7 @@ fn fewer_heaps() {
 fn fewer_heaps() {}
 
 fn main() -> Result<()> {
+    attach_console();
     fewer_heaps();
     let argv: Vec<String> = env::args().skip(1).collect();
     if let [plugin, new, name] = &argv[..]

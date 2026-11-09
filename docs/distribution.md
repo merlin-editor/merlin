@@ -250,9 +250,18 @@ so `v0.1.0` no longer counts as up to date for `v0.1.01`. Tried on 2026-11-09
 with archives built as `ci.yml` builds them, served with
 `MERLIN_RELEASE_URL=file://…`: it installed, merlin then installed all 13
 plugins from there, and a tampered archive was refused. Not tried: macOS,
-Git Bash on Windows, and a real draft release (step 6 of A5). On Windows,
-merlin.exe finds its data folder from `HOME`, which may not be set outside
-Git Bash.
+Git Bash on Windows, and a real draft release (step 6 of A5). On Windows it
+puts the plugins in `%LOCALAPPDATA%\merlin\bundled`.
+
+**Windows before 0.1.0 (done).** merlin found its folders only through
+`XDG_*` or `HOME`, which Windows doesn't set outside Git Bash, so started
+from Explorer it had no plugins folder and kept its data in the temp folder.
+`config_home` and `data_home` in the plugin host now take `XDG_*` first,
+then `%APPDATA%` (settings, plugins) and `%LOCALAPPDATA%` (data) on Windows,
+then `HOME`. And merlin is a window program on Windows, so no console opens
+beside it; started from a terminal, it attaches to it, so `merlin plugin …`
+and `--version` still print. Checked by compiling for Windows and macOS with
+clippy, and a unit test of the folder order; not yet run on Windows itself.
 
 **A5. A release checklist (done).** [releasing.md](releasing.md) gives the
 order: check, version, SDK if the API changed, the registry if plugins

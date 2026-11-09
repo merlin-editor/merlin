@@ -33,6 +33,10 @@ raw-window-handle = "0.6"
 # Fetches registries' indexes and packages.
 ureq = "3"
 
+[target.'cfg(windows)'.dependencies]
+# Attaching to the terminal merlin was started from.
+windows-sys = { version = "0.61", features = ["Win32_System_Console"] }
+
 [target.'cfg(unix)'.dependencies]
 # The local time's offset from UTC, for times in the Output panel.
 libc = "0.2"

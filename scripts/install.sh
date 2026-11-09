@@ -35,6 +35,11 @@ case "$OS" in
     MINGW*|MSYS*|CYGWIN*)
         TARGET="windows-x86_64"
         EXT="zip"
+        # merlin keeps its data in %LOCALAPPDATA% on Windows.
+        if [ -z "${XDG_DATA_HOME:-}" ] && [ -n "${LOCALAPPDATA:-}" ]; then
+            LOCAL="$(cygpath -u "$LOCALAPPDATA" 2>/dev/null || echo "$LOCALAPPDATA")"
+            BUNDLE_DIR="$LOCAL/merlin/bundled"
+        fi
         ;;
     *)
         echo "Unsupported operating system: $OS" >&2

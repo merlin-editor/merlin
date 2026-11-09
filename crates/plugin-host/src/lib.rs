@@ -84,14 +84,102 @@ pub struct Config {
     pub background: bool,
 }
 
+/// Where settings go: `$XDG_CONFIG_HOME`, else `%APPDATA%` on Windows,
+/// else `~/.config`. merlin's own are in its `merlin` folder.
+pub fn config_home() -> Option<PathBuf> {
+    home_folder("XDG_CONFIG_HOME", "APPDATA", ".config")
+}
+
+/// Where data goes: `$XDG_DATA_HOME`, else `%LOCALAPPDATA%` on Windows,
+/// else `~/.local/share`. merlin's own is in its `merlin` folder.
+pub fn data_home() -> Option<PathBuf> {
+    home_folder("XDG_DATA_HOME", "LOCALAPPDATA", ".local/share")
+}
+
+/// An XDG folder if it's set, else Windows' own, else one under `HOME`.
+/// Windows' comes before `HOME`, which Git Bash sets, so merlin finds the
+/// same folders however it was started.
+fn home_folder(xdg: &str, windows: &str, under_home: &str) -> Option<PathBuf> {
+    pick_folder(
+        &|name| std::env::var_os(name),
+        cfg!(windows),
+        xdg,
+        windows,
+        under_home,
+    )
+}
+
+fn pick_folder(
+    var: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+    on_windows: bool,
+    xdg: &str,
+    windows: &str,
+    under_home: &str,
+) -> Option<PathBuf> {
+    let absolute = |name: &str| var(name).map(PathBuf::from).filter(|p| p.is_absolute());
+    absolute(xdg)
+        .or_else(|| on_windows.then(|| absolute(windows)).flatten())
+        .or_else(|| absolute("HOME").map(|h| h.join(under_home)))
+}
+
+#[cfg(test)]
+mod folder_tests {
+    use super::pick_folder;
+    use std::path::PathBuf;
+
+    fn pick(vars: &[(&str, &str)], on_windows: bool) -> Option<PathBuf> {
+        let var = |name: &str| {
+            vars.iter()
+                .find(|(n, _)| *n == name)
+                .map(|(_, v)| (*v).into())
+        };
+        pick_folder(&var, on_windows, "XDG_CONFIG_HOME", "APPDATA", ".config")
+    }
+
+    #[test]
+    fn folders_come_from_xdg_then_windows_then_home() {
+        let home = if cfg!(windows) {
+            r"C:\Users\m"
+        } else {
+            "/home/m"
+        };
+        let appdata = if cfg!(windows) {
+            r"C:\Users\m\AppData\Roaming"
+        } else {
+            "/appdata"
+        };
+        let xdg = if cfg!(windows) { r"D:\xdg" } else { "/xdg" };
+        assert_eq!(
+            pick(&[("HOME", home)], false),
+            Some(PathBuf::from(home).join(".config"))
+        );
+        // Windows' own folder wins over the HOME Git Bash sets.
+        assert_eq!(
+            pick(&[("HOME", home), ("APPDATA", appdata)], true),
+            Some(PathBuf::from(appdata))
+        );
+        // Off Windows, APPDATA means nothing.
+        assert_eq!(
+            pick(&[("HOME", home), ("APPDATA", appdata)], false),
+            Some(PathBuf::from(home).join(".config"))
+        );
+        // XDG wins everywhere; a relative one is ignored, as the spec says.
+        assert_eq!(
+            pick(&[("XDG_CONFIG_HOME", xdg), ("APPDATA", appdata)], true),
+            Some(PathBuf::from(xdg))
+        );
+        assert_eq!(
+            pick(&[("XDG_CONFIG_HOME", "rel"), ("HOME", home)], false),
+            Some(PathBuf::from(home).join(".config"))
+        );
+        assert_eq!(pick(&[], true), None);
+    }
+}
+
 impl Config {
-    /// `$XDG_DATA_HOME/merlin` (`~/.local/share/merlin`), asking, with
-    /// the keyring.
+    /// merlin's data folder (see [`data_home`]), asking, with the keyring.
     pub fn standard() -> Self {
-        let data = std::env::var_os("XDG_DATA_HOME")
-            .map(PathBuf::from)
-            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
-            .unwrap_or_else(std::env::temp_dir);
+        let data = data_home().unwrap_or_else(std::env::temp_dir);
         Self {
             data_dir: data.join("merlin"),
             ask: true,

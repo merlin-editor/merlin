@@ -3,8 +3,8 @@
 //! `.merlin/settings.toml` in its folder, which wins where both set a
 //! value. Plugins' settings are under `[plugins.<name>]` in either.
 
+use std::fs;
 use std::path::{Path, PathBuf};
-use std::{env, fs};
 
 use merlin_core::{AutoSave, Settings};
 
@@ -94,11 +94,7 @@ pub struct Files {
 
 impl Files {
     pub fn new(root: &Path) -> Self {
-        let config = env::var_os("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .filter(|p| p.is_absolute())
-            .or_else(|| env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
-            .unwrap_or_else(|| PathBuf::from("."));
+        let config = merlin_plugins::config_home().unwrap_or_else(|| PathBuf::from("."));
         Self {
             user: config.join("merlin").join("settings.toml"),
             workspace: root.join(".merlin").join("settings.toml"),
@@ -245,11 +241,11 @@ impl Files {
 
 /// Where `merlin plugin install` links plugins.
 pub fn plugins_dir() -> Option<PathBuf> {
-    let config = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute())
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
-    Some(config.join("merlin/plugins"))
+    Some(
+        merlin_plugins::config_home()?
+            .join("merlin")
+            .join("plugins"),
+    )
 }
 
 /// The editor's settings in a merged table.
@@ -566,7 +562,8 @@ mod tests {
     use super::*;
 
     fn files(name: &str) -> Files {
-        let dir = env::temp_dir().join(format!("merlin-settings-{name}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("merlin-settings-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         Files {
             user: dir.join("user/settings.toml"),
