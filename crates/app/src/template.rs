@@ -17,12 +17,18 @@ pub fn create(name: &str) -> Result<()> {
     if dir.exists() {
         bail!("{} already exists", dir.display());
     }
-    // The SDK isn't published yet, so plugins use the copy next to the
-    // editor's source.
-    let sdk = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../sdk/rust");
-    let sdk = sdk
-        .canonicalize()
-        .with_context(|| format!("the plugin SDK should be at {}", sdk.display()))?;
+    // The SDK from crates.io, at this merlin's plugin API, whose version
+    // it shares. MERLIN_SDK_PATH points at a checkout instead, to change
+    // the SDK and a plugin together.
+    let sdk = match std::env::var_os("MERLIN_SDK_PATH") {
+        Some(path) => {
+            let path = Path::new(&path)
+                .canonicalize()
+                .with_context(|| format!("MERLIN_SDK_PATH is {}", Path::new(&path).display()))?;
+            format!("{{ path = {:?} }}", path.display().to_string())
+        }
+        None => format!("\"{}\"", merlin_plugins::API_VERSION),
+    };
     let crate_name = name.replace('-', "_");
     let title: String = name
         .split(['-', '_'])
@@ -45,7 +51,7 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-merlin-plugin = {{ path = "{sdk}" }}
+merlin-plugin = {sdk}
 
 [profile.release]
 opt-level = "s"
@@ -53,7 +59,7 @@ strip = true
 
 [workspace]
 "#,
-                sdk = sdk.display()
+                sdk = sdk
             ),
         ),
         (

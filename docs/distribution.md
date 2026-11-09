@@ -15,9 +15,9 @@ This document tracks the design and implementation for distributing **Merlin Edi
 
 ---
 
-## 2. Plugin SDK on crates.io (Workflow Built; 0.14.0 Not Yet Published)
+## 2. Plugin SDK on crates.io (Completed, 0.14.0)
 
-crates.io has 0.9.0; the plugin API and the SDK in this repository are at 0.14.0, so plugins built from the template need `sdk-v0.14.0` pushed (section 9, A2). The SDK crates are published to crates.io, all three at the same version (the `version` in `sdk/*/Cargo.toml`, which moves with the plugin API's `API_VERSION`):
+0.14.0 was published by `sdk-release.yml` on 2026-11-09, its first run, from the `sdk-v0.14.0` tag. `merlin plugin new` writes `merlin-plugin = "<API_VERSION>"`, from crates.io; `MERLIN_SDK_PATH=<checkout>/sdk/rust` makes it a path instead, to change the SDK and a plugin together. The SDK crates are published to crates.io, all three at the same version (the `version` in `sdk/*/Cargo.toml`, which moves with the plugin API's `API_VERSION`):
 - `merlin-plugin` (Core WebAssembly guest bindings and runtime macro)
 - `merlin-lsp` (Language Server Protocol client helper)
 - `merlin-grammar` (Tree-sitter syntax highlighter with bundled wasm C headers)
@@ -31,7 +31,7 @@ crates.io has 0.9.0; the plugin API and the SDK in this repository are at 0.14.0
   git push origin sdk-v0.13.0
   ```
 - **Order**: `merlin-plugin` first, then a 25-second wait for the crates.io index, then `merlin-lsp` and `merlin-grammar`, which depend on it. `scripts/publish-sdk.sh` does the same by hand.
-- **Environment**: Protected `release` environment in GitHub (configured with `sdk-v*` deployment branch/tag rule).
+- **Environment**: Protected `release` environment in GitHub: only `sdk-v*` tags deploy to it, and a run waits until a required reviewer (marc-cr1810) approves it under Review deployments.
 
 ---
 
@@ -192,10 +192,11 @@ test: `Worker::run` replied before its thread counted the job's time, so a
 caller could read a plugin's CPU time without its own call in it. The thread
 now counts, then replies. CI passed on Linux, macOS and Windows.
 
-**A2. SDK 0.14.0 on crates.io.** Push `sdk-v0.14.0`. Check first that
-crates.io's trusted publishing still names `sdk-release.yml` and the `release`
-environment, since the last publish was 0.9.0. `merlin plugin new` writes a
-`Cargo.toml` that needs this version.
+**A2. SDK 0.14.0 on crates.io (done).** `sdk-v0.14.0` published all three
+crates through trusted publishing on the workflow's first run. `merlin plugin
+new` used to write a path to the SDK in the source it was built from, which a
+released binary doesn't have; it now writes the crates.io version, and a
+plugin made from it builds.
 
 **A3. Bundled plugins (phase 5).** This revises 7.1: the archive carries the
 registry's own packages, so a bundled plugin is byte for byte the one Browse
