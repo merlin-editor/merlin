@@ -43,7 +43,9 @@ pub(crate) struct Finished {
     pub quiet: bool,
 }
 
-type Job = Box<dyn FnOnce(&mut Instance) + Send>;
+/// A job, which may hand back a reply to send once its time is counted.
+type Job = Box<dyn FnOnce(&mut Instance) -> Option<Reply> + Send>;
+type Reply = Box<dyn FnOnce() + Send>;
 
 /// A kind of request and its number: see [`Worker::ticket`].
 pub(crate) type Ticket = (String, u64);
@@ -67,12 +69,19 @@ impl Worker {
             .spawn(move || {
                 for job in rx {
                     let started = Instant::now();
-                    job(&mut instance);
-                    let data = instance.store.data();
-                    let mut stats = kept.lock().unwrap();
-                    stats.busy += started.elapsed();
-                    stats.memory = data.limits.memory;
-                    stats.processes = data.processes.running();
+                    let reply = job(&mut instance);
+                    {
+                        let data = instance.store.data();
+                        let mut stats = kept.lock().unwrap();
+                        stats.busy += started.elapsed();
+                        stats.memory = data.limits.memory;
+                        stats.processes = data.processes.running();
+                    }
+                    // After the stats, so a caller that waited sees them
+                    // with this job in.
+                    if let Some(reply) = reply {
+                        reply();
+                    }
                 }
             })?;
         Ok(Self {
@@ -91,7 +100,10 @@ impl Worker {
         let (tx, rx) = channel();
         self.jobs
             .send(Box::new(move |i| {
-                let _ = tx.send(f(i));
+                let result = f(i);
+                Some(Box::new(move || {
+                    let _ = tx.send(result);
+                }) as Reply)
             }))
             .ok()?;
         rx.recv().ok()
@@ -115,9 +127,10 @@ impl Worker {
             if let Some((kind, n)) = &ticket
                 && latest.lock().unwrap().get(kind) != Some(n)
             {
-                return;
+                return None;
             }
             f(i);
+            None
         }));
     }
 
