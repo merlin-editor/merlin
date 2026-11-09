@@ -187,10 +187,10 @@ maintainer before they're built.
 
 ### Milestone A: the first release, v0.1.0
 
-**A1. A green CI.** Make the catch2 test wait for the plugin to settle (or
-compare the CPU time against a reading taken after a no-op call) instead of
-straight after `load`. Release tags run the same tests, so a flake here blocks
-a release.
+**A1. A green CI (done, `ce8dc0b`).** The flake was in the host, not the
+test: `Worker::run` replied before its thread counted the job's time, so a
+caller could read a plugin's CPU time without its own call in it. The thread
+now counts, then replies. CI passed on Linux, macOS and Windows.
 
 **A2. SDK 0.14.0 on crates.io.** Push `sdk-v0.14.0`. Check first that
 crates.io's trusted publishing still names `sdk-release.yml` and the `release`
