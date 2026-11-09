@@ -49,7 +49,18 @@ esac
 
 echo "==> Checking for latest Merlin release for $OS ($ARCH)..."
 
-LATEST_TAG=$(curl -sSL "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null | grep '"tag_name":' | head -n1 | cut -d '"' -f 4)
+LATEST_TAG=""
+if [ -z "$RELEASE_URL" ]; then
+    # GitHub answers 404 here until a release is published; drafts don't count.
+    API="$(curl -sSL -w '\n%{http_code}' "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null || true)"
+    API_STATUS="$(printf '%s\n' "$API" | tail -n1)"
+    if [ "$API_STATUS" = "404" ]; then
+        echo "No Merlin release has been published yet." >&2
+        echo "See https://github.com/$REPO/releases" >&2
+        exit 1
+    fi
+    LATEST_TAG=$(printf '%s\n' "$API" | grep '"tag_name":' | head -n1 | cut -d '"' -f 4)
+fi
 
 # Check if currently installed
 CURRENT_VERSION=""
