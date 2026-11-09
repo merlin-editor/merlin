@@ -193,6 +193,12 @@ impl Editor {
             }
             Event::InsertText(text) => self.type_text(&text, Kind::Other),
             Event::Notify(text) => self.notify(text),
+            Event::NotifyWith { text, actions } => {
+                self.notify(text);
+                for (label, command) in actions {
+                    self.add_action(&label, &command);
+                }
+            }
             Event::PluginLog {
                 plugin,
                 level,

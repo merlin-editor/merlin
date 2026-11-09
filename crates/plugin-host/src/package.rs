@@ -5,7 +5,7 @@
 //! See `docs/plugin-registry.md`, section 4 for the format and 7.2 for
 //! installing.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
@@ -285,32 +285,62 @@ pub struct Installed {
 struct InstalledFile {
     #[serde(default)]
     plugins: BTreeMap<String, Installed>,
+    /// Plugins uninstalled, so the ones that come with merlin don't come
+    /// back at the next start. Installing one again takes it off.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    removed: BTreeSet<String>,
 }
 
-/// What `installed.toml` in `data_dir` records.
-pub fn installed(data_dir: &Path) -> BTreeMap<String, Installed> {
+fn read_installed(data_dir: &Path) -> InstalledFile {
     fs::read_to_string(data_dir.join("installed.toml"))
         .ok()
         .and_then(|s| toml::from_str::<InstalledFile>(&s).ok())
         .unwrap_or_default()
-        .plugins
 }
 
-/// Records `name` in `installed.toml`, or forgets it with `None`.
-pub fn record(data_dir: &Path, name: &str, entry: Option<Installed>) -> Result<()> {
-    let mut file = InstalledFile {
-        plugins: installed(data_dir),
-    };
-    match entry {
-        Some(entry) => file.plugins.insert(name.to_string(), entry),
-        None => file.plugins.remove(name),
-    };
+/// What `installed.toml` in `data_dir` records.
+pub fn installed(data_dir: &Path) -> BTreeMap<String, Installed> {
+    read_installed(data_dir).plugins
+}
+
+/// The plugins uninstalled and not installed again since.
+pub fn removed(data_dir: &Path) -> BTreeSet<String> {
+    read_installed(data_dir).removed
+}
+
+/// Takes `name` off the uninstalled list, as linking a folder of it does.
+pub fn forget_removed(data_dir: &Path, name: &str) -> Result<()> {
+    let mut file = read_installed(data_dir);
+    if !file.removed.remove(name) {
+        return Ok(());
+    }
+    write_installed(data_dir, &file)
+}
+
+fn write_installed(data_dir: &Path, file: &InstalledFile) -> Result<()> {
     fs::create_dir_all(data_dir)?;
     let path = data_dir.join("installed.toml");
     let part = data_dir.join("installed.toml.part");
-    fs::write(&part, toml::to_string(&file)?)?;
+    fs::write(&part, toml::to_string(file)?)?;
     fs::rename(part, path)?;
     Ok(())
+}
+
+/// Records `name` in `installed.toml`, or with `None` forgets it and
+/// remembers it was uninstalled.
+pub fn record(data_dir: &Path, name: &str, entry: Option<Installed>) -> Result<()> {
+    let mut file = read_installed(data_dir);
+    match entry {
+        Some(entry) => {
+            file.removed.remove(name);
+            file.plugins.insert(name.to_string(), entry);
+        }
+        None => {
+            file.plugins.remove(name);
+            file.removed.insert(name.to_string());
+        }
+    }
+    write_installed(data_dir, &file)
 }
 
 /// Installs the package at `archive` into `plugins_dir`, replacing the
@@ -500,7 +530,10 @@ pub fn link(dir: &Path, name: &str, plugins_dir: &Path, data_dir: &Path) -> Resu
     #[cfg(not(any(unix, windows)))]
     let linked: std::io::Result<()> = Err(std::io::ErrorKind::Unsupported.into());
     match linked {
-        Ok(()) => Ok(true),
+        Ok(()) => {
+            forget_removed(data_dir, name)?;
+            Ok(true)
+        }
         Err(_) if cfg!(windows) => {
             let (bytes, _) = pack_bytes(dir, 0)?;
             install_bytes(&bytes, "folder", None, plugins_dir, data_dir)?;

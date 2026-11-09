@@ -104,7 +104,7 @@ The full spec for the package format, the registry repo, `index.json`, signing a
 3. **Phase 2 (Done)**: Sources configuration, index verification (`minisign-verify`), and CLI search/update commands.
 4. **Phase 3 (Done)**: Registry at `merlin-editor/plugins` with reproducible CI builds and signing; its first index, with Merlin's 13 bundled plugins, went live on 2026-11-09.
 5. **Phase 4 (Done)**: Browse in Settings › Plugins, with updates, withdrawn and blocked plugins, and the permissions prompt (`docs/plugin-registry.md` 9).
-6. **Phase 5 (Next)**: Release archives carry the registry's packages. Planned in section 9, A3.
+6. **Phase 5 (Built, not yet released)**: Release archives carry the registry's packages, installed on first run (section 9, A3).
 
 ---
 
@@ -112,7 +112,7 @@ The full spec for the package format, the registry repo, `index.json`, signing a
 
 Of section 7, the `install` hints in 7.2 and the Windows fallback in 7.4 are built.
 
-### 7.1 Bundled / Offline Plugins in Release Archives (Planned, Revised in Section 9, A3)
+### 7.1 Bundled / Offline Plugins in Release Archives (Built as Section 9, A3, Describes)
 - **Problem**: Fresh installs without a local Rust toolchain or network access should not have an uncoloured editor.
 - **Solution**: The editor release workflow (`ci.yml`) compiles and packs core language plugins (`rust`, `python`, `cpp`, `javascript`, `json`, `toml`, `merlin-themes`) into a `bundled-plugins/` directory inside the `.tar.gz` / `.zip`.
 - **First-run bootstrap**: On startup, if `~/.config/merlin/plugins/` is empty and no plugins are configured, Merlin auto-extracts the bundled plugins so syntax highlighting, themes, and language server wiring work immediately out-of-the-box.
@@ -198,7 +198,19 @@ new` used to write a path to the SDK in the source it was built from, which a
 released binary doesn't have; it now writes the crates.io version, and a
 plugin made from it builds.
 
-**A3. Bundled plugins (phase 5).** This revises 7.1: the archive carries the
+**A3. Bundled plugins (phase 5): built.** `merlin plugin fetch <dir>`
+(`crates/plugin-host/src/bundled.rs`), the `bundle` job in `ci.yml` that hands
+`plugins/` to each archive with `LICENSE`, the first-run install in
+`crates/app/src/browse.rs` (`install_bundled`), and `installed.toml`'s
+`removed` list, which every uninstall writes and linking a folder clears.
+Tried on 2026-11-09 with a release laid out by hand and a fresh home: 13
+installed and granted, the notice with Review, nothing at the next start,
+and an uninstalled one stayed gone. Not tried: the `bundle` job itself, which
+runs only on a `v*` tag. A notice that a plugin sends soon after can cover
+this one, since one shows at a time; it stays in Output's merlin channel.
+`MERLIN_BUNDLE=<dir>` points merlin at another bundle.
+
+The design, as planned: the archive carries the
 registry's own packages, so a bundled plugin is byte for byte the one Browse
 would install, and it updates from the registry like any other.
 

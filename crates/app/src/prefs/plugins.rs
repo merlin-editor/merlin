@@ -250,6 +250,9 @@ impl App {
                 match link.map(std::fs::remove_file) {
                     Some(Ok(())) => {
                         events.extend(self.host.unload(&name));
+                        // So one that comes with merlin doesn't come back.
+                        let data = merlin_plugins::Config::standard().data_dir;
+                        let _ = merlin_plugins::package::record(&data, &name, None);
                         events.push(Event::Notify(format!(
                             "Uninstalled {}. Its files are still in {}.",
                             info.title,

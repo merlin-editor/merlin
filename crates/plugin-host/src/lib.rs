@@ -14,6 +14,7 @@
 //! panel instead of loading, and loads once the user allows it. The grant
 //! is remembered until the plugin asks for more.
 
+pub mod bundled;
 mod manifest;
 pub mod package;
 mod process;

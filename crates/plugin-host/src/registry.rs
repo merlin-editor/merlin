@@ -486,6 +486,19 @@ pub fn install(
     data_dir: &Path,
     fetch: Fetch,
 ) -> Result<Manifest> {
+    let bytes = download(loaded, name, version, fetch)?;
+    package::install_bytes(
+        &bytes,
+        &loaded.source.name,
+        Some((name, &version.version)),
+        plugins_dir,
+        data_dir,
+    )
+}
+
+/// Downloads `version` of `name` from `loaded`, checked against the index:
+/// its size and SHA-256.
+pub fn download(loaded: &Loaded, name: &str, version: &Version, fetch: Fetch) -> Result<Vec<u8>> {
     if let Some(why) = &loaded.stale {
         bail!(
             "can't reach {} to install from it: {why}",
@@ -508,13 +521,7 @@ pub fn install(
             version.version
         );
     }
-    package::install_bytes(
-        &bytes,
-        &loaded.source.name,
-        Some((name, &version.version)),
-        plugins_dir,
-        data_dir,
-    )
+    Ok(bytes)
 }
 
 #[cfg(test)]

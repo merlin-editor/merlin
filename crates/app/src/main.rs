@@ -50,6 +50,10 @@ Usage: merlin [options] [file...]
                                   Update plugins from their registries
        merlin plugin uninstall <name>...
                                   Remove installed plugins
+       merlin plugin fetch <dir> [name...]
+                                  Download merlin's registry's plugins for
+                                  this merlin into a folder, as a release's
+                                  plugins/ holds them
        merlin plugin pack [dir] [--out <dir>]
                                   Pack a built plugin into
                                   <name>-<version>.merlin
@@ -1217,6 +1221,13 @@ fn main() -> Result<()> {
     }
     let root = app.root.clone();
     app.editor.set_root(root);
+    // The plugins that come with merlin, on its first run or after an
+    // update, before any plugin loads. Scripts leave the user's alone.
+    let bundled = if args.exec.is_none() {
+        browse::install_bundled(&Config::standard())
+    } else {
+        Vec::new()
+    };
     // The file types plugins open, such as PDFs, known before any file
     // opens, so those open as their documents once the plugin loads.
     for dir in plugin_dirs(&args) {
@@ -1316,6 +1327,7 @@ fn main() -> Result<()> {
     }
     let summaries = app.plugin_summaries();
     app.dispatch(summaries);
+    bundled.into_iter().for_each(|e| app.dispatch(e));
     // Plugins' packs are known now, so the ones the settings ask for can be
     // stacked.
     for event in app.refresh_looks() {

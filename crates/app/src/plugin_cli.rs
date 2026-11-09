@@ -18,6 +18,7 @@ type Command = fn(&[String], &str) -> Result<()>;
 pub fn command(name: &str) -> Option<Command> {
     Some(match name {
         "install" => install,
+        "fetch" => fetch_bundle,
         "pack" => pack,
         "search" => search,
         "update" => update,
@@ -85,6 +86,30 @@ fn load_all() -> Vec<Loaded> {
             }
         })
         .collect()
+}
+
+/// `merlin plugin fetch <dir> [name...]`: downloads the newest version of
+/// each plugin (every one, given none) for this merlin from merlin's own
+/// registry into `dir`, with `bundled.toml`, for a release archive's
+/// `plugins/` folder.
+fn fetch_bundle(args: &[String], usage: &str) -> Result<()> {
+    let Some((dir, names)) = args.split_first() else {
+        bail!("fetch into which folder?\n\n{usage}");
+    };
+    let data = Config::standard().data_dir;
+    let source = Source::default_source();
+    let loaded = registry::load(&source, &data, &fetch, registry::now())?;
+    let list = merlin_plugins::bundled::fetch(&loaded, names, Path::new(dir), &fetch)?;
+    for b in &list {
+        println!("{} {}  {}", b.name, b.version, b.sha256);
+    }
+    println!(
+        "Fetched {} plugins from {} index {} into {dir}",
+        list.len(),
+        source.name,
+        loaded.index.serial
+    );
+    Ok(())
 }
 
 /// Prints what an installed plugin may do.

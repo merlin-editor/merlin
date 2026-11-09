@@ -1078,6 +1078,108 @@ fn confirm_view(c: &Confirm) -> ConfirmView {
     }
 }
 
+
+/// Where the plugins that come with merlin are: `plugins/` beside the
+/// executable, as the release archive has it, or the copy `install.sh`
+/// keeps in the data folder. `MERLIN_BUNDLE` names another.
+fn bundle_dir(data_dir: &std::path::Path) -> Option<PathBuf> {
+    use merlin_plugins::bundled::LIST;
+    if let Some(dir) = std::env::var_os("MERLIN_BUNDLE") {
+        return Some(dir.into());
+    }
+    let exe = std::env::current_exe().ok()?.canonicalize().ok()?;
+    let beside = exe.parent()?.join("plugins");
+    if beside.join(LIST).is_file() {
+        return Some(beside);
+    }
+    let kept = data_dir.join("bundled");
+    kept.join(LIST).is_file().then_some(kept)
+}
+
+/// Installs the plugins that come with merlin that aren't installed yet,
+/// or are older, granting what they ask for: they're as trusted as merlin
+/// itself. Says so in one notice, naming what runs outside the sandbox.
+/// Runs before plugins load.
+pub(crate) fn install_bundled(config: &Config) -> Vec<Event> {
+    let (Some(dir), Some(plugins)) = (bundle_dir(&config.data_dir), settings::plugins_dir()) else {
+        return Vec::new();
+    };
+    let done = merlin_plugins::bundled::install(&dir, &plugins, &config.data_dir);
+    let mut events: Vec<Event> = done
+        .failed
+        .iter()
+        .map(|(name, why)| {
+            Event::Error(format!(
+                "Couldn't install {name}, which comes with merlin: {why}"
+            ))
+        })
+        .collect();
+    if done.installed.is_empty() {
+        return events;
+    }
+    // What runs outside the sandbox: programs by name, and which plugins
+    // run command lines in a terminal.
+    let mut programs: Vec<String> = Vec::new();
+    let mut terminals: Vec<String> = Vec::new();
+    for (manifest, _) in &done.installed {
+        if let Err(err) = merlin_plugins::grant(config, &plugins.join(&manifest.name)) {
+            events.push(Event::Error(format!(
+                "{} installed, but what it may do couldn't be saved: {err:#}",
+                manifest.title
+            )));
+        }
+        let p = &manifest.permissions;
+        programs.extend(
+            p.processes
+                .iter()
+                .map(|prog| prog.rsplit(['/', '\\']).next().unwrap_or(prog).to_string()),
+        );
+        if p.terminal {
+            terminals.push(manifest.title.clone());
+        }
+    }
+    programs.sort();
+    programs.dedup();
+    let n = done.installed.len();
+    let updated = done
+        .installed
+        .iter()
+        .filter(|(_, from)| from.is_some())
+        .count();
+    let plugins_word = if n == 1 { "plugin" } else { "plugins" };
+    let mut text = if updated == n {
+        format!("Updated {n} {plugins_word} that come with merlin.")
+    } else {
+        format!("Installed {n} {plugins_word} that come with merlin.")
+    };
+    if !programs.is_empty() {
+        text += &format!(
+            " Outside the sandbox, they may run {}.",
+            list_words(&programs)
+        );
+    }
+    if !terminals.is_empty() {
+        text += &format!(
+            " {} may run commands in a terminal.",
+            list_words(&terminals)
+        );
+    }
+    events.push(Event::NotifyWith {
+        text,
+        actions: vec![("Review".into(), "plugins.manage".into())],
+    });
+    events
+}
+
+/// "a, b and c".
+fn list_words(items: &[String]) -> String {
+    match items {
+        [] => String::new(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

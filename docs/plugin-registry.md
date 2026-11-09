@@ -408,7 +408,9 @@ update from the registry like any other.
    too from the last good index, and can't be turned back on. Banners say
    when a source can't be reached, its index expired, or failed a check.
    The window and the CLI say "withdrawn" for yanked.
-5. **Bundling**: release archives carry the registry's packages.
+5. **Bundling (built)**: release archives carry the registry's packages in
+   `plugins/`, fetched by `merlin plugin fetch`; merlin installs them on first
+   run and when an update brings newer ones (distribution.md 9, A3).
 
 ---
 

@@ -254,6 +254,11 @@ pub enum Event {
     },
     InsertText(String),
     Notify(String),
+    /// A notice with buttons, each a label and the command it runs.
+    NotifyWith {
+        text: String,
+        actions: Vec<(String, String)>,
+    },
     /// A line for a plugin's channel of the Output panel.
     PluginLog {
         plugin: String,
