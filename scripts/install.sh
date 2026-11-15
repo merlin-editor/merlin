@@ -63,9 +63,13 @@ if [ -z "$RELEASE_URL" ]; then
 fi
 
 # Check if currently installed
+# Ask the copy this script would replace, not whichever merlin is first on
+# PATH: the install folder may not be on PATH, or a cargo build may come first.
 CURRENT_VERSION=""
-if command -v merlin >/dev/null 2>&1; then
-    CURRENT_VERSION="$(merlin --version 2>/dev/null || true)"
+if [ -x "$INSTALL_DIR/merlin" ]; then
+    CURRENT_VERSION="$("$INSTALL_DIR/merlin" --version 2>/dev/null || true)"
+elif [ -x "$INSTALL_DIR/merlin.exe" ]; then
+    CURRENT_VERSION="$("$INSTALL_DIR/merlin.exe" --version 2>/dev/null || true)"
 fi
 
 if [ -n "$LATEST_TAG" ] && [ -n "$CURRENT_VERSION" ]; then

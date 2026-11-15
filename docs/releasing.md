@@ -103,7 +103,11 @@ asks GitHub for the latest published release, so users get it from then on.
 
 - **A job fails before the draft exists**: fix it on `main`, delete the tag
   (`git push origin :refs/tags/v0.1.0` and `git tag -d v0.1.0`), and tag the
-  fixed commit.
+  fixed commit. Re-running the old run won't do: it uses the old commit's
+  workflow.
+- **A job sits in the queue**: its runner label may be retired, and it will
+  wait a day before failing. Cancel the run, change the label on `main`, and
+  tag again.
 - **The draft is wrong**: delete the draft and the tag, and tag again. Nobody
   has it until it's published.
 - **A published release is wrong**: publish the next patch version. Don't

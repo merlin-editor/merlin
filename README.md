@@ -946,7 +946,6 @@ in [docs/plugin-registry.md](docs/plugin-registry.md).
   files.
 - A review is all or nothing per edit; you can't accept some hunks and not
   others. Markdown has no tables or nested quotes.
-- The SDK isn't published, so `plugin new` points at the copy in this repo.
 - No Helix keymap yet. In Vim mode, `Ctrl+W h`, `j`, `k` and `l` cycle
   through the groups rather than going by direction.
 - No networking API.

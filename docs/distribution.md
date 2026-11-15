@@ -35,7 +35,7 @@ This document tracks the design and implementation for distributing **Merlin Edi
 
 ---
 
-## 3. Editor Releases & Multi-Platform CI (Workflow Built; No Release Yet)
+## 3. Editor Releases & Multi-Platform CI (Built; v0.1.0 Released 2026-11-15)
 
 - **Workflow**: `.github/workflows/ci.yml`
 - **Testing**: On every push to `main` and every pull request to `main`, `cargo test --workspace` runs on Ubuntu, macOS, and Windows.
@@ -50,7 +50,7 @@ This document tracks the design and implementation for distributing **Merlin Edi
   git tag v0.1.0
   git push origin v0.1.0
   ```
-  No `v*` tag has been pushed yet. It produces a draft GitHub Release with all 5 archives (each holding the binary and `README.md`) and their SHA-256 checksums attached. The draft has to be published by hand. The tag pattern `v[0-9]+.*` leaves `sdk-v*` tags alone.
+  It produces a draft GitHub Release with all 5 archives (each holding the binary, `README.md`, `LICENSE` and `plugins/`) and their SHA-256 checksums attached. The release job needs `permissions: contents: write`, since the repository's workflows may only read by default. The Intel Mac build runs on `macos-15-intel`: a job asking for a retired runner such as `macos-13` waits a day in the queue and then fails. The draft has to be published by hand. The tag pattern `v[0-9]+.*` leaves `sdk-v*` tags alone.
 
 ---
 
@@ -104,7 +104,7 @@ The full spec for the package format, the registry repo, `index.json`, signing a
 3. **Phase 2 (Done)**: Sources configuration, index verification (`minisign-verify`), and CLI search/update commands.
 4. **Phase 3 (Done)**: Registry at `merlin-editor/plugins` with reproducible CI builds and signing; its first index, with Merlin's 13 bundled plugins, went live on 2026-11-09.
 5. **Phase 4 (Done)**: Browse in Settings › Plugins, with updates, withdrawn and blocked plugins, and the permissions prompt (`docs/plugin-registry.md` 9).
-6. **Phase 5 (Built, not yet released)**: Release archives carry the registry's packages, installed on first run (section 9, A3).
+6. **Phase 5 (Done, released in v0.1.0)**: Release archives carry the registry's packages, installed on first run (section 9, A3).
 
 ---
 
@@ -273,7 +273,21 @@ plugin of merlin's own in the registry at its current version for this API,
 built from unchanged source. On 2026-11-09 it passed everything for 0.1.0
 except CI, which was still running, and the uncommitted script itself.
 
-**Decide**, *macOS and Windows signing*: unsigned binaries work through
+**A6. v0.1.0 released (done, 2026-11-15).** The first `v0.1.0` tag's run
+failed twice over: every upload got a 403, because the release job could
+only read, and the Intel Mac job waited a day for the retired `macos-13`
+runner. Both were fixed on `main` (`268c5c3`, `4b0bc09`) and the tag moved
+to `4b0bc09`. The draft was tried on Linux x86_64 as releasing.md step 6
+says: all five archives matched their checksums and held 13 packages and
+`bundled.toml`; `install.sh` installed from it into a fresh home, merlin
+installed all 13 plugins on first run, and a tampered archive was refused.
+Published with release notes the same day, and `install.sh` from `main`
+then installed it from GitHub. `install.sh` now asks the copy in its
+install folder for its version, not the first `merlin` on `PATH`. Not tried
+by hand: macOS and Windows.
+
+**Decided**, *macOS and Windows signing*: v0.1.0 shipped unsigned, and its
+release notes say how to open it past Gatekeeper and SmartScreen. Unsigned binaries work through
 `install.sh` (curl sets no quarantine flag), but a `.zip` downloaded in a
 browser meets Gatekeeper or SmartScreen. Recommended: ship v0.1.0 unsigned,
 say so in the README, and sign later (Apple's notarization needs a paid
