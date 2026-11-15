@@ -35,7 +35,7 @@ This document tracks the design and implementation for distributing **Merlin Edi
 
 ---
 
-## 3. Editor Releases & Multi-Platform CI (Built; v0.1.0 Released 2026-11-15)
+## 3. Editor Releases & Multi-Platform CI (Built; v0.1.1 Released 2026-11-15)
 
 - **Workflow**: `.github/workflows/ci.yml`
 - **Testing**: On every push to `main` and every pull request to `main`, `cargo test --workspace` runs on Ubuntu, macOS, and Windows.
@@ -284,6 +284,14 @@ Published with release notes the same day, and `install.sh` from `main`
 then installed it from GitHub. `install.sh` now asks the copy in its
 install folder for its version, not the first `merlin` on `PATH`. Not tried
 by hand: macOS and Windows.
+
+**A7. v0.1.1 released (done, 2026-11-15).** The first signed release and
+the first with the updater. The `sign` job ran on approval and attached
+`SHA256SUMS` and `SHA256SUMS.minisig` (trusted comment `merlin v0.1.1`); by
+hand, all five archives matched it and held 13 packages, and `install.sh`
+said "Signature matches" both from the draft and, once published, from
+GitHub. 0.1.0 can't update itself, so its users get 0.1.1 through
+`install.sh`; from 0.1.1 on, new releases show in the title bar.
 
 **Decided**, *macOS and Windows signing*: v0.1.0 shipped unsigned, and its
 release notes say how to open it past Gatekeeper and SmartScreen. Unsigned binaries work through
