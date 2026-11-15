@@ -534,6 +534,9 @@ fn pack(args: &[String], usage: &str) -> Result<()> {
         packed.size.div_ceil(1024),
         packed.sha256
     );
+    for warning in &packed.warnings {
+        eprintln!("warning: {warning}");
+    }
     Ok(())
 }
 

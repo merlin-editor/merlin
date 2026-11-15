@@ -58,7 +58,8 @@ id = "lldb-dap"
 name = "lldb-dap"
 languages = ["rust"]
 command = ["lldb-dap"]
-install = "sudo apt install lldb"
+install = { linux = "sudo apt install lldb", macos = "xcode-select --install", windows = "winget install LLVM.LLVM" }
+url = "https://lldb.llvm.org/"
 # Every panic goes through rust_panic, named __rustc::rust_panic in
 # newer versions of Rust.
 stop-on = [{ id = "rust-panic", label = "Rust panics", functions = ["rust_panic", "__rustc::rust_panic"], default = true }]
@@ -68,5 +69,12 @@ id = "gdb"
 name = "gdb"
 languages = ["rust"]
 command = ["gdb", "--interpreter=dap", "-q"]
-install = "sudo apt install gdb"
+install = { linux = "sudo apt install gdb", macos = "brew install gdb" }
+url = "https://www.sourceware.org/gdb/"
 stop-on = [{ id = "rust-panic", label = "Rust panics", functions = ["rust_panic", "__rustc::rust_panic"], default = true }]
+
+# What it starts, what each is for, and how to install it here.
+[programs.rust-analyzer]
+for = "Completion, errors and go to definition"
+install = "rustup component add rust-analyzer"
+url = "https://rust-analyzer.github.io/"

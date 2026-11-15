@@ -34,11 +34,19 @@ id = "lldb-dap"
 name = "lldb-dap"
 languages = ["c", "cpp"]
 command = ["lldb-dap"]
-install = "sudo apt install lldb"
+install = { linux = "sudo apt install lldb", macos = "xcode-select --install", windows = "winget install LLVM.LLVM" }
+url = "https://lldb.llvm.org/"
 
 [[debuggers]]
 id = "gdb"
 name = "gdb"
 languages = ["c", "cpp"]
 command = ["gdb", "--interpreter=dap", "-q"]
-install = "sudo apt install gdb"
+install = { linux = "sudo apt install gdb", macos = "brew install gdb" }
+url = "https://www.sourceware.org/gdb/"
+
+# What it starts, what each is for, and how to install it here.
+[programs.clangd]
+for = "Completion, errors and go to definition"
+install = { linux = "sudo apt install clangd", macos = "brew install llvm", windows = "winget install LLVM.LLVM" }
+url = "https://clangd.llvm.org/installation"

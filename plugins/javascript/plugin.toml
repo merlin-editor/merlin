@@ -36,3 +36,9 @@ block-comment = ["/*", "*/"]
 lines = [
     { regex = '^(\S+?)\((\d+),(\d+)\): (error|warning|info) (TS\d+): (.*)$', file = 1, line = 2, column = 3, severity = 4, code = 5, message = 6 },
 ]
+
+# What it starts, what it's for, and how to install it here.
+[programs.typescript-language-server]
+for = "Completion, errors and go to definition"
+install = "npm install -g typescript-language-server typescript"
+url = "https://github.com/typescript-language-server/typescript-language-server"

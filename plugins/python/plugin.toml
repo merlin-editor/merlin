@@ -38,4 +38,11 @@ name = "debugpy"
 languages = ["python"]
 command = ["python3", "-m", "debugpy.adapter"]
 install = "pip install debugpy"
+url = "https://github.com/microsoft/debugpy"
 launch = { justMyCode = true, console = "internalConsole" }
+
+# What it starts, what it's for, and how to install it here.
+[programs.pyright-langserver]
+for = "Completion, errors and go to definition"
+install = "npm install -g pyright"
+url = "https://microsoft.github.io/pyright/#/installation"

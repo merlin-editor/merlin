@@ -537,7 +537,7 @@ rebuilding.
 
 ---
 
-## 12. Plugin API 0.15 (Plan, for Review, 2026-11-16)
+## 12. Plugin API 0.15 (Built 2026-11-16, for merlin v0.2.0)
 
 Everything here changes the manifest or the WIT, so it goes in one bump:
 `API_VERSION`, the WIT (`merlin:plugin@0.15.0`), the SDK (0.15.0 on
@@ -722,31 +722,38 @@ install = "npm install -g @anthropic-ai/claude-code"
 url = "https://docs.claude.com/en/docs/claude-code/setup"
 ```
 
-WIT additions, sketched; names may change when it's built:
+The WIT, as built (`sdk/rust/wit/merlin.wit`):
 
 - **Exports** (merlin calls the plugin):
-  - `on-agent-prompt(chat, text, context)`: the user sent a message;
-    `context` lists what they attached (open file, selection, problems).
+  - `on-agent-prompt(chat, agent, text, context)`: the user sent a message
+    to one of its agents; `context` is the open file, or its selected lines.
   - `on-agent-cancel(chat)`: the user pressed Stop.
+  - `on-agent-close(chat)`: the tab closed, or New Chat started over.
   - `on-agent-answer(chat, request, answer)`: the user answered a
-    permission card: allow once, always allow, or deny.
+    permission card: allow once, always allow, or deny. A request the user
+    always allows is answered at once, with no card.
+  - `on-agent-file(chat, request, got)`: a file read, or a write done.
+  - `on-agent-run(chat, run, ended)`: a command ended: all it printed and
+    its exit code, or why it didn't run.
 - **Host functions** (the plugin calls merlin):
-  - `agent-say(chat, part)`: text, thinking, or a tool call with its
-    status, streamed in pieces.
-  - `agent-ask(chat, request, tool, summary, details)`: shows the
-    permission card. For a file edit, `details` carries the path, so merlin
-    can keep the file as it was before the edit.
-  - `agent-done(chat, outcome)`: finished, failed, or cancelled.
-  - `agent-read(chat, path) -> result<string, string>`: a file's text as
-    merlin has it, with unsaved changes in an open tab.
-  - `agent-write(chat, path, text) -> result<_, string>`: replaces a
-    file's text as one edit in its tab, which Undo reverts, and saves it.
-    The tab opens in the background if it isn't open.
-  - `agent-run(chat, command, args, cwd, env) -> result<u32, string>`:
-    runs a command in a terminal tab named for the chat, which the user can
-    watch and stop. `agent-output(run) -> (text, exit)` gives its output so
-    far and its exit code once it has one; `agent-stop(run)` ends it;
-    `on-agent-run-exit(chat, run, exit)` says when it's done.
+  - `agent-say(chat, part)`: text, a thought, the plan, or a step (read,
+    edit, run, search) with its state, streamed in pieces. A step sent again
+    with the same id updates its line.
+  - `agent-ask(chat, request) -> u32`: shows the permission card for an
+    edit (its path and diff), a command, a read, or anything else in words.
+  - `agent-done(chat, outcome, message)`: finished, cancelled, or failed
+    with what the agent said.
+  - `agent-read(chat, path) -> u32`: a file's text as merlin has it, with
+    unsaved changes in an open tab; the text comes to `on-agent-file`.
+  - `agent-write(chat, path, text) -> u32`: replaces an open tab's text as
+    one edit, which Undo reverts, and saves it; a file that isn't open is
+    written on disk.
+  - `agent-run(chat, command, cwd) -> u32`: runs a command line in a
+    terminal tab named for the agent, which the user can watch and stop;
+    `agent-stop(run)` ends it. Its output comes when it ends, to
+    `on-agent-run`; ACP's `terminal/output` before then has what the plugin
+    has. (The plan's `agent-output` was left out: merlin's terminal tabs
+    hand a run's output over when it ends.)
 - **Where files can be:** `agent-read` and `agent-write` work inside the
   workspace's folders. A path outside them gets a permission card first.
   A write the agent didn't ask permission for (with `agent-ask`) gets one
@@ -782,7 +789,7 @@ most agents:
    | `session/request_permission` | `agent-ask`, answered by `on-agent-answer` |
    | `session/cancel` | from `on-agent-cancel` |
    | `fs/read_text_file`, `fs/write_text_file` | `agent-read`, `agent-write` |
-   | `terminal/create`, `output`, `wait_for_exit`, `kill`, `release` | `agent-run`, `agent-output`, `on-agent-run-exit`, `agent-stop` |
+   | `terminal/create`, `wait_for_exit`, `kill`, `release` | `agent-run`, `on-agent-run`, `agent-stop` |
 
    The plugin tells the agent in `initialize` that merlin handles files and
    terminals, so edits go through the editor and commands show in its
@@ -813,7 +820,16 @@ most agents:
 - **Warn before an editor update** (11.1): the update card names installed
   plugins that have no 0.15 version yet.
 
-### 12.8 Mock-ups Needed
+### 12.7.1 In the Index
+
+`tools/registry.py` in merlin-editor/plugins copies a version's `systems`,
+`arch` and `programs` into `index.json`, and its `[depends]` table as
+`requires` (with `depends` keeping just the names). `network` and `agent`
+go in `more-permissions`, not `permissions`: merlin 0.1 refuses keys it
+doesn't know in `permissions`, and with them the whole index. An entry
+file can say `replaced-by` and `replaced-note`.
+
+### 12.8 Mock-ups (Approved 2026-11-16)
 
 1. Missing programs: the Browse entry, the plugin page's Programs list, and
    the install card's note.
@@ -839,7 +855,9 @@ most agents:
    lldb, gdb and debugpy.
 6. Publish SDK 0.15.0, open the registry PR for the 13 plugins, merge it,
    and only then tag v0.2.0: a merlin that updates itself must find 0.15
-   versions of the plugins it has installed from the registry.
+   versions of the plugins it has installed from the registry. Its
+   release notes say "Plugin API 0.15": the update card of a merlin with
+   another API reads that line to name plugins that won't work after it.
 
 ---
 

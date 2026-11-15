@@ -50,6 +50,9 @@ pub struct Packed {
     /// Lowercase hex.
     pub sha256: String,
     pub size: u64,
+    /// What's worth fixing but doesn't stop it: programs it starts with no
+    /// `[programs]` entry to say how to install them.
+    pub warnings: Vec<String>,
 }
 
 /// Packs the plugin in `dir` into `<name>-<version>.merlin` in `out_dir`.
@@ -76,12 +79,22 @@ pub fn pack(dir: &Path, out_dir: &Path, epoch: u64) -> Result<Packed> {
     let part = path.with_extension(format!("{EXTENSION}.part"));
     fs::write(&part, &bytes).with_context(|| format!("writing {}", part.display()))?;
     fs::rename(&part, &path)?;
+    let warnings = manifest
+        .permissions
+        .processes
+        .iter()
+        .filter(|p| !manifest.programs.contains_key(*p))
+        .map(|p| {
+            format!("{p} has no [programs.{p}]: merlin can't say how to install it when it's missing")
+        })
+        .collect();
     Ok(Packed {
         path,
         name: manifest.name,
         version: manifest.version,
         sha256: sha256_hex(&bytes),
         size,
+        warnings,
     })
 }
 

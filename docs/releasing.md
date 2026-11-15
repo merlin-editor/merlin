@@ -34,7 +34,9 @@ Set `version` under `[workspace.package]` in `Cargo.toml` (the editor's
 `merlin --version` prints it). Commit, push, and wait for CI.
 
 Release notes go in the GitHub release itself (step 6); write them from
-`git log v<previous>..main`.
+`git log v<previous>..main`. When the plugin API changed, say so in a line
+of its own, "Plugin API 0.15": the update card of a merlin on another API
+reads it to name installed plugins that have no version for it yet.
 
 ## 3. The SDK, if the plugin API changed
 

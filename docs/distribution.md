@@ -365,9 +365,12 @@ nothing changed); and `MERLIN_NO_SELF_UPDATE` (the command with Copy). Not
 tried: macOS, Windows, and a real published release, which needs one signed
 by the `sign` job.
 
-### Milestone C: plugin API 0.15 and merlin v0.2.0
+### Milestone C: plugin API 0.15 and merlin v0.2.0 (built 2026-11-16)
 
-Planned in full in plugin-registry.md section 12, for review. In short:
+Built as plugin-registry.md section 12 lays out, after the approved
+mock-ups `PluginNeeds.html`, `Agents.html` and `PluginUpkeep.html`. Left:
+publishing SDK 0.15.0, the registry PR with 0.15 versions of merlin's
+plugins, and tagging v0.2.0, in that order. In short:
 
 - **C1. How to install a program.** `[programs.<name>]` in the manifest,
   with `install` as one command or one per system, a `url`, and what's

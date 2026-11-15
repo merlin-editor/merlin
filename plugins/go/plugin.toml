@@ -22,3 +22,9 @@ extensions = ["go"]
 line-comment = "//"
 block-comment = ["/*", "*/"]
 exception = "panic"
+
+# What it starts, what it's for, and how to install it here.
+[programs.gopls]
+for = "Completion, errors and go to definition"
+install = "go install golang.org/x/tools/gopls@latest"
+url = "https://go.dev/gopls/"
