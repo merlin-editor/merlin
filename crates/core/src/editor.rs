@@ -1,4 +1,9 @@
 mod actions;
+mod agents;
+pub use agents::{
+    AgentAnswer, AgentCall, AgentContext, AgentOutcome, AgentPart, AgentRequest, AgentSpec,
+    AgentTool, AgentUpdate, MissingProgram, PlanStep, ToolKind, line_counts,
+};
 mod blame;
 mod carets;
 mod chrome;
@@ -593,6 +598,8 @@ pub struct Editor {
     /// The update card, while it's open, and its notes' scroll.
     update_card: Option<self_update::UpdatePage>,
     update_scroll: i32,
+    /// Agents' chats, in the right side bar.
+    agents: agents::Agents,
     /// Colour themes and icon themes by name, and the one of each in use.
     themes: [Vec<String>; 2],
     theme: [String; 2],
@@ -754,6 +761,7 @@ impl Editor {
             app_update: None,
             update_card: None,
             update_scroll: 0,
+            agents: agents::Agents::default(),
             themes: [Vec::new(), Vec::new()],
             theme: [String::new(), String::new()],
         };

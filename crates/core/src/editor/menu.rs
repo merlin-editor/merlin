@@ -227,6 +227,7 @@ impl Editor {
                 .map(|(id, label, key)| super::ContextItem {
                     label: if id == "-" { String::new() } else { label },
                     key: (!key.is_empty()).then_some(key),
+                    warn: false,
                 })
                 .collect(),
             selected: menu.item,

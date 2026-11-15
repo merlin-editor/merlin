@@ -25,6 +25,19 @@ pub(super) struct State {
     pub(super) symbol_query: String,
     /// The bytes each of its pictures takes, by id, against its budget.
     pub(super) images: HashMap<String, usize>,
+    /// Ids for agents' requests and runs.
+    pub(super) next_agent_id: u32,
+    /// Each run's chat, by run.
+    pub(super) agent_runs: HashMap<u32, u32>,
+}
+
+/// Milliseconds since the host started, for when agents said things.
+pub(super) fn now_ms() -> u64 {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    START
+        .get_or_init(std::time::Instant::now)
+        .elapsed()
+        .as_millis() as u64
 }
 
 /// What one plugin's pictures may take together, as RGBA.
@@ -1018,6 +1031,143 @@ impl host::Host for State {
 
     fn delete_secret(&mut self, key: String) {
         self.secrets.delete(&self.name, &key);
+    }
+
+    fn fetch(&mut self, request: types::FetchRequest) -> Result<u32, String> {
+        if self.permissions.network.is_empty() {
+            return Err("permission denied: network".into());
+        }
+        let allowed = self.permissions.network.clone();
+        self.processes.fetch(request, allowed)
+    }
+
+    fn agent_say(&mut self, chat: u32, part: types::AgentPart) -> Result<(), String> {
+        self.need(self.permissions.agent, "agent")?;
+        self.agent(chat, merlin_core::AgentUpdate::Say(agent_part(part)));
+        Ok(())
+    }
+
+    fn agent_ask(&mut self, chat: u32, request: types::AgentRequest) -> Result<u32, String> {
+        self.need(self.permissions.agent, "agent")?;
+        let id = self.agent_id();
+        let what = match request {
+            types::AgentRequest::Edit((path, diff)) => {
+                merlin_core::AgentRequest::Edit { path, diff }
+            }
+            types::AgentRequest::Run(c) => merlin_core::AgentRequest::Run(c),
+            types::AgentRequest::Read(p) => merlin_core::AgentRequest::Read(p),
+            types::AgentRequest::Other(w) => merlin_core::AgentRequest::Other(w),
+        };
+        self.agent(chat, merlin_core::AgentUpdate::Ask { request: id, what });
+        Ok(id)
+    }
+
+    fn agent_done(&mut self, chat: u32, outcome: types::AgentOutcome, message: Option<String>) {
+        if !self.permissions.agent {
+            return;
+        }
+        let outcome = match outcome {
+            types::AgentOutcome::Finished => merlin_core::AgentOutcome::Finished,
+            types::AgentOutcome::Cancelled => merlin_core::AgentOutcome::Cancelled,
+            types::AgentOutcome::Failed => merlin_core::AgentOutcome::Failed,
+        };
+        self.agent(chat, merlin_core::AgentUpdate::Done { outcome, message });
+    }
+
+    fn agent_read(&mut self, chat: u32, path: String) -> Result<u32, String> {
+        self.need(self.permissions.agent, "agent")?;
+        let request = self.agent_id();
+        self.agent(chat, merlin_core::AgentUpdate::Read { request, path });
+        Ok(request)
+    }
+
+    fn agent_write(&mut self, chat: u32, path: String, text: String) -> Result<u32, String> {
+        self.need(self.permissions.agent, "agent")?;
+        let request = self.agent_id();
+        self.agent(
+            chat,
+            merlin_core::AgentUpdate::Write {
+                request,
+                path,
+                text,
+            },
+        );
+        Ok(request)
+    }
+
+    fn agent_run(
+        &mut self,
+        chat: u32,
+        command: String,
+        cwd: Option<String>,
+    ) -> Result<u32, String> {
+        self.need(self.permissions.agent, "agent")?;
+        let run = self.agent_id();
+        self.agent_runs.insert(run, chat);
+        self.agent(chat, merlin_core::AgentUpdate::Run { run, command, cwd });
+        Ok(run)
+    }
+
+    fn agent_stop(&mut self, run: u32) {
+        if let Some(&chat) = self.agent_runs.get(&run) {
+            self.agent(chat, merlin_core::AgentUpdate::Stop { run });
+        }
+    }
+}
+
+impl State {
+    fn agent_id(&mut self) -> u32 {
+        self.next_agent_id += 1;
+        self.next_agent_id
+    }
+
+    fn agent(&mut self, chat: u32, update: merlin_core::AgentUpdate) {
+        self.events.push(Event::Agent {
+            plugin: self.name.clone(),
+            chat,
+            update,
+            at: now_ms(),
+        });
+    }
+}
+
+fn step_state(state: types::StepState) -> merlin_core::StepState {
+    match state {
+        types::StepState::Pending => merlin_core::StepState::Pending,
+        types::StepState::Running => merlin_core::StepState::Running,
+        types::StepState::Done => merlin_core::StepState::Done,
+        types::StepState::Failed => merlin_core::StepState::Failed,
+    }
+}
+
+fn agent_part(part: types::AgentPart) -> merlin_core::AgentPart {
+    match part {
+        types::AgentPart::Text(t) => merlin_core::AgentPart::Text(t),
+        types::AgentPart::Thought(t) => merlin_core::AgentPart::Thought(t),
+        types::AgentPart::Plan(steps) => merlin_core::AgentPart::Plan(
+            steps
+                .into_iter()
+                .map(|s| merlin_core::PlanStep {
+                    text: s.text,
+                    state: step_state(s.state),
+                })
+                .collect(),
+        ),
+        types::AgentPart::Tool(t) => merlin_core::AgentPart::Tool(merlin_core::AgentTool {
+            id: t.id,
+            kind: match t.kind {
+                types::ToolKind::Read => merlin_core::ToolKind::Read,
+                types::ToolKind::Edit => merlin_core::ToolKind::Edit,
+                types::ToolKind::Run => merlin_core::ToolKind::Run,
+                types::ToolKind::Search => merlin_core::ToolKind::Search,
+                types::ToolKind::Other => merlin_core::ToolKind::Other,
+            },
+            title: t.title,
+            state: step_state(t.state),
+            added: t.added,
+            removed: t.removed,
+            run: t.run,
+        }),
     }
 }
 

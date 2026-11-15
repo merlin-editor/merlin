@@ -15,7 +15,7 @@ pub enum Tone {
     Badge,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct Button {
     pub id: String,
     pub label: String,
@@ -223,6 +223,80 @@ pub enum Node {
     /// Shapes a plugin drew, in the theme's colours and the editor's
     /// fonts, scaled to the view's width.
     Drawing(Box<Drawing>),
+    /// An agent's plan, ticked off as it goes. The editor's own views have
+    /// these; plugins don't.
+    Steps(Vec<(String, StepState)>),
+    /// One step an agent took, on a quiet line: "✓ Edited `palette.rs` +5 −6".
+    Step(Box<StepLine>),
+    /// A permission card: what an agent wants to do, and the answers.
+    Ask(Box<AskCard>),
+    /// The files an agent's turn changed, each with Review and Revert.
+    Changes(Box<ChangesCard>),
+    /// A command to copy, in a box with Copy at its right end.
+    Command {
+        text: String,
+        copy: Button,
+    },
+}
+
+/// How far a step has got.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum StepState {
+    #[default]
+    Pending,
+    Running,
+    Done,
+    Failed,
+}
+
+/// A step an agent took, as one line.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct StepLine {
+    pub mark: StepState,
+    pub verb: String,
+    /// A file or a command, in code.
+    pub name: String,
+    pub added: u32,
+    pub removed: u32,
+    /// Links at the right end, as "Terminal ↗", then quiet buttons, as Stop.
+    pub links: Vec<Button>,
+    pub buttons: Vec<Button>,
+}
+
+/// A permission card.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct AskCard {
+    /// The question; the parts marked true are code.
+    pub title: Vec<(String, bool)>,
+    /// Amber, for something outside the workspace.
+    pub warn: bool,
+    /// A command or a path, in a box.
+    pub code: Option<String>,
+    /// A change, as diff lines: `-` and `+` first.
+    pub diff: Vec<String>,
+    pub note: String,
+    /// The main answer first; a label's parts in backticks are code.
+    pub buttons: Vec<Button>,
+    /// The quiet answer at the end, as Deny.
+    pub quiet: Option<Button>,
+    pub hint: String,
+}
+
+/// The files a turn changed.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct ChangesCard {
+    pub title: String,
+    pub revert_all: Button,
+    pub files: Vec<ChangedFile>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct ChangedFile {
+    pub path: String,
+    pub added: u32,
+    pub removed: u32,
+    pub review: Button,
+    pub revert: Button,
 }
 
 /// A small label, clicked on its own when it has an id.
@@ -384,6 +458,16 @@ impl Panel {
                 Node::Message(m) => chip_targets(&m.chips),
                 Node::Edit(e) => e.buttons.iter().map(button).collect(),
                 Node::Empty { buttons, .. } => buttons.iter().map(button).collect(),
+                Node::Step(s) => s.links.iter().chain(&s.buttons).map(button).collect(),
+                Node::Ask(a) => a.buttons.iter().chain(&a.quiet).map(button).collect(),
+                Node::Changes(c) => std::iter::once(button(&c.revert_all))
+                    .chain(
+                        c.files
+                            .iter()
+                            .flat_map(|f| [button(&f.review), button(&f.revert)]),
+                    )
+                    .collect(),
+                Node::Command { copy, .. } => vec![button(copy)],
                 _ => Vec::new(),
             })
             .collect()

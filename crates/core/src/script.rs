@@ -292,6 +292,10 @@ impl Session {
                 Effect::Copy(_)
                 | Effect::OpenUrl(_)
                 | Effect::AppUpdate(_)
+                | Effect::Agent { .. }
+                | Effect::AgentDisk { .. }
+                | Effect::SaveAgentAllowed(_)
+                | Effect::OpenPluginPage(_)
                 | Effect::Terminal(_)
                 | Effect::PluginCommand { .. }
                 | Effect::PluginTerminal { .. }
@@ -466,6 +470,31 @@ impl Session {
                     crate::panel::Node::Buttons(bs) | crate::panel::Node::Tools(bs) => {
                         bs.iter().map(|b| b.label.clone()).collect()
                     }
+                    crate::panel::Node::Ask(a) => a
+                        .buttons
+                        .iter()
+                        .chain(&a.quiet)
+                        .map(|b| b.label.clone())
+                        .collect(),
+                    crate::panel::Node::Changes(c) => std::iter::once(c.revert_all.label.clone())
+                        .chain(c.files.iter().flat_map(|f| {
+                            [format!("{} Review", f.path), format!("{} Revert", f.path)]
+                        }))
+                        .collect(),
+                    crate::panel::Node::Step(st) => st
+                        .links
+                        .iter()
+                        .chain(&st.buttons)
+                        .map(|b| b.label.clone())
+                        .collect(),
+                    crate::panel::Node::Banner { buttons, .. } => {
+                        buttons.iter().map(|b| b.label.clone()).collect()
+                    }
+                    crate::panel::Node::Chips { chips, .. } => chips
+                        .iter()
+                        .filter(|c| !c.id.is_empty())
+                        .map(|c| c.label.clone())
+                        .collect(),
                     _ => continue,
                 };
                 let Some(k) = labels.iter().position(|l| l.contains(label)) else {

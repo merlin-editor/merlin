@@ -845,6 +845,9 @@ impl Editor {
     }
 
     pub(crate) fn view_click(&mut self, id: &str, fx: &mut Vec<Effect>) {
+        if self.agent_click(id, fx) {
+            return;
+        }
         if id.starts_with("t:") {
             return self.tests_click(id, fx);
         }
@@ -999,6 +1002,9 @@ impl Editor {
     }
 
     pub(crate) fn view_submit(&mut self, view: &str, text: &str, fx: &mut Vec<Effect>) {
+        if self.agent_submit(view, text, fx) {
+            return;
+        }
         if view == CHANGES {
             return self.commit(text, fx);
         }

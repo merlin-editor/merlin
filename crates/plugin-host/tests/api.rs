@@ -138,7 +138,7 @@ fn asking_for_more_permissions_asks_again() {
     let manifest = fs::read_to_string(dir.join("plugin.toml")).unwrap();
     fs::write(
         dir.join("plugin.toml"),
-        manifest.replace("[\"cat\"]", "[\"cat\", \"sh\"]"),
+        manifest.replace("\"absent-agent-cli\"]", "\"absent-agent-cli\", \"sh\"]"),
     )
     .unwrap();
     let mut again = PluginHost::new(Config {
@@ -929,14 +929,14 @@ fn a_plugin_needing_one_thats_missing_stops_and_says_so() {
     let manifest = fs::read_to_string(dir.join("plugin.toml")).unwrap();
     fs::write(
         dir.join("plugin.toml"),
-        manifest.replace("[permissions]", "depends = [\"lsp\"]\n\n[permissions]"),
+        manifest.replace("[permissions]", "[depends]\nlsp = \"0.2\"\n\n[permissions]"),
     )
     .unwrap();
     let mut host = PluginHost::new(config).unwrap();
     host.load(&dir).unwrap();
     let events = host.check_depends();
     assert!(
-        matches!(&events[..], [Event::PluginFailed { message, .. }] if message.contains("needs the lsp plugin")),
+        matches!(&events[..], [Event::PluginFailed { message, .. }] if message.contains("needs the lsp 0.2 plugin")),
         "{events:?}"
     );
     assert!(host.plugins()[0].failed);

@@ -315,12 +315,15 @@ impl Editor {
         };
         run.exited = Some(code.unwrap_or(-1));
         if let Some((plugin, id)) = run.plugin.clone() {
-            fx.push(Effect::PluginTerminal {
-                plugin,
-                id,
-                output: run.output.take().unwrap_or_default(),
-                code,
-            });
+            let output = run.output.take().unwrap_or_default();
+            if !self.agent_ran(&plugin, &id, output.clone(), code, fx) {
+                fx.push(Effect::PluginTerminal {
+                    plugin,
+                    id,
+                    output,
+                    code,
+                });
+            }
         }
         self.build_views();
     }

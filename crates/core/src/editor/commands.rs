@@ -77,6 +77,7 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
     ("settings.workspace", "Preferences: Open Workspace Settings"),
     ("settings.open", "Preferences: Open Settings"),
     ("plugins.manage", "Plugins: Manage"),
+    ("agent.open", "Chat: Open the Agents' Chat"),
     ("theme.pick", "Preferences: Color Theme"),
     ("icons.pick", "Preferences: File Icon Theme"),
     ("go.symbol", "Go to Symbol in Editor"),
@@ -473,6 +474,9 @@ impl Editor {
             "find.replace" => self.open_find(true),
             "palette.open" => self.open_search(search_all::Scope::Everything, fx),
             "settings.open" => self.open_settings(None, fx),
+            "agent.add" => self.agent_menu(fx),
+            "agent.more" => self.agent_more_menu(),
+            "agent.open" => self.open_first_agent(fx),
             "plugins.manage" => {
                 self.open_page(SETTINGS_PAGE, "Settings");
                 fx.push(Effect::OpenSettingsWindow {

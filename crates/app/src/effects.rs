@@ -207,6 +207,47 @@ impl App {
                 queue.extend(self.host.terminal(&plugin, &id, &output, code, snapshot));
                 self.panels_for = None;
             }
+            Effect::Agent { plugin, call } => {
+                let snapshot = self.snapshot();
+                queue.extend(self.host.agent_call(&plugin, call, snapshot));
+                self.panels_for = None;
+            }
+            Effect::AgentDisk {
+                plugin,
+                chat,
+                request,
+                path,
+                write,
+            } => {
+                let full = self.root.join(&path);
+                let result = match &write {
+                    None => fs::read_to_string(&full).map_err(|e| format!("{e}")),
+                    Some(text) => {
+                        let before = fs::read_to_string(&full).unwrap_or_default();
+                        full.parent()
+                            .map_or(Ok(()), fs::create_dir_all)
+                            .and_then(|()| fs::write(&full, text))
+                            .map(|()| before)
+                            .map_err(|e| format!("{e}"))
+                    }
+                };
+                queue.push_back(Event::AgentDisk {
+                    plugin,
+                    chat,
+                    request,
+                    path,
+                    wrote: write,
+                    result,
+                });
+            }
+            Effect::SaveAgentAllowed(rules) => self.save_agent_allowed(&rules),
+            Effect::OpenPluginPage(plugin) => {
+                let browse = plugin.is_none();
+                self.open_settings(plugin, true);
+                if browse {
+                    self.settings_ui.list_tab = crate::prefs::ListTab::Browse;
+                }
+            }
             Effect::PluginClick { plugin, button } => {
                 let snapshot = self.snapshot();
                 queue.extend(self.host.click(&plugin, &button, snapshot));

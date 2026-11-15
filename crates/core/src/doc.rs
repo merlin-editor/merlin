@@ -294,6 +294,7 @@ impl Doc {
                 let left = match review.id.as_str() {
                     "clipboard:" => "Clipboard".to_string(),
                     "saved:" => "Saved".to_string(),
+                    other if other.starts_with("before:") => other["before:".len()..].to_string(),
                     other => std::path::Path::new(other)
                         .file_name()
                         .map_or(other.to_string(), |n| n.to_string_lossy().into_owned()),

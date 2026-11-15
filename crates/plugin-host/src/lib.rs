@@ -15,7 +15,9 @@
 //! is remembered until the plugin asks for more.
 
 pub mod bundled;
+mod fetch;
 mod manifest;
+pub mod needs;
 pub mod package;
 mod process;
 pub mod registry;
@@ -56,7 +58,7 @@ use bindings::merlin::plugin::{host, types};
 
 /// The API version this host implements. A manifest names the version it was
 /// built for and loads only on an exact match while the API is 0.x.
-pub const API_VERSION: &str = "0.14";
+pub const API_VERSION: &str = "0.15";
 
 /// Roughly six billion instructions per call, about a second. It stops a
 /// plugin stuck in a loop, and leaves room for a language plugin to colour
@@ -495,13 +497,18 @@ impl PluginHost {
                 .manifest
                 .depends
                 .iter()
-                .filter(|d| {
-                    !self
-                        .plugins
-                        .iter()
-                        .any(|p| p.manifest.name == **d && !p.disabled && !p.failed)
+                .filter(|(name, req)| {
+                    !self.plugins.iter().any(|p| {
+                        p.manifest.name == **name
+                            && !p.disabled
+                            && !p.failed
+                            && needs::meets(req, &p.manifest.version)
+                    })
                 })
-                .cloned()
+                .map(|(name, req)| match req.trim() {
+                    "*" | "" => name.clone(),
+                    _ => format!("{name} {}", registry::requirement_words(req)),
+                })
                 .collect();
             if missing.is_empty() || self.plugins[i].failed {
                 continue;
@@ -660,6 +667,8 @@ impl PluginHost {
             breakpoints: Vec::new(),
             symbol_query: String::new(),
             images: Default::default(),
+            next_agent_id: 0,
+            agent_runs: Default::default(),
         };
         let mut store = Store::new(&self.engine, state);
         store.limiter(|s| &mut s.limits);
@@ -1183,6 +1192,69 @@ impl PluginHost {
         self.post_call(i, snapshot, move |b, s| b.call_on_review(s, &id, accepted))
     }
 
+    /// Calls into the plugin behind an agent's chat.
+    pub fn agent_call(
+        &mut self,
+        plugin: &str,
+        call: merlin_core::AgentCall,
+        snapshot: Snapshot,
+    ) -> Vec<Event> {
+        use merlin_core::AgentCall;
+        let Some(i) = self.index(plugin) else {
+            return Vec::new();
+        };
+        self.post_call(i, snapshot, move |b, s| match &call {
+            AgentCall::Prompt {
+                chat,
+                agent,
+                text,
+                context,
+            } => {
+                let context: Vec<types::AgentContext> = context
+                    .iter()
+                    .map(|c| match c {
+                        merlin_core::AgentContext::File(p) => types::AgentContext::File(p.clone()),
+                        merlin_core::AgentContext::Lines(p, a, b) => {
+                            types::AgentContext::Lines((p.clone(), *a, *b))
+                        }
+                    })
+                    .collect();
+                b.call_on_agent_prompt(s, *chat, agent, text, &context)
+            }
+            AgentCall::Cancel { chat } => b.call_on_agent_cancel(s, *chat),
+            AgentCall::Close { chat } => b.call_on_agent_close(s, *chat),
+            AgentCall::Answer {
+                chat,
+                request,
+                answer,
+            } => {
+                let answer = match answer {
+                    merlin_core::AgentAnswer::AllowOnce => types::AgentAnswer::AllowOnce,
+                    merlin_core::AgentAnswer::AlwaysAllow => types::AgentAnswer::AlwaysAllow,
+                    merlin_core::AgentAnswer::Deny => types::AgentAnswer::Deny,
+                };
+                b.call_on_agent_answer(s, *chat, *request, answer)
+            }
+            AgentCall::File {
+                chat,
+                request,
+                result,
+            } => b.call_on_agent_file(
+                s,
+                *chat,
+                *request,
+                result.as_ref().map(String::as_str).map_err(String::as_str),
+            ),
+            AgentCall::Ran { chat, run, result } => {
+                let result = result
+                    .as_ref()
+                    .map(|(out, code)| (out.as_str(), *code))
+                    .map_err(String::as_str);
+                b.call_on_agent_run(s, *chat, *run, result)
+            }
+        })
+    }
+
     /// Colours `text` as a language, named by its id or an extension, with
     /// the plugin that added it: a [`Event::TextColours`], now or from
     /// [`Self::poll_processes`]. With no plugin for it, no colours.
@@ -1508,16 +1580,26 @@ impl PluginHost {
             if self.plugins[i].generation != output.generation {
                 continue;
             }
+            let event = match output.event {
+                process::Arrival::Process(event) => event,
+                process::Arrival::Fetched(response) => {
+                    let id = output.process;
+                    events.extend(self.post_call(i, snapshot.clone(), move |b, s| {
+                        b.call_on_fetch(s, id, response.as_ref().map_err(String::as_str))
+                    }));
+                    continue;
+                }
+            };
             // What a plugin's programs print on stderr goes to its channel,
             // as well as to the plugin.
-            if let types::ProcessEvent::Stderr(line) = &output.event {
+            if let types::ProcessEvent::Stderr(line) = &event {
                 events.push(Event::PluginLog {
                     plugin: output.plugin.clone(),
                     level: LogLevel::Stderr,
                     text: line.clone(),
                 });
             }
-            let (process, event) = (output.process, output.event);
+            let process = output.process;
             events.extend(self.post_call(i, snapshot.clone(), move |b, s| {
                 if let types::ProcessEvent::Exit(_) = &event {
                     s.data_mut().processes.forget(process);
@@ -1719,6 +1801,10 @@ impl PluginHost {
             Event::RegisterViews {
                 plugin: name.to_string(),
                 views: Vec::new(),
+            },
+            Event::RegisterAgents {
+                plugin: name.to_string(),
+                agents: Vec::new(),
             },
             Event::ProgressEnd {
                 plugin: name.to_string(),

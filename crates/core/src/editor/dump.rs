@@ -555,6 +555,60 @@ fn dump_side(o: &mut String, which: &str, side: &SideView) {
                 ),
                 None => format!("[image {}, not set: {}]", image.id, image.alt),
             },
+            Node::Steps(steps) => steps
+                .iter()
+                .map(|(t, m)| format!("{} {t}", step_mark(*m)))
+                .collect::<Vec<_>>()
+                .join(" · "),
+            Node::Step(st) => {
+                let counts = if st.added + st.removed > 0 {
+                    format!(" +{} −{}", st.added, st.removed)
+                } else {
+                    String::new()
+                };
+                let links: String = st
+                    .links
+                    .iter()
+                    .chain(&st.buttons)
+                    .map(|b| format!("  [{}]", b.label))
+                    .collect();
+                format!(
+                    "{} {} `{}`{counts}{links}",
+                    step_mark(st.mark),
+                    st.verb,
+                    st.name
+                )
+            }
+            Node::Ask(a) => {
+                let title: String = a
+                    .title
+                    .iter()
+                    .map(|(t, code)| if *code { format!("`{t}`") } else { t.clone() })
+                    .collect();
+                let mut text = format!("{}ask: {title}", if a.warn { "! " } else { "" });
+                if let Some(code) = &a.code {
+                    text += &format!(" | {code}");
+                }
+                for line in &a.diff {
+                    text += &format!(" | {line}");
+                }
+                if !a.note.is_empty() {
+                    text += &format!(" | {}", a.note);
+                }
+                for b in a.buttons.iter().chain(&a.quiet) {
+                    text += &format!(" [{}]", b.label);
+                }
+                text
+            }
+            Node::Changes(c) => {
+                let files: String = c
+                    .files
+                    .iter()
+                    .map(|f| format!(" | {} +{} −{}", f.path, f.added, f.removed))
+                    .collect();
+                format!("{} [{}]{files}", c.title, c.revert_all.label)
+            }
+            Node::Command { text, copy } => format!("$ {text} [{}]", copy.label),
             Node::Drawing(d) => format!(
                 "[drawing {}×{}: {} shapes{}]",
                 d.width,
@@ -610,5 +664,14 @@ fn dump_items(o: &mut String, items: &[super::ContextItem], selected: Option<usi
             .map(|k| format!("  {k}"))
             .unwrap_or_default();
         let _ = writeln!(o, " {mark} {}{key}", item.label);
+    }
+}
+
+fn step_mark(mark: crate::panel::StepState) -> &'static str {
+    match mark {
+        crate::panel::StepState::Done => "✓",
+        crate::panel::StepState::Running => "◌",
+        crate::panel::StepState::Failed => "✗",
+        crate::panel::StepState::Pending => "○",
     }
 }

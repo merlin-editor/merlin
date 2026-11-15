@@ -17,6 +17,8 @@ pub(crate) enum Left {
     File(PathBuf),
     Clipboard,
     Saved,
+    /// The file before an agent changed it: "Before Gemini".
+    Before(String),
 }
 
 impl Left {
@@ -26,6 +28,7 @@ impl Left {
             Left::File(p) => p.display().to_string(),
             Left::Clipboard => "clipboard:".into(),
             Left::Saved => "saved:".into(),
+            Left::Before(title) => format!("before:{title}"),
         }
     }
 }
@@ -68,6 +71,7 @@ impl Editor {
         Some(match review.id.as_str() {
             "clipboard:" => Left::Clipboard,
             "saved:" => Left::Saved,
+            id if id.starts_with("before:") => Left::Before(id["before:".len()..].to_string()),
             path => Left::File(PathBuf::from(path)),
         })
     }
@@ -86,6 +90,7 @@ impl Editor {
             Left::File(p) => (name(&p), folder(&p)),
             Left::Clipboard => ("Clipboard".into(), "read-only".into()),
             Left::Saved => (format!("{right} (saved)"), "on disk".into()),
+            Left::Before(title) => (title, "read-only".into()),
         };
         let editable = match self.compare_left()? {
             Left::File(_) => "you can edit both",
@@ -176,6 +181,23 @@ impl Editor {
         });
         self.read_compare(fx);
         true
+    }
+
+    /// Compares a file with `before`, its text before an agent's turn.
+    pub(crate) fn review_against(
+        &mut self,
+        right: PathBuf,
+        before: String,
+        title: &str,
+        fx: &mut Vec<Effect>,
+    ) {
+        self.comparing = Some(Comparing::Reading {
+            left: Left::Before(title.to_string()),
+            right,
+            left_text: Some(before),
+            right_text: None,
+        });
+        self.read_compare(fx);
     }
 
     /// Compares `left` with the file at `right`, reading what isn't open.
@@ -271,7 +293,7 @@ impl Editor {
         let left_path = match &left {
             Left::File(p) => Some(p.clone()),
             Left::Saved => Some(right.clone()),
-            Left::Clipboard => None,
+            Left::Clipboard | Left::Before(_) => None,
         };
         for (path, text) in files {
             let text = text.clone().unwrap_or_default();

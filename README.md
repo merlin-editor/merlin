@@ -284,7 +284,7 @@ merlin comes with:
 name = "my-looks"
 title = "My Looks"
 version = "0.1.0"
-api = "0.14"
+api = "0.15"
 
 [[themes]]          # shows in the colour or icon theme picker
 label = "My Theme"
@@ -704,7 +704,7 @@ title = "Word Count"
 badge = "WC"
 hue = "green"
 version = "0.1.0"
-api = "0.14"
+api = "0.15"
 component = "target/wasm32-wasip2/release/word_count.wasm"
 
 [permissions]

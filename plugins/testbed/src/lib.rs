@@ -3,7 +3,9 @@
 
 use merlin_plugin::prelude::*;
 use merlin_plugin::{
-    Colour, DrawCurve, DrawItem, DrawLine, DrawPoint, DrawRect, DrawText, Drawing, Shape,
+    AgentAnswer, AgentContext, AgentOutcome, AgentPart, AgentRequest, AgentTool, Colour,
+    DrawCurve, DrawItem, DrawLine, DrawPoint, DrawRect, DrawText, Drawing, PlanStep, Shape,
+    StepState, ToolKind,
 };
 
 #[derive(Default)]
@@ -19,6 +21,55 @@ struct Testbed {
     /// Whether its graph's dot moves, and how far it has.
     animating: bool,
     frame: u32,
+    /// The Echo agent's turn, by chat.
+    turns: std::collections::HashMap<u32, Turn>,
+}
+
+/// Where Echo's scripted turn has got to: it reads the attached file,
+/// asks to add a line to it and writes it, then asks to run a command.
+#[derive(Default)]
+struct Turn {
+    path: String,
+    text: String,
+    read: u32,
+    ask_edit: u32,
+    write: u32,
+    ask_run: u32,
+    run: u32,
+}
+
+const COMMAND: &str = "cargo --version";
+
+fn plan(done: usize) -> AgentPart {
+    let steps = ["Read the file", "Add a line to it", "Check it builds"];
+    AgentPart::Plan(
+        steps
+            .iter()
+            .enumerate()
+            .map(|(n, t)| PlanStep {
+                text: t.to_string(),
+                state: if n < done {
+                    StepState::Done
+                } else if n == done {
+                    StepState::Running
+                } else {
+                    StepState::Pending
+                },
+            })
+            .collect(),
+    )
+}
+
+fn tool(id: &str, kind: ToolKind, title: &str, state: StepState, added: u32, run: Option<u32>) -> AgentPart {
+    AgentPart::Tool(AgentTool {
+        id: id.into(),
+        kind,
+        title: title.into(),
+        state,
+        added,
+        removed: 0,
+        run,
+    })
 }
 
 impl Plugin for Testbed {
@@ -208,6 +259,135 @@ impl Plugin for Testbed {
     fn save_state(&self) -> Option<Vec<u8>> {
         let cat = self.cat.map_or("-".into(), |c| c.to_string());
         Some(format!("{} {cat}", self.clicks).into_bytes())
+    }
+
+    fn agent_prompt(&mut self, chat: u32, _agent: &str, text: &str, context: Vec<AgentContext>) {
+        let say = |part| {
+            let _ = host::agent_say(chat, &part);
+        };
+        if text.contains("fail") {
+            host::agent_done(chat, AgentOutcome::Failed, Some("API key not valid"));
+            return;
+        }
+        say(AgentPart::Thought("Looking at the file first.".into()));
+        let path = context.into_iter().find_map(|c| match c {
+            AgentContext::File(p) => Some(p),
+            AgentContext::Lines((p, _, _)) => Some(p),
+        });
+        let Some(path) = path else {
+            say(AgentPart::Text("Attach a file and I'll add a line to it.".into()));
+            host::agent_done(chat, AgentOutcome::Finished, None);
+            return;
+        };
+        say(plan(0));
+        say(tool("read", ToolKind::Read, &path, StepState::Running, 0, None));
+        let read = host::agent_read(chat, &path).unwrap_or(0);
+        self.turns.insert(
+            chat,
+            Turn {
+                path,
+                read,
+                ..Turn::default()
+            },
+        );
+    }
+
+    fn agent_file(&mut self, chat: u32, request: u32, got: Result<String, String>) {
+        let Some(turn) = self.turns.get_mut(&chat) else {
+            return;
+        };
+        let say = |part| {
+            let _ = host::agent_say(chat, &part);
+        };
+        if request == turn.read {
+            let Ok(text) = got else {
+                say(tool("read", ToolKind::Read, &turn.path, StepState::Failed, 0, None));
+                host::agent_done(chat, AgentOutcome::Finished, None);
+                return;
+            };
+            say(tool("read", ToolKind::Read, &turn.path, StepState::Done, 0, None));
+            say(plan(1));
+            say(AgentPart::Text(format!(
+                "`{}` has {} lines. I'll add a line at the end to say it was checked.",
+                turn.path,
+                text.lines().count()
+            )));
+            let diff = format!("+// Checked by Echo.");
+            turn.text = format!("{text}{}// Checked by Echo.\n", if text.ends_with('\n') || text.is_empty() { "" } else { "\n" });
+            turn.ask_edit = host::agent_ask(chat, &AgentRequest::Edit((turn.path.clone(), Some(diff)))).unwrap_or(0);
+        } else if request == turn.write {
+            match got {
+                Ok(_) => {
+                    say(tool("edit", ToolKind::Edit, &turn.path, StepState::Done, 1, None));
+                    say(plan(2));
+                    turn.ask_run = host::agent_ask(chat, &AgentRequest::Run(COMMAND.into())).unwrap_or(0);
+                }
+                Err(e) => {
+                    say(tool("edit", ToolKind::Edit, &turn.path, StepState::Failed, 0, None));
+                    say(AgentPart::Text(format!("The edit didn't go in: {e}")));
+                    host::agent_done(chat, AgentOutcome::Finished, None);
+                }
+            }
+        }
+    }
+
+    fn agent_answer(&mut self, chat: u32, request: u32, answer: AgentAnswer) {
+        let Some(turn) = self.turns.get_mut(&chat) else {
+            return;
+        };
+        let say = |part| {
+            let _ = host::agent_say(chat, &part);
+        };
+        if answer == AgentAnswer::Deny {
+            say(AgentPart::Text("Okay, I'll leave it.".into()));
+            host::agent_done(chat, AgentOutcome::Finished, None);
+            return;
+        }
+        if request == turn.ask_edit {
+            say(tool("edit", ToolKind::Edit, &turn.path, StepState::Running, 0, None));
+            turn.write = host::agent_write(chat, &turn.path, &turn.text).unwrap_or(0);
+        } else if request == turn.ask_run {
+            turn.run = host::agent_run(chat, COMMAND, None).unwrap_or(0);
+            say(tool("run", ToolKind::Run, COMMAND, StepState::Running, 0, Some(turn.run)));
+        }
+    }
+
+    fn agent_run(&mut self, chat: u32, run: u32, ended: Result<(String, Option<i32>), String>) {
+        let Some(turn) = self.turns.get(&chat) else {
+            return;
+        };
+        if run != turn.run {
+            return;
+        }
+        let say = |part| {
+            let _ = host::agent_say(chat, &part);
+        };
+        let ok = matches!(ended, Ok((_, Some(0))));
+        say(tool(
+            "run",
+            ToolKind::Run,
+            COMMAND,
+            if ok { StepState::Done } else { StepState::Failed },
+            0,
+            Some(run),
+        ));
+        say(plan(3));
+        say(AgentPart::Text(if ok {
+            "It builds. The line is in, and you can review it below.".into()
+        } else {
+            "The command didn't succeed; the line is in anyway.".into()
+        }));
+        host::agent_done(chat, AgentOutcome::Finished, None);
+        self.turns.remove(&chat);
+    }
+
+    fn agent_cancel(&mut self, chat: u32) {
+        self.turns.remove(&chat);
+        host::agent_done(chat, AgentOutcome::Cancelled, None);
+    }
+
+    fn agent_close(&mut self, chat: u32) {
+        self.turns.remove(&chat);
     }
 
     fn restore_state(&mut self, state: Vec<u8>) {

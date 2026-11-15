@@ -607,6 +607,23 @@ impl Editor {
                     .collect()
             })
             .unwrap_or_default();
+        // An agent's tab: + adds another agent, ⋯ has the rest.
+        let toolbar = if name.starts_with(super::agents::AGENT) {
+            vec![
+                ToolView {
+                    command: "agent.add".into(),
+                    icon: Some(super::ViewIcon::Glyph("+".into())),
+                    title: "Add an Agent".into(),
+                },
+                ToolView {
+                    command: "agent.more".into(),
+                    icon: Some(super::ViewIcon::Glyph("⋯".into())),
+                    title: "More".into(),
+                },
+            ]
+        } else {
+            toolbar
+        };
         Some(SideView {
             title: panel.title.clone(),
             panels,
@@ -1080,6 +1097,10 @@ fn target_count(node: &Node) -> usize {
         Node::Message(m) => m.chips.iter().filter(|c| !c.id.is_empty()).count(),
         Node::Edit(e) => e.buttons.len(),
         Node::Empty { buttons, .. } => buttons.len(),
+        Node::Step(s) => s.links.len() + s.buttons.len(),
+        Node::Ask(a) => a.buttons.len() + a.quiet.is_some() as usize,
+        Node::Changes(c) => 1 + 2 * c.files.len(),
+        Node::Command { .. } => 1,
         _ => 0,
     }
 }

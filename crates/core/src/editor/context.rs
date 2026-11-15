@@ -57,6 +57,9 @@ pub struct ContextItem {
     /// Empty for a separator.
     pub label: String,
     pub key: Option<String>,
+    /// The item can't be used yet: its label is dimmed, and what's at its
+    /// right end is a warning, as "not installed".
+    pub warn: bool,
 }
 
 /// A card by the text: what the cursor's on, or what can complete it.
@@ -230,11 +233,21 @@ impl Editor {
                 "-" => ContextItem {
                     label: String::new(),
                     key: None,
+                    warn: false,
                 },
                 _ if id.starts_with("row.menu.") => ContextItem {
                     label: self.row_menu_label(id).unwrap_or_default(),
                     key: None,
+                    warn: false,
                 },
+                _ if id.starts_with("agent.") => {
+                    let (label, right, warn) = self.agent_menu_item(id).unwrap_or_default();
+                    ContextItem {
+                        label,
+                        key: right,
+                        warn,
+                    }
+                }
                 // Compare with the file Select for Compare chose, by name.
                 "explorer.compare_with" => ContextItem {
                     label: format!(
@@ -245,6 +258,7 @@ impl Editor {
                             .map_or(String::new(), |n| n.to_string_lossy().into_owned())
                     ),
                     key: None,
+                    warn: false,
                 },
                 _ => ContextItem {
                     label: ITEMS
@@ -264,6 +278,7 @@ impl Editor {
                             .find(|(i, _)| *i == id)
                             .map(|(_, k)| k.to_string())
                     }),
+                    warn: false,
                 },
             })
             .collect();
@@ -288,7 +303,7 @@ impl Editor {
             return;
         }
         self.close_context();
-        if self.row_menu_picked(id, fx) {
+        if self.row_menu_picked(id, fx) || self.agent_menu_picked(id, fx) {
             return;
         }
         match id.split_once('.') {

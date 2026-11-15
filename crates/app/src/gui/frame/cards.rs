@@ -895,7 +895,13 @@ impl Frame<'_> {
             if on {
                 self.canvas.round(row, 5.0, p.focus_row);
             }
-            let colour = if on { p.bright } else { p.text };
+            let colour = if item.warn {
+                p.muted
+            } else if on {
+                p.bright
+            } else {
+                p.text
+            };
             self.text.draw_in_row(
                 &mut self.canvas,
                 &item.label,
@@ -906,7 +912,28 @@ impl Frame<'_> {
                 colour,
                 row,
             );
-            if let Some(key) = &item.key {
+            // Something that can't be used yet says why in an amber chip.
+            if let (Some(key), true) = (&item.key, item.warn) {
+                let f = Face::ui(10.5).medium();
+                let kw = self.text.width(key, f);
+                let chip = Rect::new(
+                    row.right() - 12.0 - kw - 12.0,
+                    ry + (rh - 17.0) / 2.0,
+                    kw + 12.0,
+                    17.0,
+                );
+                self.canvas.round(chip, 4.0, mix(p.warning, p.widget, 0.16));
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    key,
+                    f,
+                    chip.x + 6.0,
+                    chip.y,
+                    17.0,
+                    p.warning,
+                    row,
+                );
+            } else if let Some(key) = &item.key {
                 let kw = self.text.width(key, key_f);
                 self.text.draw_in_row(
                     &mut self.canvas,

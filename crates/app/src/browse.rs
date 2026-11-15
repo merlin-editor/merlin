@@ -1179,6 +1179,49 @@ fn list_words(items: &[String]) -> String {
     }
 }
 
+/// Where what's always allowed for agents in a workspace is kept.
+fn agent_allowed_file(data_dir: &std::path::Path, root: &std::path::Path) -> PathBuf {
+    data_dir.join("agents").join(format!(
+        "{}.toml",
+        crate::safe_name(&root.display().to_string())
+    ))
+}
+
+impl App {
+    /// What's always allowed for agents in this workspace, as last saved.
+    pub(crate) fn agent_allowed(&self) -> Vec<String> {
+        fs::read_to_string(agent_allowed_file(&self.browse.data_dir, &self.root))
+            .ok()
+            .and_then(|s| s.parse::<toml::Table>().ok())
+            .and_then(|t| t.get("allowed")?.as_array().cloned())
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect()
+    }
+
+    pub(crate) fn save_agent_allowed(&self, rules: &[String]) {
+        if self.scripted {
+            return;
+        }
+        let path = agent_allowed_file(&self.browse.data_dir, &self.root);
+        let mut table = toml::Table::new();
+        table.insert(
+            "allowed".into(),
+            toml::Value::Array(
+                rules
+                    .iter()
+                    .map(|r| toml::Value::String(r.clone()))
+                    .collect(),
+            ),
+        );
+        if let (Some(dir), Ok(text)) = (path.parent(), toml::to_string(&table)) {
+            let _ = fs::create_dir_all(dir);
+            let _ = fs::write(&path, text);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

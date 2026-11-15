@@ -282,6 +282,7 @@ mod tests {
                 source: "acme".into(),
                 version: "0.0.1".into(),
                 sha256: String::new(),
+                ..Default::default()
             }),
         )
         .unwrap();

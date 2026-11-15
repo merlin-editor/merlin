@@ -279,6 +279,13 @@ pub struct Installed {
     pub source: String,
     pub version: String,
     pub sha256: String,
+    /// Installed because another plugin needs it, not asked for itself:
+    /// it's offered for removal once nothing needs it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dependency: bool,
+    /// Kept at this version: not updated automatically or by Update All.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub keep: bool,
 }
 
 #[derive(Default, Deserialize, Serialize)]
@@ -324,6 +331,16 @@ fn write_installed(data_dir: &Path, file: &InstalledFile) -> Result<()> {
     fs::write(&part, toml::to_string(file)?)?;
     fs::rename(part, path)?;
     Ok(())
+}
+
+/// Changes what `installed.toml` records of `name`, if it records it.
+pub fn mark(data_dir: &Path, name: &str, change: impl FnOnce(&mut Installed)) -> Result<()> {
+    let mut file = read_installed(data_dir);
+    let Some(entry) = file.plugins.get_mut(name) else {
+        return Ok(());
+    };
+    change(entry);
+    write_installed(data_dir, &file)
 }
 
 /// Records `name` in `installed.toml`, or with `None` forgets it and
@@ -415,6 +432,10 @@ pub fn install_bytes(
     let _ = fs::remove_dir(plugins_dir.join(".staging"));
     let _ = fs::remove_dir(plugins_dir.join(".trash"));
     let manifest = result?;
+    // An update keeps how it came to be installed.
+    let dependency = installed(data_dir)
+        .get(&manifest.name)
+        .is_some_and(|m| m.dependency);
     record(
         data_dir,
         &manifest.name,
@@ -422,6 +443,8 @@ pub fn install_bytes(
             source: source.to_string(),
             version: manifest.version.clone(),
             sha256: sha256_hex(bytes),
+            dependency,
+            keep: false,
         }),
     )?;
     Ok(manifest)

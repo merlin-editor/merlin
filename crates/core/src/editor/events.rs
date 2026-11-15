@@ -68,6 +68,32 @@ pub enum Event {
     Paste(String),
     /// A newer merlin the app found, or none.
     UpdateOffer(Option<super::UpdateOffer>),
+    /// A plugin's agents, as its manifest declares them; none once it's
+    /// unloaded.
+    RegisterAgents {
+        plugin: String,
+        agents: Vec<super::AgentSpec>,
+    },
+    /// What a plugin's agent said or asked in a chat, `at` milliseconds
+    /// since merlin started.
+    Agent {
+        plugin: String,
+        chat: u32,
+        update: super::AgentUpdate,
+        at: u64,
+    },
+    /// A file the host read for an agent (`wrote` none), or wrote: then
+    /// the result is the text it had before.
+    AgentDisk {
+        plugin: String,
+        chat: u32,
+        request: u32,
+        path: PathBuf,
+        wrote: Option<String>,
+        result: Result<String, String>,
+    },
+    /// What's always allowed for agents in this workspace.
+    AgentAllowed(Vec<String>),
     /// How updating to it is going.
     UpdateProgress {
         step: super::UpdateStep,
@@ -736,6 +762,24 @@ pub enum Effect {
     OpenUrl(String),
     /// Install, cancel or restart into a newer merlin.
     AppUpdate(super::UpdateAction),
+    /// A call into the plugin behind an agent's chat.
+    Agent {
+        plugin: String,
+        call: super::AgentCall,
+    },
+    /// Read a file for an agent, or with `write` write it, and send
+    /// [`Event::AgentDisk`]. Request 0 wants no answer.
+    AgentDisk {
+        plugin: String,
+        chat: u32,
+        request: u32,
+        path: PathBuf,
+        write: Option<String>,
+    },
+    /// Keep what's always allowed for agents in this workspace.
+    SaveAgentAllowed(Vec<String>),
+    /// Show Settings › Plugins: a plugin's page, or Browse.
+    OpenPluginPage(Option<String>),
     ReadClipboard,
     Quit,
     /// Asks the system for a file or folder: see [`FilePick`].

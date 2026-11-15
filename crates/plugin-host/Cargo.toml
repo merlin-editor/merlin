@@ -25,6 +25,10 @@ toml_edit = "0.25"
 globset = "0.4"
 # Registries' index.json files are signed with minisign.
 minisign-verify = "0.2"
+# Dependencies' version requirements, read as Cargo reads them.
+semver = "1"
+# `fetch`, for plugins that may reach the network.
+ureq = "3"
 
 [dev-dependencies]
 # Signs indexes in tests, as a registry would.

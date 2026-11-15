@@ -57,8 +57,11 @@ pub struct Debugger {
     pub languages: Vec<String>,
     /// The program and its arguments.
     pub command: Vec<String>,
-    /// How to install it, as a command to copy.
+    /// How to install it on this system, as a command to copy; empty when
+    /// the plugin gave none.
     pub install: String,
+    /// Where to read how to install it; may be empty.
+    pub url: String,
     /// Launch settings sent with every start, as a JSON object.
     pub launch: String,
     /// The plugin that speaks to it: [`DAP`], or the declaring plugin for

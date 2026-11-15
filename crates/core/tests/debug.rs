@@ -36,6 +36,7 @@ fn project() -> Session {
             languages: vec!["rust".into()],
             command: vec!["gdb".into(), "--interpreter=dap".into()],
             install: "sudo apt install gdb".into(),
+            url: String::new(),
             launch: "{}".into(),
             driver: "dap".into(),
             stops: vec![FunctionStop {

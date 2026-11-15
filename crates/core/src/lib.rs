@@ -24,6 +24,10 @@ pub mod style;
 pub mod symbols;
 
 pub use editor::{
+    AgentAnswer, AgentCall, AgentContext, AgentOutcome, AgentPart, AgentRequest, AgentSpec,
+    AgentTool, AgentUpdate, MissingProgram, PlanStep, ToolKind, line_counts,
+};
+pub use editor::{
     AutoSave, AutoSaveWhy, Command, ContextItem, ContextView, DialogView, Editor, Effect, Event,
     FORMAT_WAIT_MS, FileConfig, FileOp, FilePick, FindAction, FindView, Focus, FormatOnSave,
     GitAction, GitMove, HoverButton, KeyBinding, Keymap, LanguageCardHit, LanguageCardView,
@@ -57,6 +61,7 @@ pub use key::{Key, KeyCode};
 pub use lang::{Completion, Diagnostic, InlayHint, InlayKind, Severity, Signature};
 pub use merlin_syntax::Syntax;
 pub use panel::{
-    Button, Chip, DrawColour, DrawItem, Drawing, EditCard, Entry, ImageNode, LogRow, Message, Node,
-    Panel, PickItem, PluginImage, Shape, Tone,
+    AskCard, Button, ChangedFile, ChangesCard, Chip, DrawColour, DrawItem, Drawing, EditCard,
+    Entry, ImageNode, LogRow, Message, Node, Panel, PickItem, PluginImage, Shape, StepLine,
+    StepState, Tone,
 };

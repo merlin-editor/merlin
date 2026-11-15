@@ -48,6 +48,8 @@ pub use bindings::merlin::plugin::types::{
     OutputKind, Panel, PickItem, Position, ProcessEvent, ProjectSymbol, RenameInfo, Selection,
     Setting, Severity, Signature, StackFrame, StatusItem, StatusState, StopFilter, Styled, Task,
     TaskGroup, TestItem, TestOutcome, TestResult, TextChange, Token, TokenKind, TokenLayer, Tone,
+    FetchRequest, FetchResponse, ToolKind, StepState, PlanStep, AgentTool, AgentPart, AgentRequest,
+    AgentAnswer, AgentOutcome, AgentContext,
 };
 
 /// UTF-16 columns, which positions count, as LSP does.
@@ -201,6 +203,23 @@ pub trait Plugin: 'static {
 
     /// A document's tab closed: what it kept can go.
     fn close_document(&mut self, _surface: u32) {}
+
+    /// A request from `host::fetch` ended.
+    fn fetched(&mut self, _id: u32, _response: Result<FetchResponse, String>) {}
+
+    /// The user sent a message to one of the plugin's agents, by its id,
+    /// in chat `chat`: a new chat the first time it's seen.
+    fn agent_prompt(&mut self, _chat: u32, _agent: &str, _text: &str, _context: Vec<AgentContext>) {}
+    /// The user pressed Stop in chat `chat`.
+    fn agent_cancel(&mut self, _chat: u32) {}
+    /// Chat `chat` closed: stop its agent.
+    fn agent_close(&mut self, _chat: u32) {}
+    /// The user answered a permission card from `host::agent_ask`.
+    fn agent_answer(&mut self, _chat: u32, _request: u32, _answer: AgentAnswer) {}
+    /// A file from `host::agent_read` or `host::agent_write`.
+    fn agent_file(&mut self, _chat: u32, _request: u32, _result: Result<String, String>) {}
+    /// A run from `host::agent_run` ended: its output and exit code.
+    fn agent_run(&mut self, _chat: u32, _run: u32, _result: Result<(String, Option<i32>), String>) {}
 
     /// State to keep across a hot reload. Returning some also keeps the
     /// plugin's processes running.
@@ -649,6 +668,48 @@ macro_rules! export {
             fn close_document(surface: u32) {
                 $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
                     $crate::Plugin::close_document(p, surface)
+                })
+            }
+
+            fn on_fetch(id: u32, response: Result<$crate::FetchResponse, String>) {
+                $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
+                    $crate::Plugin::fetched(p, id, response)
+                })
+            }
+
+            fn on_agent_prompt(chat: u32, agent: String, text: String, context: Vec<$crate::AgentContext>) {
+                $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
+                    $crate::Plugin::agent_prompt(p, chat, &agent, &text, context)
+                })
+            }
+
+            fn on_agent_cancel(chat: u32) {
+                $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
+                    $crate::Plugin::agent_cancel(p, chat)
+                })
+            }
+
+            fn on_agent_close(chat: u32) {
+                $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
+                    $crate::Plugin::agent_close(p, chat)
+                })
+            }
+
+            fn on_agent_answer(chat: u32, request: u32, answer: $crate::AgentAnswer) {
+                $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
+                    $crate::Plugin::agent_answer(p, chat, request, answer)
+                })
+            }
+
+            fn on_agent_file(chat: u32, request: u32, got: Result<String, String>) {
+                $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
+                    $crate::Plugin::agent_file(p, chat, request, got)
+                })
+            }
+
+            fn on_agent_run(chat: u32, run: u32, ended: Result<(String, Option<i32>), String>) {
+                $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
+                    $crate::Plugin::agent_run(p, chat, run, ended)
                 })
             }
 

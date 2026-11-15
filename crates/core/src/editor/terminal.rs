@@ -275,6 +275,14 @@ impl Editor {
         id
     }
 
+    /// Shows one terminal tab in the panel.
+    pub(crate) fn show_terminal_tab(&mut self, id: u64) {
+        if self.terminals.sessions.iter().any(|s| s.id == id) {
+            self.terminals.active = Some(id);
+            self.show_terminal();
+        }
+    }
+
     /// Shows the terminal panel and gives it the keys.
     fn show_terminal(&mut self) {
         let bar = self.bar_mut(Side::Bottom);

@@ -292,6 +292,8 @@ impl Gui<'_> {
             Hit::Ui(UiEvent::Target { side, index, .. })
                 if self.hold_entry(side, index, clicks, at) => {}
             Hit::Ui(UiEvent::Target { side, index, .. }) => {
+                // A row that opens a menu, as a chat's agent chip, opens it here.
+                self.context_at = Some(at);
                 self.dispatch(Event::Ui(UiEvent::Target {
                     side,
                     index,
@@ -301,8 +303,11 @@ impl Gui<'_> {
             Hit::Ui(UiEvent::PeekRow { index, .. }) => {
                 self.dispatch(Event::Ui(UiEvent::PeekRow { index, clicks }))
             }
-            // A view's ⋯ opens its menu under the pointer.
-            Hit::Ui(UiEvent::Press(id)) if id.starts_with("view-menu:") => {
+            // A view's ⋯ opens its menu under the pointer, as an agent
+            // tab's + and ⋯ do.
+            Hit::Ui(UiEvent::Press(id))
+                if id.starts_with("view-menu:") || id.starts_with("run:agent.") =>
+            {
                 self.context_at = Some(at);
                 self.dispatch(Event::Ui(UiEvent::Press(id)))
             }

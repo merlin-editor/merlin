@@ -13,14 +13,21 @@ use std::time::Duration;
 
 use crate::Waker;
 
-use crate::bindings::merlin::plugin::types::{Framing, ProcessEvent};
+use crate::bindings::merlin::plugin::types::{FetchRequest, FetchResponse, Framing, ProcessEvent};
+use crate::fetch;
 
-/// Process output on its way to a plugin.
+/// Process output, or a fetch's response, on its way to a plugin.
 pub(crate) struct Output {
     pub plugin: String,
     pub generation: u64,
+    /// The process, or the fetch.
     pub process: u32,
-    pub event: ProcessEvent,
+    pub event: Arrival,
+}
+
+pub(crate) enum Arrival {
+    Process(ProcessEvent),
+    Fetched(Result<FetchResponse, String>),
 }
 
 struct Process {
@@ -40,6 +47,7 @@ pub(crate) struct Processes {
     woken: Arc<AtomicBool>,
     running: HashMap<u32, Process>,
     next_id: u32,
+    open: fetch::Open,
 }
 
 impl Processes {
@@ -58,7 +66,27 @@ impl Processes {
             woken,
             running: HashMap::new(),
             next_id: 0,
+            open: fetch::Open::default(),
         }
+    }
+
+    /// Starts an HTTPS request to a host in `allowed`; its response
+    /// arrives as output with the id this returns.
+    pub fn fetch(&mut self, request: FetchRequest, allowed: Vec<String>) -> Result<u32, String> {
+        fetch::check(&request, &allowed)?;
+        let guard = self
+            .open
+            .take()
+            .ok_or("8 requests are open already; wait for one to end")?;
+        self.next_id += 1;
+        let id = self.next_id;
+        let send = self.arrivals(id);
+        thread::spawn(move || {
+            let response = fetch::run(request, &allowed);
+            drop(guard);
+            send(Arrival::Fetched(response));
+        });
+        Ok(id)
     }
 
     pub fn spawn(
@@ -133,6 +161,11 @@ impl Processes {
     }
 
     fn sender(&self, process: u32) -> impl Fn(ProcessEvent) + Send + 'static {
+        let send = self.arrivals(process);
+        move |event| send(Arrival::Process(event))
+    }
+
+    fn arrivals(&self, process: u32) -> impl Fn(Arrival) + Send + 'static {
         let (tx, plugin, generation) = (self.tx.clone(), self.plugin.clone(), self.generation);
         let wake = self.wake.clone();
         let woken = self.woken.clone();

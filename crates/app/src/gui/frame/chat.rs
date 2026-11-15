@@ -20,13 +20,24 @@ impl Frame<'_> {
     /// A message at width `inner`: yours boxed, others' as they are.
     pub(super) fn message_layout(&mut self, m: &Message, inner: f32) -> MessageLayout {
         let w = if m.mine { inner - 2.0 * PAD } else { inner };
-        let (ops, md_h) = self.md_layout(&m.markdown, w);
+        let (ops, md_h) = if m.markdown.is_empty() {
+            (Vec::new(), 0.0)
+        } else {
+            self.md_layout(&m.markdown, w)
+        };
         let chips = if m.chips.is_empty() { 0.0 } else { CHIPS_H };
         let body = md_h + chips + if m.mine { 2.0 * PAD } else { 0.0 };
+        // An agent's header alone, or its text alone, as the chat splits
+        // a turn.
+        let (author, end) = match (m.mine, m.author.is_empty(), m.markdown.is_empty()) {
+            (false, true, _) => (0.0, 4.0),
+            (false, false, true) => (AUTHOR_H, 0.0),
+            _ => (AUTHOR_H, 12.0),
+        };
         MessageLayout {
             ops,
             md_h,
-            height: AUTHOR_H + body + 12.0,
+            height: author + body + end,
         }
     }
 
@@ -52,21 +63,38 @@ impl Frame<'_> {
         if m.mine {
             self.text
                 .draw_in_row(&mut self.canvas, "You", who, x, y, 18.0, p.muted, clip);
+            y += AUTHOR_H - 4.0;
+        } else if m.author.is_empty() {
+            y -= 4.0;
         } else {
-            let dot = Rect::new(x, y + 6.0, 7.0, 7.0);
-            self.canvas.round(dot, 3.5, p.accent);
-            self.text.draw_in_row(
-                &mut self.canvas,
-                &m.author,
-                who,
-                x + 12.0,
-                y,
-                18.0,
-                p.muted,
-                clip,
-            );
+            // An agent's own mark in the accent, as "◆ Gemini"; else a dot.
+            let (mark, name) = match m.author.split_once(' ') {
+                Some((g, rest)) if !g.chars().any(char::is_alphanumeric) => (Some(g), rest),
+                _ => (None, m.author.as_str()),
+            };
+            let nx = match mark {
+                Some(g) => {
+                    self.text.draw_in_row(
+                        &mut self.canvas,
+                        g,
+                        Face::ui(11.0),
+                        x,
+                        y,
+                        18.0,
+                        p.accent,
+                        clip,
+                    ) + 5.0
+                }
+                None => {
+                    let dot = Rect::new(x, y + 6.0, 7.0, 7.0);
+                    self.canvas.round(dot, 3.5, p.accent);
+                    12.0
+                }
+            };
+            self.text
+                .draw_in_row(&mut self.canvas, name, who, x + nx, y, 18.0, p.muted, clip);
+            y += AUTHOR_H - 4.0;
         }
-        y += AUTHOR_H - 4.0;
         let (body_x, body_w) = if m.mine {
             let chips = if m.chips.is_empty() { 0.0 } else { CHIPS_H };
             let b = Rect::new(x, y, inner, layout.md_h + chips + 2.0 * PAD);

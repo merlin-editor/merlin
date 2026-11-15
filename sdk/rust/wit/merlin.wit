@@ -1,4 +1,4 @@
-package merlin:plugin@0.14.0;
+package merlin:plugin@0.15.0;
 
 interface types {
   /// What a run of text is, for its colour.
@@ -392,6 +392,102 @@ interface types {
     exit(option<s32>),
   }
 
+  /// An HTTPS request. The host must be one the manifest's
+  /// `permissions.network` lists.
+  record fetch-request {
+    /// GET, POST, PUT, PATCH or DELETE.
+    method: string,
+    url: string,
+    headers: list<tuple<string, string>>,
+    body: option<list<u8>>,
+  }
+
+  record fetch-response {
+    status: u16,
+    headers: list<tuple<string, string>>,
+    body: list<u8>,
+  }
+
+  /// What a step of an agent's work is, for its line in the chat.
+  enum tool-kind {
+    read,
+    edit,
+    run,
+    search,
+    other,
+  }
+
+  enum step-state {
+    pending,
+    running,
+    done,
+    failed,
+  }
+
+  /// A step of an agent's plan, which the chat ticks off.
+  record plan-step {
+    text: string,
+    state: step-state,
+  }
+
+  /// A step the agent took: reading a file, editing one, running a
+  /// command. Sent again with the same id as its state changes.
+  record agent-tool {
+    id: string,
+    kind: tool-kind,
+    /// The file or command, as the chat names it.
+    title: string,
+    state: step-state,
+    /// Lines added and removed, for an edit.
+    added: u32,
+    removed: u32,
+    /// The run from `agent-run`, for a command, to link its terminal tab.
+    run: option<u32>,
+  }
+
+  /// Part of an agent's answer, streamed in pieces.
+  variant agent-part {
+    /// Markdown, added to what came before.
+    text(string),
+    /// Its thinking, added to what came before; the chat folds it.
+    thought(string),
+    /// The whole plan, as it stands.
+    plan(list<plan-step>),
+    tool(agent-tool),
+  }
+
+  /// What an agent asks to do, for the permission card.
+  variant agent-request {
+    /// Edit a file, by its path: the change as a unified diff, if known.
+    edit(tuple<string, option<string>>),
+    /// Run a command line in the workspace.
+    run(string),
+    /// Read a file, by its path.
+    read(string),
+    /// Anything else, said in words.
+    other(string),
+  }
+
+  enum agent-answer {
+    allow-once,
+    always-allow,
+    deny,
+  }
+
+  enum agent-outcome {
+    finished,
+    cancelled,
+    failed,
+  }
+
+  /// What the user attached to a message.
+  variant agent-context {
+    /// A file, by its path in the workspace.
+    file(string),
+    /// Lines of a file: its path, then the first and last, from 1.
+    lines(tuple<string, u32, u32>),
+  }
+
   /// A place in a file: a line, and a column counted in UTF-16 code units,
   /// as LSP counts them. Both start at 0.
   record position {
@@ -738,7 +834,7 @@ interface types {
 /// What the editor offers a plugin. Calls that need a permission check the
 /// plugin's manifest and return an error naming the permission if denied.
 interface host {
-  use types.{status-item, framing, pick-item, position, selection, text-change, diagnostic, detailed-diagnostic, code-action, file-edit, rename-info, location, project-symbol, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint, signature, task, test-item, test-result, debug-target, debug-launch, function-stop, breakpoint, debug-state, debug-thread, stack-frame, debug-variable, breakpoint-state, stop-filter, inline-value, output-kind, log-level, button, picture};
+  use types.{status-item, framing, pick-item, position, selection, text-change, diagnostic, detailed-diagnostic, code-action, file-edit, rename-info, location, project-symbol, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint, signature, task, test-item, test-result, debug-target, debug-launch, function-stop, breakpoint, debug-state, debug-thread, stack-frame, debug-variable, breakpoint-state, stop-filter, inline-value, output-kind, log-level, button, picture, fetch-request, agent-part, agent-request, agent-outcome};
 
   /// Text of the active buffer. Needs `editor-read`.
   active-text: func() -> result<string, string>;
@@ -1014,11 +1110,40 @@ interface host {
   get-secret: func(key: string) -> option<string>;
   set-secret: func(key: string, value: string) -> result<_, string>;
   delete-secret: func(key: string);
+
+  /// Starts an HTTPS request to a host `permissions.network` lists, and
+  /// returns its id at once. The response arrives at `on-fetch`. Bodies
+  /// are at most 10 MB each way, and at most 8 requests are open at once.
+  fetch: func(request: fetch-request) -> result<u32, string>;
+
+  /// Adds to an agent's answer in a chat. Needs `permissions.agent`, as
+  /// every agent function does.
+  agent-say: func(chat: u32, part: agent-part) -> result<_, string>;
+  /// Shows the permission card for something the agent wants to do, and
+  /// returns the request's id. The answer arrives at `on-agent-answer`;
+  /// at once, if the user always allows it.
+  agent-ask: func(chat: u32, request: agent-request) -> result<u32, string>;
+  /// The agent finished its turn, with what it said if it failed.
+  agent-done: func(chat: u32, outcome: agent-outcome, message: option<string>);
+  /// Reads a file as merlin has it, with unsaved changes in its tab. A
+  /// file outside the workspace asks the user first. Returns the
+  /// request's id; the text arrives at `on-agent-file`.
+  agent-read: func(chat: u32, path: string) -> result<u32, string>;
+  /// Replaces a file's text as one edit in its tab, which Undo reverts,
+  /// and saves it. An edit the agent didn't ask about, or a file outside
+  /// the workspace, asks the user first. Done when `on-agent-file` says.
+  agent-write: func(chat: u32, path: string, text: string) -> result<u32, string>;
+  /// Runs a command line in a terminal tab named for the agent, in `cwd`
+  /// or the workspace. One the user hasn't allowed asks first. Returns
+  /// the run's id; `on-agent-run` has its output when it ends.
+  agent-run: func(chat: u32, command: string, cwd: option<string>) -> result<u32, string>;
+  /// Stops a run.
+  agent-stop: func(run: u32);
 }
 
 world plugin {
   import host;
-  use types.{command, panel, process-event, buffer-event, token, page-size, tile, text-box, rgba-picture};
+  use types.{command, panel, process-event, buffer-event, token, page-size, tile, text-box, rgba-picture, fetch-response, agent-context, agent-answer};
 
   /// Called after loading, and again after every hot reload with what
   /// `save-state` returned.
@@ -1063,4 +1188,23 @@ world plugin {
   export page-text: func(surface: u32, page: u32) -> list<text-box>;
   /// The document's tab closed.
   export close-document: func(surface: u32);
+
+  /// A request from `fetch` ended: its response, or why there's none.
+  export on-fetch: func(id: u32, response: result<fetch-response, string>);
+
+  /// The user sent a message to one of the plugin's `[[agents]]`, by its
+  /// id, in the chat numbered `chat`: a new chat the first time.
+  export on-agent-prompt: func(chat: u32, agent: string, text: string, context: list<agent-context>);
+  /// The user pressed Stop.
+  export on-agent-cancel: func(chat: u32);
+  /// The chat closed; stop its agent.
+  export on-agent-close: func(chat: u32);
+  /// The user answered a permission card from `agent-ask`.
+  export on-agent-answer: func(chat: u32, request: u32, answer: agent-answer);
+  /// A file from `agent-read` (its text) or `agent-write` (empty), or why
+  /// not.
+  export on-agent-file: func(chat: u32, request: u32, got: result<string, string>);
+  /// A run from `agent-run` ended: what it printed, and its exit code if
+  /// it had one. A run the user didn't allow ends with an error.
+  export on-agent-run: func(chat: u32, run: u32, ended: result<tuple<string, option<s32>>, string>);
 }

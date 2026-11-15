@@ -79,9 +79,26 @@ pub struct Manifest {
     /// that file. Using one of its commands or views starts it too.
     #[serde(default, rename = "activate-on")]
     pub activate_on: Vec<String>,
-    /// Plugins it needs, by name; without them it doesn't start.
+    /// Plugins it needs, each with a version requirement read as Cargo
+    /// reads one (`"0.2"` is `^0.2`). They install with it, and without
+    /// them it doesn't start.
     #[serde(default)]
-    pub depends: Vec<String>,
+    pub depends: crate::needs::Depends,
+    /// The systems it works on, as `linux`, `macos` and `windows`; empty
+    /// for all of them.
+    #[serde(default)]
+    pub systems: Vec<String>,
+    /// The processors it works on, as `x86_64` and `aarch64`; empty for
+    /// all of them.
+    #[serde(default)]
+    pub arch: Vec<String>,
+    /// The programs it starts, what each is for and how to install it:
+    /// see [`crate::needs::ManifestProgram`].
+    #[serde(default)]
+    pub programs: BTreeMap<String, crate::needs::ManifestProgram>,
+    /// Agents it adds to the chat: see [`crate::needs::ManifestAgent`].
+    #[serde(default)]
+    pub agents: Vec<crate::needs::ManifestAgent>,
     /// Its commands in right-click menus: see [`ManifestMenu`].
     #[serde(default)]
     pub menus: Vec<ManifestMenu>,
@@ -270,9 +287,17 @@ pub struct ManifestDebugger {
     /// itself.
     #[serde(default)]
     pub command: Vec<String>,
-    /// How to install it, as a command to copy.
+    /// How to install it: one command, or one for each system.
     #[serde(default)]
-    pub install: String,
+    pub install: Option<crate::needs::Install>,
+    /// Where to read how to install it.
+    #[serde(default)]
+    pub url: Option<String>,
+    /// The systems and processors it works on; empty for all.
+    #[serde(default)]
+    pub systems: Vec<String>,
+    #[serde(default)]
+    pub arch: Vec<String>,
     /// Launch settings sent with every start.
     #[serde(default)]
     pub launch: toml::Table,
@@ -305,7 +330,13 @@ impl ManifestDebugger {
             plugin: plugin.to_string(),
             languages: self.languages.clone(),
             command: self.command.clone(),
-            install: self.install.clone(),
+            install: self
+                .install
+                .as_ref()
+                .and_then(|i| i.here())
+                .unwrap_or_default()
+                .to_string(),
+            url: self.url.clone().unwrap_or_default(),
             launch: serde_json::to_string(&self.launch).unwrap_or_else(|_| "{}".into()),
             stops: self
                 .stop_on
@@ -394,11 +425,43 @@ pub(super) fn manifest_events(manifest: &Manifest) -> Vec<Event> {
             matchers,
         });
     }
+    if !manifest.agents.is_empty() {
+        let agents = manifest
+            .agents
+            .iter()
+            .map(|a| merlin_core::AgentSpec {
+                plugin: plugin.clone(),
+                id: a.id.clone(),
+                name: a.name.clone(),
+                icon: a.icon.clone().unwrap_or_else(|| "◆".into()),
+                missing: a
+                    .program
+                    .as_ref()
+                    .filter(|p| crate::needs::on_path(p).is_none())
+                    .map(|p| {
+                        let program = manifest.programs.get(p);
+                        merlin_core::MissingProgram {
+                            program: p.clone(),
+                            install: program
+                                .and_then(|m| m.install.as_ref())
+                                .and_then(|i| i.here())
+                                .map(str::to_string),
+                            url: program.and_then(|m| m.url.clone()),
+                        }
+                    }),
+            })
+            .collect();
+        events.push(Event::RegisterAgents {
+            plugin: plugin.clone(),
+            agents,
+        });
+    }
     if !manifest.debuggers.is_empty() {
         events.push(Event::RegisterDebuggers {
             debuggers: manifest
                 .debuggers
                 .iter()
+                .filter(|d| crate::needs::fits_here(&d.systems, &d.arch))
                 .map(|d| d.to_core(&plugin))
                 .collect(),
             plugin,
@@ -533,6 +596,14 @@ pub struct Permissions {
     /// Runs command lines in terminal tabs, as tasks do, when it likes.
     #[serde(default)]
     pub terminal: bool,
+    /// HTTPS hosts it may fetch from: names, or `*.` and a domain for
+    /// anything under it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub network: Vec<String>,
+    /// Adds agents to the chat, which read and write the workspace's
+    /// files and run commands as the user allows.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub agent: bool,
 }
 
 impl Permissions {
@@ -572,6 +643,12 @@ impl Permissions {
                 true,
             ));
         }
+        if !self.network.is_empty() {
+            what.push((format!("connect to {}", and_list(&self.network)), true));
+        }
+        if self.agent {
+            what.push(("add an agent to the chat".to_string(), false));
+        }
         what
     }
 
@@ -593,6 +670,18 @@ impl Permissions {
             && (self.workspace_read || !wanted.workspace_read)
             && (self.terminal || !wanted.terminal)
             && wanted.processes.iter().all(|p| self.processes.contains(p))
+            && wanted.network.iter().all(|h| self.network.contains(h))
+            && (self.agent || !wanted.agent)
+    }
+}
+
+/// `a`, `a and b`, `a, b and c`, each in backticks.
+fn and_list(items: &[String]) -> String {
+    let quoted: Vec<String> = items.iter().map(|i| format!("`{i}`")).collect();
+    match quoted.split_last() {
+        None => String::new(),
+        Some((last, [])) => last.clone(),
+        Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
     }
 }
 
@@ -972,6 +1061,7 @@ pub fn manifest(dir: &Path) -> Result<Manifest> {
             );
         }
     }
+    check_needs(&manifest).with_context(|| format!("in {}", path.display()))?;
     for trigger in &manifest.activate_on {
         let known = trigger.starts_with("language:")
             || trigger.starts_with("file:")
@@ -984,6 +1074,61 @@ pub fn manifest(dir: &Path) -> Result<Manifest> {
         }
     }
     Ok(manifest)
+}
+
+/// Systems, programs, dependencies, hosts and agents: names merlin knows,
+/// and programs the plugin can start.
+fn check_needs(manifest: &Manifest) -> Result<()> {
+    use crate::needs::{check_systems, requirement, valid_host};
+    check_systems("the plugin", &manifest.systems, &manifest.arch)?;
+    for debugger in &manifest.debuggers {
+        check_systems(
+            &format!("debugger {:?}", debugger.id),
+            &debugger.systems,
+            &debugger.arch,
+        )?;
+    }
+    for (name, program) in &manifest.programs {
+        check_systems(&format!("programs.{name}"), &program.systems, &program.arch)?;
+        let started = manifest.permissions.processes.contains(name)
+            || manifest
+                .debuggers
+                .iter()
+                .any(|d| d.command.first() == Some(name));
+        if !started {
+            bail!("programs.{name}: {name} isn't in permissions.processes or a debugger's command");
+        }
+    }
+    for (name, req) in &manifest.depends {
+        if !valid_name(name) || *name == manifest.name {
+            bail!("depends: {name:?} isn't another plugin's name");
+        }
+        requirement(req).with_context(|| format!("depends.{name}"))?;
+    }
+    for host in &manifest.permissions.network {
+        if !valid_host(host) {
+            bail!(
+                "permissions.network: {host:?} must be a host name such as api.github.com, or *. and a domain"
+            );
+        }
+    }
+    if !manifest.agents.is_empty() && !manifest.permissions.agent {
+        bail!("agents need permissions.agent = true");
+    }
+    if !manifest.agents.is_empty() && manifest.component.is_none() {
+        bail!("agents need a component to talk to them");
+    }
+    for agent in &manifest.agents {
+        if let Some(program) = &agent.program
+            && !manifest.programs.contains_key(program)
+        {
+            bail!(
+                "agent {:?}: its program {program:?} has no [programs.{program}]",
+                agent.id
+            );
+        }
+    }
+    Ok(())
 }
 
 /// Views need a component to draw them, an id of their own, and a place

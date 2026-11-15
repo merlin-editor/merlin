@@ -1357,6 +1357,7 @@ fn main() -> Result<()> {
         }
     }
     loaded.extend(app.host.check_depends());
+    loaded.push(Event::AgentAllowed(app.agent_allowed()));
     loaded.into_iter().for_each(|e| app.dispatch(e));
     // Documents that opened before their plugin had loaded.
     app.plugins_loaded = true;

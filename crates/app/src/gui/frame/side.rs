@@ -97,8 +97,10 @@ impl Frame<'_> {
         }
         self.hit(body, Hit::Side(side));
 
-        // Lay the nodes out first, to keep the selection in view.
+        // Lay the nodes out first, to keep the selection in view. Those
+        // after a footer stay at the bottom, and the rest scroll above.
         let inner = area.w - 28.0;
+        let footer = sv.nodes.iter().position(|n| matches!(n, Node::Footer));
         let mut rows = Vec::with_capacity(sv.nodes.len());
         let mut y = 0.0;
         for node in &sv.nodes {
@@ -106,8 +108,30 @@ impl Frame<'_> {
             rows.push((y, h));
             y += h;
         }
-        let total = y;
+        let (total, body) = match footer {
+            Some(f) => {
+                let top = rows[f].0;
+                let foot_h = y - top;
+                let foot_y = body.bottom() - foot_h;
+                for row in rows.iter_mut().skip(f) {
+                    row.0 = row.0 - top + (foot_y - body.y);
+                }
+                (
+                    top,
+                    Rect::new(body.x, body.y, body.w, (body.h - foot_h).max(0.0)),
+                )
+            }
+            None => (y, body),
+        };
+        let footer_from = footer.unwrap_or(sv.nodes.len());
         let k = side_index(side);
+        // A chat follows its newest message while it's scrolled to its end.
+        if sv.name.starts_with("merlin.agent:") {
+            let max = (total - body.h).max(0.0);
+            if !state.unstuck[k] {
+                state.scroll[k] = max;
+            }
+        }
         if sv.focused && state.selected[k] != Some(sv.selected) {
             if let Some(i) = sv.targets.iter().position(|t| *t == Some(sv.selected)) {
                 let (ry, rh) = rows[i];
@@ -122,17 +146,52 @@ impl Frame<'_> {
         }
         let scroll = state.scroll[k].clamp(0.0, (total - body.h).max(0.0));
         state.scroll[k] = scroll;
+        if sv.name.starts_with("merlin.agent:") {
+            state.unstuck[k] = scroll < (total - body.h).max(0.0) - 1.0;
+        }
 
         for (i, node) in sv.nodes.iter().enumerate() {
             let (ry, rh) = rows[i];
-            let top = body.y + ry - scroll;
-            if top + rh < body.y || top > body.bottom() {
+            let in_footer = i >= footer_from;
+            let (top, clip) = if in_footer {
+                (
+                    body.y + ry,
+                    Rect::new(area.x, body.bottom(), area.w, area.bottom() - body.bottom()),
+                )
+            } else {
+                (body.y + ry - scroll, body)
+            };
+            if !in_footer && (top + rh < body.y || top > body.bottom()) {
                 continue;
             }
             let r = Rect::new(area.x, top, area.w, rh);
+            // A chat's text box and the chips under it share one box.
+            let compose = in_footer
+                && matches!(
+                    node,
+                    Node::Input {
+                        multiline: true,
+                        ..
+                    }
+                )
+                && matches!(sv.nodes.get(i + 1), Some(Node::Chips { .. }));
+            if compose {
+                let chips_h = rows[i + 1].1;
+                let b = Rect::new(r.x + 10.0, r.y + 4.0, r.w - 20.0, rh + chips_h - 8.0);
+                let target = sv.targets[i];
+                let focused = sv.focused && target.is_some() && target == Some(sv.selected);
+                let border = if focused {
+                    mix(self.p.accent, self.p.island, 0.45)
+                } else {
+                    self.p.border
+                };
+                self.canvas.outline(b, 8.0, 1.0, border, self.p.raised);
+            }
+            state.compose = compose;
             let target = sv.targets[i];
             let selected = target.is_some() && target == Some(sv.selected);
-            self.node(node, sv, side, r, target, selected, body, state);
+            self.node(node, sv, side, r, target, selected, clip, state);
+            state.compose = false;
         }
     }
 
@@ -458,6 +517,11 @@ impl Frame<'_> {
             Node::Message(m) => self.message_layout(m, inner).height,
             Node::Chips { .. } => 32.0,
             Node::Edit(_) => 50.0,
+            Node::Steps(steps) => Self::steps_height(steps),
+            Node::Step(_) => 24.0,
+            Node::Ask(a) => self.ask_height(a, inner + 28.0),
+            Node::Changes(c) => Self::changes_height(c),
+            Node::Command { .. } => 38.0,
             Node::Image(i) => image_size(i, inner).1 + 10.0,
             Node::Drawing(d) => inner * d.height / d.width.max(1.0) + 10.0,
             Node::Progress { detail, .. } => {
@@ -467,10 +531,11 @@ impl Frame<'_> {
                     52.0
                 }
             }
-            Node::Empty { text, .. } => {
+            Node::Empty { text, buttons, .. } => {
                 let w = (inner - 24.0).max(60.0);
                 let lines = self.wrap_words(text, Face::ui(12.5), w).len() as f32;
-                40.0 + 24.0 + lines * 18.0 + 16.0 + 30.0 + 32.0
+                let buttons = if buttons.is_empty() { 0.0 } else { 30.0 + 32.0 };
+                40.0 + 24.0 + lines * 18.0 + 16.0 + buttons
             }
             // One line each, never wrapped: a long log costs no shaping.
             Node::Log(_) => LOG_ROW_H,
@@ -515,6 +580,7 @@ impl Frame<'_> {
             Node::Divider => 13.0,
             Node::Footer => 0.0,
             Node::Header { .. } => 38.0,
+            Node::Banner { detail, .. } if detail.is_empty() => 46.0,
             Node::Banner { .. } => 96.0,
             Node::Wide { .. } => 38.0,
         }
@@ -601,6 +667,16 @@ impl Frame<'_> {
                     let index = (!c.id.is_empty()).then(|| target.map(|t| t + k)).flatten();
                     k += usize::from(!c.id.is_empty());
                     let focused = sv.focused && index.is_some() && index == Some(sv.selected);
+                    // An agent's Stop: a button at the right end.
+                    if c.id.ends_with(":stop") {
+                        let w = self.text.width(&c.label, Face::ui(12.0)) + 18.0;
+                        let sx = r.right() - 14.0 - w;
+                        self.small_button(&c.label, sx, r.y + 4.0, agent::Look::Plain, focused);
+                        if let Some(index) = index {
+                            self.hit(Rect::new(sx, r.y + 4.0, w, 24.0), pick(side, index));
+                        }
+                        continue;
+                    }
                     let w = self.panel_chip(c, x, r.y + 5.0, focused, clip);
                     if let Some(index) = index {
                         self.hit(Rect::new(x, r.y + 5.0, w, 22.0), pick(side, index));
@@ -626,6 +702,11 @@ impl Frame<'_> {
                 }
             }
             Node::Edit(e) => self.edit_card(e, sv, side, r, target, clip),
+            Node::Steps(steps) => self.steps(steps, r, clip),
+            Node::Step(s) => self.step_line(s, sv, side, r, target, clip),
+            Node::Ask(a) => self.ask_card(a, sv, side, r, target, clip),
+            Node::Changes(c) => self.changes_card(c, sv, side, r, target, clip),
+            Node::Command { text, copy } => self.command_box(text, copy, sv, side, r, target, clip),
             Node::Image(i) => {
                 self.plugin_image(i, Rect::new(r.x + 14.0, r.y + 4.0, inner, r.h), clip)
             }
@@ -743,6 +824,24 @@ impl Frame<'_> {
                         self.hit(Rect::new(x, y, *bw, 30.0), pick(side, index));
                     }
                     x += bw + 8.0;
+                }
+            }
+            // A link under an agent's "not installed": in the accent, in
+            // the middle.
+            Node::Item { id, label, .. } if id.starts_with("agent:url:") => {
+                let f = Face::ui(12.0);
+                let w = self.text.width(label, f);
+                let x = r.x + (r.w - w) / 2.0;
+                let hit = Rect::new(x, r.y, w, r.h);
+                let colour = if self.hovered(hit) || (selected && sv.focused) {
+                    mix(p.accent, 0xffffff, 0.8)
+                } else {
+                    p.accent
+                };
+                self.text
+                    .draw_in_row(&mut self.canvas, label, f, x, r.y, r.h, colour, clip);
+                if let Some(t) = target {
+                    self.hit(hit, pick(side, t));
                 }
             }
             Node::Item { label, tone, .. } => {
@@ -873,7 +972,10 @@ impl Frame<'_> {
                 let b = Rect::new(r.x + 10.0, r.y + 5.0, r.w - 20.0, box_h);
                 let focused = selected && sv.focused;
                 let border = if focused { p.accent } else { p.border };
-                self.canvas.outline(b, 7.0, 1.0, border, p.raised);
+                // In a chat's box, the box is drawn around it and its chips.
+                if !state.compose {
+                    self.canvas.outline(b, 7.0, 1.0, border, p.raised);
+                }
 
                 let cursor_byte = sv
                     .input_cursors
@@ -994,8 +1096,80 @@ impl Frame<'_> {
                 buttons,
             } => {
                 // A box tinted by its tone: the title, what's left, then
-                // its buttons.
+                // its buttons. With nothing left to say, one line, the
+                // buttons at its right end.
                 let colour = tone_colour(&p, *tone);
+                if detail.is_empty() {
+                    let b = Rect::new(r.x + 12.0, r.y + 4.0, r.w - 24.0, r.h - 8.0);
+                    let (edge, fill) = if *tone == Tone::Normal {
+                        (p.border, p.island)
+                    } else {
+                        (mix(colour, p.island, 0.3), mix(colour, p.island, 0.08))
+                    };
+                    self.canvas.outline(b, 8.0, 1.0, edge, fill);
+                    let inside = b.inset(1.0).intersect(clip);
+                    let mut bx = b.right() - 8.0;
+                    for (k, button) in buttons.iter().enumerate().rev() {
+                        let w = self.text.width(&button.label, Face::ui(12.0)) + 18.0;
+                        bx -= w;
+                        let index = target.map(|t| t + k);
+                        let focused = sv.focused && index == Some(sv.selected);
+                        self.small_button(
+                            &button.label,
+                            bx,
+                            b.y + (b.h - 24.0) / 2.0,
+                            agent::Look::Plain,
+                            focused,
+                        );
+                        if let Some(index) = index {
+                            self.hit(Rect::new(bx, b.y, w, b.h), pick(side, index));
+                        }
+                        bx -= 6.0;
+                    }
+                    let text: String = title.iter().map(|(t, _)| t.as_str()).collect();
+                    let glyph = match tone {
+                        Tone::Error => "⊘",
+                        _ => "■",
+                    };
+                    let gc = if *tone == Tone::Normal {
+                        p.muted
+                    } else {
+                        colour
+                    };
+                    self.text.draw_in_row(
+                        &mut self.canvas,
+                        glyph,
+                        Face::ui(11.0),
+                        b.x + 10.0,
+                        b.y,
+                        b.h,
+                        gc,
+                        inside,
+                    );
+                    let tw = (bx - b.x - 34.0).max(40.0);
+                    let lines = self.wrap_words(&text, Face::ui(12.0), tw);
+                    let fg = if *tone == Tone::Normal {
+                        p.text
+                    } else {
+                        mix(colour, p.bright, 0.5)
+                    };
+                    let lh = 16.0;
+                    let mut ty = b.y + (b.h - lh * lines.len() as f32) / 2.0;
+                    for line in lines {
+                        self.text.draw_in_row(
+                            &mut self.canvas,
+                            &line,
+                            Face::ui(12.0),
+                            b.x + 28.0,
+                            ty,
+                            lh,
+                            fg,
+                            inside,
+                        );
+                        ty += lh;
+                    }
+                    return;
+                }
                 let b = Rect::new(r.x + 10.0, r.y + 2.0, r.w - 20.0, r.h - 10.0);
                 self.canvas.outline(
                     b,

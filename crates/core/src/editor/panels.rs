@@ -274,6 +274,9 @@ impl Editor {
     }
 
     pub(crate) fn panel_key(&mut self, side: Side, key: Key, fx: &mut Vec<Effect>) {
+        if side == Side::Right && self.agent_key(key, fx) {
+            return;
+        }
         if side == Side::Left && (self.explorer_key(key, fx) || self.scm_key(key, fx)) {
             return;
         }

@@ -161,6 +161,14 @@ impl Editor {
             Style::Status,
             Some(Action::Run("view.problems")),
         ));
+        // An agent waiting for an answer, a click away from its card.
+        if let Some(name) = self.agent_waiting() {
+            left.push((
+                format!(" ⟳ {name} is waiting "),
+                Style::StatusAccent,
+                Some(Action::Run("agent.open")),
+            ));
+        }
         if self.reviewing_rename() {
             left.push((
                 format!(" {} ", self.review_hint()),

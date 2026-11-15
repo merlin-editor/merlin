@@ -7,13 +7,14 @@
 //! app chooses how, and tests serve bytes from memory.
 
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 
+use crate::needs::{Depends, ManifestProgram, fits_here, meets};
 use crate::package::{self, MAX_PACKED, sha256_hex};
 use crate::{API_VERSION, Manifest, Permissions, valid_name};
 
@@ -162,6 +163,9 @@ pub struct Entry {
     /// A whole plugin a registry's maintainers blocked, and why.
     #[serde(default)]
     pub blocked: Option<String>,
+    /// The plugin that takes this one's place, by name.
+    #[serde(default, rename = "replaced-by")]
+    pub replaced_by: Option<String>,
     #[serde(default)]
     pub versions: Vec<Version>,
 }
@@ -179,12 +183,54 @@ pub struct Version {
     pub size: u64,
     #[serde(default)]
     pub permissions: Permissions,
+    /// Permissions from plugin API 0.15 on. They're kept apart because
+    /// merlin 0.1 refuses keys it doesn't know in `permissions`, and would
+    /// refuse the whole index; [`check`] moves them into `permissions`.
+    #[serde(default, rename = "more-permissions")]
+    pub more_permissions: MorePermissions,
+    /// The names of the plugins it needs, as merlin 0.1 reads them.
     #[serde(default)]
     pub depends: Vec<String>,
+    /// The plugins it needs, each with its version requirement.
+    #[serde(default)]
+    pub requires: Depends,
+    /// The systems and processors it works on; empty for all.
+    #[serde(default)]
+    pub systems: Vec<String>,
+    #[serde(default)]
+    pub arch: Vec<String>,
+    /// The programs it starts, from its manifest.
+    #[serde(default)]
+    pub programs: BTreeMap<String, ManifestProgram>,
     #[serde(default)]
     pub yanked: Option<String>,
     #[serde(default)]
     pub blocked: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct MorePermissions {
+    #[serde(default)]
+    pub network: Vec<String>,
+    #[serde(default)]
+    pub agent: bool,
+}
+
+impl Version {
+    /// Whether it works on this computer's system and processor.
+    pub fn fits_here(&self) -> bool {
+        fits_here(&self.systems, &self.arch)
+    }
+
+    /// Whether it can be installed here: not a pre-release, withdrawn or
+    /// blocked, built for this merlin's API, and for this computer.
+    pub fn usable(&self) -> bool {
+        self.yanked.is_none()
+            && self.blocked.is_none()
+            && self.api == API_VERSION
+            && !self.version.contains('-')
+            && self.fits_here()
+    }
 }
 
 impl Entry {
@@ -194,6 +240,23 @@ impl Entry {
         if self.blocked.is_some() {
             return None;
         }
+        self.newest_meeting(&[])
+    }
+
+    /// The newest usable version that meets every requirement in `reqs`.
+    pub fn newest_meeting(&self, reqs: &[&str]) -> Option<&Version> {
+        if self.blocked.is_some() {
+            return None;
+        }
+        self.versions
+            .iter()
+            .filter(|v| v.usable() && reqs.iter().all(|r| meets(r, &v.version)))
+            .max_by(|a, b| compare_versions(&a.version, &b.version))
+    }
+
+    /// The newest version for this merlin's API that isn't withdrawn or
+    /// blocked, whatever the computer: to say why it doesn't fit here.
+    pub fn newest_for_api(&self) -> Option<&Version> {
         self.versions
             .iter()
             .filter(|v| {
@@ -345,7 +408,137 @@ pub fn check(
             parsed.serial
         );
     }
+    let mut parsed = parsed;
+    for entry in parsed.plugins.values_mut() {
+        for v in &mut entry.versions {
+            let more = std::mem::take(&mut v.more_permissions);
+            v.permissions.network.extend(more.network);
+            v.permissions.agent |= more.agent;
+            // An index from before `requires` names what's needed only.
+            for name in &v.depends {
+                v.requires.entry(name.clone()).or_insert_with(|| "*".into());
+            }
+        }
+    }
     Ok(parsed)
+}
+
+/// A plugin to install, and which plugin needs it.
+#[derive(Clone, Debug)]
+pub struct Planned {
+    pub name: String,
+    pub version: Version,
+    /// The plugin that needs it; none for the one asked for.
+    pub needed_by: Option<String>,
+}
+
+/// Why nothing can be installed: what each plugin wants of `name`, as
+/// (plugin, requirement). An empty list means no registry has `name`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Conflict {
+    pub name: String,
+    pub wants: Vec<(String, String)>,
+}
+
+/// What installing `target` takes, dependencies first: each plugin with
+/// the version to install. `lookup` finds a plugin's entry; `installed`
+/// has what's installed now, by name, with its version and what it
+/// requires. A plugin already installed that meets every requirement on
+/// it stays; one that doesn't is updated, if some version meets them all.
+pub fn resolve<'a>(
+    target: &str,
+    lookup: &dyn Fn(&str) -> Option<&'a Entry>,
+    installed: &BTreeMap<String, (String, Depends)>,
+) -> std::result::Result<Vec<Planned>, Conflict> {
+    let mut plan: Vec<Planned> = Vec::new();
+    let mut queue: VecDeque<(String, Option<String>)> =
+        VecDeque::from([(target.to_string(), None)]);
+    while let Some((name, needed_by)) = queue.pop_front() {
+        if plan.iter().any(|p| p.name == name) {
+            continue;
+        }
+        let wants = wants_of(&name, &plan, installed);
+        let reqs: Vec<&str> = wants.iter().map(|(_, r)| r.as_str()).collect();
+        if name != target
+            && let Some((version, _)) = installed.get(&name)
+            && reqs.iter().all(|r| meets(r, version))
+        {
+            continue;
+        }
+        let conflict = || Conflict {
+            name: name.clone(),
+            wants: wants.clone(),
+        };
+        let entry = lookup(&name).ok_or_else(conflict)?;
+        let version = entry.newest_meeting(&reqs).ok_or_else(conflict)?.clone();
+        for dep in version.requires.keys() {
+            queue.push_back((dep.clone(), Some(name.clone())));
+        }
+        plan.push(Planned {
+            name: name.clone(),
+            version,
+            needed_by,
+        });
+    }
+    // A plugin planned early may not meet what one planned later wants.
+    for p in &plan {
+        let wants = wants_of(&p.name, &plan, installed);
+        if !wants.iter().all(|(_, r)| meets(r, &p.version.version)) {
+            return Err(Conflict {
+                name: p.name.clone(),
+                wants,
+            });
+        }
+    }
+    plan.reverse();
+    Ok(plan)
+}
+
+/// What every plugin, installed or about to be, requires of `name`. One
+/// about to be installed counts as its new version, not its old.
+fn wants_of(
+    name: &str,
+    plan: &[Planned],
+    installed: &BTreeMap<String, (String, Depends)>,
+) -> Vec<(String, String)> {
+    let planned = plan.iter().map(|p| (p.name.as_str(), &p.version.requires));
+    let kept = installed
+        .iter()
+        .filter(|(n, _)| !plan.iter().any(|p| p.name == **n))
+        .map(|(n, (_, requires))| (n.as_str(), requires));
+    planned
+        .chain(kept)
+        .filter_map(|(who, requires)| Some((who.to_string(), requires.get(name)?.clone())))
+        .collect()
+}
+
+/// The installed plugin whose requirement updating `name` to `version`
+/// would break, with that requirement.
+pub fn update_breaks(
+    name: &str,
+    version: &str,
+    installed: &BTreeMap<String, (String, Depends)>,
+) -> Option<(String, String)> {
+    installed
+        .iter()
+        .filter(|(n, _)| n.as_str() != name)
+        .find_map(|(n, (_, requires))| {
+            let req = requires.get(name)?;
+            (!meets(req, version)).then(|| (n.clone(), req.clone()))
+        })
+}
+
+/// A requirement as people read it: `>=0.3` as "0.3 or later", `^0.2` and
+/// `0.2` as "0.2".
+pub fn requirement_words(req: &str) -> String {
+    let req = req.trim();
+    if let Some(v) = req.strip_prefix(">=") {
+        format!("{} or later", v.trim())
+    } else if req == "*" {
+        "any version".into()
+    } else {
+        req.trim_start_matches(['^', '=', '~']).trim().to_string()
+    }
 }
 
 /// Where a source's last good index is kept.
@@ -890,5 +1083,103 @@ mod tests {
         );
         let entry: Entry = serde_json::from_str(&json).unwrap();
         assert_eq!(entry.newest().unwrap().version, "0.2.0");
+    }
+
+    /// An entry with these versions, each `version`, its `systems` and
+    /// what it requires as `name=req` pairs.
+    /// A version: its number, systems and requirements.
+    type V<'a> = (&'a str, &'a [&'a str], &'a [(&'a str, &'a str)]);
+
+    fn entry(versions: &[V]) -> Entry {
+        let vs: Vec<String> = versions
+            .iter()
+            .map(|(v, systems, reqs)| {
+                let reqs: Vec<String> = reqs.iter().map(|(n, r)| format!("\"{n}\":\"{r}\"")).collect();
+                let systems: Vec<String> = systems.iter().map(|s| format!("\"{s}\"")).collect();
+                format!(
+                    r#"{{"version":"{v}","api":"{API_VERSION}","url":"https://x","sha256":"","size":1,"systems":[{}],"requires":{{{}}}}}"#,
+                    systems.join(","),
+                    reqs.join(",")
+                )
+            })
+            .collect();
+        serde_json::from_str(&format!(r#"{{"title":"T","versions":[{}]}}"#, vs.join(","))).unwrap()
+    }
+
+    #[test]
+    fn versions_for_another_system_are_passed_over() {
+        let here = std::env::consts::OS;
+        let other = if here == "windows" {
+            "linux"
+        } else {
+            "windows"
+        };
+        let e = entry(&[("0.3.0", &[other], &[]), ("0.2.4", &[], &[])]);
+        assert_eq!(e.newest().unwrap().version, "0.2.4");
+        assert_eq!(e.newest_for_api().unwrap().version, "0.3.0");
+    }
+
+    #[test]
+    fn dependencies_install_first_and_installed_ones_stay() {
+        let go = entry(&[("0.2.0", &[], &[("lsp", "0.3")])]);
+        let lsp = entry(&[("0.2.5", &[], &[]), ("0.3.1", &[], &[])]);
+        let lookup = |n: &str| match n {
+            "go" => Some(&go),
+            "lsp" => Some(&lsp),
+            _ => None,
+        };
+        let none = BTreeMap::new();
+        let plan = resolve("go", &lookup, &none).unwrap();
+        let names: Vec<_> = plan
+            .iter()
+            .map(|p| (p.name.as_str(), p.version.version.as_str()))
+            .collect();
+        assert_eq!(names, [("lsp", "0.3.1"), ("go", "0.2.0")]);
+        assert_eq!(plan[0].needed_by.as_deref(), Some("go"));
+
+        let mut have = BTreeMap::new();
+        have.insert("lsp".to_string(), ("0.3.0".to_string(), Depends::new()));
+        let plan = resolve("go", &lookup, &have).unwrap();
+        assert_eq!(plan.len(), 1, "lsp 0.3.0 meets ^0.3 and stays");
+    }
+
+    #[test]
+    fn versions_that_dont_agree_install_nothing() {
+        let go = entry(&[("0.2.0", &[], &[("lsp", ">=0.3")])]);
+        let lsp = entry(&[("0.2.5", &[], &[]), ("0.3.1", &[], &[])]);
+        let lookup = |n: &str| match n {
+            "go" => Some(&go),
+            "lsp" => Some(&lsp),
+            _ => None,
+        };
+        let mut have = BTreeMap::new();
+        have.insert("lsp".to_string(), ("0.2.5".to_string(), Depends::new()));
+        let mut rust = Depends::new();
+        rust.insert("lsp".to_string(), "0.2".to_string());
+        have.insert("rust".to_string(), ("0.1.0".to_string(), rust));
+        let conflict = resolve("go", &lookup, &have).unwrap_err();
+        assert_eq!(conflict.name, "lsp");
+        assert_eq!(
+            conflict.wants,
+            [
+                ("go".to_string(), ">=0.3".to_string()),
+                ("rust".to_string(), "0.2".to_string())
+            ]
+        );
+        assert_eq!(requirement_words(">=0.3"), "0.3 or later");
+        assert_eq!(requirement_words("0.2"), "0.2");
+        assert_eq!(
+            update_breaks("lsp", "0.3.1", &have),
+            Some(("rust".into(), "0.2".into()))
+        );
+        assert_eq!(update_breaks("lsp", "0.2.9", &have), None);
+    }
+
+    #[test]
+    fn a_missing_dependency_is_a_conflict_with_no_registry() {
+        let go = entry(&[("0.2.0", &[], &[("nowhere", "1")])]);
+        let lookup = |n: &str| (n == "go").then_some(&go);
+        let conflict = resolve("go", &lookup, &BTreeMap::new()).unwrap_err();
+        assert_eq!(conflict.name, "nowhere");
     }
 }

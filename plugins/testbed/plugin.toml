@@ -1,12 +1,31 @@
 name = "testbed"
 title = "Testbed"
-version = "0.1.0"
-api = "0.14"
+version = "0.2.0"
+api = "0.15"
 component = "target/wasm32-wasip2/release/testbed.wasm"
 
 [permissions]
 editor-read = true
-processes = ["cat"]
+processes = ["cat", "absent-agent-cli"]
+agent = true
+
+# A scripted agent for the window's tests, and one whose program isn't
+# installed.
+[[agents]]
+id = "echo"
+name = "Echo"
+icon = "◆"
+
+[[agents]]
+id = "absent"
+name = "Absent"
+icon = "◇"
+program = "absent-agent-cli"
+
+[programs.absent-agent-cli]
+for = "Chatting with Absent"
+install = "npm install -g absent-agent-cli"
+url = "https://example.com/absent"
 
 [settings]
 greeting = "hello"

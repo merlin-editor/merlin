@@ -5,8 +5,8 @@ title = "merlin Layouts"
 description = "UI density, chrome & font presets"
 badge = "UI"
 hue = "purple"
-version = "0.1.0"
-api = "0.14"
+version = "0.2.0"
+api = "0.15"
 
 [[packs]]
 label = "Compact"

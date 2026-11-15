@@ -18,6 +18,7 @@ use merlin_core::{
     editor::GroupView,
 };
 
+mod agent;
 mod cards;
 mod chat;
 mod chrome;
@@ -165,6 +166,11 @@ pub struct State {
     selected: [Option<usize>; 4],
     /// How far each multi-line input has scrolled.
     pub input_scroll: HashMap<String, f32>,
+    /// A chat scrolled up from its end, which then stays put as messages
+    /// come; at its end, it follows them.
+    unstuck: [bool; 4],
+    /// The text box being drawn is a chat's, inside the box with its chips.
+    compose: bool,
 }
 
 pub(super) fn side_index(side: Side) -> usize {
