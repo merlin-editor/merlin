@@ -303,8 +303,12 @@ both plugins and the editor. Its public half is `keys/release.pub` (id
 D91112BFB30E5609, no password, made with `minisign -G -W`); the secret is
 `MINISIGN_SECRET_KEY` in the merlin repo's `release` environment, which now
 admits `v*` tags beside `sdk-v*`, and a copy is in
-`~/.config/merlin-release/` on the maintainer's laptop. There is no
-rotation key yet.
+`~/.config/merlin-release/` on the maintainer's laptop. A rotation key,
+`keys/release-next.pub` (id E34003FE17667298), is kept only on the laptop,
+never in CI: merlin and `install.sh` accept a release signed by either, so
+if the CI key leaks or must go, releases can be signed with the next one
+and the old one dropped in a later release. Its secret has no password;
+`minisign -C -s ~/.config/merlin-release/merlin-release-next.key` adds one.
 
 - `ci.yml`'s `sign` job runs after the five builds, in the `release`
   environment, so a release waits for a reviewer's approval before it's
@@ -324,7 +328,8 @@ rotation key yet.
 the window opens and every 6 hours: ask GitHub's `releases/latest` (or
 `MERLIN_UPDATE_URL`, to try a release before it's out), compare its tag's
 numbers with this merlin's, and show the pill with the release's notes.
-`editor.check_for_updates` in user settings (on by default) turns it off;
+`editor.check_for_updates` in user settings (on by default; Settings ›
+Text Editor › Updates, a row only your settings can change) turns it off;
 scripts never check. A failed check says so on stderr only.
 
 **B3. Restart & Update (done, 2026-11-15).** Downloads this platform's

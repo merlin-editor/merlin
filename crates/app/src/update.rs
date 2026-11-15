@@ -37,33 +37,43 @@ const MAX_SMALL: u64 = 1024 * 1024;
 const STAGING: &str = ".merlin-update";
 const OLD: &str = ".merlin-old";
 
-/// The release key's public half, as `minisign -G` wrote it. The repository
-/// keeps it at `keys/release.pub`; the release workflow checks with it too.
-const RELEASE_PUB: &str = include_str!("../../../keys/release.pub");
+/// The release keys' public halves, as `minisign -G` wrote them: the one
+/// the release workflow signs with (`keys/release.pub`, which it checks
+/// with too), and the one kept offline to rotate to if that one must go
+/// (`keys/release-next.pub`). A release signed by either installs.
+const RELEASE_PUBS: [&str; 2] = [
+    include_str!("../../../keys/release.pub"),
+    include_str!("../../../keys/release-next.pub"),
+];
 
-/// The base64 public key from [`RELEASE_PUB`]: its line after the comment.
-pub fn release_key() -> &'static str {
-    RELEASE_PUB
-        .lines()
-        .map(str::trim)
-        .find(|l| !l.is_empty() && !l.starts_with("untrusted comment:"))
-        .unwrap_or_default()
+/// The base64 public keys from [`RELEASE_PUBS`]: each file's line after
+/// its comment.
+pub fn release_keys() -> [&'static str; 2] {
+    RELEASE_PUBS.map(|file| {
+        file.lines()
+            .map(str::trim)
+            .find(|l| !l.is_empty() && !l.starts_with("untrusted comment:"))
+            .unwrap_or_default()
+    })
 }
 
-/// Checks `sums` against `signature` with `key` and that it was signed for
-/// `tag`, and reads it: each archive's file name to its SHA-256, in hex.
+/// Checks `sums` against `signature` with any of `keys` and that it was
+/// signed for `tag`, and reads it: each archive's file name to its
+/// SHA-256, in hex.
 pub fn check_sums(
-    key: &str,
+    keys: &[&str],
     sums: &[u8],
     signature: &[u8],
     tag: &str,
 ) -> Result<BTreeMap<String, String>> {
-    let key = minisign_verify::PublicKey::from_base64(key)
-        .map_err(|e| anyhow::anyhow!("the release key can't be read: {e}"))?;
     let sig_text = std::str::from_utf8(signature).context("the signature isn't text")?;
     let sig = minisign_verify::Signature::decode(sig_text)
         .map_err(|e| anyhow::anyhow!("the signature can't be read: {e}"))?;
-    if key.verify(sums, &sig, false).is_err() {
+    let signed = keys.iter().any(|k| {
+        minisign_verify::PublicKey::from_base64(k)
+            .is_ok_and(|key| key.verify(sums, &sig, false).is_ok())
+    });
+    if !signed {
         bail!("{tag}'s SHA256SUMS isn't signed by merlin's release key");
     }
     let want = format!("merlin {tag}");
@@ -372,7 +382,7 @@ fn install(
     release: &Release,
     exe: &Path,
     bundle: &Path,
-    key: &str,
+    keys: &[&str],
     get: Get,
     progress: &Progress,
 ) -> Result<()> {
@@ -393,7 +403,7 @@ fn install(
     progress.cancelled()?;
 
     progress.set_step(UpdateStep::Check);
-    check_sums(key, &sums, &sig, &release.tag)
+    check_sums(keys, &sums, &sig, &release.tag)
         .and_then(|list| check_archive(&list, name, &archive))
         .map_err(|e| anyhow::anyhow!(Mismatch(format!("{e:#}"))))?;
     let dir = exe.parent().context("merlin's folder can't be found")?;
@@ -617,7 +627,7 @@ impl App {
         self.updater.working = Some(progress.clone());
         self.updater.poll = Some(Instant::now() + POLL);
         self.jobs.run(Lane::Net, move || {
-            let result = install(&release, &exe, &bundle, release_key(), &get, &progress);
+            let result = install(&release, &exe, &bundle, &release_keys(), &get, &progress);
             Box::new(move |app: &mut App| app.update_done(&release.tag, result)) as Finish
         });
         Vec::new()
@@ -714,10 +724,21 @@ mod tests {
     }
 
     #[test]
-    fn the_embedded_key_is_the_repositorys() {
-        let key = release_key();
-        assert!(key.starts_with("RW"), "{key}");
-        minisign_verify::PublicKey::from_base64(key).unwrap();
+    fn the_embedded_keys_are_the_repositorys() {
+        let keys = release_keys();
+        assert_ne!(keys[0], keys[1]);
+        for key in keys {
+            assert!(key.starts_with("RW"), "{key}");
+            minisign_verify::PublicKey::from_base64(key).unwrap();
+        }
+    }
+
+    #[test]
+    fn a_list_signed_by_the_rotation_key_is_accepted_too() {
+        let (now, next) = (Signer::new(), Signer::new());
+        let sums = sums_for(b"x");
+        let sig = next.sign(&sums, "merlin v0.2.0");
+        check_sums(&[&now.key(), &next.key()], &sums, &sig, "v0.2.0").unwrap();
     }
 
     #[test]
@@ -726,7 +747,7 @@ mod tests {
         let archive = b"an archive".as_slice();
         let sums = sums_for(archive);
         let sig = s.sign(&sums, "merlin v0.2.0");
-        let read = check_sums(&s.key(), &sums, &sig, "v0.2.0").unwrap();
+        let read = check_sums(&[&s.key()], &sums, &sig, "v0.2.0").unwrap();
         assert_eq!(read.len(), 2);
         assert!(read.contains_key("merlin-windows-x86_64.zip"));
         check_archive(&read, "merlin-linux-x86_64.tar.gz", archive).unwrap();
@@ -743,16 +764,16 @@ mod tests {
         let sig = s.sign(&sums, "merlin v0.2.0");
 
         let other = Signer::new();
-        let err = check_sums(&other.key(), &sums, &sig, "v0.2.0").unwrap_err();
+        let err = check_sums(&[&other.key()], &sums, &sig, "v0.2.0").unwrap_err();
         assert!(err.to_string().contains("isn't signed"), "{err}");
 
         let mut changed = sums.clone();
         changed[0] = if changed[0] == b'0' { b'1' } else { b'0' };
-        let err = check_sums(&s.key(), &changed, &sig, "v0.2.0").unwrap_err();
+        let err = check_sums(&[&s.key()], &changed, &sig, "v0.2.0").unwrap_err();
         assert!(err.to_string().contains("isn't signed"), "{err}");
 
         // An older release's signed list served as the newest one.
-        let err = check_sums(&s.key(), &sums, &sig, "v0.3.0").unwrap_err();
+        let err = check_sums(&[&s.key()], &sums, &sig, "v0.3.0").unwrap_err();
         assert!(err.to_string().contains("signed for"), "{err}");
     }
 
@@ -761,7 +782,7 @@ mod tests {
         let s = Signer::new();
         let sums = b"not a checksum line\n".to_vec();
         let sig = s.sign(&sums, "merlin v0.2.0");
-        let err = check_sums(&s.key(), &sums, &sig, "v0.2.0").unwrap_err();
+        let err = check_sums(&[&s.key()], &sums, &sig, "v0.2.0").unwrap_err();
         assert!(err.to_string().contains("can't read"), "{err}");
     }
 
@@ -888,7 +909,7 @@ mod tests {
             served.get(url).cloned().context("not served")
         };
         let progress = Progress::default();
-        install(&rel, &exe, &bundle, &signer.key(), &get, &progress).unwrap();
+        install(&rel, &exe, &bundle, &[&signer.key()], &get, &progress).unwrap();
         assert_eq!(std::fs::read(&exe).unwrap(), b"new merlin");
         assert!(bundle.join("rust-0.2.0.merlin").is_file());
         assert!(
@@ -927,7 +948,7 @@ mod tests {
             &rel,
             &exe,
             &dir.join("plugins"),
-            &signer.key(),
+            &[&signer.key()],
             &get,
             &Progress::default(),
         )
@@ -944,7 +965,7 @@ mod tests {
             &rel,
             &exe,
             &dir.join("plugins"),
-            &signer.key(),
+            &[&signer.key()],
             &get,
             &Progress::default(),
         )
@@ -960,7 +981,7 @@ mod tests {
             &rel,
             &exe,
             &dir.join("plugins"),
-            &signer.key(),
+            &[&signer.key()],
             &get,
             &Progress::default(),
         )
@@ -987,7 +1008,7 @@ mod tests {
             &rel,
             &exe,
             &dir.join("plugins"),
-            &signer.key(),
+            &[&signer.key()],
             &get,
             &Progress::default(),
         )

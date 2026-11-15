@@ -909,7 +909,19 @@ fn open_url(url: &str) {
     if !(url.starts_with("https://") || url.starts_with("http://")) {
         return;
     }
-    let _ = Command::new("xdg-open")
+    #[cfg(target_os = "macos")]
+    let mut command = Command::new("open");
+    // Windows' own handler for a URL: not `cmd /c start`, which would read
+    // the link's `&` as the start of another command.
+    #[cfg(windows)]
+    let mut command = {
+        let mut c = Command::new("rundll32");
+        c.arg("url.dll,FileProtocolHandler");
+        c
+    };
+    #[cfg(not(any(target_os = "macos", windows)))]
+    let mut command = Command::new("xdg-open");
+    let _ = command
         .arg(url)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())

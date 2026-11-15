@@ -77,6 +77,27 @@ impl App {
         };
         let on = Kind::Bool;
         let pick = Kind::Pick;
+        // Only yours: a folder's settings can't stop merlin looking for
+        // updates. On the Workspace tab it shows yours, locked.
+        let updates_key = "editor.check_for_updates";
+        let mut updates = row(
+            "Check for updates",
+            "Every 6 hours, merlin asks for a newer release; the title bar says when there is one.",
+            updates_key,
+            on(true),
+        );
+        updates.user_only = true;
+        if ui.workspace {
+            updates.locked = true;
+            updates.in_workspace = false;
+            updates.note = None;
+            updates.changed = get(user, updates_key).is_some();
+            updates.control = Control::Toggle(
+                get(user, updates_key)
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true),
+            );
+        }
         #[rustfmt::skip]
         let sections = vec![
             Section {
@@ -133,6 +154,11 @@ impl App {
                     row("Fast scroll sensitivity", "Times that again with Alt held.", "editor.fast_scroll_sensitivity", pick(vec!["3", "5", "10"], "5")),
                     row("Scrollbar size", "The scrollbar's width, in points.", "editor.scrollbar_size", pick(vec!["10", "14", "18"], "14")),
                 ],
+            },
+            Section {
+                category: Category::Editor,
+                title: "Updates".into(),
+                rows: vec![updates],
             },
             Section {
                 category: Category::Files,
