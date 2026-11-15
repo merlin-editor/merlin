@@ -17,9 +17,9 @@ merlin-acp = "0.15.0"
 ```rust
 use merlin_acp::{Acp, Agent};
 
-const GEMINI: Agent = Agent { id: "gemini", program: "gemini", args: &["--acp"] };
+const OPENCODE: Agent = Agent { id: "opencode", program: "opencode", args: &["acp"] };
 
-merlin_plugin::export!(Acp => Acp::new(&[GEMINI]));
+merlin_plugin::export!(Acp => Acp::new(&[OPENCODE]));
 ```
 
 The manifest declares the agent in `[[agents]]`, the program in

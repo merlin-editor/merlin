@@ -702,7 +702,7 @@ network = ["api.github.com", "*.githubusercontent.com"]
 ### 12.6 Agents
 
 An agent is a program that takes a prompt and works on the project:
-Claude Code, opencode, Gemini CLI and others. They speak different
+Claude Code, opencode, Antigravity and others. They speak different
 protocols, so merlin doesn't talk to any of them itself. A plugin starts
 the program (`processes`) and translates; merlin owns the UI: the chat
 panel, the permission card, and reviewing what changed.
@@ -777,11 +777,12 @@ agent plugin; ACP is what many agent programs speak on their side.
 - **`merlin-acp`**, a crate in the SDK (`sdk/acp`, published with
   `merlin-plugin`), speaks ACP so a plugin needn't. A plugin names its
   agent's program and arguments and exports `Acp`:
-  `merlin_plugin::export!(Acp => Acp::new(&[GEMINI]))`. Anyone can build an
+  `merlin_plugin::export!(Acp => Acp::new(&[OPENCODE]))`. Anyone can build an
   agent plugin on it.
 - **One plugin per agent**, in the registry and not in merlin's download:
-  `gemini-cli` (`gemini --acp`) and `opencode` (`opencode acp`), built
-  2026-11-16 and tried in the window. Installing one is turning that agent
+  `antigravity` (`agy acp`) and `opencode` (`opencode acp`), built
+  2026-11-16. opencode was tried in the window; Antigravity wasn't yet,
+  since `agy acp` needs agy 1.5. Installing one is turning that agent
   on: its permission card says which program it starts. merlin comes with
   no agent.
 - **How ACP maps:**
@@ -804,8 +805,9 @@ agent plugin; ACP is what many agent programs speak on their side.
 - **When an agent fails,** its whole message shows in the chat, and in its
   plugin's Output with what it printed on stderr. Gemini CLI, tried with a
   personal Google account, answered "This client is no longer supported
-  for Gemini Code Assist for individuals": its plugin works with an API
-  key or a paid plan.
+  for Gemini Code Assist for individuals", pointing to Antigravity, so the
+  plugin for Google's agent is `antigravity`, on `agy acp` (agy 1.5 and
+  later).
 - **`claude`**, on the Claude CLI's stream-json mode, follows in 0.2.x. It
   needs no API change.
 

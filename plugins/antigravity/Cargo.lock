@@ -3,6 +3,14 @@
 version = 4
 
 [[package]]
+name = "antigravity-agent"
+version = "0.1.0"
+dependencies = [
+ "merlin-acp",
+ "merlin-plugin",
+]
+
+[[package]]
 name = "anyhow"
 version = "1.0.104"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -25,14 +33,6 @@ name = "foldhash"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
-
-[[package]]
-name = "gemini-cli"
-version = "0.1.0"
-dependencies = [
- "merlin-acp",
- "merlin-plugin",
-]
 
 [[package]]
 name = "hashbrown"

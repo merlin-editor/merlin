@@ -1,0 +1,27 @@
+name = "antigravity"
+title = "Antigravity"
+description = "Google's Antigravity agent in the chat"
+badge = "AG"
+hue = "blue"
+version = "0.1.0"
+api = "0.15"
+component = "target/wasm32-wasip2/release/antigravity_agent.wasm"
+license = "MIT"
+repository = "https://github.com/merlin-editor/merlin"
+
+[permissions]
+# The agent asks in the chat before it changes files or runs commands;
+# merlin makes the edits and runs the commands.
+agent = true
+processes = ["agy"]
+
+[[agents]]
+id = "antigravity"
+name = "Antigravity"
+icon = "◆"
+program = "agy"
+
+# agy 1.5 or later: `agy acp` is its ACP mode. Sign in once with `agy`.
+[programs.agy]
+for = "Chatting with Antigravity in merlin"
+url = "https://antigravity.google/docs/ide/extensions/acp/"

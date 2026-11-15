@@ -4,8 +4,8 @@
 //! `[[agents]]`, the program, and its arguments) and exports [`Acp`]:
 //!
 //! ```ignore
-//! const GEMINI: Agent = Agent { id: "gemini", program: "gemini", args: &["--acp"] };
-//! merlin_plugin::export!(Acp => Acp::new(&[GEMINI]));
+//! const OPENCODE: Agent = Agent { id: "opencode", program: "opencode", args: &["acp"] };
+//! merlin_plugin::export!(Acp => Acp::new(&[OPENCODE]));
 //! ```
 //!
 //! Each chat starts its own copy of the agent, speaks ACP to it over its
