@@ -781,8 +781,9 @@ agent plugin; ACP is what many agent programs speak on their side.
   agent plugin on it.
 - **One plugin per agent**, in the registry and not in merlin's download:
   `antigravity` (`agy acp`) and `opencode` (`opencode acp`), built
-  2026-11-16. opencode was tried in the window; Antigravity wasn't yet,
-  since `agy acp` needs agy 1.5. Installing one is turning that agent
+  2026-11-16 and tried in the window (Antigravity with agy 1.5.9): each
+  answered, edited a file, and its turn ended with the change to review.
+  Installing one is turning that agent
   on: its permission card says which program it starts. merlin comes with
   no agent.
 - **How ACP maps:**
