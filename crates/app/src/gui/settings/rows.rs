@@ -445,7 +445,10 @@ impl Frame<'_> {
                     )
                 })
                 .collect(),
-            ListOf::PluginMenu(_) | ListOf::Confirm(_) | ListOf::Uninstall(_) => return,
+            ListOf::PluginMenu(_)
+            | ListOf::Confirm(_)
+            | ListOf::Uninstall(_)
+            | ListOf::VersionMenu(..) => return,
         };
         if items.is_empty() {
             return;

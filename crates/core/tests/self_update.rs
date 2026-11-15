@@ -14,6 +14,7 @@ fn offer() -> UpdateOffer {
         page: "https://github.com/merlin-editor/merlin/releases/tag/v0.2.0".into(),
         manual: None,
         command: "curl -fsSL https://example.org/install.sh | sh".into(),
+        plugins_off: Vec::new(),
     }
 }
 
@@ -267,4 +268,22 @@ fn a_check_during_an_update_leaves_it_going() {
     s.send(Event::UpdateOffer(Some(offer())));
     s.send(Event::UpdateOffer(None));
     assert!(update(&s).starts_with("update: ◌ Updating"));
+}
+
+#[test]
+fn plugins_that_wont_work_after_it_are_named() {
+    let mut s = session();
+    s.send(Event::UpdateOffer(Some(UpdateOffer {
+        plugins_off: vec!["Zig".into(), "Catch2".into()],
+        ..offer()
+    })));
+    click(&mut s, UpdateHit::Pill);
+    assert_eq!(
+        update(&s),
+        "update: • Update available ↓\n\
+         update card: Update Ready [v0.2.0]\n  \
+         You have v0.1.0. Restarting to update keeps your unsaved changes.\n  \
+         ! Two of your plugins don't work with v0.2.0 yet: Zig and Catch2. They'll be off until they do.\n  \
+         [Release notes] [Later] [[Restart & Update]]\n"
+    );
 }

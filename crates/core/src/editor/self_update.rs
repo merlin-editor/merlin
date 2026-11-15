@@ -21,6 +21,9 @@ pub struct UpdateOffer {
     pub manual: Option<String>,
     /// The command that installs it.
     pub command: String,
+    /// Installed plugins with no version for its plugin API yet, by title:
+    /// they'll be off until they have one.
+    pub plugins_off: Vec<String>,
 }
 
 /// A step of an update under way.
@@ -114,6 +117,8 @@ pub struct UpdateCardView {
     pub notes: Option<(String, i32)>,
     /// Open on GitHub ↗, under the notes.
     pub page_link: bool,
+    /// What won't work after it, in amber, under the text.
+    pub warning: Option<String>,
     pub buttons: Vec<UpdateButton>,
 }
 
@@ -334,6 +339,7 @@ impl Editor {
                 command: None,
                 notes: None,
                 page_link: false,
+                warning: None,
                 buttons: Vec::new(),
             };
             let notes = button("Release notes", UpdateHit::Notes, ButtonStyle::Ghost);
@@ -366,7 +372,16 @@ impl Editor {
                         "You have {}. Restarting to update keeps your unsaved changes.",
                         offer.current
                     );
-                    card.buttons.extend([notes, install]);
+                    card.warning = plugins_off(&offer.plugins_off, v);
+                    if card.warning.is_some() {
+                        card.buttons.extend([
+                            notes,
+                            button("Later", UpdateHit::Later, ButtonStyle::Plain),
+                            install,
+                        ]);
+                    } else {
+                        card.buttons.extend([notes, install]);
+                    }
                 }
                 (_, UpdateState::Working { step, done, total }) => {
                     card.title = format!("Updating to {v}");
@@ -446,4 +461,33 @@ impl Editor {
             card,
         })
     }
+}
+
+/// "Two of your plugins don't work with v0.2.0 yet: Zig and Catch2. They'll
+/// be off until they do."
+fn plugins_off(titles: &[String], version: &str) -> Option<String> {
+    const WORDS: [&str; 10] = [
+        "No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine",
+    ];
+    let n = titles.len();
+    if n == 0 {
+        return None;
+    }
+    let count = WORDS
+        .get(n)
+        .map_or_else(|| n.to_string(), |w| w.to_string());
+    let names = match titles {
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+        [] => String::new(),
+    };
+    Some(if n == 1 {
+        format!(
+            "One of your plugins doesn't work with {version} yet: {names}. It'll be off until it does."
+        )
+    } else {
+        format!(
+            "{count} of your plugins don't work with {version} yet: {names}. They'll be off until they do."
+        )
+    })
 }

@@ -166,6 +166,10 @@ pub struct Entry {
     /// The plugin that takes this one's place, by name.
     #[serde(default, rename = "replaced-by")]
     pub replaced_by: Option<String>,
+    /// What its maintainers say of the one that replaces it, as "which
+    /// does what it did and more".
+    #[serde(default, rename = "replaced-note")]
+    pub replaced_note: Option<String>,
     #[serde(default)]
     pub versions: Vec<Version>,
 }

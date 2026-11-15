@@ -248,6 +248,8 @@ struct App {
     /// The plugin registries, for Browse and updates.
     browse: browse::Browse,
     updater: update::Updater,
+    /// When the status bar's passing line goes.
+    status_note_until: Option<Instant>,
 }
 
 impl App {
@@ -1243,6 +1245,7 @@ fn main() -> Result<()> {
         system_light: false,
         browse: browse::Browse::new(data_dir.clone(), &settings_user, gui),
         updater: update::Updater::new(gui),
+        status_note_until: None,
     };
     app.editor.set_utc_offset(local_utc_offset());
     // Nerd Font icons, except in scripted runs, whose output should read

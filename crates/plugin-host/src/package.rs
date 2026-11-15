@@ -432,10 +432,10 @@ pub fn install_bytes(
     let _ = fs::remove_dir(plugins_dir.join(".staging"));
     let _ = fs::remove_dir(plugins_dir.join(".trash"));
     let manifest = result?;
-    // An update keeps how it came to be installed.
-    let dependency = installed(data_dir)
-        .get(&manifest.name)
-        .is_some_and(|m| m.dependency);
+    // An update keeps how it came to be installed, and whether it's kept.
+    let before = installed(data_dir).get(&manifest.name).cloned();
+    let dependency = before.as_ref().is_some_and(|m| m.dependency);
+    let keep = before.as_ref().is_some_and(|m| m.keep);
     record(
         data_dir,
         &manifest.name,
@@ -444,7 +444,7 @@ pub fn install_bytes(
             version: manifest.version.clone(),
             sha256: sha256_hex(bytes),
             dependency,
-            keep: false,
+            keep,
         }),
     )?;
     Ok(manifest)

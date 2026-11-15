@@ -602,6 +602,8 @@ pub struct Editor {
     update_scroll: i32,
     /// Agents' chats, in the right side bar.
     agents: agents::Agents,
+    /// A passing line in the status bar.
+    status_note: Option<String>,
     /// Colour themes and icon themes by name, and the one of each in use.
     themes: [Vec<String>; 2],
     theme: [String; 2],
@@ -764,6 +766,7 @@ impl Editor {
             update_card: None,
             update_scroll: 0,
             agents: agents::Agents::default(),
+            status_note: None,
             themes: [Vec::new(), Vec::new()],
             theme: [String::new(), String::new()],
         };

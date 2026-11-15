@@ -210,6 +210,7 @@ impl Editor {
                 result,
             } => self.agent_disk(&plugin, chat, request, path, wrote, result, &mut fx),
             Event::AgentAllowed(rules) => self.set_agent_allowed(rules),
+            Event::StatusNote(note) => self.status_note = note,
             Event::UpdateProgress { step, done, total } => self.update_progress(step, done, total),
             Event::UpdateFailed(why) => self.update_failed(why),
             Event::UpdateReady => self.update_ready(&mut fx),

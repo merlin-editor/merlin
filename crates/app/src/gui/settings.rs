@@ -50,6 +50,9 @@ enum ListOf {
     Confirm(crate::browse::ConfirmView),
     /// A plugin's Uninstall? card.
     Uninstall(crate::prefs::UninstallCard),
+    /// The menu by a plugin's version: its name, title, version, and
+    /// whether it's kept there.
+    VersionMenu(String, String, String, bool),
 }
 
 impl Ctx {
@@ -191,6 +194,9 @@ impl<'a> Frame<'a> {
                 ListOf::PluginMenu(row) => self.plugin_menu(under, row, r),
                 ListOf::Confirm(card) => self.confirm_card(under, card, r),
                 ListOf::Uninstall(card) => self.uninstall_card(under, card, r),
+                ListOf::VersionMenu(name, title, version, kept) => {
+                    self.version_menu(under, name, title, version, *kept, r)
+                }
                 _ => self.choice_list(under, &of, r),
             }
         }

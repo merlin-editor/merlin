@@ -215,6 +215,9 @@ impl Editor {
                     let kind = if card.error { "error: " } else { "" };
                     let _ = writeln!(o, "  {kind}{}", card.text);
                 }
+                if let Some(w) = &card.warning {
+                    let _ = writeln!(o, "  ! {w}");
+                }
                 if let Some(command) = &card.command {
                     let _ = writeln!(o, "  {command} [Copy]");
                 }

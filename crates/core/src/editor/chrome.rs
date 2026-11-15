@@ -161,6 +161,14 @@ impl Editor {
             Style::Status,
             Some(Action::Run("view.problems")),
         ));
+        // A passing line, as plugins that updated by themselves.
+        if let Some(note) = &self.status_note {
+            left.push((
+                format!(" {note} "),
+                Style::StatusAccent,
+                Some(Action::Run("plugins.manage")),
+            ));
+        }
         // An agent waiting for an answer, a click away from its card.
         if let Some(name) = self.agent_waiting() {
             left.push((

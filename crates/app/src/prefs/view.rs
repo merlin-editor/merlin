@@ -372,12 +372,25 @@ impl App {
                             .iter()
                             .filter_map(|(_, pid)| self.memory.of(*pid))
                             .sum::<u64>(),
+                    updated: self
+                        .browse
+                        .updated
+                        .iter()
+                        .find(|(n, ..)| *n == p.name)
+                        .map(|(_, from, to)| format!("{from} → {to}")),
+                    kept: updates.iter().any(|u| u.name == p.name && u.kept),
+                    replaced: self
+                        .browse
+                        .registry_page(&p.name, None)
+                        .is_some_and(|r| r.replaced.is_some()),
+                    not_for_this: false,
                     name: p.name,
                     title: p.title,
                     on: p.enabled,
                     failed: p.failed,
                     data_only: p.data_only,
                 })
+                .chain(self.browse.waiting_plugins(&self.host.plugins()))
                 .collect()
         } else {
             Vec::new()
@@ -406,6 +419,8 @@ impl App {
                 list_tab: ui.list_tab,
                 plugin_filter: ui.filter_text().to_string(),
                 plugin_menu: ui.plugin_menu.clone(),
+                version_menu: ui.version_menu.clone(),
+                auto_update: self.auto_update(),
                 editing: ui.editing.clone(),
                 card: ui.card,
                 scroll: ui.scroll,

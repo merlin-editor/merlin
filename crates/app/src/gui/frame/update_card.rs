@@ -117,6 +117,13 @@ impl Frame<'_> {
         if card.command.is_some() {
             parts.push(32.0);
         }
+        let warning = card
+            .warning
+            .as_ref()
+            .map(|w| self.wrap_words(w, Face::ui(12.0), inner - 20.0));
+        if let Some(lines) = &warning {
+            parts.push(lines.len() as f32 * TEXT_LINE + 16.0);
+        }
         if !card.buttons.is_empty() {
             parts.push(BUTTON_H + 4.0);
         }
@@ -265,6 +272,32 @@ impl Frame<'_> {
                 row,
             );
             y += 32.0 + GAP;
+        }
+
+        if let Some(lines) = &warning {
+            let b = Rect::new(x, y, inner, lines.len() as f32 * TEXT_LINE + 16.0);
+            self.canvas.outline(
+                b,
+                6.0,
+                1.0,
+                mix(p.warning, p.widget, 0.3),
+                mix(p.warning, p.widget, 0.1),
+            );
+            let mut ly = b.y + 8.0;
+            for line in lines {
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    line,
+                    Face::ui(12.0),
+                    b.x + 10.0,
+                    ly,
+                    TEXT_LINE,
+                    mix(p.warning, p.bright, 0.55),
+                    b,
+                );
+                ly += TEXT_LINE;
+            }
+            y += b.h + GAP;
         }
 
         if !card.buttons.is_empty() {

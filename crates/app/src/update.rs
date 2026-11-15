@@ -534,6 +534,41 @@ fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
 
 impl App {
     /// Whether the user's settings let merlin look for updates.
+    /// Installed registry plugins with no version for the plugin API a
+    /// release's notes name ("Plugin API 0.16"), by title. None when the
+    /// notes don't say, or it's this merlin's.
+    fn plugins_off_after(&self, notes: &str) -> Vec<String> {
+        let api = notes.lines().find_map(|l| {
+            let at = l.find("Plugin API ")?;
+            let rest = &l[at + "Plugin API ".len()..];
+            let v: String = rest
+                .chars()
+                .take_while(|c| c.is_ascii_digit() || *c == '.')
+                .collect();
+            Some(v.trim_end_matches('.').to_string())
+        });
+        let Some(api) = api.filter(|a| !a.is_empty() && a != merlin_plugins::API_VERSION) else {
+            return Vec::new();
+        };
+        self.browse
+            .installed
+            .iter()
+            .filter_map(|(name, mine)| {
+                let l = self
+                    .browse
+                    .sources
+                    .iter()
+                    .find(|l| l.source.name == mine.source)?;
+                let entry = l.index.plugins.get(name)?;
+                let ready = entry
+                    .versions
+                    .iter()
+                    .any(|v| v.api == api && v.yanked.is_none() && v.blocked.is_none());
+                (!ready).then(|| entry.title.clone())
+            })
+            .collect()
+    }
+
     fn checks_for_updates(&self) -> bool {
         self.loaded
             .user
@@ -582,6 +617,7 @@ impl App {
             page: release.page.clone(),
             manual: cant_replace(&exe),
             command: INSTALL.into(),
+            plugins_off: self.plugins_off_after(&release.notes),
         };
         self.updater.found = Some(release);
         vec![Event::UpdateOffer(Some(offer))]

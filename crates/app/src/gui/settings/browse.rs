@@ -109,6 +109,58 @@ impl Frame<'_> {
         c.y += h + 10.0;
     }
 
+    /// A banner whose last button is the main one, at its right end.
+    pub(super) fn s_banner_end(
+        &mut self,
+        text: &str,
+        tint: Tint,
+        buttons: &[(&str, Hit)],
+        c: &mut Ctx,
+    ) {
+        let p = self.p;
+        let clip = c.clip;
+        let colour = match tint {
+            Tint::Neutral => p.muted,
+            Tint::Accent => p.accent,
+            Tint::Warning => p.warning,
+            Tint::Error => p.error,
+        };
+        let face = Face::ui(12.5);
+        let widths: f32 = buttons
+            .iter()
+            .map(|(l, _)| self.text.width(l, Face::ui(12.0).medium()) + 28.0)
+            .sum();
+        let wrap = (c.w - 24.0 - widths).max(120.0);
+        let th = self.text.wrapped_height(text, face, wrap);
+        let h = (th + 20.0).max(38.0);
+        let r = Rect::new(c.x, c.y, c.w, h);
+        self.s_round(r, 7.0, clip, mix(colour, p.island, 0.13));
+        self.text.draw(
+            &mut self.canvas,
+            text,
+            face,
+            r.x + 12.0,
+            r.y + (h - th) / 2.0,
+            p.text,
+            clip,
+            Some(wrap),
+        );
+        let mut right = r.right() - 8.0;
+        let last = buttons.len().saturating_sub(1);
+        for (i, (label, hit)) in buttons.iter().enumerate().rev() {
+            let b = self.s_button(
+                label,
+                right,
+                r.y + (h - 26.0) / 2.0,
+                i == last,
+                Some(hit.clone()),
+                clip,
+            );
+            right = b.x - 6.0;
+        }
+        c.y += h + 10.0;
+    }
+
     /// Browse's list, under the tabs: banners, the filter, the sources'
     /// line and each plugin. Returns where it ends.
     pub(super) fn browse_list(
@@ -624,11 +676,37 @@ impl Frame<'_> {
 
     /// Versions, newest first: each with its API, day, size and note.
     pub(super) fn versions_table(&mut self, rows: &[VersionRow], c: &mut Ctx) {
+        self.versions_table_for(rows, None, c);
+    }
+
+    /// The same, where a click on a version installs it for `plugin`.
+    pub(super) fn versions_table_for(
+        &mut self,
+        rows: &[VersionRow],
+        plugin: Option<&str>,
+        c: &mut Ctx,
+    ) {
         let p = self.p;
         let clip = c.clip;
         let w = c.w.min(640.0);
         for v in rows {
             let r = Rect::new(c.x, c.y, w, 30.0);
+            // Another version that can be installed: a click installs it.
+            if let Some(name) = plugin
+                && matches!(v.note, VersionNote::None | VersionNote::Installs)
+            {
+                if self.s_hovered(r, clip) {
+                    self.s_round(r, 5.0, clip, p.hover);
+                }
+                self.s_hit(
+                    r,
+                    clip,
+                    act(BrowseAction::InstallVersion(
+                        name.to_string(),
+                        v.version.clone(),
+                    )),
+                );
+            }
             self.s_fill(Rect::new(r.x, r.bottom() - 1.0, r.w, 1.0), clip, p.line);
             let dim = matches!(
                 v.note,
@@ -706,7 +784,7 @@ impl Frame<'_> {
         self.s_row_text(&head(updates.len()), face, x + 10.0, y, 20.0, p.muted, clip);
         if updates
             .iter()
-            .any(|u| u.more.is_empty() && u.waits.is_none())
+            .any(|u| u.more.is_empty() && u.waits.is_none() && !u.kept)
         {
             let f = Face::ui(11.5).medium();
             let label = "Update All";
@@ -733,6 +811,43 @@ impl Frame<'_> {
             );
             self.plugin_mark(&u.mark, r.x + 10.0, r.y + 10.0, 26.0, true, clip);
             let mid = r.y + 10.0;
+            // One kept at its version says so, with Update Anyway as a
+            // link on its title's line, so the line under has room.
+            if u.kept {
+                let f = Face::ui(11.5).medium();
+                let label = "Update Anyway";
+                let lw = self.text.width(label, f);
+                let lr = Rect::new(r.right() - 10.0 - lw, r.y + 5.0, lw, 18.0);
+                let fg = if self.s_hovered(lr, clip) {
+                    mix(p.accent, 0xffffff, 0.8)
+                } else {
+                    p.accent
+                };
+                self.s_row_text(label, f, lr.x, lr.y, lr.h, fg, clip);
+                self.s_hit(lr, clip, act(BrowseAction::UpdateAnyway(u.name.clone())));
+                let tclip = Rect::new(r.x, r.y, lr.x - 8.0 - r.x, r.h).intersect(clip);
+                self.s_row_text(
+                    &u.title,
+                    Face::ui(12.5).bold(),
+                    r.x + 44.0,
+                    r.y + 5.0,
+                    18.0,
+                    p.bright,
+                    tclip,
+                );
+                let what = format!("{} is out; kept at {}", u.to, u.from);
+                self.s_row_text(
+                    &what,
+                    Face::ui(11.5),
+                    r.x + 44.0,
+                    r.y + 23.0,
+                    16.0,
+                    p.muted,
+                    clip,
+                );
+                y += 48.0;
+                continue;
+            }
             // One that would break another plugin waits, and says why.
             if let Some(why) = &u.waits {
                 let chip_w =
@@ -833,6 +948,25 @@ impl Frame<'_> {
             return;
         }
         let update = || act(BrowseAction::Update(name.to_string()));
+        if let Some((new, new_title, note)) = &reg.replaced {
+            let me = title_of_page(name, reg);
+            let text = match note {
+                Some(note) => format!(
+                    "{me} is replaced by {new_title}, {}.",
+                    note.trim_end_matches('.')
+                ),
+                None => format!("{me} is replaced by {new_title}."),
+            };
+            let keep = act(BrowseAction::KeepReplaced(name.to_string()));
+            let switch = act(BrowseAction::Switch(name.to_string(), new.clone()));
+            let keep_label = format!("Keep {me}");
+            self.s_banner_end(
+                &text,
+                Tint::Accent,
+                &[(keep_label.as_str(), keep), ("Switch", switch)],
+                c,
+            );
+        }
         if let Some(why) = &reg.withdrawn {
             let next = reg.update.as_ref().map(|u| u.to.clone());
             let text = match &next {
@@ -1099,6 +1233,14 @@ impl Frame<'_> {
             self.hit(b, act(action.clone()));
         }
     }
+}
+
+/// A plugin's title for its banners: its update's title, or its index's.
+fn title_of_page(name: &str, reg: &RegistryPage) -> String {
+    reg.update.as_ref().map_or_else(
+        || reg.title.clone().unwrap_or_else(|| name.to_string()),
+        |u| u.title.clone(),
+    )
 }
 
 /// A path in the home folder as `~/…`.

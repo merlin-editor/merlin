@@ -94,6 +94,9 @@ pub enum Event {
     },
     /// What's always allowed for agents in this workspace.
     AgentAllowed(Vec<String>),
+    /// A line in the status bar for a few seconds, as "✓ Updated Rust and
+    /// Go"; none takes it away.
+    StatusNote(Option<String>),
     /// How updating to it is going.
     UpdateProgress {
         step: super::UpdateStep,

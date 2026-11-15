@@ -66,6 +66,7 @@ impl Frame<'_> {
                 .as_ref()
                 .filter(|e| e.key == PLUGIN_FILTER)
                 .map(|e| e.text.as_str());
+            y = self.auto_update_row(ui.auto_update, c.x, y, list_w, clip);
             let field = Rect::new(c.x, y, list_w, 30.0);
             self.filter_field(
                 &ui.plugin_filter,
@@ -176,15 +177,26 @@ impl Frame<'_> {
         self.plugin_mark(&row.mark, r.x + 10.0, r.y + 10.0, 26.0, lit, clip);
         let mid = r.y + r.h / 2.0;
         let sw = Rect::new(r.right() - 44.0, mid - 10.0, 34.0, 20.0);
-        self.switch(
-            row.on,
-            sw,
-            clip,
-            Hit::Settings(SettingsAction::Page(PageAction::Enable(
-                row.name.clone(),
-                !row.on,
-            ))),
-        );
+        if row.not_for_this {
+            // Locked off until a version for this merlin comes out.
+            self.s_round(sw, 10.0, clip, mix(p.chip, p.island, 0.5));
+            self.s_round(
+                Rect::new(sw.x + 3.0, sw.y + 3.0, 14.0, 14.0),
+                7.0,
+                clip,
+                p.faint,
+            );
+        } else {
+            self.switch(
+                row.on,
+                sw,
+                clip,
+                Hit::Settings(SettingsAction::Page(PageAction::Enable(
+                    row.name.clone(),
+                    !row.on,
+                ))),
+            );
+        }
         let mut x = sw.x - 6.0;
         if hovered || menu_open {
             let m = Rect::new(x - 24.0, mid - 12.0, 24.0, 24.0);
@@ -201,8 +213,16 @@ impl Frame<'_> {
             }
             x = m.x - 4.0;
         }
-        let chip = if row.blocked {
+        let chip = if row.not_for_this {
+            Some("waiting")
+        } else if row.blocked {
             Some("blocked")
+        } else if row.updated.is_some() {
+            Some("updated")
+        } else if row.kept {
+            Some("kept")
+        } else if row.replaced {
+            Some("replaced")
         } else if row.failed {
             Some("failed")
         } else if row.update == Some(true) {
@@ -219,10 +239,14 @@ impl Frame<'_> {
             None
         };
         if let Some(chip) = chip {
-            let w = self.text.width(chip, Face::ui(10.5).medium()) + 12.0;
-            x -= w;
-            self.tag(chip, x, mid, clip);
-            x -= 6.0;
+            let colour = match chip {
+                "updated" => p.success,
+                "waiting" => p.warning,
+                "kept" | "replaced" => p.muted,
+                _ => p.accent,
+            };
+            let w = self.s_chip(chip, x, mid, colour, clip);
+            x -= w + 6.0;
         }
         let tclip = Rect::new(r.x, r.y, x - r.x, r.h).intersect(clip);
         let fg = if lit { p.bright } else { p.muted };
@@ -235,7 +259,10 @@ impl Frame<'_> {
             fg,
             tclip,
         );
-        let what = if row.what.is_empty() {
+        let updated = row.updated.as_ref().map(|u| format!("{u}, today"));
+        let what = if let Some(u) = &updated {
+            u
+        } else if row.what.is_empty() {
             &row.name
         } else {
             &row.what
@@ -532,9 +559,12 @@ impl Frame<'_> {
             p.bright,
             tclip,
         );
-        // What it is and what it costs now, in a line.
+        // What it is and what it costs now, in a line. A registry
+        // plugin's version opens a menu: keep it, or another version.
         let mut sub = vec![page.name.clone()];
+        let mut version_at: Option<(String, bool)> = None;
         if let Some(reg) = &page.registry {
+            version_at = Some((reg.version.clone(), reg.kept));
             let news = if reg.blocked.is_some() {
                 "blocked"
             } else if reg.update.is_some() {
@@ -542,7 +572,7 @@ impl Frame<'_> {
             } else {
                 "up to date"
             };
-            sub.push(format!("{} from {} · {news}", reg.version, reg.source));
+            sub.push(format!("{} ▾ from {} · {news}", reg.version, reg.source));
         }
         sub.push(format!("API {}", page.api));
         if !page.data_only {
@@ -576,6 +606,41 @@ impl Frame<'_> {
             p.muted,
             tclip,
         );
+        // The version, as "0.2.4 ▾", over its place in the line.
+        if let Some((version, kept)) = &version_at {
+            let f = Face::ui(11.5);
+            let before = format!("{} · ", page.name);
+            let vx = c.x + 46.0 + self.text.width(&before, f);
+            let label = format!("{version} ▾");
+            let vw = self.text.width(&label, f);
+            let vr = Rect::new(vx - 3.0, c.y + 18.0, vw + 6.0, 18.0);
+            self.s_round(vr, 4.0, clip, p.island);
+            let fg = if self.s_hovered(vr, clip) {
+                mix(p.accent, 0xffffff, 0.8)
+            } else {
+                p.accent
+            };
+            self.s_row_text(&label, f, vx, c.y + 19.0, 16.0, fg, tclip);
+            let open = ui.version_menu.as_deref() == Some(page.name.as_str());
+            self.s_hit(
+                vr,
+                clip,
+                Hit::Settings(SettingsAction::Page(PageAction::VersionMenu(
+                    (!open).then(|| page.name.clone()),
+                ))),
+            );
+            if open {
+                c.list = Some((
+                    vr,
+                    ListOf::VersionMenu(
+                        page.name.clone(),
+                        page.title.clone(),
+                        version.clone(),
+                        *kept,
+                    ),
+                ));
+            }
+        }
         c.y += 48.0;
         if page.off_here {
             self.off_here_banner(page, c);
@@ -640,7 +705,7 @@ impl Frame<'_> {
             PageTab::Versions => {
                 c.y += 4.0;
                 match versions {
-                    Some(rows) => self.versions_table(rows, c),
+                    Some(rows) => self.versions_table_for(rows, Some(&page.name), c),
                     None => {
                         let what =
                             "It wasn't installed from a registry, so it has no versions to list.";
@@ -967,5 +1032,149 @@ impl Frame<'_> {
             ))),
             r,
         );
+    }
+}
+
+impl Frame<'_> {
+    /// Update plugins automatically: at the top of Installed, with its
+    /// switch, what it does and its key. Returns where the list goes on.
+    fn auto_update_row(&mut self, on: bool, x: f32, y: f32, w: f32, clip: Rect) -> f32 {
+        let p = self.p;
+        let label_w = w - 60.0;
+        let what = "Install plugin updates when they come out. An update that asks for more permissions waits for you.";
+        let wh = self.text.wrapped_height(what, Face::ui(11.0), label_w);
+        let h = 12.0 + 18.0 + wh + 16.0 + 10.0;
+        let r = Rect::new(x, y, w, h);
+        self.s_round(r, 7.0, clip, mix(p.chip, p.island, 0.5));
+        self.s_row_text(
+            "Update plugins automatically",
+            Face::ui(12.5),
+            x + 12.0,
+            y + 10.0,
+            18.0,
+            p.bright,
+            clip,
+        );
+        self.text.draw(
+            &mut self.canvas,
+            what,
+            Face::ui(11.0),
+            x + 12.0,
+            y + 30.0,
+            p.muted,
+            clip,
+            Some(label_w),
+        );
+        self.s_row_text(
+            "plugins.auto_update",
+            Face::mono(10.5),
+            x + 12.0,
+            y + 30.0 + wh + 2.0,
+            14.0,
+            p.faint,
+            clip,
+        );
+        let sw = Rect::new(r.right() - 46.0, y + 10.0, 34.0, 20.0);
+        self.switch(
+            on,
+            sw,
+            clip,
+            Hit::Settings(SettingsAction::Page(PageAction::AutoUpdate(!on))),
+        );
+        y + h + 10.0
+    }
+
+    /// The menu by a registry plugin's version: keep it there, install
+    /// another version, or uninstall.
+    pub(super) fn version_menu(
+        &mut self,
+        under: Rect,
+        name: &str,
+        title: &str,
+        version: &str,
+        kept: bool,
+        page: Rect,
+    ) {
+        let p = self.p;
+        let act = |a: crate::browse::BrowseAction| Hit::Settings(SettingsAction::Browse(a));
+        let items: Vec<(String, Option<Hit>, Option<bool>, bool)> = vec![
+            (
+                format!("Keep at {version}"),
+                Some(act(crate::browse::BrowseAction::Keep(
+                    name.to_string(),
+                    !kept,
+                ))),
+                Some(kept),
+                false,
+            ),
+            (
+                "Install Another Version…".into(),
+                Some(Hit::Settings(SettingsAction::PageTab(PageTab::Versions))),
+                None,
+                false,
+            ),
+            (String::new(), None, None, false),
+            (
+                "Uninstall…".into(),
+                Some(Hit::Settings(SettingsAction::Page(PageAction::Uninstall(
+                    name.to_string(),
+                )))),
+                None,
+                false,
+            ),
+        ];
+        let face = Face::ui(12.5);
+        let title_h = 26.0;
+        let item_h = |label: &str| if label.is_empty() { 9.0 } else { 28.0 };
+        let w = 240.0_f32;
+        let h = items.iter().map(|(l, ..)| item_h(l)).sum::<f32>() + title_h + 8.0;
+        let x = under.x.max(page.x + 8.0).min(page.right() - w - 8.0);
+        let mut y = under.bottom() + 4.0;
+        if y + h > page.bottom() - 8.0 {
+            y = (under.y - 4.0 - h).max(page.y + 8.0);
+        }
+        let r = Rect::new(x, y, w, h);
+        self.canvas.shadow(r, 8.0, false);
+        self.canvas.outline(r, 8.0, 1.0, p.border, p.widget);
+        self.hit(r, Hit::Block);
+        self.text.draw_in_row(
+            &mut self.canvas,
+            &format!("{title} {version}"),
+            Face::ui(11.5),
+            r.x + 14.0,
+            r.y + 4.0,
+            title_h,
+            p.muted,
+            r,
+        );
+        let mut iy = r.y + 4.0 + title_h;
+        for (label, hit, check, danger) in items {
+            let ih = item_h(&label);
+            let Some(hit) = hit else {
+                self.canvas
+                    .fill(Rect::new(r.x + 10.0, iy + 4.0, r.w - 20.0, 1.0), p.chip);
+                iy += ih;
+                continue;
+            };
+            let row = Rect::new(r.x + 4.0, iy, r.w - 8.0, ih);
+            if self.hovered(row) {
+                self.canvas.round(row, 5.0, p.focus_row);
+            }
+            let mut tx = row.x + 10.0;
+            if let Some(on) = check {
+                let c = if on {
+                    merlin_core::panel::Check::On
+                } else {
+                    merlin_core::panel::Check::Off
+                };
+                self.checkbox(c, tx, iy + ih / 2.0);
+                tx += 22.0;
+            }
+            let fg = if danger { p.error } else { p.text };
+            self.text
+                .draw_in_row(&mut self.canvas, &label, face, tx, iy, ih, fg, row);
+            self.hit(row, hit);
+            iy += ih;
+        }
     }
 }

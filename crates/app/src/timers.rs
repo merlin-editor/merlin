@@ -87,6 +87,7 @@ impl App {
             self.browse.due,
             self.updater.due,
             self.updater.poll,
+            self.status_note_until,
         ]
         .into_iter()
         .flatten()
@@ -118,6 +119,12 @@ impl App {
         }
         if self.updater.poll.is_some_and(|at| at <= now) {
             self.poll_update();
+            changed = true;
+        }
+        // A line in the status bar goes after a few seconds.
+        if self.status_note_until.is_some_and(|at| at <= now) {
+            self.status_note_until = None;
+            self.dispatch(Event::StatusNote(None));
             changed = true;
         }
         if self.settle.is_some_and(|at| at <= now) {

@@ -115,6 +115,8 @@ pub struct SettingsUi {
     pub plugin_filter: String,
     /// The plugin whose row menu is open.
     pub plugin_menu: Option<String>,
+    /// The plugin whose version menu is open, on its page.
+    pub version_menu: Option<String>,
     /// A setting's text being typed.
     pub editing: Option<Editing>,
     /// The theme card the arrows are on, which the window previews.
@@ -302,6 +304,15 @@ pub struct PluginRow {
     /// A registry has a newer version, and whether the one installed was
     /// withdrawn.
     pub update: Option<bool>,
+    /// It updated by itself since merlin started: "0.2.0 → 0.2.1".
+    pub updated: Option<String>,
+    /// Kept at its version while a newer one is out.
+    pub kept: bool,
+    /// Another plugin replaces it.
+    pub replaced: bool,
+    /// Installed, but not built for this merlin: it waits for a version
+    /// that is, and its switch is locked.
+    pub not_for_this: bool,
 }
 
 /// What the Settings tab shows.
@@ -350,6 +361,9 @@ pub struct SettingsUiView {
     /// The filter as typed so far.
     pub plugin_filter: String,
     pub plugin_menu: Option<String>,
+    pub version_menu: Option<String>,
+    /// Plugins update by themselves.
+    pub auto_update: bool,
     pub editing: Option<Editing>,
     pub card: Option<usize>,
     pub scroll: f32,
@@ -469,6 +483,10 @@ pub enum PageAction {
     Output(String),
     /// Opens the Uninstall? card.
     Uninstall(String),
+    /// Plugins update by themselves, or not.
+    AutoUpdate(bool),
+    /// Opens or closes the menu by a plugin's version.
+    VersionMenu(Option<String>),
     /// The card's boxes: also uninstall what it pulled in, also delete its
     /// settings and data.
     UninstallDeps(bool),
@@ -606,6 +624,9 @@ impl App {
         }
         if !matches!(action, SettingsAction::PluginMenu(..)) {
             ui.plugin_menu = None;
+            if !matches!(action, SettingsAction::Page(PageAction::VersionMenu(_))) {
+                ui.version_menu = None;
+            }
         }
         if !matches!(action, SettingsAction::Edit(..)) {
             ui.stop_editing();

@@ -64,6 +64,13 @@ pub(crate) struct Browse {
     /// What's loaded now, by name: its version and what it requires. Kept
     /// fresh by [`App::browse_view`], for the resolver and updates.
     pub reqs: BTreeMap<String, (String, merlin_plugins::needs::Depends)>,
+    /// Plugins updated by themselves since merlin started: name, from, to.
+    pub updated: Vec<(String, String, String)>,
+    /// Ones updated by themselves in the round under way, to say once
+    /// they're all in.
+    pub round: Vec<String>,
+    /// A plugin being switched for the one that replaces it: (new, old).
+    pub switching: Option<(String, String)>,
 }
 
 /// An install or update waiting its turn.
@@ -142,6 +149,17 @@ pub(crate) enum BrowseAction {
     Open(String),
     /// Copies a command, as one that installs a program.
     Copy(String),
+    /// Keeps a plugin at the version it has, or stops keeping it.
+    Keep(String, bool),
+    /// Updates a kept plugin all the same.
+    UpdateAnyway(String),
+    /// Installs the plugin that replaces one, then uninstalls the old:
+    /// (old, new).
+    Switch(String, String),
+    /// Keeps a replaced plugin, and stops saying so.
+    KeepReplaced(String),
+    /// Installs another version of an installed plugin, and keeps it there.
+    InstallVersion(String, String),
 }
 
 /// How a registry plugin's row reads.
@@ -245,6 +263,8 @@ pub struct UpdateRow {
     /// It would break another plugin's requirement, so it waits:
     /// "0.3.1 waits: Rust needs 0.2".
     pub waits: Option<String>,
+    /// Kept at the version it has: it doesn't update by itself.
+    pub kept: bool,
 }
 
 /// A banner over Browse's list.
@@ -259,6 +279,13 @@ pub struct SourceBanner {
 pub struct RegistryPage {
     pub source: String,
     pub version: String,
+    /// Kept at this version.
+    pub kept: bool,
+    /// Its title in the index.
+    pub title: Option<String>,
+    /// The plugin that replaces it, by name and title, and what its
+    /// registry says of it; none once the user chose to keep this one.
+    pub replaced: Option<(String, String, Option<String>)>,
     pub update: Option<UpdateRow>,
     pub withdrawn: Option<String>,
     pub blocked: Option<String>,
@@ -413,6 +440,7 @@ impl Browse {
                     more: newest.permissions.beyond(&allowed),
                     withdrawn,
                     waits,
+                    kept: mine.keep,
                 })
             })
             .collect();
@@ -587,9 +615,20 @@ impl Browse {
     ) -> Option<RegistryPage> {
         let (mine, l, entry) = self.entry_of(name)?;
         let version = entry.version(&mine.version);
+        let replaced = entry
+            .replaced_by
+            .as_ref()
+            .filter(|_| self.skipped.get(name).map(String::as_str) != Some("replaced"))
+            .map(|new| {
+                let title = self.title_of(new).unwrap_or_else(|| new.clone());
+                (new.clone(), title, entry.replaced_note.clone())
+            });
         Some(RegistryPage {
             source: mine.source.clone(),
             version: mine.version.clone(),
+            kept: mine.keep,
+            title: Some(entry.title.clone()),
+            replaced,
             update,
             withdrawn: version.and_then(|v| v.yanked.clone()),
             blocked: entry.blocked(&mine.version).map(str::to_string),
@@ -666,6 +705,48 @@ impl Browse {
                 .is_none_or(|ago| ago > STALE_AFTER)
     }
 
+    /// Plugins installed from a registry that didn't load because they're
+    /// built for another merlin: each waits for a version that is.
+    pub(crate) fn waiting_plugins(
+        &self,
+        loaded: &[merlin_plugins::PluginInfo],
+    ) -> Vec<crate::prefs::PluginRow> {
+        let Some(dir) = settings::plugins_dir() else {
+            return Vec::new();
+        };
+        self.installed
+            .iter()
+            .filter(|(name, _)| !loaded.iter().any(|p| p.name == **name))
+            .filter_map(|(name, _)| {
+                let manifest = merlin_plugins::manifest(&dir.join(name)).ok()?;
+                (manifest.api != API_VERSION).then(|| crate::prefs::PluginRow {
+                    mark: merlin_core::plugin_mark(
+                        &manifest.title,
+                        manifest.badge.as_deref(),
+                        manifest.hue.as_deref(),
+                        false,
+                    ),
+                    what: "No version for this merlin yet".into(),
+                    off_here: false,
+                    waiting: false,
+                    on: false,
+                    failed: false,
+                    memory: 0,
+                    data_only: false,
+                    linked: false,
+                    blocked: false,
+                    update: None,
+                    updated: None,
+                    kept: false,
+                    replaced: false,
+                    not_for_this: true,
+                    name: name.clone(),
+                    title: manifest.title,
+                })
+            })
+            .collect()
+    }
+
     /// A plugin's title from any source's index.
     fn title_of(&self, name: &str) -> Option<String> {
         self.sources
@@ -691,6 +772,9 @@ fn read_skipped(data_dir: &std::path::Path) -> BTreeMap<String, String> {
 
 /// What a row says at its right end instead of its version, if anything.
 fn row_note(entry: &Entry, newest: Option<&Version>, state: RowState) -> Option<(String, bool)> {
+    if let Some(new) = &entry.replaced_by {
+        return Some((format!("replaced by {new}"), false));
+    }
     if state == RowState::NotForThis
         && let Some(v) = entry.newest_for_api().filter(|v| !v.fits_here())
     {
@@ -909,7 +993,9 @@ impl App {
                 .map(|p| format!("Skipping a plugin source: {p}")),
         );
         b.installed = package::installed(&b.data_dir);
-        self.turn_off_blocked()
+        let mut events = self.turn_off_blocked();
+        events.extend(self.update_by_itself());
+        events
     }
 
     /// Turns off installed plugins a registry blocked, saying so once.
@@ -982,7 +1068,7 @@ impl App {
                     .browse
                     .updates(&|_| None, &self.browse.reqs)
                     .into_iter()
-                    .filter(|u| u.more.is_empty() && u.waits.is_none())
+                    .filter(|u| u.more.is_empty() && u.waits.is_none() && !u.kept)
                     .filter_map(|u| {
                         let (_, l, _) = self.browse.entry_of(&u.name)?;
                         Some(Job {
@@ -1007,6 +1093,51 @@ impl App {
                 Vec::new()
             }
             BrowseAction::Open(_) => Vec::new(),
+            BrowseAction::Keep(name, keep) => {
+                let _ = package::mark(&self.browse.data_dir, &name, |m| m.keep = keep);
+                self.browse.installed = package::installed(&self.browse.data_dir);
+                Vec::new()
+            }
+            BrowseAction::UpdateAnyway(name) => {
+                let Some((_, l, entry)) = self.browse.entry_of(&name) else {
+                    return Vec::new();
+                };
+                let Some(v) = entry.newest() else {
+                    return Vec::new();
+                };
+                let job = Job {
+                    source: l.source.name.clone(),
+                    name,
+                    version: v.version.clone(),
+                    dependency: false,
+                };
+                self.queue_install(vec![job])
+            }
+            BrowseAction::Switch(old, new) => {
+                let Some(source) = self.browse.installed.get(&old).map(|m| m.source.clone()) else {
+                    return Vec::new();
+                };
+                self.browse.switching = Some((new.clone(), old));
+                self.install_from(source, new, false)
+            }
+            BrowseAction::InstallVersion(name, version) => {
+                let Some(source) = self.browse.installed.get(&name).map(|m| m.source.clone())
+                else {
+                    return Vec::new();
+                };
+                let _ = package::mark(&self.browse.data_dir, &name, |m| m.keep = true);
+                self.browse.installed = package::installed(&self.browse.data_dir);
+                self.queue_install(vec![Job {
+                    source,
+                    name,
+                    version,
+                    dependency: false,
+                }])
+            }
+            BrowseAction::KeepReplaced(name) => {
+                self.browse.skip(name, "replaced".into());
+                Vec::new()
+            }
             BrowseAction::Copy(text) => {
                 if let Some(clipboard) = &mut self.clipboard {
                     clipboard.copy(&text);
@@ -1178,6 +1309,66 @@ impl App {
         }
     }
 
+    /// Updates by itself what can be: updates that ask for nothing new,
+    /// break nothing and aren't kept, when the setting's on.
+    pub(crate) fn update_by_itself(&mut self) -> Vec<Event> {
+        if self.scripted || !self.auto_update() {
+            return Vec::new();
+        }
+        self.browse.reqs = self.loaded_requirements();
+        let jobs: Vec<Job> = self
+            .browse
+            .updates(&|_| None, &self.browse.reqs)
+            .into_iter()
+            .filter(|u| u.more.is_empty() && u.waits.is_none() && !u.kept)
+            .filter_map(|u| {
+                let (_, l, _) = self.browse.entry_of(&u.name)?;
+                Some(Job {
+                    source: l.source.name.clone(),
+                    name: u.name,
+                    version: u.to,
+                    dependency: false,
+                })
+            })
+            .collect();
+        self.browse.round = jobs.iter().map(|j| j.name.clone()).collect();
+        self.queue_install(jobs)
+    }
+
+    /// Whether plugins update by themselves: `plugins.auto_update`, on
+    /// unless it's off. Only the user's settings say.
+    pub(crate) fn auto_update(&self) -> bool {
+        self.loaded
+            .user
+            .get("plugins")
+            .and_then(|p| p.get("auto_update"))
+            .and_then(|v| v.as_bool())
+            != Some(false)
+    }
+
+    /// A round of updates by themselves is done: say so in the status bar.
+    fn round_done(&mut self) -> Vec<Event> {
+        let titles: Vec<String> = std::mem::take(&mut self.browse.round)
+            .into_iter()
+            .filter(|n| self.browse.updated.iter().any(|(u, ..)| u == n))
+            .map(|n| {
+                self.host
+                    .plugins()
+                    .into_iter()
+                    .find(|p| p.name == n)
+                    .map_or(n, |p| p.title)
+            })
+            .collect();
+        if titles.is_empty() {
+            return Vec::new();
+        }
+        self.status_note_until = Some(Instant::now() + Duration::from_secs(6));
+        vec![Event::StatusNote(Some(format!(
+            "✓ Updated {}",
+            list_words(&titles)
+        )))]
+    }
+
     fn queue_install(&mut self, jobs: Vec<Job>) -> Vec<Event> {
         for job in jobs {
             let waiting = self.browse.busy.as_deref() == Some(job.name.as_str())
@@ -1283,6 +1474,30 @@ impl App {
                     }
                 }
                 events.extend(self.refresh_looks());
+                // Updated by itself: a line in the status bar once the round
+                // is done, and its row says so.
+                if let Some(from) = updating
+                    .clone()
+                    .filter(|_| self.browse.round.contains(&name))
+                {
+                    self.browse.updated.retain(|(n, ..)| *n != name);
+                    self.browse
+                        .updated
+                        .push((name.clone(), from, manifest.version.clone()));
+                    events.push(self.plugin_summaries());
+                    events.extend(self.next_install());
+                    if self.browse.busy.is_none() && self.browse.queue.is_empty() {
+                        events.extend(self.round_done());
+                    }
+                    return events;
+                }
+                // Switched for the one that replaces it: the old one goes.
+                if let Some((new, old)) = self.browse.switching.clone()
+                    && new == name
+                {
+                    self.browse.switching = None;
+                    events.extend(self.uninstall_now(&old));
+                }
                 // A program it needs that isn't here: say so, with how to get it.
                 let missing: Vec<merlin_plugins::needs::ProgramStatus> = self
                     .host

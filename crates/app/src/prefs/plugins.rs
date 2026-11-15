@@ -208,6 +208,16 @@ impl App {
                 self.uninstall = self.uninstall_card(&name);
                 return events;
             }
+            PageAction::AutoUpdate(on) => {
+                let _ = self
+                    .settings
+                    .set_in(false, "plugins.auto_update", &on.to_string());
+                return events;
+            }
+            PageAction::VersionMenu(name) => {
+                self.settings_ui.version_menu = name;
+                return events;
+            }
             PageAction::UninstallDeps(on) => {
                 if let Some(card) = &mut self.uninstall {
                     card.remove_deps = on;
@@ -327,7 +337,7 @@ impl App {
 
     /// Uninstalls a plugin: its folder to the bin if it was installed from
     /// a package, else its link; what it was allowed goes with it.
-    fn uninstall_now(&mut self, name: &str) -> Vec<Event> {
+    pub(crate) fn uninstall_now(&mut self, name: &str) -> Vec<Event> {
         let mut events = Vec::new();
         let Some(info) = self.host.plugins().into_iter().find(|p| p.name == name) else {
             return events;
