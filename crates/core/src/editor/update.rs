@@ -93,6 +93,7 @@ impl Editor {
                 self.opened(path.clone(), &text);
                 self.split_opened(&path);
                 self.opened_for_edits(&path);
+                self.agent_opened(&path, &mut fx);
                 self.start_merge();
                 self.tasks_opened(&path);
                 self.launch_opened(&path);

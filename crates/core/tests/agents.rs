@@ -316,3 +316,54 @@ fn stopped_and_failed_say_so() {
     );
     assert!(chat(&s).contains("Gemini stopped: \"API key not valid\"."));
 }
+
+#[test]
+fn an_edit_to_a_file_that_isnt_open_opens_it_and_goes_through_the_editor() {
+    let mut s = session();
+    s.run("cmd agent.open");
+    say(
+        &mut s,
+        AgentUpdate::Ask {
+            request: 1,
+            what: AgentRequest::Edit {
+                path: "src/lib.rs".into(),
+                diff: None,
+            },
+        },
+    );
+    s.click_entry("Allow Once", 1);
+    calls(&mut s);
+    say(
+        &mut s,
+        AgentUpdate::Write {
+            request: 2,
+            path: "src/lib.rs".into(),
+            text: "pub fn two() -> u8 { 2 }\n".into(),
+        },
+    );
+    assert!(
+        s.effects
+            .iter()
+            .any(|e| matches!(e, Effect::Open(p) if p == &PathBuf::from("src/lib.rs")))
+    );
+    assert!(calls(&mut s).is_empty(), "it waits for the tab");
+    s.send(Event::Opened {
+        path: "src/lib.rs".into(),
+        text: "pub fn one() -> u8 { 1 }\n".into(),
+    });
+    assert_eq!(s.text(), "pub fn two() -> u8 { 2 }\n");
+    let c = calls(&mut s);
+    assert!(
+        matches!(
+            &c[..],
+            [AgentCall::File {
+                request: 2,
+                result: Ok(_),
+                ..
+            }]
+        ),
+        "{c:?}"
+    );
+    s.run("cmd edit.undo");
+    assert_eq!(s.text(), "pub fn one() -> u8 { 1 }\n");
+}

@@ -1186,4 +1186,76 @@ mod tests {
         let conflict = resolve("go", &lookup, &BTreeMap::new()).unwrap_err();
         assert_eq!(conflict.name, "nowhere");
     }
+
+    /// A built-looking plugin `name` at `version`, with more manifest.
+    fn serve_named(reg: &Registry, root: &Path, name: &str, version: &str, more: &str) -> String {
+        let dir = root.join(format!("{name}-{version}"));
+        fs::create_dir_all(dir.join("target")).unwrap();
+        fs::write(
+            dir.join("plugin.toml"),
+            format!(
+                "name = \"{name}\"\ntitle = \"{name}\"\nversion = \"{version}\"\napi = \"{API_VERSION}\"\n\
+                 component = \"target/p.wasm\"\n{more}\n[permissions]\neditor-read = true\n"
+            ),
+        )
+        .unwrap();
+        fs::write(dir.join("target/p.wasm"), "\0asm").unwrap();
+        let packed = package::pack(&dir, &root.join("out"), 0).unwrap();
+        let url = format!("https://test.invalid/{name}-{version}.merlin");
+        reg.files
+            .borrow_mut()
+            .insert(url.clone(), fs::read(&packed.path).unwrap());
+        format!(
+            r#"{{"version":"{version}","api":"{API_VERSION}","url":"{url}","sha256":"{}","size":{},"permissions":{{"editor-read":true}}}}"#,
+            packed.sha256, packed.size
+        )
+    }
+
+    #[test]
+    fn a_plugin_installs_with_what_it_needs_from_the_index() {
+        let tmp = Temp::new("depends");
+        let (plugins, data) = (tmp.0.join("plugins"), tmp.0.join("data"));
+        let reg = Registry::new();
+        let fetch = |u: &str, l: u64| reg.fetch(u, l);
+        let lsp_old = serve_named(&reg, &tmp.0, "lsp", "0.2.5", "");
+        let lsp_new = serve_named(&reg, &tmp.0, "lsp", "0.3.1", "");
+        let go = serve_named(&reg, &tmp.0, "go", "0.2.0", "[depends]\nlsp = \"0.3\"").replace(
+            r#""permissions""#,
+            r#""depends":["lsp"],"requires":{"lsp":"0.3"},"permissions""#,
+        );
+        reg.publish(
+            1,
+            FUTURE,
+            &format!(
+                r#"{{"go":{{"title":"Go","versions":[{go}]}},"lsp":{{"title":"Language Servers","versions":[{lsp_old},{lsp_new}]}}}}"#
+            ),
+        );
+        let loaded = load(&reg.source, &data, &fetch, now()).unwrap();
+        let lookup = |n: &str| loaded.index.plugins.get(n);
+        let plan = resolve("go", &lookup, &BTreeMap::new()).unwrap();
+        // As the app does: each in turn, dependencies marked so.
+        for p in &plan {
+            install(&loaded, &p.name, &p.version, &plugins, &data, &fetch).unwrap();
+            if p.needed_by.is_some() {
+                package::mark(&data, &p.name, |m| m.dependency = true).unwrap();
+            }
+        }
+        let installed = package::installed(&data);
+        assert_eq!(installed["lsp"].version, "0.3.1");
+        assert!(installed["lsp"].dependency);
+        assert!(!installed["go"].dependency);
+        let go = crate::manifest(&plugins.join("go")).unwrap();
+        assert_eq!(go.depends.get("lsp").map(String::as_str), Some("0.3"));
+        // Updating keeps how it came to be installed.
+        install(
+            &loaded,
+            "lsp",
+            loaded.index.plugins["lsp"].newest().unwrap(),
+            &plugins,
+            &data,
+            &fetch,
+        )
+        .unwrap();
+        assert!(package::installed(&data)["lsp"].dependency);
+    }
 }

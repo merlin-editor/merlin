@@ -182,6 +182,9 @@ pub(crate) struct Agents {
     pub showing_allowed: Option<String>,
     /// The agents the + menu lists, in its order.
     pub menu: Vec<String>,
+    /// Writes waiting for their file's tab to open: plugin, chat, request,
+    /// path and text.
+    pending_writes: Vec<(String, u32, u32, PathBuf, String)>,
 }
 
 pub(crate) struct Tab {
@@ -792,14 +795,17 @@ impl Editor {
         text: String,
         fx: &mut Vec<Effect>,
     ) {
+        // A file that isn't open opens in a tab, and takes the edit there,
+        // so Undo can take it back as in one that was.
         let Some(doc) = self.doc_at(path) else {
-            fx.push(Effect::AgentDisk {
-                plugin: plugin.to_string(),
+            fx.push(Effect::Open(path.to_path_buf()));
+            self.agents.pending_writes.push((
+                plugin.to_string(),
                 chat,
                 request,
-                path: path.to_path_buf(),
-                write: Some(text),
-            });
+                path.to_path_buf(),
+                text,
+            ));
             return;
         };
         let before = doc.buffer.text();
@@ -827,6 +833,23 @@ impl Editor {
                 result: Ok(String::new()),
             },
         });
+    }
+
+    /// A file opened: the writes waiting for it go in.
+    pub(crate) fn agent_opened(&mut self, path: &Path, fx: &mut Vec<Effect>) {
+        let (now, later): (Vec<_>, Vec<_>) = std::mem::take(&mut self.agents.pending_writes)
+            .into_iter()
+            .partition(|(.., p, _)| p == path);
+        self.agents.pending_writes = later;
+        for (plugin, chat, request, path, text) in now {
+            if self.doc_at(&path).is_some() {
+                self.agent_write(&plugin, chat, request, &path, text, fx);
+                if let Some(i) = self.tab_index(&plugin, chat) {
+                    let key = self.agents.tabs[i].key.clone();
+                    self.draw_agent(&key);
+                }
+            }
+        }
     }
 
     /// Notes a file an agent changed, keeping it as it first was.

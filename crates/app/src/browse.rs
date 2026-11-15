@@ -158,6 +158,8 @@ pub(crate) enum BrowseAction {
     Switch(String, String),
     /// Keeps a replaced plugin, and stops saying so.
     KeepReplaced(String),
+    /// Shows an installed plugin's page.
+    Installed(String),
     /// Installs another version of an installed plugin, and keeps it there.
     InstallVersion(String, String),
 }
@@ -487,19 +489,34 @@ impl Browse {
                     .then(|| newest_any(entry))
                     .flatten()
                     .map(|v| v.api.clone());
-                let note = row_note(entry, newest, state).map(|(text, warn)| {
-                    // The plugin that replaces it, by its title.
-                    match (&entry.replaced_by, text.strip_prefix("replaced by ")) {
-                        (Some(new), Some(_)) => (
-                            format!(
-                                "replaced by {}",
-                                self.title_of(new).unwrap_or_else(|| new.clone())
+                // Installed, but built for another merlin: it waits, as in
+                // Installed.
+                let waiting = newest.is_none()
+                    && !loaded(name)
+                    && self
+                        .installed
+                        .get(name)
+                        .is_some_and(|m| m.source == l.source.name);
+                let note = if waiting {
+                    Some(("waiting".to_string(), true))
+                } else {
+                    None
+                };
+                let note = note
+                    .or_else(|| row_note(entry, newest, state))
+                    .map(|(text, warn)| {
+                        // The plugin that replaces it, by its title.
+                        match (&entry.replaced_by, text.strip_prefix("replaced by ")) {
+                            (Some(new), Some(_)) => (
+                                format!(
+                                    "replaced by {}",
+                                    self.title_of(new).unwrap_or_else(|| new.clone())
+                                ),
+                                warn,
                             ),
-                            warn,
-                        ),
-                        _ => (text, warn),
-                    }
-                });
+                            _ => (text, warn),
+                        }
+                    });
                 BrowseRow {
                     source: l.source.name.clone(),
                     name: name.clone(),
@@ -1146,6 +1163,12 @@ impl App {
                     dependency: false,
                 }])
             }
+            BrowseAction::Installed(name) => {
+                self.settings_ui.list_tab = crate::prefs::ListTab::Installed;
+                self.settings_ui.plugin = Some(name);
+                self.settings_ui.scroll = 0.0;
+                Vec::new()
+            }
             BrowseAction::KeepReplaced(name) => {
                 self.browse.skip(name, "replaced".into());
                 Vec::new()
@@ -1268,7 +1291,15 @@ impl App {
         title: &str,
         conflict: registry::Conflict,
     ) -> Confirm {
-        let title_of = |n: &str| self.browse.title_of(n).unwrap_or_else(|| n.to_string());
+        let plugins = self.host.plugins();
+        let title_of = |n: &str| {
+            plugins
+                .iter()
+                .find(|p| p.name == n)
+                .map(|p| p.title.clone())
+                .or_else(|| self.browse.title_of(n))
+                .unwrap_or_else(|| n.to_string())
+        };
         let what = title_of(&conflict.name);
         let (text, detail, open) = match conflict.wants.as_slice() {
             [] => (
@@ -1655,7 +1686,7 @@ fn confirm_view(c: &Confirm) -> ConfirmView {
             quiet: open.as_ref().map(|(name, title)| {
                 (
                     format!("Open {title}'s Page"),
-                    BrowseAction::Pick(c.source.clone(), name.clone()),
+                    BrowseAction::Installed(name.clone()),
                 )
             }),
             cancel: "Close".into(),
