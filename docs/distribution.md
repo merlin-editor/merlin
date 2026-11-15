@@ -385,9 +385,14 @@ Browse page's part needs a small mock-up first.
   `issues/new?title=Report: <name> <version>`; add
   `.github/ISSUE_TEMPLATE/report.yml` to `merlin-editor/plugins` so the issue
   asks for what a maintainer needs.
-- **D2. Watch the first scheduled re-sign** (Monday 10 November, 03:17 UTC),
-  and add an alert: the workflow fails loudly if the index has under 14 days
-  left.
+- **D2. Watching the index (done, 2026-11-15).** The first scheduled re-sign
+  ran on 9 November; the index then expired 9 December. GitHub stops a
+  repository's schedules after 60 days without activity, and nothing fails
+  then, so two daily watches check the live index's signature and days
+  left: `watch.yml` in merlin-editor/plugins starts Re-sign with under 21
+  days and fails under 14; `registry-watch.yml` here fails under 14, and
+  keeps running while merlin has pushes. A failed run emails the
+  maintainers.
 - **D3. Key rotation runbook**, in the registry's README: how
   `merlin-next.pub` becomes the signing key, which merlin release must ship
   first, and how to retire the old key.

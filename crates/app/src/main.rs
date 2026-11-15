@@ -15,6 +15,7 @@ mod packs;
 mod plugin_cli;
 mod prefs;
 mod settings;
+mod shell_path;
 mod template;
 mod terminal;
 mod theme;
@@ -1131,6 +1132,11 @@ fn main() -> Result<()> {
         return run(rest, USAGE);
     }
     let args = parse_args()?;
+    // The shell's PATH, for a window started from the desktop; before any
+    // thread starts. Scripts keep the PATH they were given.
+    if args.exec.is_none() {
+        shell_path::adopt();
+    }
     let root = env::current_dir()
         .and_then(|d| d.canonicalize())
         .context("reading the current folder")?;

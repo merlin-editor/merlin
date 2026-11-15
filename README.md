@@ -609,6 +609,12 @@ The OpenCode chat, a port of ttt's, lives in its own repository,
 
 ## Language support
 
+Language servers and debuggers are programs you install, such as
+`rust-analyzer` or `clangd`. When you open merlin from your desktop rather
+than a terminal, it uses the same `PATH` as your shell, so programs in
+`~/.local/bin`, `~/.cargo/bin` or npm's folder are found. Set
+`MERLIN_NO_SHELL_PATH=1` to turn this off.
+
 Languages work as in VS Code, where extensions add them. merlin itself
 knows none but plain text and Markdown: every language is a plugin, and you
 install the ones you use. A language's plugin does everything for it: adds

@@ -1,0 +1,48 @@
+name: Watch the plugin registry
+
+# Every day: that merlin's plugin registry still has a signed index with at
+# least two weeks left. The registry re-signs itself and has its own watch;
+# this one runs from here in case GitHub has stopped the registry's
+# schedules, which it does after 60 days with no activity there. A failed
+# run emails the maintainers. The keys are the ones merlin ships
+# (DEFAULT_KEYS in crates/plugin-host/src/registry.rs).
+on:
+  schedule:
+    - cron: '23 7 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  watch:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Install minisign
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q minisign
+      - name: Check
+        run: |
+          set -eu
+          url=https://merlin-editor.github.io/plugins/index.json
+          curl -fsSL "$url" -o index.json
+          curl -fsSL "$url.minisig" -o index.json.minisig
+          signed=
+          for key in RWSOaZXj0KSbbxIQCKOCNyg+9hxPpudxVWt+NUb+c3iAJ/Ivft6Yqbpv \
+                     RWQDtqLDqdomJVzQvJHLQx3nZVFZRx9YpNvgHKdAAsHImTXo/pEDnYiv; do
+            if minisign -Vq -m index.json -x index.json.minisig -P "$key"; then
+              signed=1
+              break
+            fi
+          done
+          if [ -z "$signed" ]; then
+            echo "::error::The registry's index isn't signed by a key merlin ships."
+            exit 1
+          fi
+          left=$(python3 -c 'import json; from datetime import datetime, timezone; e = datetime.strptime(json.load(open("index.json"))["expires"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc); print(int((e - datetime.now(timezone.utc)).total_seconds() // 86400))')
+          echo "The registry's index has $left days left."
+          if [ "$left" -lt 14 ]; then
+            echo "::error::The registry's index expires in $left days. Run Re-sign in merlin-editor/plugins."
+            exit 1
+          fi
