@@ -487,7 +487,19 @@ impl Browse {
                     .then(|| newest_any(entry))
                     .flatten()
                     .map(|v| v.api.clone());
-                let note = row_note(entry, newest, state);
+                let note = row_note(entry, newest, state).map(|(text, warn)| {
+                    // The plugin that replaces it, by its title.
+                    match (&entry.replaced_by, text.strip_prefix("replaced by ")) {
+                        (Some(new), Some(_)) => (
+                            format!(
+                                "replaced by {}",
+                                self.title_of(new).unwrap_or_else(|| new.clone())
+                            ),
+                            warn,
+                        ),
+                        _ => (text, warn),
+                    }
+                });
                 BrowseRow {
                     source: l.source.name.clone(),
                     name: name.clone(),

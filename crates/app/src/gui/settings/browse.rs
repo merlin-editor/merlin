@@ -237,17 +237,18 @@ impl Frame<'_> {
         c.y += 6.0;
         let f = Face::ui(11.5);
         let lead = "Not in a registry? ";
-        let lw = self.s_row_text(lead, f, x + 4.0, c.y, 20.0, p.faint, clip);
-        self.s_row_text(
-            "merlin plugin install <folder>",
-            Face::mono(11.0),
-            x + 4.0 + lw,
-            c.y,
-            20.0,
-            p.muted,
-            clip,
-        );
-        c.y + 26.0
+        let command = "merlin plugin install <folder>";
+        let mono = Face::mono(11.0);
+        // Kept in the list's width: the command goes under when it won't fit.
+        let lclip = Rect::new(x, c.y, w, 44.0).intersect(clip);
+        let lw = self.s_row_text(lead, f, x + 4.0, c.y, 20.0, p.faint, lclip);
+        let (cx, cy) = if 4.0 + lw + self.text.width(command, mono) > w {
+            (x + 4.0, c.y + 18.0)
+        } else {
+            (x + 4.0 + lw, c.y)
+        };
+        self.s_row_text(command, mono, cx, cy, 20.0, p.muted, lclip);
+        cy + 26.0
     }
 
     fn browse_row(
@@ -951,9 +952,10 @@ impl Frame<'_> {
         if let Some((new, new_title, note)) = &reg.replaced {
             let me = title_of_page(name, reg);
             let text = match note {
+                // The registry's own words, as a sentence of their own.
                 Some(note) => format!(
-                    "{me} is replaced by {new_title}, {}.",
-                    note.trim_end_matches('.')
+                    "{me} is replaced by {new_title}. {}.",
+                    note.trim().trim_end_matches('.')
                 ),
                 None => format!("{me} is replaced by {new_title}."),
             };

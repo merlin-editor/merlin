@@ -85,7 +85,9 @@ pub fn pack(dir: &Path, out_dir: &Path, epoch: u64) -> Result<Packed> {
         .iter()
         .filter(|p| !manifest.programs.contains_key(*p))
         .map(|p| {
-            format!("{p} has no [programs.{p}]: merlin can't say how to install it when it's missing")
+            format!(
+                "{p} has no [programs.{p}]: merlin can't say how to install it when it's missing"
+            )
         })
         .collect();
     Ok(Packed {

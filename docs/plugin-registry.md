@@ -827,7 +827,10 @@ most agents:
 `requires` (with `depends` keeping just the names). `network` and `agent`
 go in `more-permissions`, not `permissions`: merlin 0.1 refuses keys it
 doesn't know in `permissions`, and with them the whole index. An entry
-file can say `replaced-by` and `replaced-note`.
+file can say `replaced-by`, the plugin that takes its place, and
+`replaced-note`, a sentence from the registry's maintainers or the old
+plugin's owners, such as "Python does everything Pyright did, and runs
+tests too." merlin shows it after "Pyright is replaced by Python."
 
 ### 12.8 Mock-ups (Approved 2026-11-16)
 
