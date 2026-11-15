@@ -1934,7 +1934,7 @@ dependencies = [
 
 [[package]]
 name = "merlin"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "alacritty_terminal",
  "anyhow",
@@ -1970,7 +1970,7 @@ dependencies = [
 
 [[package]]
 name = "merlin-core"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "merlin-syntax",
  "regex",
@@ -1981,7 +1981,7 @@ dependencies = [
 
 [[package]]
 name = "merlin-plugins"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "flate2",
@@ -2006,7 +2006,7 @@ dependencies = [
 
 [[package]]
 name = "merlin-syntax"
-version = "0.1.1"
+version = "0.2.0"
 
 [[package]]
 name = "minisign"
