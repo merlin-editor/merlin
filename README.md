@@ -91,7 +91,9 @@ To install or update Merlin to the latest release binary into `~/.local/bin`:
 curl -fsSL https://raw.githubusercontent.com/merlin-editor/merlin/main/scripts/install.sh | sh
 ```
 
-Running this command again checks for new releases and updates your installation automatically.
+Running this command again checks for new releases and updates your installation automatically. With `minisign` installed, it also checks the release's signature.
+
+merlin also looks for a newer release itself, every 6 hours. When there is one, the title bar says "Update available": its card shows the release notes, and Restart & Update downloads it, checks its signature, and restarts with your unsaved files as they were. `check_for_updates = false` under `[editor]` turns this off.
 
 Prebuilt binaries for Linux, macOS (Apple Silicon & Intel), and Windows are also available directly from [GitHub Releases](https://github.com/merlin-editor/merlin/releases).
 

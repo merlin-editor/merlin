@@ -66,6 +66,17 @@ pub(crate) struct Mouse {
 pub enum Event {
     Key(Key),
     Paste(String),
+    /// A newer merlin the app found, or none.
+    UpdateOffer(Option<super::UpdateOffer>),
+    /// How updating to it is going.
+    UpdateProgress {
+        step: super::UpdateStep,
+        done: u64,
+        total: u64,
+    },
+    UpdateFailed(String),
+    /// The new version is in place.
+    UpdateReady,
     /// A click on the frame of a window that draws its own: a tab, a
     /// button, a row in a side bar.
     Ui(UiEvent),
@@ -723,6 +734,8 @@ pub enum Effect {
     Copy(String),
     /// Open a web page in the browser.
     OpenUrl(String),
+    /// Install, cancel or restart into a newer merlin.
+    AppUpdate(super::UpdateAction),
     ReadClipboard,
     Quit,
     /// Asks the system for a file or folder: see [`FilePick`].

@@ -188,6 +188,7 @@ impl Editor {
             // A press anywhere puts away what floats over the text.
             self.popup = None;
             self.language_card = false;
+            self.update_card = None;
             self.rename_box = None;
             self.probe = None;
             self.hover_anchor = None;

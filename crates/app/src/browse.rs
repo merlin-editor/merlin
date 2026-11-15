@@ -60,7 +60,7 @@ pub(crate) struct Browse {
     pub installed: BTreeMap<String, Installed>,
     /// Blocked plugins already told of, so it's said once.
     pub told: HashSet<String>,
-    data_dir: PathBuf,
+    pub data_dir: PathBuf,
 }
 
 /// An install or update waiting its turn.
@@ -1081,7 +1081,7 @@ fn confirm_view(c: &Confirm) -> ConfirmView {
 /// Where the plugins that come with merlin are: `plugins/` beside the
 /// executable, as the release archive has it, or the copy `install.sh`
 /// keeps in the data folder. `MERLIN_BUNDLE` names another.
-fn bundle_dir(data_dir: &std::path::Path) -> Option<PathBuf> {
+pub(crate) fn bundle_dir(data_dir: &std::path::Path) -> Option<PathBuf> {
     use merlin_plugins::bundled::LIST;
     if let Some(dir) = std::env::var_os("MERLIN_BUNDLE") {
         return Some(dir.into());

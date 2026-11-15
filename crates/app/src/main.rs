@@ -245,6 +245,7 @@ struct App {
     system_light: bool,
     /// The plugin registries, for Browse and updates.
     browse: browse::Browse,
+    updater: update::Updater,
 }
 
 impl App {
@@ -1222,6 +1223,7 @@ fn main() -> Result<()> {
         memory: prefs::Memory::default(),
         system_light: false,
         browse: browse::Browse::new(data_dir.clone(), &settings_user, gui),
+        updater: update::Updater::new(gui),
     };
     app.editor.set_utc_offset(local_utc_offset());
     // Nerd Font icons, except in scripted runs, whose output should read
@@ -1364,6 +1366,10 @@ fn main() -> Result<()> {
         return result;
     }
 
+    // What an update left beside merlin last time.
+    if let Ok(exe) = env::current_exe() {
+        update::tidy(&exe);
+    }
     let result = gui::run(&mut app);
     app.finish_all();
     if result.is_ok() && app.editor.keeps_unsaved() {
@@ -1378,6 +1384,8 @@ fn main() -> Result<()> {
     }
     let _ = fs::create_dir_all(workspace_path.parent().unwrap_or(Path::new(".")))
         .and_then(|()| fs::write(&workspace_path, app.editor.workspace().to_text()));
+    // After Restart & Update: the new merlin, now everything's kept.
+    app.updater.start_again(&app.root);
     result
 }
 

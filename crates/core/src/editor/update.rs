@@ -193,6 +193,10 @@ impl Editor {
             }
             Event::InsertText(text) => self.type_text(&text, Kind::Other),
             Event::Notify(text) => self.notify(text),
+            Event::UpdateOffer(offer) => self.update_offered(offer),
+            Event::UpdateProgress { step, done, total } => self.update_progress(step, done, total),
+            Event::UpdateFailed(why) => self.update_failed(why),
+            Event::UpdateReady => self.update_ready(&mut fx),
             Event::NotifyWith { text, actions } => {
                 self.notify(text);
                 for (label, command) in actions {

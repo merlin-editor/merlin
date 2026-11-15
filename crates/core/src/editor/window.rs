@@ -71,6 +71,8 @@ pub enum UiEvent {
     Status(usize),
     /// Something in the language card.
     LanguageCard(super::LanguageCardHit),
+    /// The update pill, or something in its card.
+    Update(super::UpdateHit),
     /// A panel's focusable element, by its index among the panel's targets
     /// (see [`SideView::targets`]).
     Target {
@@ -223,6 +225,8 @@ pub struct WindowView {
     pub status: Vec<StatusView>,
     /// The card the language item opens, while it's open.
     pub language_card: Option<super::LanguageCardView>,
+    /// The title bar's update pill, and its card while it's open.
+    pub update: Option<super::UpdateView>,
     /// The problem under the cursor, for the middle of the status bar.
     pub problem: Option<(String, bool)>,
     pub palette: Option<PaletteView>,
@@ -793,6 +797,7 @@ impl Editor {
             crumbs,
             status,
             language_card: self.language_card_view(),
+            update: self.update_view(),
             problem,
             palette,
             toast,
@@ -823,7 +828,12 @@ impl Editor {
         if !matches!(event, UiEvent::LanguageCard(_) | UiEvent::Status(_)) {
             self.language_card = false;
         }
+        // And the update card.
+        if !matches!(event, UiEvent::Update(_)) {
+            self.update_card = None;
+        }
         match event {
+            UiEvent::Update(hit) => self.update_click(hit, fx),
             UiEvent::LanguageCard(hit) => self.language_card_click(hit, fx),
             UiEvent::ContextItem(i) => self.context_item(i, fx),
             UiEvent::Hover(button) => self.hover_button(button, fx),

@@ -85,6 +85,8 @@ impl App {
             self.terminals.due(),
             self.frame_due,
             self.browse.due,
+            self.updater.due,
+            self.updater.poll,
         ]
         .into_iter()
         .flatten()
@@ -110,6 +112,13 @@ impl App {
         }
         if self.browse.due.is_some_and(|at| at <= now) {
             self.check_registry_later();
+        }
+        if self.updater.due.is_some_and(|at| at <= now) {
+            self.check_for_update_later();
+        }
+        if self.updater.poll.is_some_and(|at| at <= now) {
+            self.poll_update();
+            changed = true;
         }
         if self.settle.is_some_and(|at| at <= now) {
             self.settle = None;

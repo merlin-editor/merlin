@@ -145,6 +145,7 @@ impl App {
                 }
             }
             Effect::Quit => self.quit = true,
+            Effect::AppUpdate(action) => queue.extend(self.app_update(action)),
             // Scripts can't answer a dialog: it's as if cancelled.
             Effect::PickFile(pick) if self.scripted => {
                 queue.push_back(Event::Picked { pick, path: None });

@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Update card states</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0f1012; --card: #18191d; --line: #2a2c34; --text: #d4d5da; --bright: #eef0f3;
+  --muted: #8e9099; --accent: #7c9cff; --err: #f28b82; --chip: #202228;
+}
+body { margin: 0; background: #08090a; color: var(--text); font: 13px Inter, system-ui, sans-serif; padding: 24px 16px; }
+h1 { font-size: 15px; font-weight: 600; color: var(--bright); margin: 0 0 4px; }
+.lede { color: var(--muted); font-size: 12.5px; margin: 0 0 22px; max-width: 760px; line-height: 1.5; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 22px; max-width: 1120px; }
+.cell { display: flex; flex-direction: column; gap: 10px; }
+.label { font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.label b { color: var(--accent); font-weight: 600; }
+.note { font-size: 12px; color: var(--muted); line-height: 1.5; }
+.bar { height: 40px; background: var(--bg); border: 1px solid #1a1b1e; border-radius: 8px; display: flex; align-items: center; justify-content: flex-end; padding: 0 10px; gap: 6px; }
+.pill { display: flex; align-items: center; gap: 7px; height: 26px; padding: 0 10px 0 8px; border-radius: 13px; background: #192338; border: 1px solid #2c3e66; color: #8cb0ff; font-size: 12px; font-weight: 500; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+.ring { width: 9px; height: 9px; border-radius: 50%; border: 1.6px solid #2c3e66; border-top-color: var(--accent); box-sizing: border-box; }
+.toggles { display: flex; gap: 2px; border-left: 1px solid #202126; padding-left: 6px; margin-left: 2px; }
+.ic { width: 30px; height: 28px; border-radius: 6px; display: grid; place-items: center; color: var(--muted); }
+.popup { width: 320px; max-width: 100%; box-sizing: border-box; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 14px 38px rgba(0,0,0,.55), 0 2px 8px rgba(0,0,0,.3); padding: 16px; display: flex; flex-direction: column; gap: 12px; align-self: flex-end; }
+.t { display: flex; align-items: center; justify-content: space-between; font-size: 13.5px; font-weight: 600; color: var(--bright); }
+.badge { font: 500 11px 'JetBrains Mono', monospace; background: #1d2840; color: var(--accent); padding: 2px 6px; border-radius: 4px; }
+.d { font-size: 12px; color: var(--muted); line-height: 1.5; }
+.d.err { color: var(--err); }
+.prog { height: 4px; border-radius: 2px; background: #23252c; overflow: hidden; }
+.prog i { display: block; height: 100%; width: 52%; background: var(--accent); border-radius: 2px; }
+.cmd { display: flex; align-items: center; gap: 8px; background: #121316; border: 1px solid #23252c; border-radius: 6px; padding: 6px 6px 6px 10px; font: 11.5px 'JetBrains Mono', monospace; color: var(--text); }
+.cmd span { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.acts { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.btn { height: 26px; padding: 0 11px; border-radius: 6px; font-size: 12px; display: inline-flex; align-items: center; border: 1px solid #2b2c34; background: var(--chip); color: var(--text); }
+.btn.small { height: 22px; padding: 0 8px; font-family: Inter, sans-serif; font-size: 11.5px; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 600; }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+.btn.off { opacity: .55; }
+.popup.wide { width: 380px; }
+.notes { max-height: 210px; overflow: hidden; position: relative; border-top: 1px solid #23252c; border-bottom: 1px solid #23252c; padding: 10px 0; font-size: 12px; line-height: 1.55; color: var(--text); }
+.notes::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 36px; background: linear-gradient(transparent, var(--card)); }
+.notes h4 { margin: 0 0 4px; font-size: 12px; color: var(--bright); font-weight: 600; }
+.notes ul { margin: 0 0 10px; padding-left: 16px; }
+.notes li { margin: 2px 0; }
+.notes code { font: 11px 'JetBrains Mono', monospace; background: #121316; padding: 1px 4px; border-radius: 3px; }
+.more { font-size: 12px; color: var(--accent); }
+.steps { display: flex; flex-direction: column; gap: 7px; font-size: 12px; }
+.step { display: flex; align-items: center; gap: 9px; color: var(--muted); }
+.step .m { width: 14px; height: 14px; border-radius: 50%; display: grid; place-items: center; font-size: 10px; box-sizing: border-box; border: 1.5px solid #34363f; flex: none; }
+.step.done { color: var(--text); }
+.step.done .m { background: #23314f; border-color: #23314f; color: var(--accent); }
+.step.now { color: var(--bright); }
+.step.now .m { border-color: #2c3e66; border-top-color: var(--accent); }
+.step .r { margin-left: auto; font: 11px 'JetBrains Mono', monospace; color: var(--muted); }
+</style>
+</head>
+<body>
+<h1>The update card's other states</h1>
+<p class="lede">The approved AppUpdate mock-up shows the pill and the "Update Ready" card. These are the states the updater also needs, drawn in the same card. The first is the approved one, for comparison; the rest are new and need approval.</p>
+
+<div class="grid">
+
+  <div class="cell">
+    <div class="label">1 · Update ready <b>(approved)</b></div>
+    <div class="bar"><div class="pill"><span class="dot"></span>Update available ↓</div><div class="toggles"><div class="ic">▯</div><div class="ic">▭</div><div class="ic">▯</div></div></div>
+    <div class="popup">
+      <div class="t"><span>Update Ready</span><span class="badge">v0.2.0</span></div>
+      <div class="d">A new version of Merlin is available (current: v0.1.0). Updates download and apply seamlessly without losing unsaved buffers.</div>
+      <div class="acts"><span class="btn ghost">Release notes</span><span class="btn primary">Restart &amp; Update</span></div>
+    </div>
+  </div>
+
+  <div class="cell">
+    <div class="label">1b · Release notes, in the card <b>(new)</b></div>
+    <div class="bar"><div class="pill"><span class="dot"></span>Update available ↓</div><div class="toggles"><div class="ic">▯</div><div class="ic">▭</div><div class="ic">▯</div></div></div>
+    <div class="popup wide">
+      <div class="t"><span>What's new in v0.2.0</span><span class="badge">v0.2.0</span></div>
+      <div class="notes">
+        <h4>What's in it</h4>
+        <ul>
+          <li><b>Updates from merlin itself:</b> the title bar says when there's a new version, and Restart &amp; Update installs it.</li>
+          <li>Releases are signed; <code>install.sh</code> checks the signature.</li>
+          <li>Images side by side in Source Control.</li>
+        </ul>
+        <h4>Good to know</h4>
+        <ul>
+          <li>The plugin API is now 0.15; plugins update from the registry.</li>
+          <li>Settings › Editor gains Check for updates.</li>
+        </ul>
+      </div>
+      <div class="more">Open on GitHub ↗</div>
+      <div class="acts"><span class="btn ghost">‹ Back</span><span class="btn primary">Restart &amp; Update</span></div>
+    </div>
+    <div class="note"><b>Release notes</b> in card 1 turns the card into this: the release's own notes, drawn as Markdown as merlin draws it in panels, and scrolling past about 15 lines. merlin fetches them with the update check, so they open at once. Back returns to card 1; <b>Open on GitHub</b> opens the release's page.</div>
+  </div>
+
+  <div class="cell">
+    <div class="label">2 · Updating, step by step <b>(new)</b></div>
+    <div class="bar"><div class="pill"><span class="ring"></span>Updating 52%</div><div class="toggles"><div class="ic">▯</div><div class="ic">▭</div><div class="ic">▯</div></div></div>
+    <div class="popup">
+      <div class="t"><span>Updating to v0.2.0</span><span class="badge">52%</span></div>
+      <div class="prog"><i></i></div>
+      <div class="steps">
+        <div class="step now"><span class="m"></span>Downloading<span class="r">12 of 23 MB</span></div>
+        <div class="step"><span class="m"></span>Checking the signature</div>
+        <div class="step"><span class="m"></span>Putting it in place</div>
+        <div class="step"><span class="m"></span>Restarting</div>
+      </div>
+      <div class="d">Your unsaved files come back as they are.</div>
+      <div class="acts"><span class="btn ghost">Release notes</span><span class="btn">Cancel</span></div>
+    </div>
+    <div class="note">The pill shows the percentage, so the card can be closed and work goes on; clicking the pill opens it again. Each step ticks off as it's done. Cancel works until "Putting it in place"; from then the update finishes in under a second and merlin restarts by itself, with the same folder and files.</div>
+  </div>
+
+  <div class="cell">
+    <div class="label">2b · Ready to restart <b>(new)</b></div>
+    <div class="bar"><div class="pill"><span class="dot"></span>Restart to update</div><div class="toggles"><div class="ic">▯</div><div class="ic">▭</div><div class="ic">▯</div></div></div>
+    <div class="popup">
+      <div class="t"><span>Ready to Restart</span><span class="badge">v0.2.0</span></div>
+      <div class="steps">
+        <div class="step done"><span class="m">✓</span>Downloaded<span class="r">23 MB</span></div>
+        <div class="step done"><span class="m">✓</span>Signature checked</div>
+        <div class="step done"><span class="m">✓</span>In place</div>
+      </div>
+      <div class="d">v0.2.0 starts the next time merlin does. Restart now, or keep working.</div>
+      <div class="acts"><span class="btn ghost">Later</span><span class="btn primary">Restart Now</span></div>
+    </div>
+    <div class="note">Only when the card was closed while it downloaded: merlin doesn't restart under you without a click. Later leaves the pill as "Restart to update" until you quit; the next start is v0.2.0 either way.</div>
+  </div>
+
+  <div class="cell">
+    <div class="label">3 · Download failed <b>(new)</b></div>
+    <div class="bar"><div class="pill"><span class="dot"></span>Update available ↓</div><div class="toggles"><div class="ic">▯</div><div class="ic">▭</div><div class="ic">▯</div></div></div>
+    <div class="popup">
+      <div class="t"><span>Update Failed</span><span class="badge">v0.2.0</span></div>
+      <div class="d err">The download doesn't match the release's signature, so nothing was changed.</div>
+      <div class="acts"><span class="btn ghost">Release notes</span><span class="btn primary">Try Again</span></div>
+    </div>
+    <div class="note">Nothing is replaced until the download is checked; the reason is said in one line, in the error colour.</div>
+  </div>
+
+  <div class="cell">
+    <div class="label">4 · Can't update itself <b>(new)</b></div>
+    <div class="bar"><div class="pill"><span class="dot"></span>Update available ↓</div><div class="toggles"><div class="ic">▯</div><div class="ic">▭</div><div class="ic">▯</div></div></div>
+    <div class="popup">
+      <div class="t"><span>Update Available</span><span class="badge">v0.2.0</span></div>
+      <div class="d">You have v0.1.0. merlin can't replace itself in /usr/bin, so update it the way you installed it, or with:</div>
+      <div class="cmd"><span>curl -fsSL https://raw.githubusercontent.com/merlin-editor/merlin/main/scripts/install.sh | sh</span><span class="btn small">Copy</span></div>
+      <div class="acts"><span class="btn ghost">Release notes</span></div>
+    </div>
+    <div class="note">For a package manager's copy, a folder merlin can't write to, or <code>MERLIN_NO_SELF_UPDATE</code>. The command row is the language card's, with Copy.</div>
+  </div>
+
+</div>
+</body>
+</html>

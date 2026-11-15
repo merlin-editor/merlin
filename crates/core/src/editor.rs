@@ -66,6 +66,11 @@ mod save;
 mod scm;
 mod scroll;
 mod select;
+mod self_update;
+pub use self_update::{
+    ButtonStyle, StepMark, UpdateAction, UpdateButton, UpdateCardView, UpdateHit, UpdateOffer,
+    UpdateStep, UpdateStepView, UpdateView,
+};
 mod settings;
 mod swatches;
 mod tabs;
@@ -583,6 +588,11 @@ pub struct Editor {
     status_lines: Vec<((String, String), Vec<crate::lang::StatusLine>)>,
     /// Whether the language card is open.
     language_card: bool,
+    /// A newer merlin, and how updating to it is going.
+    app_update: Option<(UpdateOffer, self_update::UpdateState)>,
+    /// The update card, while it's open, and its notes' scroll.
+    update_card: Option<self_update::UpdatePage>,
+    update_scroll: i32,
     /// Colour themes and icon themes by name, and the one of each in use.
     themes: [Vec<String>; 2],
     theme: [String; 2],
@@ -741,6 +751,9 @@ impl Editor {
             plugin_list: Vec::new(),
             status_lines: Vec::new(),
             language_card: false,
+            app_update: None,
+            update_card: None,
+            update_scroll: 0,
             themes: [Vec::new(), Vec::new()],
             theme: [String::new(), String::new()],
         };

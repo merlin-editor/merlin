@@ -144,6 +144,10 @@ impl Editor {
         if std::mem::take(&mut self.language_card) && key.code == KeyCode::Esc {
             return;
         }
+        // The update card too.
+        if self.update_card.take().is_some() && key.code == KeyCode::Esc {
+            return;
+        }
         // A terminal with the keys takes nearly all of them.
         if self.terminal_key(key, fx) {
             return;

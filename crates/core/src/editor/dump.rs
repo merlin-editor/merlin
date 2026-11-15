@@ -184,6 +184,54 @@ impl Editor {
                 }
             }
         }
+        if let Some(update) = &view.update {
+            let mark = if update.busy { "◌" } else { "•" };
+            let arrow = if update.arrow { " ↓" } else { "" };
+            let _ = writeln!(o, "update: {mark} {}{arrow}", update.pill);
+            if let Some(card) = &update.card {
+                let _ = writeln!(o, "update card: {} [{}]", card.title, card.badge);
+                if let Some(p) = card.progress {
+                    let _ = writeln!(o, "  progress {:.0}%", p * 100.0);
+                }
+                for step in &card.steps {
+                    let mark = match step.mark {
+                        super::StepMark::Done => "✓",
+                        super::StepMark::Now => "◌",
+                        super::StepMark::Todo => "○",
+                    };
+                    let detail = if step.detail.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" · {}", step.detail)
+                    };
+                    let _ = writeln!(o, "  {mark} {}{detail}", step.label);
+                }
+                if let Some((notes, _)) = &card.notes {
+                    for line in notes.lines().filter(|l| !l.trim().is_empty()) {
+                        let _ = writeln!(o, "  | {line}");
+                    }
+                }
+                if !card.text.is_empty() {
+                    let kind = if card.error { "error: " } else { "" };
+                    let _ = writeln!(o, "  {kind}{}", card.text);
+                }
+                if let Some(command) = &card.command {
+                    let _ = writeln!(o, "  {command} [Copy]");
+                }
+                if card.page_link {
+                    let _ = writeln!(o, "  <Open on GitHub>");
+                }
+                let buttons: Vec<String> = card
+                    .buttons
+                    .iter()
+                    .map(|b| match b.style {
+                        super::ButtonStyle::Primary => format!("[[{}]]", b.label),
+                        _ => format!("[{}]", b.label),
+                    })
+                    .collect();
+                let _ = writeln!(o, "  {}", buttons.join(" "));
+            }
+        }
         if let Some(toast) = &view.toast {
             let kind = if toast.error { "error" } else { "notice" };
             let buttons: String = toast.buttons.iter().map(|b| format!(" [{b}]")).collect();

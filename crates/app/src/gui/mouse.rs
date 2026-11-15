@@ -335,7 +335,7 @@ impl Gui<'_> {
                 }
                 self.dispatch(Event::Command("file.new".into()));
             }
-            Hit::Side(_) | Hit::Block | Hit::TabStrip(_) => {}
+            Hit::Side(_) | Hit::Block | Hit::TabStrip(_) | Hit::UpdateNotes(_) => {}
         }
     }
 
@@ -646,6 +646,11 @@ impl Gui<'_> {
             self.redraw();
             return;
         }
+        // Over the update card's notes, they scroll.
+        if let Some(Hit::UpdateNotes(max)) = over {
+            self.scroll_update_notes(-(lines as f32) * 60.0, max);
+            return;
+        }
         // Over a document, its pages scroll.
         if let Some(Hit::Surface(id)) = over {
             let by = -(lines as f32) * 60.0 * self.sensitivity();
@@ -701,6 +706,24 @@ impl Gui<'_> {
             (-steps * 3.0, 0.0)
         };
         self.dispatch(Event::Scroll { group, rows, cols });
+    }
+
+    /// The update card's notes moved by `by` pixels, within 0 to `max`.
+    fn scroll_update_notes(&mut self, by: f32, max: i32) {
+        let now = self
+            .app
+            .editor
+            .window_view()
+            .update
+            .and_then(|u| u.card)
+            .and_then(|c| c.notes)
+            .map_or(0, |(_, at)| at);
+        let to = ((now as f32 + by).round() as i32).clamp(0, max.max(0));
+        if to != now {
+            self.dispatch(Event::Ui(UiEvent::Update(
+                merlin_core::UpdateHit::ScrollTo(to),
+            )));
+        }
     }
 
     /// A press or drag at `at` on a document's pages: where on which page.

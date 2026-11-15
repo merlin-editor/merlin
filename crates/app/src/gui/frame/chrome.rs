@@ -101,8 +101,12 @@ impl Frame<'_> {
         );
         self.chip("Ctrl Shift P", search.right() - 8.0, search.y + 6.0, true);
         self.hit(search, Hit::Command("palette.open"));
-        // Layout toggles: side bar, panel, secondary side bar.
-        let mut bx = w - 10.0 - 3.0 * 32.0;
+        // Layout toggles: side bar, panel, secondary side bar, after the
+        // update pill when there's an update.
+        let mut bx = layout_toggles(w);
+        if let Some(update) = &view.update {
+            self.update_pill(update, bx);
+        }
         for (i, (id, glyph, command)) in [
             ("layout-left", '\u{ebf3}', "view.sidebar"),
             ("layout-panel", '\u{ebf2}', "view.panel"),
@@ -838,6 +842,11 @@ impl Frame<'_> {
         self.text
             .draw_in_row(&mut self.canvas, &detail, detail_f, dx, y, h, p.muted, card);
     }
+}
+
+/// Where the title bar's layout buttons start, in a window `w` wide.
+pub(super) fn layout_toggles(w: f32) -> f32 {
+    w - 10.0 - 3.0 * 32.0
 }
 
 /// merlin's icon for small sizes (`assets/icon/merlin-small.svg`).

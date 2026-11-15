@@ -291,6 +291,7 @@ impl Session {
                 Effect::Quit => self.quit = true,
                 Effect::Copy(_)
                 | Effect::OpenUrl(_)
+                | Effect::AppUpdate(_)
                 | Effect::Terminal(_)
                 | Effect::PluginCommand { .. }
                 | Effect::PluginTerminal { .. }

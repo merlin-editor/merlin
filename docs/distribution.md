@@ -70,14 +70,13 @@ This document tracks the design and implementation for distributing **Merlin Edi
 
 ---
 
-## 5. In-App Update UI (Mockup Approved, Not Built)
+## 5. In-App Update UI (Built 2026-11-15)
 
-- **Mockup File**: `docs/mockups/AppUpdate.dc.html`
-- **Placement**: Right side of the window title bar, directly to the left of the three layout toggles.
-- **Appearance**: A subtle pill badge (`[ • Update available ↓ ]`) that only shows when a newer release is discovered.
-- **Interaction**: Clicking the pill opens a compact dropdown card with release details, release notes, and a 1-click "Restart & Update" button.
-
----
+- **Mockups**: `docs/mockups/AppUpdate.dc.html` (the pill and Update Ready) and `docs/mockups/AppUpdateStates.html` (release notes in the card, step-by-step progress, Ready to Restart, Update Failed, and Update Available for a copy that can't replace itself), both approved.
+- **Placement**: Right side of the window title bar, directly to the left of the three layout toggles, with a line between.
+- **Appearance**: A pill (`• Update available ↓`) that shows only when a newer release is published; `Updating 52%` with a ring while it works, and `Restart to update` once it's in place.
+- **Interaction**: The pill opens a card. Release notes shows the release's own notes in the card, as Markdown, scrolling, with Open on GitHub. Restart & Update downloads, checks and puts it in place, then restarts with unsaved files kept; Cancel works until it's being put in place.
+- **Code**: the card's states in `crates/core/src/editor/self_update.rs` (tests in `crates/core/tests/self_update.rs`), drawn by `crates/app/src/gui/frame/update_card.rs`; finding, downloading and installing in `crates/app/src/update.rs`.
 
 ## 6. Plugin Distribution System (Implementation Plan)
 
@@ -321,19 +320,38 @@ rotation key yet.
   the list when `minisign` is installed. Without it, or for a release with
   no `SHA256SUMS` (v0.1.0), it says so and goes by the checksum alone.
 
-**B2. Finding an update.** On the `Net` lane, at start and every 6 hours like
-the registry: ask GitHub's `releases/latest`, compare versions, and show the
-title bar's pill. Setting `editor.check_for_updates` (on by default). Off in
-scripts.
+**B2. Finding an update (done, 2026-11-15).** On the `Net` lane, 10 s after
+the window opens and every 6 hours: ask GitHub's `releases/latest` (or
+`MERLIN_UPDATE_URL`, to try a release before it's out), compare its tag's
+numbers with this merlin's, and show the pill with the release's notes.
+`editor.check_for_updates` in user settings (on by default) turns it off;
+scripts never check. A failed check says so on stderr only.
 
-**B3. Restart & Update.** Download this platform's archive, check it against
-the signed `SHA256SUMS`, and unpack it beside the executable. Then swap it in:
-on Windows, rename the running `.exe` first, since it can't be overwritten.
-Replace `plugins/` too, so A3's first-run step brings plugins to the new API.
-Restart with the same arguments; hot exit brings the tabs back. Offer this only
-when merlin can write to its own folder and wasn't installed by a package
-manager (`MERLIN_NO_SELF_UPDATE`, or a path under `/usr`). Otherwise the card
-gives the command to run.
+**B3. Restart & Update (done, 2026-11-15).** Downloads this platform's
+archive with progress (Cancel stops it until the swap), then `SHA256SUMS`
+and its signature, and checks them as B1 says: anything that doesn't match
+fails with "The download doesn't match the release's signature, so nothing
+was changed." It unpacks into `.merlin-update/` beside the executable (a zip
+with Windows' own `tar`), then swaps: on Unix it renames the new binary over
+the old; on Windows it renames the running `.exe` to `.merlin-old.exe` first.
+The bundled plugins replace the folder merlin found them in (beside the
+executable, or `~/.local/share/merlin/bundled`), so A3's first-run step brings
+plugins to the new API. With the card open it then restarts at once; with
+it closed it waits, as Ready to Restart. Restarting keeps unsaved files
+whatever `files.hot_exit` says, and starts the same executable path with the
+same arguments in the same folder, after the backups are written. The next
+start removes what was left beside it. A copy that can't replace itself
+(`MERLIN_NO_SELF_UPDATE`, a folder under `/usr`, `/opt`, `/nix`, Homebrew
+and the like, or one it can't write to) gets the `install.sh` command with
+Copy instead.
+
+Tried 2026-11-15 in the real window, with a release served locally as
+v0.1.1 and signed with the release key: the pill, the card, the notes
+scrolling, progress through each step, the swap to the release binary and
+the restart with an unsaved line kept; a tampered archive (Update Failed,
+nothing changed); and `MERLIN_NO_SELF_UPDATE` (the command with Copy). Not
+tried: macOS, Windows, and a real published release, which needs one signed
+by the `sign` job.
 
 ### Milestone C: programs plugins need (7.2)
 

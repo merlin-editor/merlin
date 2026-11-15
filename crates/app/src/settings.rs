@@ -44,6 +44,7 @@ const USER_TEMPLATE: &str = r#"# merlin settings. Saving this file applies them.
 # ui_font_size = 13   # the window's own text, apart from the code
 # keymap = "vscode"   # or "vim"
 # line_numbers = "on" # or "relative", counted from the cursor in Vim's Normal mode
+# check_for_updates = true   # every 6 hours; the title bar says when there's a newer merlin
 
 [files]
 # trim_trailing_whitespace = false

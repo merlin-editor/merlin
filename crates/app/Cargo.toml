@@ -34,6 +34,9 @@ raw-window-handle = "0.6"
 ureq = "3"
 # Releases' SHA256SUMS are signed with minisign.
 minisign-verify = "0.2"
+# Unpacking a release's archive, to update merlin.
+tar = { version = "0.4", default-features = false }
+flate2 = "1"
 
 [target.'cfg(windows)'.dependencies]
 # Attaching to the terminal merlin was started from.

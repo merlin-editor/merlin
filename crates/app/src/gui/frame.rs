@@ -31,6 +31,7 @@ mod palette;
 mod peek;
 mod side;
 mod surface;
+mod update_card;
 mod widgets;
 pub use surface::SurfaceSeen;
 
@@ -106,6 +107,9 @@ pub enum Hit {
     Surface(u32),
     /// The Settings tab, where the wheel scrolls it.
     SettingsBody,
+    /// The update card's release notes, where the wheel scrolls them as
+    /// far as this many pixels.
+    UpdateNotes(i32),
 }
 
 /// An edge between editor groups: after column `n`, or under group `n` in
@@ -593,6 +597,9 @@ impl Frame<'_> {
         }
         if let Some(card) = &view.language_card {
             self.language_card(card, w, h);
+        }
+        if let Some(update) = &view.update {
+            self.update_card(update, chrome::layout_toggles(w), w, h);
         }
         if let Some(palette) = &view.palette {
             self.palette(palette, w, h);

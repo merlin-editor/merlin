@@ -42,6 +42,10 @@ pub use editor::{
     Debugger, FunctionStop, OutputKind, StackFrame, StopFilter,
 };
 pub use editor::{
+    ButtonStyle, StepMark, UpdateAction, UpdateButton, UpdateCardView, UpdateHit, UpdateOffer,
+    UpdateStep, UpdateStepView, UpdateView,
+};
+pub use editor::{
     DocEditor, PAGE_GAP, PX_PER_PT, PageSize, Pages, SurfaceAction, SurfaceView, THUMB, TILE,
     TextBox, TileKey, Tiles, page_layout,
 };
