@@ -311,6 +311,11 @@ pub struct PluginInfo {
     pub busy: Duration,
     /// Programs it's running, with their process ids.
     pub processes: Vec<(String, u32)>,
+    pub version: String,
+    /// The plugins it needs, with their requirements.
+    pub depends: needs::Depends,
+    /// The programs it starts on this computer, and whether each is here.
+    pub programs: Vec<needs::ProgramStatus>,
 }
 
 pub struct PluginHost {
@@ -396,6 +401,23 @@ impl PluginHost {
                 "{} needs plugin API {}, this editor has {API_VERSION}",
                 manifest.name,
                 manifest.api
+            );
+        }
+        // A plugin that says it doesn't work here isn't loaded.
+        if !needs::fits_here(&manifest.systems, &manifest.arch) {
+            let (os, cpu) = (std::env::consts::OS, std::env::consts::ARCH);
+            let on = if !manifest.systems.is_empty() && !manifest.systems.iter().any(|s| s == os) {
+                format!(
+                    "{}, and this is {}",
+                    needs::systems_words(&manifest.systems),
+                    needs::system_title(os)
+                )
+            } else {
+                format!("{}, and this is {cpu}", manifest.arch.join(", "))
+            };
+            bail!(
+                "{} says it works on {on}, so it isn't loaded. Its systems are in plugin.toml.",
+                manifest.title
             );
         }
         if self
@@ -1813,6 +1835,36 @@ impl PluginHost {
         ]
     }
 
+    /// Deletes the secrets a plugin stored, as when it's uninstalled with
+    /// its settings.
+    pub fn forget_secrets(&self, plugin: &str) {
+        let Some(p) = self.plugins.iter().find(|p| p.manifest.name == plugin) else {
+            return;
+        };
+        for spec in p
+            .manifest
+            .schema
+            .iter()
+            .filter(|s| s.kind == SettingKind::Secret)
+        {
+            self.secrets.delete(plugin, &spec.key);
+        }
+    }
+
+    /// Looks for plugins' programs again, as when the window gets focus:
+    /// agents whose program was installed meanwhile can chat.
+    pub fn look_again(&self) -> Vec<Event> {
+        needs::look_again();
+        self.plugins
+            .iter()
+            .filter(|p| !p.manifest.agents.is_empty() && !p.disabled && !p.failed)
+            .map(|p| Event::RegisterAgents {
+                plugin: p.manifest.name.clone(),
+                agents: agent_specs(&p.manifest),
+            })
+            .collect()
+    }
+
     /// What each plugin's page shows.
     pub fn plugins(&self) -> Vec<PluginInfo> {
         self.plugins
@@ -1868,6 +1920,9 @@ impl PluginHost {
                     memory: stats.memory,
                     busy: stats.busy,
                     processes: stats.processes,
+                    version: m.version.clone(),
+                    depends: m.depends.clone(),
+                    programs: needs::program_status(m),
                 }
             })
             .collect()

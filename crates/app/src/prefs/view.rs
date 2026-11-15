@@ -350,7 +350,7 @@ impl App {
             }
         });
 
-        let updates = self.browse.updates(&|_| None);
+        let updates = self.browse.updates(&|_| None, &self.loaded_requirements());
         let blocked = self.browse.blocked();
         let plugins: Vec<PluginRow> = if ui.category == Category::Plugins {
             self.host

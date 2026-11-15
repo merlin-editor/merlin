@@ -210,6 +210,26 @@ pub fn meets(req: &str, version: &str) -> bool {
     }
 }
 
+/// Where programs were found on `PATH`, until [`look_again`].
+static FOUND: std::sync::Mutex<Option<BTreeMap<String, Option<std::path::PathBuf>>>> =
+    std::sync::Mutex::new(None);
+
+/// [`on_path`], remembered: the window asks often, and `PATH` rarely
+/// changes. [`look_again`] forgets, as when the window gets focus.
+pub fn found(program: &str) -> Option<std::path::PathBuf> {
+    let mut cache = FOUND.lock().unwrap_or_else(|e| e.into_inner());
+    cache
+        .get_or_insert_with(BTreeMap::new)
+        .entry(program.to_string())
+        .or_insert_with(|| on_path(program))
+        .clone()
+}
+
+/// Forgets where programs were found, so they're looked for again.
+pub fn look_again() {
+    *FOUND.lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
+
 /// Where `program` is on `PATH`, as the shell would find it: a path with
 /// a folder in it as it is, else each `PATH` folder in turn, with Windows'
 /// `.exe`, `.cmd` and `.bat` tried too.
@@ -242,6 +262,89 @@ pub fn on_path(program: &str) -> Option<std::path::PathBuf> {
             runnable(&candidate).then_some(candidate)
         })
     })
+}
+
+/// A program a plugin starts, on this computer: where it is, if it's on
+/// `PATH`, and what to show when it isn't.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProgramStatus {
+    pub name: String,
+    pub found: Option<std::path::PathBuf>,
+    /// What the plugin can't do without it.
+    pub purpose: Option<String>,
+    /// The command to install it on this system.
+    pub install: Option<String>,
+    pub url: Option<String>,
+}
+
+/// The programs a manifest's plugin starts here, in its order: those in
+/// `processes`, then its debuggers', each with its `[programs]` entry.
+/// Ones left out for this computer aren't listed.
+pub fn program_status(m: &crate::Manifest) -> Vec<ProgramStatus> {
+    let mut names: Vec<(String, Option<Install>, Option<String>)> = Vec::new();
+    for p in &m.permissions.processes {
+        names.push((p.clone(), None, None));
+    }
+    for d in m
+        .debuggers
+        .iter()
+        .filter(|d| fits_here(&d.systems, &d.arch))
+    {
+        if let Some(cmd) = d.command.first()
+            && !names.iter().any(|(n, ..)| n == cmd)
+        {
+            names.push((cmd.clone(), d.install.clone(), d.url.clone()));
+        }
+    }
+    names
+        .into_iter()
+        .filter_map(|(name, install, url)| {
+            let entry = m.programs.get(&name);
+            if entry.is_some_and(|e| !e.here()) {
+                return None;
+            }
+            let install = entry.and_then(|e| e.install.clone()).or(install);
+            Some(ProgramStatus {
+                found: found(&name),
+                purpose: entry.and_then(|e| e.purpose.clone()),
+                install: install.as_ref().and_then(|i| i.here()).map(str::to_string),
+                url: entry.and_then(|e| e.url.clone()).or(url),
+                name,
+            })
+        })
+        .collect()
+}
+
+/// The same for a registry version, from what the index says of it.
+pub fn index_program_status(
+    programs: &BTreeMap<String, ManifestProgram>,
+    processes: &[String],
+) -> Vec<ProgramStatus> {
+    let mut names: Vec<String> = processes.to_vec();
+    for name in programs.keys() {
+        if !names.contains(name) {
+            names.push(name.clone());
+        }
+    }
+    names
+        .into_iter()
+        .filter_map(|name| {
+            let entry = programs.get(&name);
+            if entry.is_some_and(|e| !e.here()) {
+                return None;
+            }
+            Some(ProgramStatus {
+                found: found(&name),
+                purpose: entry.and_then(|e| e.purpose.clone()),
+                install: entry
+                    .and_then(|e| e.install.as_ref())
+                    .and_then(|i| i.here())
+                    .map(str::to_string),
+                url: entry.and_then(|e| e.url.clone()),
+                name,
+            })
+        })
+        .collect()
 }
 
 /// `[depends]`, by plugin name.

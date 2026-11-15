@@ -484,6 +484,7 @@ impl Editor {
                 format!("Notices from {}…", self.channel_title(plugin)),
                 format!("output.notices:{plugin}"),
             )),
+            code: None,
         });
         // The plugin's own buttons last, so its main one is the notice's.
         self.add_action("Open Output", &format!("output.show:{plugin}"));

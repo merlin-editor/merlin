@@ -426,34 +426,9 @@ pub(super) fn manifest_events(manifest: &Manifest) -> Vec<Event> {
         });
     }
     if !manifest.agents.is_empty() {
-        let agents = manifest
-            .agents
-            .iter()
-            .map(|a| merlin_core::AgentSpec {
-                plugin: plugin.clone(),
-                id: a.id.clone(),
-                name: a.name.clone(),
-                icon: a.icon.clone().unwrap_or_else(|| "◆".into()),
-                missing: a
-                    .program
-                    .as_ref()
-                    .filter(|p| crate::needs::on_path(p).is_none())
-                    .map(|p| {
-                        let program = manifest.programs.get(p);
-                        merlin_core::MissingProgram {
-                            program: p.clone(),
-                            install: program
-                                .and_then(|m| m.install.as_ref())
-                                .and_then(|i| i.here())
-                                .map(str::to_string),
-                            url: program.and_then(|m| m.url.clone()),
-                        }
-                    }),
-            })
-            .collect();
         events.push(Event::RegisterAgents {
             plugin: plugin.clone(),
-            agents,
+            agents: agent_specs(manifest),
         });
     }
     if !manifest.debuggers.is_empty() {
@@ -468,6 +443,36 @@ pub(super) fn manifest_events(manifest: &Manifest) -> Vec<Event> {
         });
     }
     events
+}
+
+/// A manifest's agents as the chat shows them: each with the program it
+/// runs, when that isn't on `PATH`.
+pub(super) fn agent_specs(manifest: &Manifest) -> Vec<merlin_core::AgentSpec> {
+    manifest
+        .agents
+        .iter()
+        .map(|a| merlin_core::AgentSpec {
+            plugin: manifest.name.clone(),
+            id: a.id.clone(),
+            name: a.name.clone(),
+            icon: a.icon.clone().unwrap_or_else(|| "◆".into()),
+            missing: a
+                .program
+                .as_ref()
+                .filter(|p| crate::needs::found(p).is_none())
+                .map(|p| {
+                    let program = manifest.programs.get(p);
+                    merlin_core::MissingProgram {
+                        program: p.clone(),
+                        install: program
+                            .and_then(|m| m.install.as_ref())
+                            .and_then(|i| i.here())
+                            .map(str::to_string),
+                        url: program.and_then(|m| m.url.clone()),
+                    }
+                }),
+        })
+        .collect()
 }
 
 /// A problem matcher, as `[[problem-matchers]]` declares it: `lines` one
@@ -655,8 +660,14 @@ impl Permissions {
     /// What `self` asks for that `allowed` doesn't, described, each with
     /// whether it's outside the sandbox.
     pub fn beyond(&self, allowed: &Permissions) -> Vec<(String, bool)> {
-        let had = allowed.described();
-        self.described()
+        // New hosts alone, not the whole list again.
+        let mut wants = self.clone();
+        wants.network.retain(|h| !allowed.network.contains(h));
+        let mut had = allowed.clone();
+        had.network.clear();
+        let had = had.described();
+        wants
+            .described()
             .into_iter()
             .filter(|w| !had.contains(w))
             .collect()

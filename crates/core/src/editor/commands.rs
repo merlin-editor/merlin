@@ -206,6 +206,17 @@ impl Editor {
         if id.starts_with("task.") {
             return self.task_command(id, fx);
         }
+        if let Some(url) = id.strip_prefix("open.url:") {
+            if url.starts_with("https://") {
+                fx.push(Effect::OpenUrl(url.to_string()));
+            }
+            return;
+        }
+        if let Some(plugin) = id.strip_prefix("plugins.page:") {
+            self.open_page(SETTINGS_PAGE, "Settings");
+            fx.push(Effect::OpenPluginPage(Some(plugin.to_string())));
+            return;
+        }
         if let Some(command) = id.strip_prefix("debug.copy:") {
             fx.push(Effect::Copy(command.to_string()));
             return self.notify_done("Copied".into());

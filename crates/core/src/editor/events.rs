@@ -292,6 +292,14 @@ pub enum Event {
     InsertText(String),
     Notify(String),
     /// A notice with buttons, each a label and the command it runs.
+    /// A notice with a command to copy in a box, and buttons, the last
+    /// the main one. A warning has an amber mark.
+    NotifyCode {
+        text: String,
+        code: Option<String>,
+        actions: Vec<(String, String)>,
+        warning: bool,
+    },
     NotifyWith {
         text: String,
         actions: Vec<(String, String)>,

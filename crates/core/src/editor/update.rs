@@ -213,6 +213,24 @@ impl Editor {
             Event::UpdateProgress { step, done, total } => self.update_progress(step, done, total),
             Event::UpdateFailed(why) => self.update_failed(why),
             Event::UpdateReady => self.update_ready(&mut fx),
+            Event::NotifyCode {
+                text,
+                code,
+                actions,
+                warning,
+            } => {
+                if warning {
+                    self.notify_warning(text);
+                } else {
+                    self.notify(text);
+                }
+                for (label, command) in actions {
+                    self.add_action(&label, &command);
+                }
+                if let Some(m) = &mut self.message {
+                    m.code = code;
+                }
+            }
             Event::NotifyWith { text, actions } => {
                 self.notify(text);
                 for (label, command) in actions {

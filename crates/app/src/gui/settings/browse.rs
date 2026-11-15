@@ -224,19 +224,24 @@ impl Frame<'_> {
         // At the right: what you have of it, then where it's from.
         let mut right = r.right() - 10.0;
         let busy = v.busy.as_deref() == Some(row.name.as_str());
-        let (chip, colour) = match row.state {
+        let (chip, colour) = match (&row.note, row.state) {
             _ if busy => (Some("installing…".to_string()), p.accent),
-            RowState::Installed => (Some("✓ installed".into()), p.success),
-            RowState::Update => (Some("update".into()), p.accent),
-            RowState::Linked => (Some("linked".into()), p.muted),
-            RowState::NotForThis => (
-                Some(format!(
-                    "for {}",
-                    row.api.as_deref().unwrap_or("another merlin")
-                )),
-                p.muted,
-            ),
-            RowState::Available => (None, p.muted),
+            (Some((note, warn)), _) => {
+                (Some(note.clone()), if *warn { p.warning } else { p.muted })
+            }
+            (None, state) => match state {
+                RowState::Installed => (Some("✓ installed".into()), p.success),
+                RowState::Update => (Some("update".into()), p.accent),
+                RowState::Linked => (Some("linked".into()), p.muted),
+                RowState::NotForThis => (
+                    Some(format!(
+                        "for {}",
+                        row.api.as_deref().unwrap_or("another merlin")
+                    )),
+                    p.muted,
+                ),
+                RowState::Available => (None, p.muted),
+            },
         };
         match chip {
             Some(chip) => {
@@ -449,6 +454,10 @@ impl Frame<'_> {
         for what in &page.not_asked {
             self.perm_line("—", p.faint, what, p.muted, c);
         }
+        if !page.programs.is_empty() {
+            self.s_heading("Programs it uses", None, c);
+            self.programs(&page.programs, c);
+        }
 
         if !page.versions.is_empty() {
             self.s_heading("Versions", None, c);
@@ -468,7 +477,134 @@ impl Frame<'_> {
         }
     }
 
+    /// Programs a plugin starts: each found, with where, or not, with
+    /// what's missing without it, the command to install it with Copy, and
+    /// a link to read more. As in `docs/mockups/PluginNeeds.html`.
+    pub(super) fn programs(
+        &mut self,
+        programs: &[merlin_plugins::needs::ProgramStatus],
+        c: &mut Ctx,
+    ) {
+        let p = self.p;
+        let clip = c.clip;
+        let w = c.w.min(640.0);
+        for (n, prog) in programs.iter().enumerate() {
+            if n > 0 {
+                self.s_fill(Rect::new(c.x, c.y, w, 1.0), clip, p.line);
+            }
+            c.y += 6.0;
+            let found = prog.found.is_some();
+            let (mark, colour) = if found {
+                ("✓", p.success)
+            } else {
+                ("!", p.warning)
+            };
+            self.s_row_text(
+                mark,
+                Face::ui(12.0).bold(),
+                c.x + 2.0,
+                c.y,
+                20.0,
+                colour,
+                clip,
+            );
+            let x = c.x + 22.0;
+            let nw = self.s_row_text(&prog.name, Face::mono(12.0), x, c.y, 20.0, p.bright, clip);
+            let status = match &prog.found {
+                Some(path) => home_short(&path.display().to_string()),
+                None => "isn't installed".into(),
+            };
+            self.s_row_text(
+                &status,
+                Face::ui(11.5),
+                x + nw + 6.0,
+                c.y,
+                20.0,
+                p.muted,
+                clip,
+            );
+            c.y += 20.0;
+            if let Some(purpose) = &prog.purpose {
+                let text = if found {
+                    format!("{}.", purpose.trim_end_matches('.'))
+                } else {
+                    format!(
+                        "Without it: {}.",
+                        lower_first(purpose.trim_end_matches('.'))
+                    )
+                };
+                self.s_row_text(&text, Face::ui(11.5), x, c.y, 18.0, p.muted, clip);
+                c.y += 18.0;
+            }
+            if !found {
+                if let Some(cmd) = &prog.install {
+                    c.y += 4.0;
+                    let b = Rect::new(x, c.y, w - 22.0, 30.0);
+                    self.s_round(b, 6.0, clip, p.border);
+                    self.s_round(b.inset(1.0), 5.0, clip, p.ground);
+                    let copy = self.s_button(
+                        "Copy",
+                        b.right() - 3.0,
+                        b.y + 2.0,
+                        false,
+                        Some(act(BrowseAction::Copy(cmd.clone()))),
+                        clip,
+                    );
+                    let mono = Face::mono(11.5);
+                    let t = self.text.fit(cmd, mono, copy.x - b.x - 16.0);
+                    self.s_row_text(&t, mono, b.x + 10.0, b.y, b.h, p.text, clip);
+                    c.y += 34.0;
+                }
+                if let Some(url) = &prog.url {
+                    let label = if prog.install.is_some() {
+                        format!("How to install {} ↗", prog.name)
+                    } else {
+                        let os = merlin_plugins::needs::system_title(std::env::consts::OS);
+                        format!("How to install {} on {os} ↗", prog.name)
+                    };
+                    c.y += 2.0;
+                    let lw = self.text.width(&label, Face::ui(11.5));
+                    let lr = Rect::new(x, c.y, lw, 18.0);
+                    let fg = if self.s_hovered(lr, clip) {
+                        mix(p.accent, 0xffffff, 0.8)
+                    } else {
+                        p.accent
+                    };
+                    self.s_row_text(&label, Face::ui(11.5), x, c.y, 18.0, fg, clip);
+                    if url.starts_with("https://") {
+                        self.s_hit(lr, clip, act(BrowseAction::Open(url.clone())));
+                    }
+                    c.y += 20.0;
+                }
+            }
+            c.y += 6.0;
+        }
+        c.y += 4.0;
+    }
+
     fn perm_line(&mut self, mark: &str, colour: u32, what: &str, fg: u32, c: &mut Ctx) {
+        // Names in backticks, as `gopls`, are drawn as code on one line.
+        if what.contains('`') {
+            self.s_row_text(mark, Face::ui(12.0), c.x, c.y, 24.0, colour, c.clip);
+            let mut x = c.x + 22.0;
+            for (n, part) in what.split('`').enumerate() {
+                if part.is_empty() {
+                    continue;
+                }
+                if n % 2 == 1 {
+                    let mono = Face::mono(11.5);
+                    let tw = self.text.width(part, mono);
+                    let chip = Rect::new(x + 1.0, c.y + 4.0, tw + 10.0, 16.0);
+                    self.s_round(chip, 4.0, c.clip, self.p.chip);
+                    self.s_row_text(part, mono, x + 6.0, c.y, 24.0, self.p.text, c.clip);
+                    x += tw + 13.0;
+                } else {
+                    x += self.s_row_text(part, Face::ui(12.5), x, c.y, 24.0, fg, c.clip);
+                }
+            }
+            c.y += 24.0;
+            return;
+        }
         let face = Face::ui(12.5);
         let wrap = (c.w - 22.0).max(40.0);
         let h = self.text.wrapped_height(what, face, wrap);
@@ -496,7 +632,10 @@ impl Frame<'_> {
             self.s_fill(Rect::new(r.x, r.bottom() - 1.0, r.w, 1.0), clip, p.line);
             let dim = matches!(
                 v.note,
-                VersionNote::Withdrawn(_) | VersionNote::Blocked(_) | VersionNote::Older
+                VersionNote::Withdrawn(_)
+                    | VersionNote::Blocked(_)
+                    | VersionNote::Older
+                    | VersionNote::NotHere(_)
             );
             let fg = if dim { p.faint } else { p.text };
             let vw = self.s_row_text(
@@ -514,7 +653,8 @@ impl Frame<'_> {
             let cols = [
                 (format!("API {}", v.api), 70.0),
                 (v.published.clone(), 160.0),
-                (bytes(v.size), 260.0),
+                (v.systems.clone(), 270.0),
+                (bytes(v.size), 380.0),
             ];
             for (text, at) in cols {
                 if r.x + at < r.right() - 60.0 {
@@ -531,6 +671,11 @@ impl Frame<'_> {
                     let t = "for an older merlin";
                     let tw = self.text.width(t, Face::ui(12.0));
                     self.s_row_text(t, Face::ui(12.0), r.right() - tw, r.y, r.h, p.faint, clip);
+                    None
+                }
+                VersionNote::NotHere(why) => {
+                    let tw = self.text.width(why, Face::ui(12.0));
+                    self.s_row_text(why, Face::ui(12.0), r.right() - tw, r.y, r.h, p.faint, clip);
                     None
                 }
                 VersionNote::None => None,
@@ -559,7 +704,10 @@ impl Frame<'_> {
         let head = |n: usize| format!("UPDATES · {n}");
         let face = Face::ui(10.5).bold();
         self.s_row_text(&head(updates.len()), face, x + 10.0, y, 20.0, p.muted, clip);
-        if updates.iter().any(|u| u.more.is_empty()) {
+        if updates
+            .iter()
+            .any(|u| u.more.is_empty() && u.waits.is_none())
+        {
             let f = Face::ui(11.5).medium();
             let label = "Update All";
             let tw = self.text.width(label, f);
@@ -585,6 +733,32 @@ impl Frame<'_> {
             );
             self.plugin_mark(&u.mark, r.x + 10.0, r.y + 10.0, 26.0, true, clip);
             let mid = r.y + 10.0;
+            // One that would break another plugin waits, and says why.
+            if let Some(why) = &u.waits {
+                let chip_w =
+                    self.s_chip("waiting", r.right() - 10.0, r.y + r.h / 2.0, p.muted, clip);
+                let tclip = Rect::new(r.x, r.y, r.w - chip_w - 20.0, r.h).intersect(clip);
+                self.s_row_text(
+                    &u.title,
+                    Face::ui(12.5).bold(),
+                    r.x + 44.0,
+                    r.y + 5.0,
+                    18.0,
+                    p.bright,
+                    tclip,
+                );
+                self.s_row_text(
+                    why,
+                    Face::ui(11.5),
+                    r.x + 44.0,
+                    r.y + 23.0,
+                    16.0,
+                    p.muted,
+                    tclip,
+                );
+                y += 48.0;
+                continue;
+            }
             let (label, hit) = if busy == Some(u.name.as_str()) {
                 ("Updating…", None)
             } else if u.more.is_empty() {
@@ -682,10 +856,21 @@ impl Frame<'_> {
         if busy {
             self.s_banner(&format!("Updating to {}…", u.to), Tint::Accent, &[], c);
         } else if !u.more.is_empty() {
-            let mut text = format!("{} also wants to:", u.to);
-            for (what, _) in &u.more {
-                text += &format!("\n⚠ {}", capital(what));
-            }
+            let text = match u.more.as_slice() {
+                [(what, _)] => format!(
+                    "{} {} also wants to {}.",
+                    u.title,
+                    u.to,
+                    what.replace('`', "")
+                ),
+                more => {
+                    let mut text = format!("{} {} also wants to:", u.title, u.to);
+                    for (what, _) in more {
+                        text += &format!("\n⚠ {}", capital(&what.replace('`', "")));
+                    }
+                    text
+                }
+            };
             let skip = act(BrowseAction::Skip(name.to_string(), u.to.clone()));
             self.s_banner(
                 &text,
@@ -704,13 +889,20 @@ impl Frame<'_> {
         }
     }
 
-    /// The Install? or Replace? card, under the button that opened it.
+    /// The Install? card, under the button that opened it: what it may do,
+    /// or every plugin an install takes with what each may do, or why it
+    /// can't install. As in `docs/mockups/PluginNeeds.html`, cards 10, 11.
     pub(super) fn confirm_card(&mut self, under: Rect, card: &ConfirmView, area: Rect) {
         let p = self.p;
         let w = 340.0_f32.min(area.w - 16.0);
         let face = Face::ui(12.0);
         let wrap = w - 32.0;
         let text_h = self.text.wrapped_height(&card.text, face, wrap);
+        let detail_h = if card.detail.is_empty() {
+            0.0
+        } else {
+            self.text.wrapped_height(&card.detail, Face::ui(11.5), wrap) + 6.0
+        };
         let items_h: f32 = card
             .items
             .iter()
@@ -720,7 +912,9 @@ impl Frame<'_> {
                     + 8.0
             })
             .sum();
-        let h = 16.0 + 20.0 + 6.0 + text_h + 8.0 + items_h + 12.0 + 26.0 + 16.0;
+        let plugins_h = card.plugins.len() as f32 * 44.0;
+        let h =
+            16.0 + 20.0 + 6.0 + text_h + 8.0 + detail_h + items_h + plugins_h + 12.0 + 26.0 + 16.0;
         let x = (under.right() - w).max(area.x + 8.0);
         let y = under.bottom() + 6.0;
         let r = Rect::new(x, y, w, h);
@@ -750,6 +944,19 @@ impl Frame<'_> {
             Some(wrap),
         );
         cy += text_h + 8.0;
+        if !card.detail.is_empty() {
+            self.text.draw(
+                &mut self.canvas,
+                &card.detail,
+                Face::ui(11.5),
+                r.x + 16.0,
+                cy,
+                p.muted,
+                r,
+                Some(wrap),
+            );
+            cy += detail_h;
+        }
         for item in &card.items {
             let item = capital(item);
             let ih = self.text.wrapped_height(&item, Face::ui(12.5), wrap - 22.0);
@@ -775,23 +982,141 @@ impl Frame<'_> {
             );
             cy += ih + 8.0;
         }
+        // Each plugin: its tile, its title and version, why it's coming,
+        // and what it may do, outside the sandbox first.
+        // The plugin asked for first, then what it needs.
+        for (n, item) in card.plugins.iter().rev().enumerate() {
+            if n > 0 {
+                self.canvas
+                    .fill(Rect::new(r.x + 16.0, cy, wrap, 1.0), p.line);
+            }
+            let row_y = cy + 4.0;
+            self.plugin_mark(&item.mark, r.x + 16.0, row_y + 4.0, 20.0, true, r);
+            let tx = r.x + 44.0;
+            let tw = self.text.draw_in_row(
+                &mut self.canvas,
+                &format!("{} {}", item.title, item.version),
+                Face::ui(12.5),
+                tx,
+                row_y,
+                18.0,
+                p.bright,
+                r,
+            );
+            if let Some(note) = &item.note {
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    note,
+                    Face::ui(10.5),
+                    tx + tw + 6.0,
+                    row_y,
+                    18.0,
+                    p.faint,
+                    r,
+                );
+            }
+            let outside: Vec<&str> = item
+                .permissions
+                .iter()
+                .filter(|(_, o)| *o)
+                .map(|(w, _)| w.as_str())
+                .collect();
+            // The programs it starts, together: "Starts gopls and dlv".
+            let programs: Vec<&str> = outside
+                .iter()
+                .filter_map(|w| w.strip_prefix("run `")?.split('`').next())
+                .collect();
+            let starts = match programs.as_slice() {
+                [] => None,
+                [one] => Some(format!("Starts {one}, outside the sandbox")),
+                [rest @ .., last] => Some(format!(
+                    "Starts {} and {last}, outside the sandbox",
+                    rest.join(", ")
+                )),
+            };
+            let (mark, colour, what) = match (starts, outside.first()) {
+                (Some(starts), _) => ("⚠", p.warning, starts),
+                (None, Some(first)) => ("⚠", p.warning, capital(first)),
+                (None, None) => (
+                    "✓",
+                    p.success,
+                    item.permissions
+                        .first()
+                        .map_or("Nothing beyond the sandbox".to_string(), |(w, _)| {
+                            capital(w)
+                        }),
+                ),
+            };
+            let what = self
+                .text
+                .fit(&what.replace('`', ""), Face::ui(11.5), wrap - 46.0);
+            self.text.draw_in_row(
+                &mut self.canvas,
+                mark,
+                Face::ui(11.0),
+                tx,
+                row_y + 18.0,
+                16.0,
+                colour,
+                r,
+            );
+            self.text.draw_in_row(
+                &mut self.canvas,
+                &what,
+                Face::ui(11.5),
+                tx + 14.0,
+                row_y + 18.0,
+                16.0,
+                p.muted,
+                r,
+            );
+            cy += 44.0;
+        }
         cy += 4.0;
-        let ok = self.s_button(
-            &card.button,
-            r.right() - 16.0,
-            cy,
-            true,
-            Some(act(card.action.clone())),
-            r,
-        );
-        self.s_button(
-            "Cancel",
-            ok.x - 8.0,
+        let mut right = r.right() - 16.0;
+        if let Some((label, action)) = &card.button {
+            let ok = self.s_button(label, right, cy, true, Some(act(action.clone())), r);
+            right = ok.x - 8.0;
+        }
+        let cancel = self.s_button(
+            &card.cancel,
+            right,
             cy,
             false,
             Some(act(BrowseAction::Cancel)),
             r,
         );
+        if let Some((label, action)) = &card.quiet {
+            let f = Face::ui(12.0).medium();
+            let lw = self.text.width(label, f);
+            let b = Rect::new(cancel.x - 8.0 - lw - 16.0, cy, lw + 16.0, 26.0);
+            let fg = if self.hovered(b) { p.bright } else { p.muted };
+            if self.hovered(b) {
+                self.canvas.round(b, 6.0, p.hover);
+            }
+            self.text
+                .draw_in_row(&mut self.canvas, label, f, b.x + 8.0, b.y, b.h, fg, r);
+            self.hit(b, act(action.clone()));
+        }
+    }
+}
+
+/// A path in the home folder as `~/…`.
+fn home_short(path: &str) -> String {
+    match std::env::var("HOME") {
+        Ok(home) if !home.is_empty() && path.starts_with(&home) => {
+            format!("~{}", &path[home.len()..])
+        }
+        _ => path.to_string(),
+    }
+}
+
+/// "Completion, errors" as "completion, errors".
+fn lower_first(text: &str) -> String {
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(first) => first.to_lowercase().chain(chars).collect(),
+        None => String::new(),
     }
 }
 

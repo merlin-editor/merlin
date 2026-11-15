@@ -54,16 +54,17 @@ impl App {
             registry: self.browse.registry_page(
                 &p.name,
                 self.browse
-                    .updates(&|_| None)
+                    .updates(&|_| None, &self.loaded_requirements())
                     .into_iter()
                     .find(|u| u.name == p.name),
             ),
-            uninstall_armed: self.uninstall_armed.as_deref() == Some(name),
+            uninstall: self.uninstall.clone().filter(|u| u.name == name),
             running: p
                 .processes
                 .iter()
                 .map(|(prog, pid)| (prog.clone(), *pid, self.memory.of(*pid)))
                 .collect(),
+            programs: p.programs,
             name: p.name,
             title: p.title,
             dir: p.dir,
@@ -203,72 +204,185 @@ impl App {
             PageAction::Reload(name) => events.extend(self.host.reload(&name)),
             PageAction::Output(name) => events.push(Event::ShowOutput(name)),
             PageAction::Uninstall(name) => {
-                if self.uninstall_armed.as_deref() != Some(name.as_str()) {
-                    // Its page shows, asking again, as from its menu.
-                    self.settings_ui.plugin = Some(name.clone());
-                    self.uninstall_armed = Some(name);
-                    return events;
+                self.settings_ui.plugin = Some(name.clone());
+                self.uninstall = self.uninstall_card(&name);
+                return events;
+            }
+            PageAction::UninstallDeps(on) => {
+                if let Some(card) = &mut self.uninstall {
+                    card.remove_deps = on;
                 }
-                self.uninstall_armed = None;
-                let Some(info) = self.host.plugins().into_iter().find(|p| p.name == name) else {
+                return events;
+            }
+            PageAction::UninstallSettings(on) => {
+                if let Some(card) = &mut self.uninstall {
+                    card.delete_settings = on;
+                }
+                return events;
+            }
+            PageAction::UninstallCancel => {
+                self.uninstall = None;
+                return events;
+            }
+            PageAction::UninstallNow => {
+                let Some(card) = self.uninstall.take() else {
                     return events;
                 };
-                // What it was allowed goes with it, linked or packaged,
-                // once it's sure to go.
-                let revoke = || {
-                    let _ = merlin_plugins::revoke(&merlin_plugins::Config::standard(), &info.dir);
-                };
-                let packaged = settings::plugins_dir()
-                    .filter(|plugins| merlin_plugins::package::is_packaged(&info.dir, plugins));
-                if packaged.is_some() {
-                    // Installed from a package: its folder is the plugin's
-                    // own, so it goes, to the bin where it can come back.
-                    events.extend(self.host.unload(&name));
-                    revoke();
-                    match trash::delete(&info.dir) {
-                        Ok(()) => {
-                            let data = merlin_plugins::Config::standard().data_dir;
-                            let _ = merlin_plugins::package::record(&data, &name, None);
-                            self.browse.installed.remove(&name);
-                            events.push(Event::Notify(format!(
-                                "Uninstalled {}. Its folder is in the bin.",
-                                info.title
-                            )));
-                            events.extend(self.refresh_looks());
-                        }
-                        Err(err) => {
-                            events.push(Event::Error(format!("Can't uninstall: {err}")));
-                        }
-                    }
-                    events.push(self.plugin_summaries());
-                    return events;
+                if card.delete_settings {
+                    self.forget_settings(&card.name);
                 }
-                let link = self.install_link(&info);
-                if link.is_some() {
-                    revoke();
-                }
-                match link.map(std::fs::remove_file) {
-                    Some(Ok(())) => {
-                        events.extend(self.host.unload(&name));
-                        // So one that comes with merlin doesn't come back.
-                        let data = merlin_plugins::Config::standard().data_dir;
-                        let _ = merlin_plugins::package::record(&data, &name, None);
-                        events.push(Event::Notify(format!(
-                            "Uninstalled {}. Its files are still in {}.",
-                            info.title,
-                            info.dir.display()
-                        )));
-                        events.extend(self.refresh_looks());
+                events.extend(self.uninstall_now(&card.name));
+                if card.remove_deps {
+                    for (dep, _) in &card.deps {
+                        events.extend(self.uninstall_now(dep));
                     }
-                    Some(Err(err)) => events.push(Event::Error(format!("Can't uninstall: {err}"))),
-                    None => events.push(Event::Error(format!(
-                        "{} wasn't installed with merlin plugin install, so there's nothing to remove",
-                        info.title
-                    ))),
                 }
             }
         }
         events.push(self.plugin_summaries());
+        events
+    }
+}
+
+impl App {
+    /// The Uninstall? card for a plugin: who needs it, what it pulled in
+    /// that nothing else needs, and what it keeps.
+    fn uninstall_card(&self, name: &str) -> Option<crate::prefs::UninstallCard> {
+        let plugins = self.host.plugins();
+        let info = plugins.iter().find(|p| p.name == name)?;
+        let needed_by: Vec<String> = plugins
+            .iter()
+            .filter(|p| p.name != name && p.depends.contains_key(name))
+            .map(|p| p.title.clone())
+            .collect();
+        let deps: Vec<(String, String)> = info
+            .depends
+            .keys()
+            .filter(|dep| {
+                self.browse
+                    .installed
+                    .get(*dep)
+                    .is_some_and(|m| m.dependency)
+            })
+            .filter(|dep| {
+                !plugins
+                    .iter()
+                    .any(|p| p.name != name && p.depends.contains_key(*dep))
+            })
+            .filter_map(|dep| {
+                let p = plugins.iter().find(|p| p.name == *dep)?;
+                Some((p.name.clone(), p.title.clone()))
+            })
+            .collect();
+        let Loaded {
+            user, workspace, ..
+        } = &self.loaded;
+        let count = |t: &toml::Table| -> usize {
+            fn leaves(v: &toml::Value) -> usize {
+                match v {
+                    toml::Value::Table(t) => t.values().map(leaves).sum(),
+                    _ => 1,
+                }
+            }
+            t.get("plugins").and_then(|p| p.get(name)).map_or(0, leaves)
+        };
+        let (mine, here) = (count(user), count(workspace));
+        let mut parts = Vec::new();
+        if mine > 0 {
+            let s = if mine == 1 { "" } else { "s" };
+            parts.push(format!("{mine} setting{s} in your settings.toml"));
+        }
+        if here > 0 {
+            parts.push(format!("{here} in this workspace's"));
+        }
+        if !info.secrets.is_empty() {
+            let n = info.secrets.len();
+            let s = if n == 1 { "" } else { "s" };
+            parts.push(format!("{n} secret{s} it stored"));
+        }
+        let stored = match parts.as_slice() {
+            [] => String::new(),
+            [one] => format!("{one}."),
+            [rest @ .., last] => format!("{}, and {last}.", rest.join(", ")),
+        };
+        Some(crate::prefs::UninstallCard {
+            name: name.to_string(),
+            title: info.title.clone(),
+            needed_by,
+            remove_deps: !deps.is_empty(),
+            deps,
+            stored,
+            delete_settings: false,
+        })
+    }
+
+    /// Deletes a plugin's settings, yours and this workspace's, and the
+    /// secrets it stored.
+    fn forget_settings(&mut self, name: &str) {
+        let key = format!("plugins.{name}");
+        let _ = self.settings.remove_in(false, &key);
+        let _ = self.settings.remove_in(true, &key);
+        self.host.forget_secrets(name);
+    }
+
+    /// Uninstalls a plugin: its folder to the bin if it was installed from
+    /// a package, else its link; what it was allowed goes with it.
+    fn uninstall_now(&mut self, name: &str) -> Vec<Event> {
+        let mut events = Vec::new();
+        let Some(info) = self.host.plugins().into_iter().find(|p| p.name == name) else {
+            return events;
+        };
+        let name = name.to_string();
+        // What it was allowed goes with it, linked or packaged,
+        // once it's sure to go.
+        let revoke = || {
+            let _ = merlin_plugins::revoke(&merlin_plugins::Config::standard(), &info.dir);
+        };
+        let packaged = settings::plugins_dir()
+            .filter(|plugins| merlin_plugins::package::is_packaged(&info.dir, plugins));
+        if packaged.is_some() {
+            events.extend(self.host.unload(&name));
+            revoke();
+            match trash::delete(&info.dir) {
+                Ok(()) => {
+                    let data = merlin_plugins::Config::standard().data_dir;
+                    let _ = merlin_plugins::package::record(&data, &name, None);
+                    self.browse.installed.remove(&name);
+                    events.push(Event::Notify(format!(
+                        "Uninstalled {}. Its folder is in the bin.",
+                        info.title
+                    )));
+                    events.extend(self.refresh_looks());
+                }
+                Err(err) => {
+                    events.push(Event::Error(format!("Can't uninstall: {err}")));
+                }
+            }
+            return events;
+        }
+        let link = self.install_link(&info);
+        if link.is_some() {
+            revoke();
+        }
+        match link.map(std::fs::remove_file) {
+            Some(Ok(())) => {
+                events.extend(self.host.unload(&name));
+                // So one that comes with merlin doesn't come back.
+                let data = merlin_plugins::Config::standard().data_dir;
+                let _ = merlin_plugins::package::record(&data, &name, None);
+                events.push(Event::Notify(format!(
+                    "Uninstalled {}. Its files are still in {}.",
+                    info.title,
+                    info.dir.display()
+                )));
+                events.extend(self.refresh_looks());
+            }
+            Some(Err(err)) => events.push(Event::Error(format!("Can't uninstall: {err}"))),
+            None => events.push(Event::Error(format!(
+                "{} wasn't installed with merlin plugin install, so there's nothing to remove",
+                info.title
+            ))),
+        }
         events
     }
 }

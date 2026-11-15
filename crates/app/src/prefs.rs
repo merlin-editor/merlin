@@ -429,12 +429,31 @@ pub struct PageView {
     pub rows: Vec<Row>,
     /// Turned off in this workspace only.
     pub off_here: bool,
-    /// The Uninstall button was pressed once, and waits for a second.
-    pub uninstall_armed: bool,
+    /// The Uninstall? card, while it's open.
+    pub uninstall: Option<UninstallCard>,
     /// Installed with `merlin plugin install`, so it can be uninstalled.
     pub installed: bool,
     /// Where a registry install came from, its versions and news.
     pub registry: Option<crate::browse::RegistryPage>,
+    /// The programs it starts here, and whether each is installed.
+    pub programs: Vec<merlin_plugins::needs::ProgramStatus>,
+}
+
+/// The Uninstall? card: who needs the plugin, what it pulled in that
+/// nothing else needs, and what it keeps (`docs/mockups/PluginNeeds.html`
+/// cards 13 and 14, `PluginUpkeep.html` card 4).
+#[derive(Clone, Debug, PartialEq)]
+pub struct UninstallCard {
+    pub name: String,
+    pub title: String,
+    /// Plugins that need it, by title: they'll be off until it's back.
+    pub needed_by: Vec<String>,
+    /// Plugins installed only for it that nothing else needs.
+    pub deps: Vec<(String, String)>,
+    pub remove_deps: bool,
+    /// What its settings and data come to, in words; empty if nothing.
+    pub stored: String,
+    pub delete_settings: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -448,7 +467,15 @@ pub enum PageAction {
     Reload(String),
     /// Its channel of the Output panel.
     Output(String),
+    /// Opens the Uninstall? card.
     Uninstall(String),
+    /// The card's boxes: also uninstall what it pulled in, also delete its
+    /// settings and data.
+    UninstallDeps(bool),
+    UninstallSettings(bool),
+    /// The card's Uninstall, and its Cancel.
+    UninstallNow,
+    UninstallCancel,
 }
 
 /// The settings as last read: merged, then each file on its own, and what
@@ -636,7 +663,7 @@ impl App {
             SettingsAction::Plugin(name) => {
                 ui.plugin = Some(name);
                 ui.scroll = 0.0;
-                self.uninstall_armed = None;
+                self.uninstall = None;
                 Vec::new()
             }
             SettingsAction::PageTab(tab) => {

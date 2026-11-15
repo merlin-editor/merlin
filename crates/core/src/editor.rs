@@ -287,6 +287,8 @@ struct Message {
     actions: Vec<(String, String)>,
     /// A quieter link at the start of the button row: label and command.
     link: Option<(String, String)>,
+    /// A command to copy, in a box with Copy under the text.
+    code: Option<String>,
 }
 
 pub struct Editor {
@@ -1024,6 +1026,7 @@ impl Editor {
             warning: false,
             actions: Vec::new(),
             link: None,
+            code: None,
         });
     }
 
@@ -1044,6 +1047,7 @@ impl Editor {
             warning: false,
             actions: Vec::new(),
             link: None,
+            code: None,
         });
     }
 

@@ -61,6 +61,9 @@ pub(crate) struct Browse {
     /// Blocked plugins already told of, so it's said once.
     pub told: HashSet<String>,
     pub data_dir: PathBuf,
+    /// What's loaded now, by name: its version and what it requires. Kept
+    /// fresh by [`App::browse_view`], for the resolver and updates.
+    pub reqs: BTreeMap<String, (String, merlin_plugins::needs::Depends)>,
 }
 
 /// An install or update waiting its turn.
@@ -69,6 +72,8 @@ pub(crate) struct Job {
     pub source: String,
     pub name: String,
     pub version: String,
+    /// Installed because another plugin needs it.
+    pub dependency: bool,
 }
 
 /// A card asking before an install.
@@ -87,6 +92,29 @@ pub(crate) enum ConfirmKind {
     Outside(Vec<String>),
     /// It replaces the same name from another source.
     Replace { from: String },
+    /// It needs other plugins, which install with it: each, the asked-for
+    /// one last.
+    Plan(Vec<PlanItem>),
+    /// What it needs can't be had: the card says who wants what.
+    Conflict {
+        text: String,
+        detail: String,
+        /// The plugin whose page might help, by name and title.
+        open: Option<(String, String)>,
+    },
+}
+
+/// A plugin on the install card.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PlanItem {
+    pub name: String,
+    pub title: String,
+    pub mark: (String, Hue),
+    pub version: String,
+    /// "needed by Go", for a dependency.
+    pub note: Option<String>,
+    /// What it may do, each outside the sandbox or not.
+    pub permissions: Vec<(String, bool)>,
 }
 
 /// A click in Browse, or on a registry plugin's banners.
@@ -112,6 +140,8 @@ pub(crate) enum BrowseAction {
     Cancel,
     /// Opens a page in the browser: a repository, or Report.
     Open(String),
+    /// Copies a command, as one that installs a program.
+    Copy(String),
 }
 
 /// How a registry plugin's row reads.
@@ -139,6 +169,9 @@ pub struct BrowseRow {
     pub state: RowState,
     /// The API its newest version needs, when it isn't this one.
     pub api: Option<String>,
+    /// A word at its right end in place of the version: "needs gopls" (a
+    /// warning), "not for Windows", "replaced by Python".
+    pub note: Option<(String, bool)>,
 }
 
 /// A version in a Versions table.
@@ -149,6 +182,8 @@ pub struct VersionRow {
     /// The day it was published, as people read it.
     pub published: String,
     pub size: u64,
+    /// The systems it's for: "all", or "Linux, macOS".
+    pub systems: String,
     pub note: VersionNote,
 }
 
@@ -161,6 +196,8 @@ pub enum VersionNote {
     Blocked(String),
     /// For another API.
     Older,
+    /// Not for this computer: "not for Windows".
+    NotHere(String),
     None,
 }
 
@@ -189,6 +226,8 @@ pub struct BrowsePage {
     /// The commit its newest version was built from.
     pub commit: Option<String>,
     pub report: Option<String>,
+    /// The programs it starts here, and whether each is installed.
+    pub programs: Vec<merlin_plugins::needs::ProgramStatus>,
 }
 
 /// An update waiting in Installed.
@@ -203,6 +242,9 @@ pub struct UpdateRow {
     pub more: Vec<(String, bool)>,
     /// The installed version was withdrawn, and why.
     pub withdrawn: Option<String>,
+    /// It would break another plugin's requirement, so it waits:
+    /// "0.3.1 waits: Rust needs 0.2".
+    pub waits: Option<String>,
 }
 
 /// A banner over Browse's list.
@@ -246,8 +288,16 @@ pub struct ConfirmView {
     pub title: String,
     pub text: String,
     pub items: Vec<String>,
-    pub button: String,
-    pub action: BrowseAction,
+    /// The plugins an install takes, for a card with more than one.
+    pub plugins: Vec<PlanItem>,
+    /// A smaller line after the text.
+    pub detail: String,
+    /// The main button and what it does; none for a card that only says.
+    pub button: Option<(String, BrowseAction)>,
+    /// A quiet button before Cancel or Close.
+    pub quiet: Option<(String, BrowseAction)>,
+    /// "Cancel", or "Close" when there's nothing to do.
+    pub cancel: String,
 }
 
 impl Browse {
@@ -311,7 +361,11 @@ impl Browse {
 
     /// Updates for installed plugins: withdrawn ones first, then by name.
     /// A skipped version shows only once a newer one is out.
-    pub(crate) fn updates(&self, titles: &Titles) -> Vec<UpdateRow> {
+    pub(crate) fn updates(
+        &self,
+        titles: &Titles,
+        reqs: &BTreeMap<String, (String, merlin_plugins::needs::Depends)>,
+    ) -> Vec<UpdateRow> {
         let config = Config::standard();
         let plugins = settings::plugins_dir();
         let mut rows: Vec<UpdateRow> = self
@@ -338,6 +392,18 @@ impl Browse {
                     .unwrap_or_default();
                 let (title, mark) =
                     titles(name).unwrap_or_else(|| (entry.title.clone(), entry_mark(entry)));
+                let waits =
+                    registry::update_breaks(name, &newest.version, reqs).map(|(who, req)| {
+                        let who = titles(&who)
+                            .map(|(t, _)| t)
+                            .or_else(|| self.title_of(&who))
+                            .unwrap_or(who);
+                        format!(
+                            "{} waits: {who} needs {}",
+                            newest.version,
+                            registry::requirement_words(&req)
+                        )
+                    });
                 Some(UpdateRow {
                     name: name.clone(),
                     title,
@@ -346,6 +412,7 @@ impl Browse {
                     to: newest.version.clone(),
                     more: newest.permissions.beyond(&allowed),
                     withdrawn,
+                    waits,
                 })
             })
             .collect();
@@ -392,6 +459,7 @@ impl Browse {
                     .then(|| newest_any(entry))
                     .flatten()
                     .map(|v| v.api.clone());
+                let note = row_note(entry, newest, state);
                 BrowseRow {
                     source: l.source.name.clone(),
                     name: name.clone(),
@@ -403,6 +471,7 @@ impl Browse {
                         .map_or_else(String::new, |v| v.version.clone()),
                     state,
                     api,
+                    note,
                 }
             })
             .collect();
@@ -460,6 +529,21 @@ impl Browse {
             .map(|m| m.version.as_str());
         let none = if newest.is_some() {
             None
+        } else if let Some(v) = entry.newest_for_api().filter(|v| !v.fits_here()) {
+            let os = merlin_plugins::needs::system_title(std::env::consts::OS);
+            Some(if v.systems.is_empty() {
+                format!(
+                    "{} works on {}. No version of it is for this processor.",
+                    entry.title,
+                    v.arch.join(", ")
+                )
+            } else {
+                format!(
+                    "{} works on {}. No version of it is for {os}.",
+                    entry.title,
+                    merlin_plugins::needs::systems_words(&v.systems)
+                )
+            })
         } else if let Some(why) = &entry.blocked {
             Some(format!(
                 "Blocked by the {source} registry's maintainers: {why}"
@@ -488,6 +572,9 @@ impl Browse {
             state,
             none,
             commit: shown.and_then(|v| v.commit.clone()),
+            programs: shown.map_or_else(Vec::new, |v| {
+                merlin_plugins::needs::index_program_status(&v.programs, &v.permissions.processes)
+            }),
             name,
         })
     }
@@ -579,6 +666,14 @@ impl Browse {
                 .is_none_or(|ago| ago > STALE_AFTER)
     }
 
+    /// A plugin's title from any source's index.
+    fn title_of(&self, name: &str) -> Option<String> {
+        self.sources
+            .iter()
+            .find_map(|l| l.index.plugins.get(name))
+            .map(|e| e.title.clone())
+    }
+
     fn skip(&mut self, name: String, version: String) {
         self.skipped.insert(name, version);
         let text = toml::to_string(&self.skipped).unwrap_or_default();
@@ -592,6 +687,30 @@ fn read_skipped(data_dir: &std::path::Path) -> BTreeMap<String, String> {
         .ok()
         .and_then(|s| toml::from_str(&s).ok())
         .unwrap_or_default()
+}
+
+/// What a row says at its right end instead of its version, if anything.
+fn row_note(entry: &Entry, newest: Option<&Version>, state: RowState) -> Option<(String, bool)> {
+    if state == RowState::NotForThis
+        && let Some(v) = entry.newest_for_api().filter(|v| !v.fits_here())
+    {
+        return merlin_plugins::needs::not_here(&v.systems, &v.arch).map(|n| (n, false));
+    }
+    if state != RowState::Available {
+        return None;
+    }
+    let v = newest?;
+    let missing: Vec<String> =
+        merlin_plugins::needs::index_program_status(&v.programs, &v.permissions.processes)
+            .into_iter()
+            .filter(|p| p.found.is_none())
+            .map(|p| p.name)
+            .collect();
+    match missing.as_slice() {
+        [] => None,
+        [one] => Some((format!("needs {one}"), true)),
+        [first, ..] => Some((format!("needs {first} +{}", missing.len() - 1), true)),
+    }
 }
 
 /// The newest version of any API that isn't blocked or withdrawn, to say
@@ -643,6 +762,8 @@ fn versions(entry: &Entry, mine: Option<&str>) -> Vec<VersionRow> {
                 VersionNote::Installs
             } else if v.api != API_VERSION {
                 VersionNote::Older
+            } else if let Some(why) = merlin_plugins::needs::not_here(&v.systems, &v.arch) {
+                VersionNote::NotHere(why)
             } else {
                 VersionNote::None
             };
@@ -656,6 +777,7 @@ fn versions(entry: &Entry, mine: Option<&str>) -> Vec<VersionRow> {
                     .map(day)
                     .unwrap_or_default(),
                 size: v.size,
+                systems: merlin_plugins::needs::systems_words(&v.systems),
                 note,
             }
         })
@@ -703,6 +825,17 @@ fn report_url(source: &str, name: &str, version: Option<&str>) -> Option<String>
 }
 
 impl App {
+    /// What's loaded now, by name, with its version and requirements.
+    pub(crate) fn loaded_requirements(
+        &self,
+    ) -> BTreeMap<String, (String, merlin_plugins::needs::Depends)> {
+        self.host
+            .plugins()
+            .into_iter()
+            .map(|p| (p.name, (p.version, p.depends)))
+            .collect()
+    }
+
     /// The registries' state, worked out for the Settings tab.
     pub(crate) fn browse_view(&self) -> BrowseView {
         let host = self.host.plugins();
@@ -724,7 +857,7 @@ impl App {
             status: self.browse.status(),
             busy: self.browse.busy.clone(),
             confirm,
-            updates: self.browse.updates(&titles),
+            updates: self.browse.updates(&titles, &self.loaded_requirements()),
         }
     }
 
@@ -811,6 +944,7 @@ impl App {
         if !matches!(action, BrowseAction::Install { .. }) {
             self.browse.confirm = None;
         }
+        self.browse.reqs = self.loaded_requirements();
         match action {
             BrowseAction::Check => {
                 self.check_registry_later();
@@ -839,21 +973,23 @@ impl App {
                     source: l.source.name.clone(),
                     name: name.clone(),
                     version: v.version.clone(),
+                    dependency: false,
                 };
                 self.queue_install(vec![job])
             }
             BrowseAction::UpdateAll => {
                 let jobs: Vec<Job> = self
                     .browse
-                    .updates(&|_| None)
+                    .updates(&|_| None, &self.browse.reqs)
                     .into_iter()
-                    .filter(|u| u.more.is_empty())
+                    .filter(|u| u.more.is_empty() && u.waits.is_none())
                     .filter_map(|u| {
                         let (_, l, _) = self.browse.entry_of(&u.name)?;
                         Some(Job {
                             source: l.source.name.clone(),
                             name: u.name,
                             version: u.to,
+                            dependency: false,
                         })
                     })
                     .collect();
@@ -871,22 +1007,42 @@ impl App {
                 Vec::new()
             }
             BrowseAction::Open(_) => Vec::new(),
+            BrowseAction::Copy(text) => {
+                if let Some(clipboard) = &mut self.clipboard {
+                    clipboard.copy(&text);
+                }
+                vec![Event::Notify("Copied".into())]
+            }
         }
     }
 
-    /// Install from Browse: asks first if it runs programs outside the
-    /// sandbox, or replaces the same name from another source.
+    /// Install from Browse, with what it needs: asks first if it needs
+    /// other plugins, runs programs outside the sandbox, or replaces the
+    /// same name from another source; says why not if what it needs can't
+    /// be had.
     fn install_from(&mut self, source: String, name: String, confirmed: bool) -> Vec<Event> {
         self.browse.confirm = None;
         // Its page, so it becomes its Installed page once it's in.
         self.browse.picked = Some((source.clone(), name.clone()));
-        let Some(l) = self.browse.loaded(&source) else {
+        let Some(l) = self.browse.loaded(&source).cloned() else {
             return Vec::new();
         };
         let Some(entry) = l.index.plugins.get(&name) else {
             return Vec::new();
         };
-        let Some(v) = entry.newest() else {
+        if entry.newest().is_none() {
+            return Vec::new();
+        }
+        let lookup = |n: &str| l.index.plugins.get(n);
+        let plan = match registry::resolve(&name, &lookup, &self.browse.reqs) {
+            Ok(plan) => plan,
+            Err(conflict) => {
+                self.browse.confirm =
+                    Some(self.conflict_card(&source, &name, &entry.title, conflict));
+                return Vec::new();
+            }
+        };
+        let Some(v) = plan.last().map(|p| p.version.clone()) else {
             return Vec::new();
         };
         if !confirmed {
@@ -908,6 +1064,34 @@ impl App {
                 }));
                 return Vec::new();
             }
+            if plan.len() > 1 {
+                let items = plan
+                    .iter()
+                    .map(|p| {
+                        let e = l.index.plugins.get(&p.name);
+                        PlanItem {
+                            name: p.name.clone(),
+                            title: e.map_or(p.name.clone(), |e| e.title.clone()),
+                            mark: e.map_or_else(
+                                || merlin_core::plugin_mark(&p.name, None, None, false),
+                                entry_mark,
+                            ),
+                            version: p.version.version.clone(),
+                            note: p.needed_by.as_ref().map(|by| {
+                                let by = l
+                                    .index
+                                    .plugins
+                                    .get(by)
+                                    .map_or(by.clone(), |e| e.title.clone());
+                                format!("needed by {by}")
+                            }),
+                            permissions: p.version.permissions.described(),
+                        }
+                    })
+                    .collect();
+                self.browse.confirm = Some(card(ConfirmKind::Plan(items)));
+                return Vec::new();
+            }
             let outside: Vec<String> = v
                 .permissions
                 .described()
@@ -920,12 +1104,78 @@ impl App {
                 return Vec::new();
             }
         }
-        let job = Job {
-            source,
-            name,
-            version: v.version.clone(),
+        let jobs = plan
+            .into_iter()
+            .map(|p| Job {
+                source: source.clone(),
+                dependency: p.needed_by.is_some(),
+                name: p.name,
+                version: p.version.version,
+            })
+            .collect();
+        self.queue_install(jobs)
+    }
+
+    /// The card for an install that can't happen: who wants what of the
+    /// plugin no version satisfies.
+    fn conflict_card(
+        &self,
+        source: &str,
+        name: &str,
+        title: &str,
+        conflict: registry::Conflict,
+    ) -> Confirm {
+        let title_of = |n: &str| self.browse.title_of(n).unwrap_or_else(|| n.to_string());
+        let what = title_of(&conflict.name);
+        let (text, detail, open) = match conflict.wants.as_slice() {
+            [] => (
+                format!("{title} needs {what}, which no registry here has."),
+                String::new(),
+                None,
+            ),
+            [(who, req)] => (
+                format!(
+                    "{} needs {what} {}, and no version of it works here.",
+                    title_of(who),
+                    registry::requirement_words(req)
+                ),
+                String::new(),
+                None,
+            ),
+            wants => {
+                let mut parts: Vec<String> = Vec::new();
+                for (n, (who, req)) in wants.iter().enumerate() {
+                    let words = registry::requirement_words(req);
+                    parts.push(if n == 0 {
+                        format!("{} needs {what} {words}.", title_of(who))
+                    } else {
+                        format!("{} needs {words}", title_of(who))
+                    });
+                }
+                let text = format!("{}, and no version is both.", parts.join(" "));
+                // The other plugin that wants it: a newer version of it may help.
+                let other = wants
+                    .iter()
+                    .find(|(w, _)| w != name)
+                    .map(|(w, _)| w.clone());
+                let detail = match (&other, wants.iter().find(|(w, _)| w == name)) {
+                    (Some(o), Some((_, mine))) => format!(
+                        "When {} has a version that works with {what} {}, {title} can install.",
+                        title_of(o),
+                        registry::requirement_words(mine).trim_end_matches(" or later")
+                    ),
+                    _ => String::new(),
+                };
+                (text, detail, other.map(|o| (o.clone(), title_of(&o))))
+            }
         };
-        self.queue_install(vec![job])
+        Confirm {
+            source: source.to_string(),
+            name: name.to_string(),
+            version: String::new(),
+            title: title.to_string(),
+            kind: ConfirmKind::Conflict { text, detail, open },
+        }
     }
 
     fn queue_install(&mut self, jobs: Vec<Job>) -> Vec<Event> {
@@ -965,6 +1215,7 @@ impl App {
             .installed
             .get(&job.name)
             .map(|m| m.version.clone());
+        let dependency = job.dependency && updating.is_none();
         self.browse.busy = Some(job.name.clone());
         let data = self.browse.data_dir.clone();
         let name = job.name.clone();
@@ -984,6 +1235,9 @@ impl App {
                 fs::create_dir_all(&plugins)?;
                 let manifest =
                     registry::install(&l, &name, &version, &plugins, &data, &plugin_cli::fetch)?;
+                if dependency {
+                    package::mark(&data, &name, |m| m.dependency = true)?;
+                }
                 // Installing is the user's say-so, as on the command line.
                 merlin_plugins::grant(&Config::standard(), &plugins.join(&name))?;
                 anyhow::Ok(manifest)
@@ -1029,13 +1283,60 @@ impl App {
                     }
                 }
                 events.extend(self.refresh_looks());
-                events.push(Event::Notify(match updating {
-                    Some(from) => format!(
-                        "Updated {} from {from} to {}",
-                        manifest.title, manifest.version
-                    ),
-                    None => format!("Installed {} {}", manifest.title, manifest.version),
-                }));
+                // A program it needs that isn't here: say so, with how to get it.
+                let missing: Vec<merlin_plugins::needs::ProgramStatus> = self
+                    .host
+                    .plugins()
+                    .into_iter()
+                    .find(|p| p.name == name)
+                    .map(|p| {
+                        p.programs
+                            .into_iter()
+                            .filter(|p| p.found.is_none())
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                match (&updating, missing.first()) {
+                    (None, Some(first)) => {
+                        let names: Vec<String> = missing.iter().map(|p| p.name.clone()).collect();
+                        let (names, verb) = match names.as_slice() {
+                            [one] => (one.clone(), "isn't"),
+                            _ => (list_words(&names), "aren't"),
+                        };
+                        let without = match &first.purpose {
+                            Some(what) => format!(
+                                "so there's no {} yet",
+                                lower_first(what.trim_end_matches('.'))
+                            ),
+                            None => "so some of it won't work yet".into(),
+                        };
+                        let mut actions = Vec::new();
+                        if let Some(url) = &first.url {
+                            actions
+                                .push(("How to Install ↗".to_string(), format!("open.url:{url}")));
+                        }
+                        actions.push((
+                            format!("Open {}'s Page", manifest.title),
+                            format!("plugins.page:{}", manifest.name),
+                        ));
+                        events.push(Event::NotifyCode {
+                            text: format!(
+                                "{} is installed. {names} {verb}, {without}.",
+                                manifest.title
+                            ),
+                            code: first.install.clone(),
+                            actions,
+                            warning: true,
+                        });
+                    }
+                    _ => events.push(Event::Notify(match &updating {
+                        Some(from) => format!(
+                            "Updated {} from {from} to {}",
+                            manifest.title, manifest.version
+                        ),
+                        None => format!("Installed {} {}", manifest.title, manifest.version),
+                    })),
+                }
                 // Installed from Browse, its page is now its Installed one.
                 if self.browse.picked.as_ref().is_some_and(|(_, n)| *n == name)
                     && self.settings_ui.list_tab == crate::prefs::ListTab::Browse
@@ -1057,23 +1358,80 @@ fn confirm_view(c: &Confirm) -> ConfirmView {
         name: c.name.clone(),
         confirmed: true,
     };
+    let plain = |title: String, text: String, items: Vec<String>, button: &str| ConfirmView {
+        title,
+        text,
+        items,
+        plugins: Vec::new(),
+        detail: String::new(),
+        button: Some((button.to_string(), action.clone())),
+        quiet: None,
+        cancel: "Cancel".into(),
+    };
     match &c.kind {
-        ConfirmKind::Outside(items) => ConfirmView {
-            title: format!("Install {}?", c.title),
-            text: "It will be able to:".into(),
-            items: items.clone(),
-            button: "Install".into(),
-            action,
-        },
-        ConfirmKind::Replace { from } => ConfirmView {
-            title: format!("Replace {} from {from} with {}'s?", c.title, c.source),
-            text: format!(
+        ConfirmKind::Outside(items) => plain(
+            format!("Install {}?", c.title),
+            "It will be able to:".into(),
+            items.clone(),
+            "Install",
+        ),
+        ConfirmKind::Replace { from } => plain(
+            format!("Replace {} from {from} with {}'s?", c.title, c.source),
+            format!(
                 "Its settings stay. It will update only from {}, and is allowed what {} {} asks for.",
                 c.source, c.source, c.version
             ),
+            Vec::new(),
+            "Replace",
+        ),
+        ConfirmKind::Plan(items) => {
+            let deps: Vec<&str> = items
+                .iter()
+                .filter(|i| i.note.is_some())
+                .map(|i| i.title.as_str())
+                .collect();
+            let (text, button) = match deps.as_slice() {
+                [one] => (
+                    format!(
+                        "{} needs {one}, which isn't installed. Both install together.",
+                        c.title
+                    ),
+                    "Install Both".to_string(),
+                ),
+                many => (
+                    format!(
+                        "{} needs {}, which aren't installed. They all install together.",
+                        c.title,
+                        list_words(&many.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+                    ),
+                    format!("Install All {}", items.len()),
+                ),
+            };
+            ConfirmView {
+                title: format!("Install {}?", c.title),
+                text,
+                items: Vec::new(),
+                plugins: items.clone(),
+                detail: String::new(),
+                button: Some((button, action)),
+                quiet: None,
+                cancel: "Cancel".into(),
+            }
+        }
+        ConfirmKind::Conflict { text, detail, open } => ConfirmView {
+            title: format!("{} can't be installed yet", c.title),
+            text: text.clone(),
             items: Vec::new(),
-            button: "Replace".into(),
-            action,
+            plugins: Vec::new(),
+            detail: detail.clone(),
+            button: None,
+            quiet: open.as_ref().map(|(name, title)| {
+                (
+                    format!("Open {title}'s Page"),
+                    BrowseAction::Pick(c.source.clone(), name.clone()),
+                )
+            }),
+            cancel: "Close".into(),
         },
     }
 }
@@ -1168,6 +1526,15 @@ pub(crate) fn install_bundled(config: &Config) -> Vec<Event> {
         actions: vec![("Review".into(), "plugins.manage".into())],
     });
     events
+}
+
+/// "Completion, errors" as "completion, errors".
+fn lower_first(text: &str) -> String {
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(first) => first.to_lowercase().chain(chars).collect(),
+        None => String::new(),
+    }
 }
 
 /// "a, b and c".

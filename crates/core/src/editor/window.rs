@@ -444,6 +444,9 @@ pub struct ToastView {
     /// A quieter link before the buttons; a click on it is the
     /// [`UiEvent::ToastButton`] after the last button.
     pub link: Option<String>,
+    /// A command in a box with Copy; Copy is the [`UiEvent::ToastButton`]
+    /// after the link.
+    pub code: Option<String>,
 }
 
 impl Editor {
@@ -789,6 +792,7 @@ impl Editor {
             warning: m.warning,
             buttons: m.actions.iter().map(|(label, _)| label.clone()).collect(),
             link: m.link.as_ref().map(|(label, _)| label.clone()),
+            code: m.code.clone(),
         });
         WindowView {
             project: self.project.clone(),
@@ -1067,6 +1071,16 @@ impl Editor {
                 self.close_palette();
             }
             UiEvent::Output(click) => self.output_click(click),
+            UiEvent::ToastButton(i)
+                if self
+                    .message
+                    .as_ref()
+                    .is_some_and(|m| m.code.is_some() && i == m.actions.len() + 1) =>
+            {
+                if let Some(code) = self.message.as_ref().and_then(|m| m.code.clone()) {
+                    fx.push(Effect::Copy(code));
+                }
+            }
             UiEvent::ToastButton(i) => {
                 if let Some(command) = self
                     .message

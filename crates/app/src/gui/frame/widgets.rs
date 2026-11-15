@@ -297,7 +297,7 @@ impl Frame<'_> {
     }
 
     /// A checkbox at `x`, centred on `mid`.
-    pub(super) fn checkbox(&mut self, check: Check, x: f32, mid: f32) {
+    pub(crate) fn checkbox(&mut self, check: Check, x: f32, mid: f32) {
         let p = self.p;
         let b = Rect::new(x, mid - 7.0, 14.0, 14.0);
         match check {

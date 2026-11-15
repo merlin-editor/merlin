@@ -229,7 +229,8 @@ struct App {
     previews: Vec<(String, theme::Palette)>,
     icon_previews: Vec<(String, packs::Icons, String)>,
     /// The plugin whose Uninstall was pressed once.
-    uninstall_armed: Option<String>,
+    /// The Uninstall? card on a plugin's page, while it's open.
+    uninstall: Option<crate::prefs::UninstallCard>,
     /// When plugins' views that asked for a frame are drawn again, and
     /// when they last were.
     frame_due: Option<Instant>,
@@ -1232,7 +1233,7 @@ fn main() -> Result<()> {
         loaded: prefs::Loaded::default(),
         previews: Vec::new(),
         icon_previews: Vec::new(),
-        uninstall_armed: None,
+        uninstall: None,
         tiles_asked: Vec::new(),
         plugins_loaded: false,
         frame_due: None,

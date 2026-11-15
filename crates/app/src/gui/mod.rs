@@ -730,9 +730,13 @@ impl ApplicationHandler for Gui<'_> {
             WindowEvent::Focused(on) => {
                 self.focused = on;
                 self.app.window_focused = on;
-                // The desktop may have gone light or dark meanwhile.
+                // The desktop may have gone light or dark meanwhile, and a
+                // program a plugin needs may have been installed.
                 if on {
                     self.app.check_system_theme();
+                    for event in self.app.host.look_again() {
+                        self.dispatch(event);
+                    }
                 }
                 if !on {
                     self.dispatch(Event::AutoSave(merlin_core::AutoSaveWhy::Window));

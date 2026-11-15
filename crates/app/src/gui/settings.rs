@@ -48,6 +48,8 @@ enum ListOf {
     PluginMenu(crate::prefs::PluginRow),
     /// Browse's Install? card.
     Confirm(crate::browse::ConfirmView),
+    /// A plugin's Uninstall? card.
+    Uninstall(crate::prefs::UninstallCard),
 }
 
 impl Ctx {
@@ -188,6 +190,7 @@ impl<'a> Frame<'a> {
             match &of {
                 ListOf::PluginMenu(row) => self.plugin_menu(under, row, r),
                 ListOf::Confirm(card) => self.confirm_card(under, card, r),
+                ListOf::Uninstall(card) => self.uninstall_card(under, card, r),
                 _ => self.choice_list(under, &of, r),
             }
         }

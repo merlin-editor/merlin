@@ -588,8 +588,10 @@ impl Frame<'_> {
         let w = 420.0_f32.min(editor.w - 32.0);
         let text_w = w - 56.0;
         let th = self.text.wrapped_height(&toast.text, face, text_w);
+        let code_h = if toast.code.is_some() { 40.0 } else { 0.0 };
         let h = th
             + 28.0
+            + code_h
             + if toast.buttons.is_empty() && toast.link.is_none() {
                 0.0
             } else {
@@ -609,8 +611,22 @@ impl Frame<'_> {
         } else {
             p.accent
         };
-        let dot = Rect::new(r.x + 16.0, r.y + 17.0, 10.0, 10.0);
-        self.canvas.round(dot, 5.0, colour);
+        if toast.code.is_some() && toast.warning {
+            // A warning with something to do: an amber !.
+            self.text.draw_in_row(
+                &mut self.canvas,
+                "!",
+                Face::ui(13.0).bold(),
+                r.x + 18.0,
+                r.y + 12.0,
+                20.0,
+                colour,
+                r,
+            );
+        } else {
+            let dot = Rect::new(r.x + 16.0, r.y + 17.0, 10.0, 10.0);
+            self.canvas.round(dot, 5.0, colour);
+        }
         self.text.draw(
             &mut self.canvas,
             &toast.text,
@@ -621,13 +637,39 @@ impl Frame<'_> {
             r,
             Some(text_w),
         );
+        // A command to copy, in a box with Copy at its right end.
+        if let Some(code) = &toast.code {
+            let b = Rect::new(r.x + 38.0, r.y + 12.0 + th + 8.0, w - 38.0 - 16.0, 30.0);
+            self.canvas.outline(b, 6.0, 1.0, p.line, p.ground);
+            let cf = Face::ui(12.0);
+            let cw = self.text.width("Copy", cf) + 18.0;
+            let copy = Rect::new(b.right() - 3.0 - cw, b.y + 3.0, cw, 24.0);
+            let (bg, fg) = self.button_colours(false, self.hovered(copy));
+            self.canvas.round(copy, 5.0, bg);
+            self.text.draw_in_row(
+                &mut self.canvas,
+                "Copy",
+                cf,
+                copy.x + 9.0,
+                copy.y,
+                copy.h,
+                fg,
+                copy,
+            );
+            self.hit(copy, Hit::Ui(UiEvent::ToastButton(toast.buttons.len() + 1)));
+            let mono = Face::mono(11.5);
+            let t = self.text.fit(code, mono, copy.x - b.x - 16.0);
+            self.text
+                .draw_in_row(&mut self.canvas, &t, mono, b.x + 10.0, b.y, b.h, p.text, b);
+        }
         let mut bx = r.right() - 14.0;
         for (i, label) in toast.buttons.iter().enumerate().rev() {
             let bf = Face::ui(12.5).medium();
             let bw = self.text.width(label, bf) + 24.0;
             bx -= bw;
             let b = Rect::new(bx, r.bottom() - 40.0, bw, 28.0);
-            let primary = i + 1 == toast.buttons.len();
+            // A notice with a command keeps its buttons plain.
+            let primary = i + 1 == toast.buttons.len() && toast.code.is_none();
             let (bg, fg) = self.button_colours(primary, self.hovered(b));
             self.canvas.round(b, 6.0, bg);
             self.text

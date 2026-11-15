@@ -583,6 +583,11 @@ impl Frame<'_> {
         if let Some(reg) = &page.registry {
             self.registry_banners(&page.name, reg, busy, c);
         }
+        // The programs it starts, found or not: what's missing shows here.
+        if !page.programs.is_empty() {
+            self.s_heading("Programs", None, c);
+            self.programs(&page.programs, c);
+        }
 
         // Settings first, with what it may do and what it adds beside.
         let allowed = allowed(page);
@@ -747,11 +752,7 @@ impl Frame<'_> {
         }
         if page.installed {
             c.y += 16.0;
-            let label = if page.uninstall_armed {
-                "Uninstall: press again"
-            } else {
-                "Uninstall"
-            };
+            let label = "Uninstall…";
             let bw = self.text.width(label, face) + 20.0;
             let b = Rect::new(c.x, c.y, bw, 26.0);
             let bg = if self.s_hovered(b, clip) {
@@ -768,6 +769,9 @@ impl Frame<'_> {
                     page.name.clone(),
                 ))),
             );
+            if let Some(card) = &page.uninstall {
+                c.list = Some((b, ListOf::Uninstall(card.clone())));
+            }
             c.y += 34.0;
         }
     }
@@ -795,4 +799,173 @@ fn allowed(page: &PageView) -> Vec<(bool, String)> {
         perms.push((true, format!("Start {}", page.processes.join(", "))));
     }
     perms
+}
+
+impl Frame<'_> {
+    /// The Uninstall? card, over the page by its button: who needs the
+    /// plugin, the boxes for what it pulled in and what it keeps, and
+    /// Cancel and Uninstall.
+    pub(super) fn uninstall_card(
+        &mut self,
+        under: Rect,
+        card: &crate::prefs::UninstallCard,
+        area: Rect,
+    ) {
+        let p = self.p;
+        let w = 340.0_f32.min(area.w - 16.0);
+        let wrap = w - 32.0;
+        let needed = match card.needed_by.as_slice() {
+            [] => String::new(),
+            many => {
+                let who = match many {
+                    [one] => one.clone(),
+                    [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+                    [] => String::new(),
+                };
+                let they = if many.len() == 1 { "It'll" } else { "They'll" };
+                format!("{who} need it. {they} be turned off until it's installed again.")
+            }
+        };
+        let text_h = if needed.is_empty() {
+            0.0
+        } else {
+            self.text.wrapped_height(&needed, Face::ui(12.0), wrap) + 8.0
+        };
+        // Each box: its label, and a line under it.
+        let mut boxes: Vec<(String, String, bool, PageAction)> = Vec::new();
+        if !card.deps.is_empty() {
+            let titles: Vec<&str> = card.deps.iter().map(|(_, t)| t.as_str()).collect();
+            boxes.push((
+                format!("Also uninstall {}", titles.join(", ")),
+                format!("Installed for {}; nothing else needs it.", card.title),
+                card.remove_deps,
+                PageAction::UninstallDeps(!card.remove_deps),
+            ));
+        }
+        if !card.stored.is_empty() {
+            boxes.push((
+                "Also delete its settings and data".into(),
+                card.stored.clone(),
+                card.delete_settings,
+                PageAction::UninstallSettings(!card.delete_settings),
+            ));
+        }
+        let box_h: f32 = boxes
+            .iter()
+            .map(|(_, sub, ..)| {
+                20.0 + self.text.wrapped_height(sub, Face::ui(11.5), wrap - 22.0) + 8.0
+            })
+            .sum();
+        let h = 14.0 + 22.0 + 4.0 + text_h + box_h + 8.0 + 26.0 + 14.0;
+        let x = (under.x).min(area.right() - w - 8.0).max(area.x + 8.0);
+        let y = if under.bottom() + 6.0 + h > area.bottom() {
+            under.y - 6.0 - h
+        } else {
+            under.bottom() + 6.0
+        };
+        let r = Rect::new(x, y, w, h);
+        self.canvas.shadow(r, 10.0, false);
+        self.canvas.outline(r, 10.0, 1.0, p.border, p.widget);
+        self.hit(r, Hit::Block);
+        let mut cy = r.y + 14.0;
+        self.text.draw_in_row(
+            &mut self.canvas,
+            &format!("Uninstall {}?", card.title),
+            Face::ui(13.5).bold(),
+            r.x + 16.0,
+            cy,
+            20.0,
+            p.bright,
+            r,
+        );
+        cy += 26.0;
+        if !needed.is_empty() {
+            self.text.draw(
+                &mut self.canvas,
+                &needed,
+                Face::ui(12.0),
+                r.x + 16.0,
+                cy,
+                p.muted,
+                r,
+                Some(wrap),
+            );
+            cy += text_h;
+        }
+        for (label, sub, on, action) in boxes {
+            let check = if on {
+                merlin_core::panel::Check::On
+            } else {
+                merlin_core::panel::Check::Off
+            };
+            self.checkbox(check, r.x + 16.0, cy + 10.0);
+            self.text.draw_in_row(
+                &mut self.canvas,
+                &label,
+                Face::ui(12.0),
+                r.x + 38.0,
+                cy,
+                20.0,
+                p.text,
+                r,
+            );
+            let sh = self.text.wrapped_height(&sub, Face::ui(11.5), wrap - 22.0);
+            self.text.draw(
+                &mut self.canvas,
+                &sub,
+                Face::ui(11.5),
+                r.x + 38.0,
+                cy + 20.0,
+                p.muted,
+                r,
+                Some(wrap - 22.0),
+            );
+            self.hit(
+                Rect::new(r.x + 10.0, cy, wrap + 12.0, 20.0 + sh),
+                Hit::Settings(SettingsAction::Page(action)),
+            );
+            cy += 20.0 + sh + 8.0;
+        }
+        cy += 8.0;
+        // Uninstall in red, then Cancel before it.
+        let f = Face::ui(12.0).medium();
+        let uw = self.text.width("Uninstall", f) + 20.0;
+        let ub = Rect::new(r.right() - 16.0 - uw, cy, uw, 26.0);
+        let hovered = self.hovered(ub);
+        self.canvas.outline(
+            ub,
+            6.0,
+            1.0,
+            mix(p.error, p.widget, 0.35),
+            if hovered {
+                mix(p.error, p.widget, 0.12)
+            } else {
+                p.widget
+            },
+        );
+        self.text.draw_in_row(
+            &mut self.canvas,
+            "Uninstall",
+            f,
+            ub.x + 10.0,
+            ub.y,
+            ub.h,
+            p.error,
+            r,
+        );
+        self.hit(
+            ub,
+            Hit::Settings(SettingsAction::Page(PageAction::UninstallNow)),
+        );
+        self.s_button(
+            "Cancel",
+            ub.x - 8.0,
+            cy,
+            false,
+            Some(Hit::Settings(SettingsAction::Page(
+                PageAction::UninstallCancel,
+            ))),
+            r,
+        );
+    }
 }
