@@ -297,13 +297,29 @@ developer account).
 
 The mock-up (`docs/mockups/AppUpdate.dc.html`) is approved.
 
-**B1. Signed releases.** A checksum from the same release page proves nothing
-against a tampered release, so the updater needs a signature. The release job
-signs a `SHA256SUMS` file with minisign, using a key of its own in the
-`release` environment. merlin embeds the public key, as it does the
-registry's. `install.sh` checks the signature too when `minisign` is
-installed. **Decide**: a new release key (recommended, so one leaked key
-doesn't sign both plugins and the editor) or the registry's key.
+**B1. Signed releases (done, 2026-11-15).** A checksum from the same release
+page proves nothing against a tampered release, so the updater needs a
+signature. Decided: a release key of its own, so one leaked key doesn't sign
+both plugins and the editor. Its public half is `keys/release.pub` (id
+D91112BFB30E5609, no password, made with `minisign -G -W`); the secret is
+`MINISIGN_SECRET_KEY` in the merlin repo's `release` environment, which now
+admits `v*` tags beside `sdk-v*`, and a copy is in
+`~/.config/merlin-release/` on the maintainer's laptop. There is no
+rotation key yet.
+
+- `ci.yml`'s `sign` job runs after the five builds, in the `release`
+  environment, so a release waits for a reviewer's approval before it's
+  signed. It downloads the draft's archives, hashes them itself into
+  `SHA256SUMS`, signs that with the trusted comment `merlin <tag>`, checks
+  the signature against `keys/release.pub`, and attaches `SHA256SUMS` and
+  `SHA256SUMS.minisig` to the draft.
+- merlin embeds the key from `keys/release.pub` (`crates/app/src/update.rs`,
+  `release_key`). `check_sums` refuses a list signed by another key,
+  changed since, or signed for another tag (so an older release can't pass
+  for the newest), and `check_archive` checks an archive against it.
+- `install.sh` checks the signature, the comment and the archive's line in
+  the list when `minisign` is installed. Without it, or for a release with
+  no `SHA256SUMS` (v0.1.0), it says so and goes by the checksum alone.
 
 **B2. Finding an update.** On the `Net` lane, at start and every 6 hours like
 the registry: ask GitHub's `releases/latest`, compare versions, and show the

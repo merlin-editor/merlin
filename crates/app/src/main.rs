@@ -19,6 +19,7 @@ mod template;
 mod terminal;
 mod theme;
 mod timers;
+mod update;
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};

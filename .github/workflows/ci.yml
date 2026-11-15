@@ -198,3 +198,51 @@ jobs:
             ${{ matrix.archive_name }}.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Signs a list of the five archives' SHA-256s with the release key, which
+  # merlin's updater and install.sh check. In the `release` environment, so
+  # it waits for a reviewer, and only v* tags may use its key.
+  sign:
+    name: Sign the release
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Install minisign
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y minisign
+
+      - name: Sign SHA256SUMS
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # Hash what the draft holds, not what each job said it uploaded.
+          mkdir archives
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir archives \
+            --pattern 'merlin-*.tar.gz' --pattern 'merlin-*.zip'
+          count=$(ls archives | wc -l)
+          if [ "$count" != 5 ]; then
+            echo "::error::the draft has $count archives, not 5"
+            exit 1
+          fi
+          (cd archives && sha256sum merlin-*) > SHA256SUMS
+          cat SHA256SUMS
+          umask 077
+          printf '%s\n' "$MINISIGN_SECRET_KEY" > release.key
+          # The trusted comment names the release, so an older signed list
+          # can't pass for a newer one.
+          minisign -S -s release.key -m SHA256SUMS -t "merlin $TAG" < /dev/null
+          rm release.key
+          minisign -V -p keys/release.pub -m SHA256SUMS
+          gh release upload "$TAG" SHA256SUMS SHA256SUMS.minisig \
+            --repo "$GITHUB_REPOSITORY" --clobber

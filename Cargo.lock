@@ -1946,6 +1946,8 @@ dependencies = [
  "libc",
  "merlin-core",
  "merlin-plugins",
+ "minisign",
+ "minisign-verify",
  "notify",
  "png",
  "pollster",

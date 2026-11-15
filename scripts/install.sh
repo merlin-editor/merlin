@@ -116,6 +116,34 @@ if [ -z "$EXPECTED" ] || [ "$EXPECTED" != "$ACTUAL" ]; then
 fi
 echo "==> Checksum matches."
 
+# The checksum above sits beside the archive, so it proves nothing against
+# someone who can change the release. SHA256SUMS is signed with merlin's
+# release key (keys/release.pub), and checked with minisign when it's here.
+RELEASE_KEY="RWQJVg6zvxIR2eIRuKWoyc/swh8Xif434+B/IiN5b3rrtFm3V6vi8mlc"
+SUMS_URL="${DOWNLOAD_URL%/*}/SHA256SUMS"
+if ! command -v minisign >/dev/null 2>&1; then
+    echo "==> Install minisign to check the release's signature too."
+elif ! curl -fsSL "$SUMS_URL" -o "$TMP_DIR/SHA256SUMS" 2>/dev/null \
+    || ! curl -fsSL "$SUMS_URL.minisig" -o "$TMP_DIR/SHA256SUMS.minisig" 2>/dev/null; then
+    echo "==> This release isn't signed; it was checked against its checksum only."
+else
+    if ! COMMENT="$(minisign -V -Q -P "$RELEASE_KEY" -m "$TMP_DIR/SHA256SUMS" \
+        -x "$TMP_DIR/SHA256SUMS.minisig" 2>/dev/null)"; then
+        echo "The release's SHA256SUMS isn't signed by merlin's release key; nothing was installed." >&2
+        exit 1
+    fi
+    # The signature names its release, so an older one can't pass for this.
+    if [ -n "$LATEST_TAG" ] && [ "$COMMENT" != "merlin $LATEST_TAG" ]; then
+        echo "The release's SHA256SUMS was signed for \"$COMMENT\", not \"merlin $LATEST_TAG\"; nothing was installed." >&2
+        exit 1
+    fi
+    if ! grep -q "^$ACTUAL [ *]merlin-$TARGET\.$EXT\$" "$TMP_DIR/SHA256SUMS"; then
+        echo "The download isn't the one the release's signed SHA256SUMS lists; nothing was installed." >&2
+        exit 1
+    fi
+    echo "==> Signature matches ($COMMENT)."
+fi
+
 UNPACKED="$TMP_DIR/unpacked"
 mkdir -p "$UNPACKED" "$INSTALL_DIR"
 if [ "$EXT" = "zip" ]; then

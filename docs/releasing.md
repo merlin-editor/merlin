@@ -81,9 +81,13 @@ one is missing; then each platform's job builds its archive with the binary,
 `README.md`, `LICENSE` and `plugins/`, and attaches it and its `.sha256` to a
 draft release.
 
-## 6. Try the draft, then publish
+## 6. Approve the signing, try the draft, then publish
 
-The draft has five archives. Check each has `plugins/` with 13 packages and
+When the five builds are done, the `sign` job waits in the `release`
+environment: approve it under Review deployments on the run's page. It adds
+`SHA256SUMS` and `SHA256SUMS.minisig` to the draft.
+
+The draft has five archives, and those two files. Check each has `plugins/` with 13 packages and
 `bundled.toml`. Then install from it as a user would:
 
 ```bash
@@ -91,7 +95,7 @@ gh release download v0.1.0 --dir /tmp/merlin-v0.1.0
 MERLIN_RELEASE_URL=file:///tmp/merlin-v0.1.0 sh scripts/install.sh
 ```
 
-Start merlin in a folder: it should install the plugins that come with it
+With `minisign` installed, it should say the signature matches. Start merlin in a folder: it should install the plugins that come with it
 and say so in one notice. On a machine that already has merlin, use a
 throwaway `HOME` (and `XDG_DATA_HOME`, `XDG_CONFIG_HOME`) so your own
 plugins aren't touched.

@@ -32,6 +32,8 @@ copypasta = "0.10.2"
 raw-window-handle = "0.6"
 # Fetches registries' indexes and packages.
 ureq = "3"
+# Releases' SHA256SUMS are signed with minisign.
+minisign-verify = "0.2"
 
 [target.'cfg(windows)'.dependencies]
 # Attaching to the terminal merlin was started from.
@@ -40,3 +42,7 @@ windows-sys = { version = "0.61", features = ["Win32_System_Console"] }
 [target.'cfg(unix)'.dependencies]
 # The local time's offset from UTC, for times in the Output panel.
 libc = "0.2"
+
+[dev-dependencies]
+# Signs release lists in tests, as the release workflow does.
+minisign = "0.7"
