@@ -17,8 +17,9 @@
 use std::collections::BTreeMap;
 
 use merlin_plugin::{
-    AgentAnswer, AgentContext, AgentOutcome, AgentPart, AgentRequest, AgentTool, Framing,
-    LogLevel, PlanStep, Plugin, ProcessEvent, StepState, ToolKind, host,
+    AgentAnswer, AgentCommand, AgentContext, AgentOutcome, AgentPart, AgentRequest, AgentTool,
+    Chip, Framing, LogLevel, PickItem, PlanStep, Plugin, ProcessEvent, StepState, Tone,
+    ToolKind, host,
 };
 use serde_json::{Value, json};
 
@@ -62,6 +63,100 @@ struct Chat {
     /// The last few lines it printed on stderr, to say why it stopped.
     stderr: Vec<String>,
     busy: bool,
+    /// What it lets you choose in the chat's header: chips that open
+    /// their pickers.
+    settings: Vec<Setting>,
+    /// What the chat has used, as the header's note says it.
+    usage: String,
+}
+
+/// A choice in a chat's header: one of the session's config options
+/// (`configOptions`), or, from agents without those, its model or mode.
+struct Setting {
+    id: String,
+    title: String,
+    kind: SetKind,
+    value: String,
+    /// Its options, by value and name.
+    options: Vec<(String, String)>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SetKind {
+    Config,
+    Model,
+    Mode,
+}
+
+/// The session's `configOptions` that are lists to pick from.
+fn config_settings(options: Option<&Value>) -> Vec<Setting> {
+    fn flat(options: &[Value], out: &mut Vec<(String, String)>) {
+        for o in options {
+            // A group of options, under its name.
+            if let Some(group) = o.get("options").and_then(Value::as_array) {
+                flat(group, out);
+            } else if let Some(value) = o.get("value").and_then(Value::as_str) {
+                let name = o.get("name").and_then(Value::as_str).unwrap_or(value);
+                out.push((value.to_string(), name.to_string()));
+            }
+        }
+    }
+    options
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|o| o.get("type").and_then(Value::as_str) == Some("select"))
+        .filter_map(|o| {
+            let id = o.get("id")?.as_str()?.to_string();
+            let mut options = Vec::new();
+            flat(o.get("options")?.as_array()?, &mut options);
+            Some(Setting {
+                title: o.get("name").and_then(Value::as_str).unwrap_or(&id).to_string(),
+                value: o
+                    .get("currentValue")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                id,
+                kind: SetKind::Config,
+                options,
+            })
+        })
+        .collect()
+}
+
+/// An older agent's `models` and `modes`, as settings.
+fn model_and_mode(result: &Value) -> Vec<Setting> {
+    let list = |v: Option<&Value>, id: &str| -> Vec<(String, String)> {
+        v.and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|m| {
+                let id = m.get(id)?.as_str()?.to_string();
+                let name = m.get("name").and_then(Value::as_str).unwrap_or(&id).to_string();
+                Some((id, name))
+            })
+            .collect()
+    };
+    let mut out = Vec::new();
+    for (key, kind, title, all, id, current) in [
+        ("models", SetKind::Model, "Model", "availableModels", "modelId", "currentModelId"),
+        ("modes", SetKind::Mode, "Mode", "availableModes", "id", "currentModeId"),
+    ] {
+        let Some(v) = result.get(key) else { continue };
+        out.push(Setting {
+            id: key.into(),
+            title: title.into(),
+            kind,
+            value: v
+                .get(current)
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+            options: list(v.get(all), id),
+        });
+    }
+    out
 }
 
 /// A file read, with the lines asked for (from, how many), or a write.
@@ -74,6 +169,8 @@ enum Waiting {
     Initialize,
     NewSession,
     Prompt,
+    /// A setting changed: which, and what it was before.
+    Set(String, String),
 }
 
 #[derive(Default)]
@@ -156,6 +253,8 @@ impl Acp {
                 tools: BTreeMap::new(),
                 stderr: Vec::new(),
                 busy: false,
+                settings: Vec::new(),
+                usage: String::new(),
             },
         );
         self.request(
@@ -250,10 +349,40 @@ impl Acp {
                                 .get("sessionId")
                                 .and_then(Value::as_str)
                                 .map(str::to_string);
+                            let config = config_settings(result.get("configOptions"));
+                            c.settings = if config.is_empty() {
+                                model_and_mode(&result)
+                            } else {
+                                config
+                            };
                         }
+                        self.header(chat);
                         self.flush(chat);
                     }
+                    (Some(Waiting::Set(..)), None) => {
+                        // Changing one can change the others.
+                        let config = config_settings(result.get("configOptions"));
+                        if let (false, Some(c)) = (config.is_empty(), self.chats.get_mut(&chat)) {
+                            c.settings = config;
+                            self.header(chat);
+                        }
+                    }
+                    // Not changed after all: back to what was on.
+                    (Some(Waiting::Set(id, was)), Some(error)) => {
+                        host::log(LogLevel::Warn, &format!("couldn't change {id}: {error}"));
+                        if let Some(set) = self
+                            .chats
+                            .get_mut(&chat)
+                            .and_then(|c| c.settings.iter_mut().find(|s| s.id == id))
+                        {
+                            set.value = was;
+                        }
+                        self.header(chat);
+                    }
                     (Some(Waiting::Prompt), None) => {
+                        if let Some(usage) = result.get("usage") {
+                            self.used(chat, usage);
+                        }
                         let stop = result.get("stopReason").and_then(Value::as_str);
                         match stop {
                             Some("cancelled") => self.done(chat, AgentOutcome::Cancelled, None),
@@ -324,8 +453,104 @@ impl Acp {
                     say(AgentPart::Tool(tool));
                 }
             }
+            Some("available_commands_update") => {
+                let commands: Vec<AgentCommand> = update
+                    .get("availableCommands")
+                    .and_then(Value::as_array)
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|c| {
+                                Some(AgentCommand {
+                                    name: c.get("name")?.as_str()?.to_string(),
+                                    description: c
+                                        .get("description")
+                                        .and_then(Value::as_str)
+                                        .unwrap_or_default()
+                                        .to_string(),
+                                })
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let _ = host::agent_commands(chat, &commands);
+            }
+            Some("current_mode_update") => {
+                let mode = update.get("currentModeId").and_then(Value::as_str);
+                if let (Some(mode), Some(set)) = (
+                    mode,
+                    self.chats
+                        .get_mut(&chat)
+                        .and_then(|c| c.settings.iter_mut().find(|s| s.kind == SetKind::Mode)),
+                ) {
+                    set.value = mode.to_string();
+                }
+                self.header(chat);
+            }
+            Some("config_option_update") => {
+                let config = config_settings(update.get("configOptions"));
+                if let Some(c) = self.chats.get_mut(&chat) {
+                    c.settings = config;
+                }
+                self.header(chat);
+            }
+            Some("usage_update") => self.used(chat, update),
             _ => {}
         }
+    }
+
+    /// The chat's header: what it lets you choose, such as its model,
+    /// each a chip that opens its picker; and what it has used.
+    fn header(&mut self, chat: u32) {
+        let Some(c) = self.chats.get(&chat) else {
+            return;
+        };
+        let chips: Vec<Chip> = c
+            .settings
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| s.options.len() > 1)
+            .map(|(n, s)| {
+                let name = s
+                    .options
+                    .iter()
+                    .find(|(v, _)| *v == s.value)
+                    .map_or(s.value.as_str(), |(_, name)| name.as_str());
+                Chip {
+                    id: format!("acp:set:{chat}:{n}"),
+                    label: format!("{name} ▾"),
+                    tone: Tone::Normal,
+                }
+            })
+            .collect();
+        let _ = host::agent_header(chat, &chips, &c.usage);
+    }
+
+    /// What the chat has used, from a `usage_update` or a turn's `usage`:
+    /// "12.4k tokens · $0.03".
+    fn used(&mut self, chat: u32, usage: &Value) {
+        let tokens = ["used", "totalTokens", "total_tokens"]
+            .iter()
+            .find_map(|k| usage.get(*k).and_then(Value::as_u64));
+        let cost = usage.get("cost").and_then(|c| {
+            let amount = c.get("amount").and_then(Value::as_f64)?;
+            let currency = c.get("currency").and_then(Value::as_str).unwrap_or("USD");
+            Some(match currency {
+                "USD" => format!("${amount:.2}"),
+                other => format!("{amount:.2} {other}"),
+            })
+        });
+        let mut parts = Vec::new();
+        if let Some(t) = tokens.filter(|t| *t > 0) {
+            parts.push(format!("{} tokens", short_count(t)));
+        }
+        parts.extend(cost);
+        if parts.is_empty() {
+            return;
+        }
+        if let Some(c) = self.chats.get_mut(&chat) {
+            c.usage = parts.join(" · ");
+        }
+        self.header(chat);
     }
 
     /// A step, as it stands after `update`.
@@ -663,6 +888,61 @@ impl Plugin for Acp {
         }
     }
 
+    fn click(&mut self, button: &str) {
+        let Some((chat, n)) = setting_of(button) else {
+            return;
+        };
+        let Some(set) = self.chats.get(&chat).and_then(|c| c.settings.get(n)) else {
+            return;
+        };
+        let items: Vec<PickItem> = set
+            .options
+            .iter()
+            .map(|(value, name)| PickItem {
+                id: value.clone(),
+                label: if *value == set.value {
+                    format!("{name} ✓")
+                } else {
+                    name.clone()
+                },
+            })
+            .collect();
+        host::show_picker(button, &set.title, &items);
+    }
+
+    fn pick(&mut self, picker: &str, item: &str) {
+        let Some((chat, n)) = setting_of(picker) else {
+            return;
+        };
+        let Some(c) = self.chats.get_mut(&chat) else {
+            return;
+        };
+        let (Some(session), Some(set)) = (c.session.clone(), c.settings.get_mut(n)) else {
+            return;
+        };
+        if set.value == item {
+            return;
+        }
+        let was = std::mem::replace(&mut set.value, item.to_string());
+        let id = set.id.clone();
+        let (method, params) = match set.kind {
+            SetKind::Config => (
+                "session/set_config_option",
+                json!({"sessionId": session, "configId": id, "value": item}),
+            ),
+            SetKind::Model => (
+                "session/set_model",
+                json!({"sessionId": session, "modelId": item}),
+            ),
+            SetKind::Mode => (
+                "session/set_mode",
+                json!({"sessionId": session, "modeId": item}),
+            ),
+        };
+        self.request(chat, method, params, Waiting::Set(id, was));
+        self.header(chat);
+    }
+
     fn agent_close(&mut self, chat: u32) {
         if let Some(c) = self.chats.remove(&chat) {
             host::kill(c.process);
@@ -767,6 +1047,23 @@ impl Plugin for Acp {
                 }
             }
         }
+    }
+}
+
+/// A header chip's or picker's id, `acp:set:<chat>:<n>`: its chat and
+/// which setting.
+fn setting_of(id: &str) -> Option<(u32, usize)> {
+    let rest = id.strip_prefix("acp:set:")?;
+    let (chat, n) = rest.split_once(':')?;
+    Some((chat.parse().ok()?, n.parse().ok()?))
+}
+
+/// 950, 12.4k, 1.2M.
+fn short_count(n: u64) -> String {
+    match n {
+        0..1_000 => n.to_string(),
+        1_000..1_000_000 => format!("{:.1}k", n as f64 / 1_000.0),
+        _ => format!("{:.1}M", n as f64 / 1_000_000.0),
     }
 }
 

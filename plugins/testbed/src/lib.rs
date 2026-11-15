@@ -3,8 +3,8 @@
 
 use merlin_plugin::prelude::*;
 use merlin_plugin::{
-    AgentAnswer, AgentContext, AgentOutcome, AgentPart, AgentRequest, AgentTool, Colour,
-    DrawCurve, DrawItem, DrawLine, DrawPoint, DrawRect, DrawText, Drawing, PlanStep, Shape,
+    AgentAnswer, AgentCommand, AgentContext, AgentOutcome, AgentPart, AgentRequest, AgentTool,
+    Colour, DrawCurve, DrawItem, DrawLine, DrawPoint, DrawRect, DrawText, Drawing, PlanStep, Shape,
     StepState, ToolKind,
 };
 
@@ -60,7 +60,14 @@ fn plan(done: usize) -> AgentPart {
     )
 }
 
-fn tool(id: &str, kind: ToolKind, title: &str, state: StepState, added: u32, run: Option<u32>) -> AgentPart {
+fn tool(
+    id: &str,
+    kind: ToolKind,
+    title: &str,
+    state: StepState,
+    added: u32,
+    run: Option<u32>,
+) -> AgentPart {
     AgentPart::Tool(AgentTool {
         id: id.into(),
         kind,
@@ -193,7 +200,10 @@ impl Plugin for Testbed {
             "runs" if self.cat.is_some() => Some(
                 Panel::new("Runs")
                     .node(Node::progress("cat is running", None))
-                    .node(Node::progress("Counted", Some(self.clicks.min(10) as f32 / 10.0)))
+                    .node(Node::progress(
+                        "Counted",
+                        Some(self.clicks.min(10) as f32 / 10.0),
+                    ))
                     // Never handed over: it waits, saying what it'll be.
                     .node(Node::image("last-run", "Plot of the last run")),
             ),
@@ -269,18 +279,89 @@ impl Plugin for Testbed {
             host::agent_done(chat, AgentOutcome::Failed, Some("API key not valid"));
             return;
         }
+        // What agent plugins can add to the chat (AgentUi.html): a header,
+        // slash commands, and pieces of their own in a message.
+        let chip = |id: &str, label: &str| Chip {
+            id: id.into(),
+            label: label.into(),
+            tone: Tone::Normal,
+        };
+        let _ = host::agent_header(
+            chat,
+            &[
+                chip("echo:model", "Echo 1 ▾"),
+                chip("echo:mode", "Plan first ▾"),
+            ],
+            "12.4k tokens · $0.03",
+        );
+        let command = |name: &str, description: &str| AgentCommand {
+            name: name.into(),
+            description: description.into(),
+        };
+        let _ = host::agent_commands(
+            chat,
+            &[
+                command("review", "Review the changes on this branch"),
+                command("plan", "Plan before changing anything"),
+                command("compact", "Shorten the conversation so far"),
+            ],
+        );
+        if text.contains("pieces") {
+            say(AgentPart::Text(
+                "Three files use the old cache. Update them all?".into(),
+            ));
+            let row = |id: &str, label: &str, count: &str| {
+                Node::Row(Row {
+                    id: id.into(),
+                    label: label.into(),
+                    detail: String::new(),
+                    depth: 0,
+                    expanded: None,
+                    icon: String::new(),
+                    chips: Vec::new(),
+                    count: count.into(),
+                    menu: Vec::new(),
+                })
+            };
+            say(AgentPart::Panel(vec![
+                row("echo:file:palette", "palette.rs", "2 places"),
+                row("echo:file:frame", "frame.rs", "1 place"),
+                row("echo:file:side", "side.rs", "4 places"),
+                Node::Buttons(vec![
+                    Button {
+                        id: "echo:all".into(),
+                        label: "Update All 3".into(),
+                    },
+                    Button {
+                        id: "echo:one".into(),
+                        label: "Only palette.rs".into(),
+                    },
+                ]),
+            ]));
+            host::agent_done(chat, AgentOutcome::Finished, None);
+            return;
+        }
         say(AgentPart::Thought("Looking at the file first.".into()));
         let path = context.into_iter().find_map(|c| match c {
             AgentContext::File(p) => Some(p),
             AgentContext::Lines((p, _, _)) => Some(p),
         });
         let Some(path) = path else {
-            say(AgentPart::Text("Attach a file and I'll add a line to it.".into()));
+            say(AgentPart::Text(
+                "Attach a file and I'll add a line to it.".into(),
+            ));
             host::agent_done(chat, AgentOutcome::Finished, None);
             return;
         };
         say(plan(0));
-        say(tool("read", ToolKind::Read, &path, StepState::Running, 0, None));
+        say(tool(
+            "read",
+            ToolKind::Read,
+            &path,
+            StepState::Running,
+            0,
+            None,
+        ));
         let read = host::agent_read(chat, &path).unwrap_or(0);
         self.turns.insert(
             chat,
@@ -301,11 +382,25 @@ impl Plugin for Testbed {
         };
         if request == turn.read {
             let Ok(text) = got else {
-                say(tool("read", ToolKind::Read, &turn.path, StepState::Failed, 0, None));
+                say(tool(
+                    "read",
+                    ToolKind::Read,
+                    &turn.path,
+                    StepState::Failed,
+                    0,
+                    None,
+                ));
                 host::agent_done(chat, AgentOutcome::Finished, None);
                 return;
             };
-            say(tool("read", ToolKind::Read, &turn.path, StepState::Done, 0, None));
+            say(tool(
+                "read",
+                ToolKind::Read,
+                &turn.path,
+                StepState::Done,
+                0,
+                None,
+            ));
             say(plan(1));
             say(AgentPart::Text(format!(
                 "`{}` has {} lines. I'll add a line at the end to say it was checked.",
@@ -313,17 +408,41 @@ impl Plugin for Testbed {
                 text.lines().count()
             )));
             let diff = format!("+// Checked by Echo.");
-            turn.text = format!("{text}{}// Checked by Echo.\n", if text.ends_with('\n') || text.is_empty() { "" } else { "\n" });
-            turn.ask_edit = host::agent_ask(chat, &AgentRequest::Edit((turn.path.clone(), Some(diff)))).unwrap_or(0);
+            turn.text = format!(
+                "{text}{}// Checked by Echo.\n",
+                if text.ends_with('\n') || text.is_empty() {
+                    ""
+                } else {
+                    "\n"
+                }
+            );
+            turn.ask_edit =
+                host::agent_ask(chat, &AgentRequest::Edit((turn.path.clone(), Some(diff))))
+                    .unwrap_or(0);
         } else if request == turn.write {
             match got {
                 Ok(_) => {
-                    say(tool("edit", ToolKind::Edit, &turn.path, StepState::Done, 1, None));
+                    say(tool(
+                        "edit",
+                        ToolKind::Edit,
+                        &turn.path,
+                        StepState::Done,
+                        1,
+                        None,
+                    ));
                     say(plan(2));
-                    turn.ask_run = host::agent_ask(chat, &AgentRequest::Run(COMMAND.into())).unwrap_or(0);
+                    turn.ask_run =
+                        host::agent_ask(chat, &AgentRequest::Run(COMMAND.into())).unwrap_or(0);
                 }
                 Err(e) => {
-                    say(tool("edit", ToolKind::Edit, &turn.path, StepState::Failed, 0, None));
+                    say(tool(
+                        "edit",
+                        ToolKind::Edit,
+                        &turn.path,
+                        StepState::Failed,
+                        0,
+                        None,
+                    ));
                     say(AgentPart::Text(format!("The edit didn't go in: {e}")));
                     host::agent_done(chat, AgentOutcome::Finished, None);
                 }
@@ -344,11 +463,25 @@ impl Plugin for Testbed {
             return;
         }
         if request == turn.ask_edit {
-            say(tool("edit", ToolKind::Edit, &turn.path, StepState::Running, 0, None));
+            say(tool(
+                "edit",
+                ToolKind::Edit,
+                &turn.path,
+                StepState::Running,
+                0,
+                None,
+            ));
             turn.write = host::agent_write(chat, &turn.path, &turn.text).unwrap_or(0);
         } else if request == turn.ask_run {
             turn.run = host::agent_run(chat, COMMAND, None).unwrap_or(0);
-            say(tool("run", ToolKind::Run, COMMAND, StepState::Running, 0, Some(turn.run)));
+            say(tool(
+                "run",
+                ToolKind::Run,
+                COMMAND,
+                StepState::Running,
+                0,
+                Some(turn.run),
+            ));
         }
     }
 
@@ -367,7 +500,11 @@ impl Plugin for Testbed {
             "run",
             ToolKind::Run,
             COMMAND,
-            if ok { StepState::Done } else { StepState::Failed },
+            if ok {
+                StepState::Done
+            } else {
+                StepState::Failed
+            },
             0,
             Some(run),
         ));
@@ -462,14 +599,20 @@ impl Testbed {
                 "notes.txt",
                 1,
                 0,
-                vec![Button::new("review", "Review"), Button::new("apply", "Apply")],
+                vec![
+                    Button::new("review", "Review"),
+                    Button::new("apply", "Apply"),
+                ],
             ));
         }
         panel
             .footer()
             .node(Node::multiline_input("ask", "Ask something"))
             .node(Node::chips(
-                vec![Chip::new("selection", "+ selection"), Chip::new("model", "fast ▾")],
+                vec![
+                    Chip::new("selection", "+ selection"),
+                    Chip::new("model", "fast ▾"),
+                ],
                 "Ctrl Enter to send",
             ))
     }
@@ -505,9 +648,13 @@ impl Testbed {
                 }),
             },
         ];
-        for (i, (x, y, name)) in [(20.0, 20.0, "main"), (20.0, 100.0, "first"), (60.0, 80.0, "branch")]
-            .into_iter()
-            .enumerate()
+        for (i, (x, y, name)) in [
+            (20.0, 20.0, "main"),
+            (20.0, 100.0, "first"),
+            (60.0, 80.0, "branch"),
+        ]
+        .into_iter()
+        .enumerate()
         {
             items.push(DrawItem {
                 id: format!("commit-{i}"),

@@ -237,6 +237,18 @@ pub enum Node {
         text: String,
         copy: Button,
     },
+    /// A bar of chips with a quiet line at its right, kept at the top of
+    /// the view when it's the first node: an agent's header.
+    Bar {
+        chips: Vec<Chip>,
+        hint: String,
+    },
+    /// A small menu card: a title, then items, each id, label and what it
+    /// does at the right. As an agent's slash commands.
+    Menu {
+        title: String,
+        items: Vec<(String, String, String)>,
+    },
 }
 
 /// How far a step has got.
@@ -437,6 +449,37 @@ pub enum Target {
 }
 
 impl Panel {
+    /// Every id a click can arrive with, to change: as merlin keeps its
+    /// own (`agent:`) out of a plugin's pieces.
+    pub fn ids_mut(&mut self, mut f: impl FnMut(&mut String)) {
+        for node in &mut self.nodes {
+            match node {
+                Node::Button(b) | Node::Wide { button: b, .. } => f(&mut b.id),
+                Node::Buttons(bs) | Node::Tools(bs) | Node::Banner { buttons: bs, .. } => {
+                    bs.iter_mut().for_each(|b| f(&mut b.id))
+                }
+                Node::Item { id, .. } | Node::Input { id, .. } => f(id),
+                Node::Entry(e) => {
+                    f(&mut e.id);
+                    e.menu.iter_mut().for_each(|b| f(&mut b.id));
+                    if let Some((_, id)) = &mut e.action {
+                        f(id);
+                    }
+                    e.links.iter_mut().for_each(|(_, id)| f(id));
+                }
+                Node::Chips { chips, .. } | Node::Bar { chips, .. } => {
+                    chips.iter_mut().for_each(|c| f(&mut c.id))
+                }
+                Node::Message(m) => m.chips.iter_mut().for_each(|c| f(&mut c.id)),
+                Node::Edit(e) => e.buttons.iter_mut().for_each(|b| f(&mut b.id)),
+                Node::Empty { buttons, .. } => buttons.iter_mut().for_each(|b| f(&mut b.id)),
+                Node::Drawing(d) => d.items.iter_mut().for_each(|i| f(&mut i.id)),
+                Node::Menu { items, .. } => items.iter_mut().for_each(|(id, ..)| f(id)),
+                _ => {}
+            }
+        }
+    }
+
     /// Focusable elements, in the order Tab visits them.
     pub fn targets(&self) -> Vec<Target> {
         let button = |b: &Button| Target::Button(b.id.clone());
@@ -468,6 +511,11 @@ impl Panel {
                     )
                     .collect(),
                 Node::Command { copy, .. } => vec![button(copy)],
+                Node::Bar { chips, .. } => chip_targets(chips),
+                Node::Menu { items, .. } => items
+                    .iter()
+                    .map(|(id, ..)| Target::Button(id.clone()))
+                    .collect(),
                 _ => Vec::new(),
             })
             .collect()

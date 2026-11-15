@@ -612,6 +612,17 @@ fn dump_side(o: &mut String, which: &str, side: &SideView) {
                 format!("{} [{}]{files}", c.title, c.revert_all.label)
             }
             Node::Command { text, copy } => format!("$ {text} [{}]", copy.label),
+            Node::Bar { chips, hint } => {
+                let chips: String = chips.iter().map(|c| format!("({}) ", c.label)).collect();
+                format!("bar: {chips}{hint}")
+            }
+            Node::Menu { title, items } => {
+                let items: String = items
+                    .iter()
+                    .map(|(_, l, d)| format!(" | {l} — {d}"))
+                    .collect();
+                format!("menu: {title}{items}")
+            }
             Node::Drawing(d) => format!(
                 "[drawing {}×{}: {} shapes{}]",
                 d.width,

@@ -454,6 +454,17 @@ interface types {
     /// The whole plan, as it stands.
     plan(list<plan-step>),
     tool(agent-tool),
+    /// Pieces of the plugin's own, as a view's panel has them: rows,
+    /// buttons, chips, a progress bar, a picture. A click on one comes to
+    /// `on-click` with its id.
+    panel(list<node>),
+  }
+
+  /// A slash command an agent offers, as `/review`.
+  record agent-command {
+    /// Without the slash.
+    name: string,
+    description: string,
   }
 
   /// What an agent asks to do, for the permission card.
@@ -834,7 +845,7 @@ interface types {
 /// What the editor offers a plugin. Calls that need a permission check the
 /// plugin's manifest and return an error naming the permission if denied.
 interface host {
-  use types.{status-item, framing, pick-item, position, selection, text-change, diagnostic, detailed-diagnostic, code-action, file-edit, rename-info, location, project-symbol, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint, signature, task, test-item, test-result, debug-target, debug-launch, function-stop, breakpoint, debug-state, debug-thread, stack-frame, debug-variable, breakpoint-state, stop-filter, inline-value, output-kind, log-level, button, picture, fetch-request, agent-part, agent-request, agent-outcome};
+  use types.{status-item, framing, pick-item, position, selection, text-change, diagnostic, detailed-diagnostic, code-action, file-edit, rename-info, location, project-symbol, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint, signature, task, test-item, test-result, debug-target, debug-launch, function-stop, breakpoint, debug-state, debug-thread, stack-frame, debug-variable, breakpoint-state, stop-filter, inline-value, output-kind, log-level, button, picture, fetch-request, agent-part, agent-request, agent-outcome, chip, agent-command};
 
   /// Text of the active buffer. Needs `editor-read`.
   active-text: func() -> result<string, string>;
@@ -1139,6 +1150,13 @@ interface host {
   agent-run: func(chat: u32, command: string, cwd: option<string>) -> result<u32, string>;
   /// Stops a run.
   agent-stop: func(run: u32);
+  /// The chat's header under its tab: chips, each clicked to `on-click`
+  /// with its id (to open a picker, say), and a quiet line at the right.
+  /// No chips and no note take it away.
+  agent-header: func(chat: u32, chips: list<chip>, note: string) -> result<_, string>;
+  /// The slash commands the agent offers, which the chat lists when `/`
+  /// is typed. A message that starts with one is sent as it's typed.
+  agent-commands: func(chat: u32, commands: list<agent-command>) -> result<_, string>;
 }
 
 world plugin {

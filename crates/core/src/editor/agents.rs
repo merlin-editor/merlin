@@ -29,6 +29,9 @@ pub struct AgentSpec {
     pub icon: String,
     /// The program it runs, when that isn't installed.
     pub missing: Option<MissingProgram>,
+    /// A view of its plugin's own that shows in place of merlin's chat,
+    /// by its key (`plugin/view`).
+    pub view: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -76,6 +79,8 @@ pub enum AgentPart {
     Thought(String),
     Plan(Vec<PlanStep>),
     Tool(AgentTool),
+    /// Pieces of the plugin's own, drawn in the message.
+    Panel(Vec<Node>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -135,6 +140,13 @@ pub enum AgentUpdate {
     Stop {
         run: u32,
     },
+    /// The chat's header: chips and a quiet line.
+    Header {
+        chips: Vec<Chip>,
+        note: String,
+    },
+    /// The slash commands the agent offers: name and what it does.
+    Commands(Vec<(String, String)>),
 }
 
 /// A call into the plugin behind a chat.
@@ -206,6 +218,9 @@ pub(crate) struct Tab {
     pub attach: bool,
     /// When the turn's current thought started and ended, in ms.
     thought: Option<(u64, u64)>,
+    /// The plugin's header, and the agent's slash commands.
+    pub header: Option<(Vec<Chip>, String)>,
+    pub commands: Vec<(String, String)>,
 }
 
 pub(crate) enum Turn {
@@ -219,6 +234,7 @@ pub(crate) enum Item {
     Thought(String, Option<u64>),
     Plan(Vec<PlanStep>),
     Tool(AgentTool),
+    Panel(Vec<Node>),
 }
 
 pub(crate) struct Ask {
@@ -290,6 +306,54 @@ impl Editor {
             .position(|t| t.chat == chat && t.key.starts_with(&format!("{plugin}/")))
     }
 
+    /// The agent whose chat shows on the right: its tab, or its view of
+    /// its own.
+    pub(crate) fn shown_agent(&self) -> Option<String> {
+        let name = self.active_panel_name(Side::Right)?;
+        if let Some(key) = name.strip_prefix(AGENT) {
+            return Some(key.to_string());
+        }
+        self.agents
+            .specs
+            .iter()
+            .find(|s| s.view.as_deref() == Some(name.as_str()))
+            .map(AgentSpec::key)
+    }
+
+    /// An agent with a view of its own numbers its chats itself: the first
+    /// word from one of them makes its tab.
+    fn own_view_tab(&mut self, plugin: &str, chat: u32) -> Option<usize> {
+        let key = self
+            .agents
+            .specs
+            .iter()
+            .find(|s| s.plugin == plugin && s.view.is_some())?
+            .key();
+        // It has one chat: what merlin opened takes the plugin's number.
+        if let Some(i) = self.agents.tabs.iter().position(|t| t.key == key) {
+            self.agents.tabs[i].chat = chat;
+            return Some(i);
+        }
+        self.agents.tabs.push(Tab {
+            key,
+            chat,
+            turns: Vec::new(),
+            busy: true,
+            asks: Vec::new(),
+            ended: None,
+            changes: Vec::new(),
+            allowed_paths: HashSet::new(),
+            allowed_runs: Vec::new(),
+            runs: Vec::new(),
+            next_ask: 0,
+            attach: false,
+            thought: None,
+            header: None,
+            commands: Vec::new(),
+        });
+        Some(self.agents.tabs.len() - 1)
+    }
+
     fn spec(&self, key: &str) -> Option<&AgentSpec> {
         self.agents.specs.iter().find(|s| s.key() == key)
     }
@@ -350,14 +414,22 @@ impl Editor {
                 next_ask: 0,
                 attach: true,
                 thought: None,
+                header: None,
+                commands: Vec::new(),
             });
-            let name = format!("{AGENT}{key}");
-            let entry = self.plugin_mut(&name);
-            entry.side = Side::Right;
-            self.draw_agent(key);
+            // An agent with a view of its own shows that, not merlin's chat.
+            if self.spec(key).and_then(|s| s.view.clone()).is_none() {
+                let name = format!("{AGENT}{key}");
+                let entry = self.plugin_mut(&name);
+                entry.side = Side::Right;
+                self.draw_agent(key);
+            }
         }
         if show {
-            let name = format!("{AGENT}{key}");
+            let name = self
+                .spec(key)
+                .and_then(|s| s.view.clone())
+                .unwrap_or_else(|| format!("{AGENT}{key}"));
             let bar = self.bar_mut(Side::Right);
             bar.visible = true;
             bar.active = Some(name);
@@ -394,7 +466,10 @@ impl Editor {
         at: u64,
         fx: &mut Vec<Effect>,
     ) {
-        let Some(i) = self.tab_index(plugin, chat) else {
+        let found = self
+            .tab_index(plugin, chat)
+            .or_else(|| self.own_view_tab(plugin, chat));
+        let Some(i) = found else {
             // A chat that's closed: answer what waits for an answer.
             let mut refuse = |call| {
                 fx.push(Effect::Agent {
@@ -515,6 +590,20 @@ impl Editor {
                     self.push_ask(i, None, what, Some(Held::Run { run, command, cwd }));
                 }
             }
+            AgentUpdate::Header { chips, note } => {
+                let chips = match plugin_pieces(vec![Node::Bar {
+                    chips,
+                    hint: String::new(),
+                }])
+                .pop()
+                {
+                    Some(Node::Bar { chips, .. }) => chips,
+                    _ => Vec::new(),
+                };
+                self.agents.tabs[i].header =
+                    (!chips.is_empty() || !note.is_empty()).then_some((chips, note));
+            }
+            AgentUpdate::Commands(commands) => self.agents.tabs[i].commands = commands,
             AgentUpdate::Stop { run } => {
                 if let Some(r) = self.agents.tabs[i].runs.iter().find(|r| r.run == run) {
                     let term = r.term;
@@ -557,6 +646,7 @@ impl Editor {
                 Some(Item::Plan(old)) => *old = steps,
                 _ => items.push(Item::Plan(steps)),
             },
+            AgentPart::Panel(nodes) => items.push(Item::Panel(plugin_pieces(nodes))),
             AgentPart::Tool(tool) => {
                 let found = items
                     .iter_mut()
@@ -1062,13 +1152,32 @@ impl Editor {
 
     /// A click in an agent's tab.
     pub(crate) fn agent_click(&mut self, id: &str, fx: &mut Vec<Effect>) -> bool {
+        let key = self.shown_agent().unwrap_or_default();
+        // A slash command picked: it goes in the box.
+        if let Some(name) = id.strip_prefix("agent:cmd:") {
+            let input = (format!("{AGENT}{key}"), PROMPT.to_string());
+            let text = format!("/{name} ");
+            self.input_cursors.insert(input.clone(), text.len());
+            self.inputs.insert(input, text);
+            return true;
+        }
         let Some(rest) = id.strip_prefix("agent:") else {
+            // The plugin's own pieces, in its agent's chat: its click.
+            let in_chat = self
+                .active_panel_name(Side::Right)
+                .is_some_and(|n| n.starts_with(AGENT));
+            if in_chat
+                && self.focused_side() == Some(Side::Right)
+                && let Some(spec) = self.spec(&key)
+            {
+                fx.push(Effect::PluginClick {
+                    plugin: spec.plugin.clone(),
+                    button: id.to_string(),
+                });
+                return true;
+            }
             return false;
         };
-        let key = self
-            .active_panel_name(Side::Right)
-            .and_then(|n| n.strip_prefix(AGENT).map(str::to_string))
-            .unwrap_or_default();
         let (what, arg) = rest.split_once(':').unwrap_or((rest, ""));
         match what {
             "allow" => self.agent_answer(&key, AgentAnswer::AllowOnce, fx),
@@ -1298,9 +1407,7 @@ impl Editor {
         // The agent's plugin, whose page Agent Settings opens.
         let right = (id == "agent.setup")
             .then(|| {
-                let key = self
-                    .active_panel_name(Side::Right)
-                    .and_then(|n| n.strip_prefix(AGENT).map(str::to_string));
+                let key = self.shown_agent();
                 let spec = key
                     .and_then(|k| self.spec(&k))
                     .or(self.agents.specs.first())?;
@@ -1312,10 +1419,7 @@ impl Editor {
 
     /// Runs one of the agents' menu items. Returns false if it isn't one.
     pub(crate) fn agent_menu_picked(&mut self, id: &str, fx: &mut Vec<Effect>) -> bool {
-        let key = self
-            .active_panel_name(Side::Right)
-            .and_then(|n| n.strip_prefix(AGENT).map(str::to_string))
-            .unwrap_or_default();
+        let key = self.shown_agent().unwrap_or_default();
         if let Some(n) = AGENT_ITEMS.iter().position(|i| *i == id) {
             if let Some(k) = self.agents.menu.get(n).cloned() {
                 self.open_agent(&k, true);
@@ -1351,6 +1455,11 @@ impl Editor {
 
     /// Builds an agent tab's panel from its chat.
     pub(crate) fn draw_agent(&mut self, key: &str) {
+        // An agent with a view of its own draws it; merlin adds its cards
+        // as it shows (`agent_extras`).
+        if self.spec(key).is_some_and(|s| s.view.is_some()) {
+            return;
+        }
         let name = format!("{AGENT}{key}");
         let panel = self.agent_panel(key);
         self.plugin_mut(&name).panel = Some(panel);
@@ -1391,6 +1500,12 @@ impl Editor {
                 });
             }
             return Panel { title, nodes };
+        }
+        if let Some((chips, note)) = &tab.header {
+            nodes.push(Node::Bar {
+                chips: chips.clone(),
+                hint: note.clone(),
+            });
         }
         let last = tab.turns.len().saturating_sub(1);
         for (n, turn) in tab.turns.iter().enumerate() {
@@ -1549,6 +1664,7 @@ impl Editor {
                     streaming: streaming && Some(n) == last_text,
                 }))),
                 Item::Tool(tool) => nodes.push(Node::Step(Box::new(self.step_line(tool, tab)))),
+                Item::Panel(parts) => nodes.extend(parts.iter().cloned()),
             }
         }
     }
@@ -1747,22 +1863,116 @@ impl Editor {
         nodes
     }
 
+    /// Whether [`Self::agent_extras`] can add to the panel `name`.
+    pub(crate) fn agent_adds_to(&self, name: &str) -> bool {
+        name.starts_with(AGENT)
+            || self
+                .agents
+                .specs
+                .iter()
+                .any(|s| s.view.as_deref() == Some(name))
+    }
+
+    /// What merlin adds to a panel as it shows: the slash commands that
+    /// match what's typed, in an agent's chat; and in an agent's view of
+    /// its own, merlin's cards and the turn's changes.
+    pub(crate) fn agent_extras(&self, name: &str, mut panel: Panel) -> Panel {
+        if let Some(key) = name.strip_prefix(AGENT) {
+            let Some(tab) = self.agents.tabs.iter().find(|t| t.key == key) else {
+                return panel;
+            };
+            let typed = self
+                .inputs
+                .get(&(name.to_string(), PROMPT.to_string()))
+                .map(String::as_str)
+                .unwrap_or_default();
+            let Some(word) = typed
+                .strip_prefix('/')
+                .filter(|w| !w.contains(char::is_whitespace))
+            else {
+                return panel;
+            };
+            let items: Vec<(String, String, String)> = tab
+                .commands
+                .iter()
+                .filter(|(n, _)| n.starts_with(word))
+                // A few at a time: typing more narrows them.
+                .take(8)
+                .map(|(n, d)| (format!("agent:cmd:{n}"), format!("/{n}"), d.clone()))
+                .collect();
+            if items.is_empty() {
+                return panel;
+            }
+            if let Some(at) = panel
+                .nodes
+                .iter()
+                .position(|n| matches!(n, Node::Input { .. }))
+            {
+                let agent = self.agent_name(key);
+                panel.nodes.insert(
+                    at,
+                    Node::Menu {
+                        title: format!("{agent}'s commands"),
+                        items,
+                    },
+                );
+            }
+            return panel;
+        }
+        // A view an agent uses as its chat.
+        let Some(spec) = self
+            .agents
+            .specs
+            .iter()
+            .find(|s| s.view.as_deref() == Some(name))
+        else {
+            return panel;
+        };
+        let key = spec.key();
+        let Some(tab) = self.agents.tabs.iter().find(|t| t.key == key) else {
+            return panel;
+        };
+        let mut extra = Vec::new();
+        if let Some(ask) = tab.asks.first() {
+            extra.push(Node::Ask(Box::new(self.ask_card(&spec.name, ask))));
+        }
+        if !tab.busy && !tab.changes.is_empty() {
+            extra.push(Node::Changes(Box::new(self.changes_card(tab))));
+        }
+        if !extra.is_empty() {
+            panel.nodes.push(Node::Footer);
+            panel.nodes.extend(extra);
+        }
+        panel
+    }
+
     /// The tab's text box, sent: from `view_submit`.
     pub(crate) fn agent_submit(&mut self, panel: &str, text: &str, fx: &mut Vec<Effect>) -> bool {
         let Some(key) = panel.strip_prefix(AGENT) else {
             return false;
         };
         let key = key.to_string();
+        // A slash command half typed: Enter finishes it, as the menu shows.
+        if let Some(word) = text
+            .strip_prefix('/')
+            .filter(|w| !w.contains(char::is_whitespace))
+            && let Some(tab) = self.agents.tabs.iter().find(|t| t.key == key)
+            && !tab.commands.iter().any(|(n, _)| n == word)
+            && let Some((name, _)) = tab.commands.iter().find(|(n, _)| n.starts_with(word))
+        {
+            let input = (panel.to_string(), PROMPT.to_string());
+            let text = format!("/{name} ");
+            self.input_cursors.insert(input.clone(), text.len());
+            self.inputs.insert(input, text);
+            return true;
+        }
         self.agent_send(&key, text, fx);
         true
     }
 
     /// Enter and Esc answer a permission card while one shows.
     pub(crate) fn agent_key(&mut self, key: crate::key::Key, fx: &mut Vec<Effect>) -> bool {
-        let Some(name) = self.active_panel_name(Side::Right) else {
-            return false;
-        };
-        let Some(tab_key) = name.strip_prefix(AGENT).map(str::to_string) else {
+        let Some(tab_key) = self.shown_agent() else {
             return false;
         };
         let asking = self
@@ -1848,6 +2058,21 @@ fn shell_quote(text: &str) -> String {
     } else {
         format!("'{}'", text.replace('\'', "'\\''"))
     }
+}
+
+/// A plugin's pieces in its agent's chat, which can't use merlin's ids:
+/// one starting `agent:` would answer merlin's cards. It isn't clickable.
+fn plugin_pieces(nodes: Vec<Node>) -> Vec<Node> {
+    let mut panel = Panel {
+        title: String::new(),
+        nodes,
+    };
+    panel.ids_mut(|id| {
+        if id.starts_with("agent:") {
+            id.clear();
+        }
+    });
+    panel.nodes
 }
 
 #[cfg(test)]

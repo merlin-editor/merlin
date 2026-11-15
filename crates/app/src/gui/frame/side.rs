@@ -108,6 +108,20 @@ impl Frame<'_> {
             rows.push((y, h));
             y += h;
         }
+        // An agent's header stays at the top, under the tabs.
+        let bar_h = match sv.nodes.first() {
+            Some(Node::Bar { .. }) => rows[0].1,
+            _ => 0.0,
+        };
+        let body = if bar_h > 0.0 {
+            for row in &mut rows {
+                row.0 -= bar_h;
+            }
+            y -= bar_h;
+            Rect::new(body.x, body.y + bar_h, body.w, (body.h - bar_h).max(0.0))
+        } else {
+            body
+        };
         let (total, body) = match footer {
             Some(f) => {
                 let top = rows[f].0;
@@ -153,7 +167,13 @@ impl Frame<'_> {
         for (i, node) in sv.nodes.iter().enumerate() {
             let (ry, rh) = rows[i];
             let in_footer = i >= footer_from;
-            let (top, clip) = if in_footer {
+            let pinned = i == 0 && bar_h > 0.0;
+            let (top, clip) = if pinned {
+                (
+                    body.y - bar_h,
+                    Rect::new(area.x, body.y - bar_h, area.w, bar_h),
+                )
+            } else if in_footer {
                 (
                     body.y + ry,
                     Rect::new(area.x, body.bottom(), area.w, area.bottom() - body.bottom()),
@@ -161,7 +181,7 @@ impl Frame<'_> {
             } else {
                 (body.y + ry - scroll, body)
             };
-            if !in_footer && (top + rh < body.y || top > body.bottom()) {
+            if !in_footer && !pinned && (top + rh < body.y || top > body.bottom()) {
                 continue;
             }
             let r = Rect::new(area.x, top, area.w, rh);
@@ -516,6 +536,8 @@ impl Frame<'_> {
             Node::Markdown(t) => self.md_layout(t, inner).1 + 8.0,
             Node::Message(m) => self.message_layout(m, inner).height,
             Node::Chips { .. } => 32.0,
+            Node::Bar { .. } => 38.0,
+            Node::Menu { items, .. } => 12.0 + 26.0 + items.len() as f32 * 26.0 + 6.0,
             Node::Edit(_) => 50.0,
             Node::Steps(steps) => Self::steps_height(steps),
             Node::Step(_) => 24.0,
@@ -675,7 +697,18 @@ impl Frame<'_> {
                 let colours = node_colours(sv, node);
                 self.message(m, colours, sv, side, r, target, clip);
             }
-            Node::Chips { chips, hint } => {
+            Node::Menu { title, items } => {
+                self.menu_card(title, items, sv, side, r, target, clip);
+            }
+            Node::Chips { chips, hint } | Node::Bar { chips, hint } => {
+                // An agent's header: under the tab row, a line below it.
+                let r = if matches!(node, Node::Bar { .. }) {
+                    self.canvas
+                        .fill(Rect::new(r.x, r.bottom() - 1.0, r.w, 1.0), p.line);
+                    Rect::new(r.x - 2.0, r.y + 2.0, r.w, r.h)
+                } else {
+                    r
+                };
                 let mut x = r.x + 14.0;
                 let mut k = 0;
                 for c in chips {

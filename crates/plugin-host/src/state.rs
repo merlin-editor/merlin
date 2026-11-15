@@ -1047,6 +1047,32 @@ impl host::Host for State {
         Ok(())
     }
 
+    fn agent_header(
+        &mut self,
+        chat: u32,
+        chips: Vec<types::Chip>,
+        note: String,
+    ) -> Result<(), String> {
+        self.need(self.permissions.agent, "agent")?;
+        let chips = convert_chips(chips);
+        self.agent(chat, merlin_core::AgentUpdate::Header { chips, note });
+        Ok(())
+    }
+
+    fn agent_commands(
+        &mut self,
+        chat: u32,
+        commands: Vec<types::AgentCommand>,
+    ) -> Result<(), String> {
+        self.need(self.permissions.agent, "agent")?;
+        let commands = commands
+            .into_iter()
+            .map(|c| (c.name.trim_start_matches('/').to_string(), c.description))
+            .collect();
+        self.agent(chat, merlin_core::AgentUpdate::Commands(commands));
+        Ok(())
+    }
+
     fn agent_ask(&mut self, chat: u32, request: types::AgentRequest) -> Result<u32, String> {
         self.need(self.permissions.agent, "agent")?;
         let id = self.agent_id();
@@ -1168,6 +1194,28 @@ fn agent_part(part: types::AgentPart) -> merlin_core::AgentPart {
             removed: t.removed,
             run: t.run,
         }),
+        types::AgentPart::Panel(nodes) => merlin_core::AgentPart::Panel(
+            convert_panel(types::Panel {
+                title: String::new(),
+                nodes,
+            })
+            .nodes,
+        ),
+    }
+}
+
+/// Chips as a panel's: the plugin's ids, merlin's tones.
+fn convert_chips(chips: Vec<types::Chip>) -> Vec<merlin_core::Chip> {
+    let panel = convert_panel(types::Panel {
+        title: String::new(),
+        nodes: vec![types::Node::Chips(types::ChipRow {
+            chips,
+            hint: String::new(),
+        })],
+    });
+    match panel.nodes.into_iter().next() {
+        Some(merlin_core::Node::Chips { chips, .. }) => chips,
+        _ => Vec::new(),
     }
 }
 

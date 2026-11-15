@@ -109,7 +109,13 @@ fn permissions_are_asked_for_once_and_remembered() {
     let events = host.click("testbed", "merlin:allow", snapshot());
     // The card goes, then it registers.
     assert!(
-        matches!(&events[..2], [Event::SetPanel { panel: None, .. }, Event::RegisterPlugin { .. }]),
+        matches!(
+            &events[..2],
+            [
+                Event::SetPanel { panel: None, .. },
+                Event::RegisterPlugin { .. }
+            ]
+        ),
         "{events:?}"
     );
     assert!(panel_text(&mut host).contains("clicks: 0"));

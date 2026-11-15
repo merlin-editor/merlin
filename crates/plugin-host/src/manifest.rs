@@ -456,6 +456,7 @@ pub(super) fn agent_specs(manifest: &Manifest) -> Vec<merlin_core::AgentSpec> {
             id: a.id.clone(),
             name: a.name.clone(),
             icon: a.icon.clone().unwrap_or_else(|| "◆".into()),
+            view: a.view.as_ref().map(|v| format!("{}/{v}", manifest.name)),
             missing: a
                 .program
                 .as_ref()
@@ -1178,6 +1179,21 @@ fn check_views(manifest: &Manifest) -> Result<()> {
             );
         }
     }
+    for agent in &manifest.agents {
+        let Some(id) = &agent.view else { continue };
+        let Some(view) = manifest.views.iter().find(|v| &v.id == id) else {
+            bail!(
+                "agent {:?} uses view {id:?}, which [[views]] doesn't have",
+                agent.id
+            );
+        };
+        if view.place.as_deref() != Some("right") {
+            bail!(
+                "agent {:?} uses view {id:?}, which needs where = \"right\" to show in place of the chat",
+                agent.id
+            );
+        }
+    }
     Ok(())
 }
 
@@ -1224,6 +1240,23 @@ mod tests {
     use merlin_core::editor::{Found, problems};
 
     use super::*;
+
+    #[test]
+    fn an_agents_own_view_must_be_one_of_its_views_on_the_right() {
+        let parse = |extra: &str| {
+            let text = format!(
+                "name = \"a\"\ntitle = \"A\"\nversion = \"0.1.0\"\napi = \"0.15\"\ncomponent = \"a.wasm\"\n\
+                 [[agents]]\nid = \"x\"\nname = \"X\"\nview = \"board\"\n{extra}"
+            );
+            let manifest: Manifest = toml::from_str(&text).unwrap();
+            check_views(&manifest).map_err(|e| e.to_string())
+        };
+        let err = parse("").unwrap_err();
+        assert!(err.contains("which [[views]] doesn't have"), "{err}");
+        let err = parse("[[views]]\nid = \"board\"\ntitle = \"Board\"\n").unwrap_err();
+        assert!(err.contains("needs where = \"right\""), "{err}");
+        parse("[[views]]\nid = \"board\"\ntitle = \"Board\"\nwhere = \"right\"\n").unwrap();
+    }
 
     /// What a plugin's own matchers find in `out`.
     fn found(plugin: &str, out: &str) -> Vec<Found> {

@@ -7,7 +7,8 @@ use std::path::PathBuf;
 use merlin_core::script::Session;
 use merlin_core::{
     AgentAnswer, AgentCall, AgentContext, AgentOutcome, AgentPart, AgentRequest, AgentSpec,
-    AgentTool, AgentUpdate, Effect, Event, PlanStep, StepState, ToolKind,
+    AgentTool, AgentUpdate, Button, Chip, Effect, Event, Node, Place, PlanStep, StepState, Tone,
+    ToolKind, ViewSpec,
 };
 
 const TEXT: &str = "fn main() {\n    println!(\"hi\");\n}\n";
@@ -23,6 +24,7 @@ fn session() -> Session {
             name: "Gemini".into(),
             icon: "◆".into(),
             missing: None,
+            view: None,
         }],
     });
     s
@@ -402,4 +404,169 @@ fn a_file_the_agent_writes_itself_is_still_reviewed() {
     );
     s.click_entry("src/main.rs Revert", 1);
     assert_eq!(s.text(), TEXT);
+}
+
+fn chip(id: &str, label: &str) -> Chip {
+    Chip {
+        id: id.into(),
+        label: label.into(),
+        tone: Tone::Normal,
+    }
+}
+
+#[test]
+fn the_agents_header_and_its_own_pieces_show_and_their_clicks_go_to_it() {
+    let mut s = session();
+    send(&mut s, "go");
+    say(
+        &mut s,
+        AgentUpdate::Header {
+            chips: vec![
+                chip("acp:model:1", "Gemini 3 Pro ▾"),
+                chip("agent:allow", "Sneaky"),
+            ],
+            note: "12.4k tokens · $0.03".into(),
+        },
+    );
+    say(
+        &mut s,
+        AgentUpdate::Say(AgentPart::Panel(vec![Node::Buttons(vec![
+            Button {
+                id: "update-all".into(),
+                label: "Update All 3".into(),
+            },
+            Button {
+                id: "agent:allow".into(),
+                label: "Fake Allow".into(),
+            },
+        ])])),
+    );
+    let shown = chat(&s);
+    assert!(
+        shown.contains("bar: (Gemini 3 Pro ▾) (Sneaky) 12.4k tokens · $0.03"),
+        "{shown}"
+    );
+    assert!(shown.contains("Update All 3"), "{shown}");
+    calls(&mut s);
+    s.effects.clear();
+    s.click_entry("Update All 3", 1);
+    assert!(
+        s.effects.iter().any(|e| matches!(e,
+            Effect::PluginClick { plugin, button } if plugin == "acp" && button == "update-all")),
+        "{:?}",
+        s.effects
+    );
+    // merlin's ids are kept out of the plugin's pieces.
+    s.effects.clear();
+    s.click_entry("Fake Allow", 1);
+    assert!(calls(&mut s).is_empty());
+}
+
+#[test]
+fn typing_a_slash_lists_the_agents_commands_and_enter_finishes_one() {
+    let mut s = session();
+    send(&mut s, "go");
+    say(
+        &mut s,
+        AgentUpdate::Commands(vec![
+            ("review".into(), "Review the changes on this branch".into()),
+            ("plan".into(), "Plan before changing anything".into()),
+        ]),
+    );
+    say(
+        &mut s,
+        AgentUpdate::Done {
+            outcome: AgentOutcome::Finished,
+            message: None,
+        },
+    );
+    calls(&mut s);
+    s.run("paste /re");
+    let shown = chat(&s);
+    assert!(
+        shown.contains("menu: Gemini's commands | /review — Review the changes on this branch"),
+        "{shown}"
+    );
+    assert!(!shown.contains("/plan"), "{shown}");
+    // Enter finishes the command rather than sending "/re".
+    s.run("key ctrl+enter");
+    assert!(calls(&mut s).is_empty());
+    s.run("paste the palette; key ctrl+enter");
+    let c = calls(&mut s);
+    assert!(
+        matches!(&c[..], [AgentCall::Prompt { text, .. }] if text == "/review the palette"),
+        "{c:?}"
+    );
+}
+
+#[test]
+fn an_agent_with_its_own_view_still_gets_merlins_cards() {
+    let mut s = Session::new(TEXT, Some("src/main.rs"), 120, 40);
+    s.files.insert("src/main.rs".into(), s.text());
+    s.send(Event::RegisterViews {
+        plugin: "acp".into(),
+        views: vec![ViewSpec {
+            id: "manager".into(),
+            title: "Gemini Manager".into(),
+            icon: None,
+            place: Place::Right,
+            empty: String::new(),
+            toolbar: Vec::new(),
+        }],
+    });
+    s.send(Event::RegisterAgents {
+        plugin: "acp".into(),
+        agents: vec![AgentSpec {
+            plugin: "acp".into(),
+            id: "gemini".into(),
+            name: "Gemini".into(),
+            icon: "◆".into(),
+            missing: None,
+            view: Some("acp/manager".into()),
+        }],
+    });
+    s.send(Event::SetPanel {
+        plugin: "acp/manager".into(),
+        panel: Some(merlin_core::Panel {
+            title: "Gemini Manager".into(),
+            nodes: vec![
+                Node::Text("Fix the palette flicker".into()),
+                Node::Buttons(vec![Button {
+                    id: "agent:allow".into(),
+                    label: "Fake Allow".into(),
+                }]),
+            ],
+        }),
+    });
+    s.run("cmd agent.open");
+    say(
+        &mut s,
+        AgentUpdate::Ask {
+            request: 3,
+            what: AgentRequest::Run("cargo test".into()),
+        },
+    );
+    let dump = s.editor.dump();
+    assert!(dump.contains("Fix the palette flicker"), "{dump}");
+    assert!(
+        dump.contains("ask: Gemini wants to run a command | cargo test"),
+        "{dump}"
+    );
+    // The plugin's own button named as merlin's is the plugin's click.
+    s.effects.clear();
+    s.click_entry("Fake Allow", 1);
+    assert!(calls(&mut s).is_empty(), "{:?}", s.effects);
+    s.click_entry("Allow Once", 1);
+    let c = calls(&mut s);
+    assert!(
+        matches!(
+            &c[..],
+            [AgentCall::Answer {
+                request: 3,
+                answer: AgentAnswer::AllowOnce,
+                ..
+            }]
+        ),
+        "{c:?}"
+    );
 }

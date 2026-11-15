@@ -463,6 +463,11 @@ impl Editor {
     /// A plugin view's panel as it's drawn: what the plugin gave, or the
     /// view's empty text while that's nothing.
     pub(crate) fn shown_panel<'a>(&'a self, name: &str, panel: &'a Panel) -> Panel {
+        let shown = self.shown_panel_plain(name, panel);
+        self.agent_extras(name, shown)
+    }
+
+    fn shown_panel_plain<'a>(&'a self, name: &str, panel: &'a Panel) -> Panel {
         match self.view_info(name) {
             Some(view) if panel.nodes.is_empty() && !view.empty.is_empty() => Panel {
                 title: panel.title.clone(),

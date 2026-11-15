@@ -49,7 +49,7 @@ pub use bindings::merlin::plugin::types::{
     Setting, Severity, Signature, StackFrame, StatusItem, StatusState, StopFilter, Styled, Task,
     TaskGroup, TestItem, TestOutcome, TestResult, TextChange, Token, TokenKind, TokenLayer, Tone,
     FetchRequest, FetchResponse, ToolKind, StepState, PlanStep, AgentTool, AgentPart, AgentRequest,
-    AgentAnswer, AgentOutcome, AgentContext,
+    AgentAnswer, AgentOutcome, AgentContext, AgentCommand,
 };
 
 /// UTF-16 columns, which positions count, as LSP does.

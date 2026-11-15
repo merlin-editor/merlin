@@ -93,6 +93,10 @@ pub struct ManifestAgent {
     /// when it isn't installed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub program: Option<String>,
+    /// One of the plugin's `[[views]]`, shown in place of merlin's chat.
+    /// merlin still puts its permission cards and review at its bottom.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub view: Option<String>,
 }
 
 /// Whether a list of `systems` and `arch` (empty for all) takes in this

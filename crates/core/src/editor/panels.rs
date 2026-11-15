@@ -155,12 +155,21 @@ impl Editor {
             .or_else(|| names.into_iter().next())
     }
 
-    pub(crate) fn active(&self, side: Side) -> Option<(&str, &Panel)> {
+    /// The panel showing on a side, with what merlin adds to an agent's
+    /// (its slash commands, its cards), so its targets are those drawn.
+    pub(crate) fn active(&self, side: Side) -> Option<(&str, std::borrow::Cow<'_, Panel>)> {
         let name = self.active_panel_name(side)?;
-        self.plugins
+        let (name, panel) = self
+            .plugins
             .iter()
             .find(|p| p.name == name)
-            .and_then(|p| Some((p.name.as_str(), p.panel.as_ref()?)))
+            .and_then(|p| Some((p.name.as_str(), p.panel.as_ref()?)))?;
+        let panel = if self.agent_adds_to(name) {
+            std::borrow::Cow::Owned(self.agent_extras(name, panel.clone()))
+        } else {
+            std::borrow::Cow::Borrowed(panel)
+        };
+        Some((name, panel))
     }
 
     pub(crate) fn panel_targets(&self, side: Side) -> Vec<Target> {
@@ -266,7 +275,19 @@ impl Editor {
             return;
         };
         if let Some(Target::Button(button)) = panel.targets().into_iter().nth(index) {
-            let Some(plugin) = self.owner(plugin).map(str::to_string) else {
+            // merlin's cards in an agent's view of its own are merlin's:
+            // those after the view's own targets, never the plugin's.
+            let own = self
+                .plugins
+                .iter()
+                .find(|p| p.name == plugin)
+                .and_then(|p| p.panel.as_ref())
+                .map_or(0, |p| p.targets().len());
+            let merlin_card = index >= own
+                && !plugin.starts_with(super::agents::AGENT)
+                && self.shown_agent().is_some();
+            let owner = self.owner(plugin).map(str::to_string);
+            let Some(plugin) = owner.filter(|_| !merlin_card) else {
                 return self.view_click(&button, fx);
             };
             fx.push(Effect::PluginClick { plugin, button });

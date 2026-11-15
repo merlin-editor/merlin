@@ -253,7 +253,8 @@ impl Frame<'_> {
     }
 
     pub(super) fn ask_height(&mut self, a: &AskCard, inner: f32) -> f32 {
-        let mut h = 10.0 + self.ask_title_height(a, inner - 48.0) + 8.0;
+        // "merlin asks", then the question.
+        let mut h = 10.0 + 18.0 + self.ask_title_height(a, inner - 48.0) + 8.0;
         if a.code.is_some() {
             h += 28.0 + 8.0;
         }
@@ -335,6 +336,30 @@ impl Frame<'_> {
         let x = card.x + 12.0;
         let w = card.w - 24.0;
         let mut y = card.y + 10.0;
+        // merlin's mark, which a plugin's pieces can't draw: a lock and
+        // "merlin asks".
+        let mark = mix(tint, p.bright, 0.35);
+        let lock_bg = mix(tint, p.island, 0.08);
+        self.canvas.outline(
+            Rect::new(x + 1.5, y + 1.0, 6.0, 8.0),
+            3.0,
+            1.3,
+            mark,
+            lock_bg,
+        );
+        self.canvas
+            .round(Rect::new(x, y + 5.0, 9.0, 6.5), 1.5, mark);
+        self.text.draw_in_row(
+            &mut self.canvas,
+            "MERLIN ASKS",
+            Face::ui(10.5).bold(),
+            x + 15.0,
+            y - 2.0,
+            16.0,
+            mark,
+            inside,
+        );
+        y += 18.0;
         // The question, its code parts in mono.
         let title_h = self.ask_title_height(a, w);
         let mut tx = x;
@@ -618,4 +643,81 @@ fn chat_pick(side: Side, index: usize) -> Hit {
         index,
         clicks: 1,
     })
+}
+
+impl Frame<'_> {
+    /// A menu in a panel, such as an agent's slash commands over its text
+    /// box: its title, then a row per item, its detail at the right.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn menu_card(
+        &mut self,
+        title: &str,
+        items: &[(String, String, String)],
+        sv: &SideView,
+        side: Side,
+        r: Rect,
+        target: Option<usize>,
+        clip: Rect,
+    ) {
+        let p = self.p;
+        let card = Rect::new(r.x + 10.0, r.y + 6.0, r.w - 20.0, r.h - 6.0);
+        self.canvas.outline(card, 8.0, 1.0, p.border, p.raised);
+        let inside = card.inset(1.0).intersect(clip);
+        let x = card.x + 10.0;
+        let mut y = card.y + 4.0;
+        self.text.draw_in_row(
+            &mut self.canvas,
+            title,
+            Face::ui(11.0),
+            x,
+            y,
+            26.0,
+            p.muted,
+            inside,
+        );
+        y += 26.0;
+        // The row the keys are on; else the one under the mouse; else the
+        // first, which Enter takes.
+        let rows_y = y;
+        let row_at =
+            |n: usize| Rect::new(card.x + 4.0, rows_y + n as f32 * 26.0, card.w - 8.0, 26.0);
+        let on = target
+            .filter(|t| sv.focused && (*t..*t + items.len()).contains(&sv.selected))
+            .map(|t| sv.selected - t)
+            .or_else(|| (0..items.len()).find(|&n| self.hovered(row_at(n))))
+            .unwrap_or(0);
+        for (n, (_, label, detail)) in items.iter().enumerate() {
+            let row = row_at(n);
+            let on = n == on;
+            if on {
+                self.canvas.round(row, 5.0, p.hover);
+            }
+            let face = Face::ui(12.5).medium();
+            let lw =
+                self.text
+                    .draw_in_row(&mut self.canvas, label, face, x, y, 26.0, p.bright, inside);
+            let f = Face::ui(11.5);
+            // At the right end, shortened with … when it doesn't fit.
+            let room = (row.right() - 8.0 - (x + lw + 12.0)).max(0.0);
+            let detail = self.text.fit(detail, f, room);
+            let dw = self.text.width(&detail, f);
+            let dx = row.right() - 8.0 - dw;
+            let detail_clip =
+                Rect::new(dx, y, (row.right() - 6.0 - dx).max(0.0), 26.0).intersect(inside);
+            self.text.draw_in_row(
+                &mut self.canvas,
+                &detail,
+                f,
+                dx,
+                y,
+                26.0,
+                p.muted,
+                detail_clip,
+            );
+            if let Some(t) = target {
+                self.hit(row, chat_pick(side, t + n));
+            }
+            y += 26.0;
+        }
+    }
 }

@@ -704,8 +704,11 @@ network = ["api.github.com", "*.githubusercontent.com"]
 An agent is a program that takes a prompt and works on the project:
 Claude Code, opencode, Antigravity and others. They speak different
 protocols, so merlin doesn't talk to any of them itself. A plugin starts
-the program (`processes`) and translates; merlin owns the UI: the chat
-panel, the permission card, and reviewing what changed.
+the program (`processes`) and translates. merlin draws the chat, and the
+plugin can add to it as much as it likes, or draw a view of its own
+(below: What the Plugin Draws). What keeps the user safe is always
+merlin's: the permission card, reviewing what changed, and commands in
+terminal tabs.
 
 ```toml
 [permissions]
@@ -736,9 +739,14 @@ The WIT, as built (`sdk/rust/wit/merlin.wit`):
   - `on-agent-run(chat, run, ended)`: a command ended: all it printed and
     its exit code, or why it didn't run.
 - **Host functions** (the plugin calls merlin):
-  - `agent-say(chat, part)`: text, a thought, the plan, or a step (read,
-    edit, run, search) with its state, streamed in pieces. A step sent again
-    with the same id updates its line.
+  - `agent-say(chat, part)`: text, a thought, the plan, a step (read,
+    edit, run, search) with its state, or panel pieces, streamed in pieces.
+    A step sent again with the same id updates its line.
+  - `agent-header(chat, chips, note)`: the chat's header, under its tab:
+    chips, such as its model, and a quiet note at the right, such as what
+    the chat has used. Empty clears it.
+  - `agent-commands(chat, commands)`: the agent's slash commands, each a
+    name and what it does. Typing `/` lists those that match.
   - `agent-ask(chat, request) -> u32`: shows the permission card for an
     edit (its path and diff), a command, a read, or anything else in words.
   - `agent-done(chat, outcome, message)`: finished, cancelled, or failed
@@ -770,6 +778,26 @@ The WIT, as built (`sdk/rust/wit/merlin.wit`):
   neither `editor-write` nor `terminal`. The program itself can still do
   anything the user can, and `processes` already says so.
 
+**What the plugin draws** (AgentUi.html, approved 2026-11-16):
+
+- **Pieces in a message:** `agent-part::panel(list<node>)` puts panel
+  nodes in the agent's message, as plugin views use: rows, buttons, a
+  progress bar, a picture. Clicks reach the plugin's `on-click`.
+- **A header:** `agent-header`'s chips; a click reaches `on-click`, and a
+  plugin usually answers with `show-picker`.
+- **Slash commands:** `agent-commands`. The menu shows up to eight that
+  match what's typed; Enter, with a command half typed, finishes it.
+- **A view of its own:** `[[agents]]` `view = "<view id>"` names one of
+  the plugin's `[[views]]` (it must be on the right), shown in place of
+  merlin's chat. The plugin numbers the chat itself: the first
+  `agent-say` or `agent-ask` from a chat makes it. merlin puts its
+  permission card, and a finished turn's changes, at the bottom of the
+  view.
+- **merlin's marks:** ids starting `agent:` are merlin's. In a plugin's
+  pieces in the chat they aren't clickable; in a view of its own, only the
+  cards merlin adds use them. merlin's permission cards say "merlin asks"
+  with a lock, which no plugin piece can draw.
+
 **ACP is a library, and each agent is its own plugin** (decided
 2026-11-16). merlin's agent API above is the layer between merlin and every
 agent plugin; ACP is what many agent programs speak on their side.
@@ -793,6 +821,9 @@ agent plugin; ACP is what many agent programs speak on their side.
   | `initialize`, `session/new` | the plugin, when a chat first sends |
   | `session/prompt` | from `on-agent-prompt`; the open file as a `resource_link` |
   | `session/update`: message and thought chunks, tool calls, plans | `agent-say` |
+  | `available_commands_update` | `agent-commands` |
+  | `configOptions` (selects), or older agents' `models` and `modes` | header chips; picking one sends `session/set_config_option`, `set_model` or `set_mode` |
+  | `usage_update`, a turn's `usage` | the header's note: "12.4k tokens · $0.03" |
   | `session/request_permission` | `agent-ask`, answered by `on-agent-answer` with the matching option |
   | `session/cancel` | from `on-agent-cancel`; open cards answered `cancelled` |
   | `fs/read_text_file`, `fs/write_text_file` | `agent-read`, `agent-write` |
@@ -846,7 +877,8 @@ tests too." merlin shows it after "Pyright is replaced by Python."
    message, and removing a plugin others need.
 4. Network: the permission line (small; may fold into 3).
 5. Agents: the chat panel, the permission card (Allow once / Always allow /
-   Deny), and reviewing a turn's changes.
+   Deny), and reviewing a turn's changes. Then AgentUi.html: what agent
+   plugins add to the chat.
 6. Automatic updates and Keep at this version, removing settings on
    uninstall, and the Replaced by notice.
 

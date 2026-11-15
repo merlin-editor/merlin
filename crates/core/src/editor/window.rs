@@ -1115,6 +1115,8 @@ fn target_count(node: &Node) -> usize {
         Node::Ask(a) => a.buttons.len() + a.quiet.is_some() as usize,
         Node::Changes(c) => 1 + 2 * c.files.len(),
         Node::Command { .. } => 1,
+        Node::Bar { chips, .. } => chips.iter().filter(|c| !c.id.is_empty()).count(),
+        Node::Menu { items, .. } => items.len(),
         _ => 0,
     }
 }
