@@ -737,27 +737,68 @@ WIT additions, sketched; names may change when it's built:
     permission card. For a file edit, `details` carries the path, so merlin
     can keep the file as it was before the edit.
   - `agent-done(chat, outcome)`: finished, failed, or cancelled.
+  - `agent-read(chat, path) -> result<string, string>`: a file's text as
+    merlin has it, with unsaved changes in an open tab.
+  - `agent-write(chat, path, text) -> result<_, string>`: replaces a
+    file's text as one edit in its tab, which Undo reverts, and saves it.
+    The tab opens in the background if it isn't open.
+  - `agent-run(chat, command, args, cwd, env) -> result<u32, string>`:
+    runs a command in a terminal tab named for the chat, which the user can
+    watch and stop. `agent-output(run) -> (text, exit)` gives its output so
+    far and its exit code once it has one; `agent-stop(run)` ends it;
+    `on-agent-run-exit(chat, run, exit)` says when it's done.
+- **Where files can be:** `agent-read` and `agent-write` work inside the
+  workspace's folders. A path outside them gets a permission card first.
+  A write the agent didn't ask permission for (with `agent-ask`) gets one
+  too, so an agent can't edit without the user seeing it.
 - **Reviewing:** merlin keeps each file as it was before an allowed edit,
   and after a turn lists the files that changed with their diffs, and
-  Revert for each. That works whether the agent wrote the file itself (the
-  CLIs do) or asked merlin to.
+  Revert for each. With `agent-write`, merlin knows each edit exactly.
+  When the program writes the file itself (the Claude CLI does), merlin
+  compares against the copy it kept when the edit was allowed.
 - **"Always allow"** is kept per workspace and per tool, in merlin's data
   folder, not in the plugin.
-- `agent = true` asks "Adds an agent to the chat panel". It grants no file
-  access of its own: the program writes files, and `processes` already says
-  that a program can do anything the user can.
+- `agent = true` asks "Adds an agent to the chat panel". With it come
+  `agent-read`, `agent-write` and `agent-run`, limited as above; it needs
+  neither `editor-write` nor `terminal`. The program itself can still do
+  anything the user can, and `processes` already says so.
 
-Two plugins use this, after v0.2.0:
+Two plugins use this, after v0.2.0, `acp` first because it reaches the
+most agents:
 
-1. **`claude`**, on the Claude CLI's stream-json mode (`claude -p
+1. **`acp`**, for any agent that speaks the Agent Client Protocol: Gemini
+   CLI and opencode speak it themselves, and Claude Code does through
+   Zed's adapter (a Node program). ACP is a plugin, not part of merlin, so
+   it can follow the protocol's changes without a merlin release. Its
+   settings list the agents to offer, each a command (`gemini
+   --experimental-acp`, `opencode acp`), and each becomes an agent in the
+   chat panel. How ACP maps:
+
+   | ACP | merlin |
+   |---|---|
+   | `initialize`, `session/new` | the plugin, when a chat opens |
+   | `session/prompt` | from `on-agent-prompt` |
+   | `session/update`: message and thought chunks, tool calls, plans | `agent-say` |
+   | `session/request_permission` | `agent-ask`, answered by `on-agent-answer` |
+   | `session/cancel` | from `on-agent-cancel` |
+   | `fs/read_text_file`, `fs/write_text_file` | `agent-read`, `agent-write` |
+   | `terminal/create`, `output`, `wait_for_exit`, `kill`, `release` | `agent-run`, `agent-output`, `on-agent-run-exit`, `agent-stop` |
+
+   The plugin tells the agent in `initialize` that merlin handles files and
+   terminals, so edits go through the editor and commands show in its
+   terminal tabs. `processes` lists the agents it knows (`gemini`,
+   `opencode`, the Claude adapter), each with a `[programs]` entry, so
+   installing it asks for all of them at once; an agent missing from the
+   list needs a new version of the plugin. **Decide** later: whether a user
+   can add an agent command in settings, which would need merlin to ask for
+   that program when it's added. The exact commands are checked against
+   each agent when this is built.
+2. **`claude`**, on the Claude CLI's stream-json mode (`claude -p
    --input-format stream-json --output-format stream-json --verbose
    --include-partial-messages`), with its permission prompts forwarded to
-   `agent-ask`. Its settings: the model, and the permission mode to start
-   in.
-2. **`acp`**, for any agent that speaks the Agent Client Protocol
-   (opencode, Gemini CLI and others). One `[[agents]]` entry per agent it's
-   set up for, from its settings. ACP is a plugin, not part of merlin, so
-   it can change on its own schedule.
+   `agent-ask`. It needs no Node adapter. The CLI writes files and runs
+   commands itself, so reviewing uses the copies merlin keeps (above). Its
+   settings: the model, and the permission mode to start in.
 
 ### 12.7 Also in v0.2.0 (No API Change)
 

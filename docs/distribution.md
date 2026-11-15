@@ -383,7 +383,8 @@ Planned in full in plugin-registry.md section 12, for review. In short:
 - **C5. A `network` permission** for named HTTPS hosts, with `fetch`.
 - **C6. Agents:** `[[agents]]`, the chat panel, permission cards and
   reviewing changes, owned by merlin; a plugin translates for each agent.
-  The `claude` and `acp` plugins follow v0.2.0.
+  Agents can read and write files through the editor and run commands in
+  its terminal tabs. The `acp` plugin, then `claude`, follow v0.2.0.
 - **C7. Without an API change:** automatic plugin updates, Keep at this
   version, removing settings on uninstall, Replaced by.
 
