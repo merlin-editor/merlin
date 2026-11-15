@@ -1,0 +1,27 @@
+name = "gemini-cli"
+title = "Gemini CLI"
+description = "Google's Gemini CLI in the chat"
+badge = "GM"
+hue = "blue"
+version = "0.1.0"
+api = "0.15"
+component = "target/wasm32-wasip2/release/gemini_cli.wasm"
+license = "MIT"
+repository = "https://github.com/merlin-editor/merlin"
+
+[permissions]
+# The agent asks in the chat before it changes files or runs commands;
+# merlin makes the edits and runs the commands.
+agent = true
+processes = ["gemini"]
+
+[[agents]]
+id = "gemini"
+name = "Gemini CLI"
+icon = "◆"
+program = "gemini"
+
+[programs.gemini]
+for = "Chatting with Gemini CLI in merlin"
+install = "npm install -g @google/gemini-cli"
+url = "https://github.com/google-gemini/gemini-cli"

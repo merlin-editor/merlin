@@ -852,6 +852,34 @@ impl Editor {
         }
     }
 
+    /// A file changed on disk that an agent's last turn says it edits: the
+    /// agent wrote it itself, as CLIs do. Its text before goes to the turn's
+    /// changes. Says whether it was so. (The turn may have just ended: the
+    /// disk is watched with a delay.)
+    pub(crate) fn agent_wrote_itself(&mut self, path: &Path, before: String, after: &str) -> bool {
+        let shown = self.shown_path(path);
+        let tab = self.agents.tabs.iter().position(|t| {
+            t.turns.last().is_some_and(|turn| match turn {
+                Turn::Agent(items) => items.iter().any(|i| {
+                    matches!(i, Item::Tool(tool) if tool.kind == ToolKind::Edit
+                            && (tool.title == shown || shown.ends_with(&tool.title)))
+                }),
+                Turn::You { .. } => false,
+            })
+        });
+        let Some(i) = tab else {
+            return false;
+        };
+        let (key, chat) = (self.agents.tabs[i].key.clone(), self.agents.tabs[i].chat);
+        let plugin = self
+            .spec(&key)
+            .map(|s| s.plugin.clone())
+            .unwrap_or_default();
+        self.agent_changed(&plugin, chat, path, before, after);
+        self.draw_agent(&key);
+        true
+    }
+
     /// Notes a file an agent changed, keeping it as it first was.
     fn agent_changed(&mut self, plugin: &str, chat: u32, path: &Path, before: String, after: &str) {
         let Some(i) = self.tab_index(plugin, chat) else {
@@ -1260,19 +1288,23 @@ impl Editor {
             });
         }
         let label = match id {
-            "agent.setup" => "Set Up Agents…",
+            "agent.setup" => "Agent Settings…",
             "agent.find" => "Find Agent Plugins…",
             "agent.allowed" => "Allowed in This Workspace",
             "agent.new_chat" => "New Chat",
             "agent.close" => "Close This Agent",
             _ => return None,
         };
+        // The agent's plugin, whose page Agent Settings opens.
         let right = (id == "agent.setup")
             .then(|| {
-                self.agents
-                    .specs
-                    .first()
-                    .map(|s| format!("{}'s settings", s.plugin))
+                let key = self
+                    .active_panel_name(Side::Right)
+                    .and_then(|n| n.strip_prefix(AGENT).map(str::to_string));
+                let spec = key
+                    .and_then(|k| self.spec(&k))
+                    .or(self.agents.specs.first())?;
+                Some(format!("{}'s page", self.plugin_title(&spec.plugin)))
             })
             .flatten();
         Some((label.to_string(), right, false))

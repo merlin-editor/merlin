@@ -93,7 +93,9 @@ jobs:
       - name: Fetch the registry's packages
         run: |
           cargo build --bin merlin
-          ./target/debug/merlin plugin fetch bundle
+          # The plugins that come with merlin, by name: agent plugins and
+          # others in the registry are installed from Browse.
+          ./target/debug/merlin plugin fetch bundle rust python javascript json toml cpp go catch2 dap pdf merlin-themes merlin-icons merlin-layouts
 
       - name: Keep them for the archives
         uses: actions/upload-artifact@v6

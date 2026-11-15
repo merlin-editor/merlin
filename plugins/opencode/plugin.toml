@@ -1,0 +1,27 @@
+name = "opencode"
+title = "opencode"
+description = "opencode in the chat"
+badge = "OC"
+hue = "grey"
+version = "0.1.0"
+api = "0.15"
+component = "target/wasm32-wasip2/release/opencode_agent.wasm"
+license = "MIT"
+repository = "https://github.com/merlin-editor/merlin"
+
+[permissions]
+# The agent asks in the chat before it changes files or runs commands;
+# merlin makes the edits and runs the commands.
+agent = true
+processes = ["opencode"]
+
+[[agents]]
+id = "opencode"
+name = "opencode"
+icon = "◇"
+program = "opencode"
+
+[programs.opencode]
+for = "Chatting with opencode in merlin"
+install = "npm install -g opencode-ai"
+url = "https://opencode.ai/docs/"

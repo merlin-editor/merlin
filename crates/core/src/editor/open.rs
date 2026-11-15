@@ -271,15 +271,18 @@ impl Editor {
         replace_text(doc, &old, text);
         doc.buffer.mark_saved(doc.buffer.revision());
         let name = doc.name();
+        // An agent at work that edits files itself: what the file was goes
+        // to its turn's changes, for Review and Revert.
+        let changed_by_agent = self.agent_wrote_itself(path, old.clone(), text);
         // A discard from Source Control says so itself, with Undo, and a
         // notice with something to do, such as a pull's conflicts, stays.
         let discarded = self
             .git
             .discarded
             .as_ref()
-            .is_some_and(|(p, _)| doc.buffer.path.as_deref() == Some(std::path::Path::new(p)));
+            .is_some_and(|(p, _)| path.as_path() == std::path::Path::new(p));
         let asking = self.message.as_ref().is_some_and(|m| !m.actions.is_empty());
-        if !discarded && !asking {
+        if !discarded && !asking && !changed_by_agent {
             self.notify(format!("Reloaded {name}, changed on disk"));
         }
     }

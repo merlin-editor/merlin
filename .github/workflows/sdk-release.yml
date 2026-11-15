@@ -42,9 +42,10 @@ jobs:
       - name: Wait for crates.io index to update
         run: sleep 25
 
-      - name: Publish merlin-lsp and merlin-grammar
+      - name: Publish merlin-lsp, merlin-grammar and merlin-acp
         run: |
           (cd sdk/lsp && cargo publish --locked --target wasm32-wasip2)
           (cd sdk/grammar && cargo publish --locked --target wasm32-wasip2)
+          (cd sdk/acp && cargo publish --locked --target wasm32-wasip2)
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}

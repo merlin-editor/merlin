@@ -1,0 +1,27 @@
+[package]
+name = "merlin-acp"
+description = "Agent Client Protocol client for merlin agent plugins"
+version = "0.15.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/merlin-editor/merlin"
+readme = "README.md"
+keywords = ["merlin", "editor", "plugin", "acp", "agent"]
+categories = ["development-tools", "text-editors", "wasm"]
+# Only what the crate needs: no build output.
+include = ["src/**", "README.md"]
+
+[dependencies]
+# The path here, the version once published.
+merlin-plugin = { path = "../rust", version = "0.15.0" }
+serde_json = "1"
+# The diff shown on an edit's permission card.
+similar = "2"
+
+# docs.rs builds it for the target plugins use.
+[package.metadata.docs.rs]
+targets = ["wasm32-wasip2"]
+
+# Plugins build it for wasm32-wasip2, so it stays out of the editor's
+# workspace.
+[workspace]

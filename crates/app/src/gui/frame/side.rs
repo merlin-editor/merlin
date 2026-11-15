@@ -580,7 +580,22 @@ impl Frame<'_> {
             Node::Divider => 13.0,
             Node::Footer => 0.0,
             Node::Header { .. } => 38.0,
-            Node::Banner { detail, .. } if detail.is_empty() => 46.0,
+            // One line or more, its buttons at the right end.
+            Node::Banner {
+                title,
+                detail,
+                buttons,
+                ..
+            } if detail.is_empty() => {
+                let text: String = title.iter().map(|(t, _)| t.as_str()).collect();
+                let buttons: f32 = buttons
+                    .iter()
+                    .map(|b| self.text.width(&b.label, Face::ui(12.0)) + 24.0)
+                    .sum();
+                let tw = (inner + 4.0 - 8.0 - buttons - 34.0).max(40.0);
+                let lines = self.wrap_words(&text, Face::ui(12.0), tw).len() as f32;
+                (lines * 16.0 + 24.0).max(46.0)
+            }
             Node::Banner { .. } => 96.0,
             Node::Wide { .. } => 38.0,
         }

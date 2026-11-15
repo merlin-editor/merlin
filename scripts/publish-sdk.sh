@@ -16,4 +16,7 @@ echo "==> Verifying and publishing merlin-lsp..."
 echo "==> Verifying and publishing merlin-grammar..."
 (cd sdk/grammar && cargo publish --target wasm32-wasip2 "$@")
 
+echo "==> Verifying and publishing merlin-acp..."
+(cd sdk/acp && cargo publish --target wasm32-wasip2 "$@")
+
 echo "==> All SDK crates published successfully!"

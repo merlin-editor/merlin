@@ -598,7 +598,12 @@ impl PluginHost {
             &plugin.manifest.permissions,
         );
         self.plugins[index].worker = Some(worker);
-        let mut events = self.activate(index, None);
+        // The card goes; a plugin with a panel of its own draws it again.
+        let mut events = vec![Event::SetPanel {
+            plugin: name,
+            panel: None,
+        }];
+        events.extend(self.activate(index, None));
         if let Err(err) = saved {
             events.push(Event::Notify(format!(
                 "Couldn't remember the permission: {err:#}"

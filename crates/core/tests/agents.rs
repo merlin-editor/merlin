@@ -367,3 +367,39 @@ fn an_edit_to_a_file_that_isnt_open_opens_it_and_goes_through_the_editor() {
     s.run("cmd edit.undo");
     assert_eq!(s.text(), "pub fn one() -> u8 { 1 }\n");
 }
+
+#[test]
+fn a_file_the_agent_writes_itself_is_still_reviewed() {
+    let mut s = session();
+    send(&mut s, "go");
+    say(
+        &mut s,
+        AgentUpdate::Say(AgentPart::Tool(AgentTool {
+            id: "e".into(),
+            kind: ToolKind::Edit,
+            title: "src/main.rs".into(),
+            state: StepState::Running,
+            added: 0,
+            removed: 0,
+            run: None,
+        })),
+    );
+    s.send(Event::FileChanged {
+        path: "src/main.rs".into(),
+        text: "fn main() {}\n".into(),
+    });
+    say(
+        &mut s,
+        AgentUpdate::Done {
+            outcome: AgentOutcome::Finished,
+            message: None,
+        },
+    );
+    let shown = chat(&s);
+    assert!(
+        shown.contains("Changed 1 file [Revert All] | src/main.rs +1 −3"),
+        "{shown}"
+    );
+    s.click_entry("src/main.rs Revert", 1);
+    assert_eq!(s.text(), TEXT);
+}

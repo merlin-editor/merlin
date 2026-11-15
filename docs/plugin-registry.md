@@ -770,42 +770,44 @@ The WIT, as built (`sdk/rust/wit/merlin.wit`):
   neither `editor-write` nor `terminal`. The program itself can still do
   anything the user can, and `processes` already says so.
 
-Two plugins use this, after v0.2.0, `acp` first because it reaches the
-most agents:
+**ACP is a library, and each agent is its own plugin** (decided
+2026-11-16). merlin's agent API above is the layer between merlin and every
+agent plugin; ACP is what many agent programs speak on their side.
 
-1. **`acp`**, for any agent that speaks the Agent Client Protocol: Gemini
-   CLI and opencode speak it themselves, and Claude Code does through
-   Zed's adapter (a Node program). ACP is a plugin, not part of merlin, so
-   it can follow the protocol's changes without a merlin release. Its
-   settings list the agents to offer, each a command (`gemini
-   --experimental-acp`, `opencode acp`), and each becomes an agent in the
-   chat panel. How ACP maps:
+- **`merlin-acp`**, a crate in the SDK (`sdk/acp`, published with
+  `merlin-plugin`), speaks ACP so a plugin needn't. A plugin names its
+  agent's program and arguments and exports `Acp`:
+  `merlin_plugin::export!(Acp => Acp::new(&[GEMINI]))`. Anyone can build an
+  agent plugin on it.
+- **One plugin per agent**, in the registry and not in merlin's download:
+  `gemini-cli` (`gemini --acp`) and `opencode` (`opencode acp`), built
+  2026-11-16 and tried in the window. Installing one is turning that agent
+  on: its permission card says which program it starts. merlin comes with
+  no agent.
+- **How ACP maps:**
 
-   | ACP | merlin |
-   |---|---|
-   | `initialize`, `session/new` | the plugin, when a chat opens |
-   | `session/prompt` | from `on-agent-prompt` |
-   | `session/update`: message and thought chunks, tool calls, plans | `agent-say` |
-   | `session/request_permission` | `agent-ask`, answered by `on-agent-answer` |
-   | `session/cancel` | from `on-agent-cancel` |
-   | `fs/read_text_file`, `fs/write_text_file` | `agent-read`, `agent-write` |
-   | `terminal/create`, `wait_for_exit`, `kill`, `release` | `agent-run`, `on-agent-run`, `agent-stop` |
+  | ACP | merlin |
+  |---|---|
+  | `initialize`, `session/new` | the plugin, when a chat first sends |
+  | `session/prompt` | from `on-agent-prompt`; the open file as a `resource_link` |
+  | `session/update`: message and thought chunks, tool calls, plans | `agent-say` |
+  | `session/request_permission` | `agent-ask`, answered by `on-agent-answer` with the matching option |
+  | `session/cancel` | from `on-agent-cancel`; open cards answered `cancelled` |
+  | `fs/read_text_file`, `fs/write_text_file` | `agent-read`, `agent-write` |
+  | `terminal/create`, `wait_for_exit`, `kill`, `release` | `agent-run`, `on-agent-run`, `agent-stop` |
+  | `terminal/output` | what the run printed, once it ended |
 
-   The plugin tells the agent in `initialize` that merlin handles files and
-   terminals, so edits go through the editor and commands show in its
-   terminal tabs. `processes` lists the agents it knows (`gemini`,
-   `opencode`, the Claude adapter), each with a `[programs]` entry, so
-   installing it asks for all of them at once; an agent missing from the
-   list needs a new version of the plugin. **Decide** later: whether a user
-   can add an agent command in settings, which would need merlin to ask for
-   that program when it's added. The exact commands are checked against
-   each agent when this is built.
-2. **`claude`**, on the Claude CLI's stream-json mode (`claude -p
-   --input-format stream-json --output-format stream-json --verbose
-   --include-partial-messages`), with its permission prompts forwarded to
-   `agent-ask`. It needs no Node adapter. The CLI writes files and runs
-   commands itself, so reviewing uses the copies merlin keeps (above). Its
-   settings: the model, and the permission mode to start in.
+  The plugin tells the agent in `initialize` that merlin reads and writes
+  files and runs commands. An agent that edits files itself anyway, as
+  opencode does, is still reviewed: a file its last turn says it edits
+  that changes on disk goes into the turn's changes, as it was before.
+- **When an agent fails,** its whole message shows in the chat, and in its
+  plugin's Output with what it printed on stderr. Gemini CLI, tried with a
+  personal Google account, answered "This client is no longer supported
+  for Gemini Code Assist for individuals": its plugin works with an API
+  key or a paid plan.
+- **`claude`**, on the Claude CLI's stream-json mode, follows in 0.2.x. It
+  needs no API change.
 
 ### 12.7 Also in v0.2.0 (No API Change)
 

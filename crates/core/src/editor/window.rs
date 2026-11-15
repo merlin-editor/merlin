@@ -656,7 +656,7 @@ impl Editor {
     }
 
     /// A plugin's title, by its name.
-    fn plugin_title(&self, plugin: &str) -> String {
+    pub(crate) fn plugin_title(&self, plugin: &str) -> String {
         self.plugin_list
             .iter()
             .find(|p| p.name == plugin)
