@@ -537,7 +537,272 @@ rebuilding.
 
 ---
 
-## 12. Out of Scope
+## 12. Plugin API 0.15 (Plan, for Review, 2026-11-16)
+
+Everything here changes the manifest or the WIT, so it goes in one bump:
+`API_VERSION`, the WIT (`merlin:plugin@0.15.0`), the SDK (0.15.0 on
+crates.io) and all 13 of merlin's plugins together, released as merlin
+v0.2.0. No plugin uses `depends` today, so changing its form breaks nothing
+that exists.
+
+The UI parts need approved mock-ups before they're built (12.8).
+
+### 12.1 How to Install a Program
+
+Today only `[[debuggers]]` has an `install` hint, and it's one command for
+every system (`sudo apt install lldb`, which is wrong on a Mac). Programs
+named in `processes` have nothing.
+
+A plugin describes each program it starts in a `[programs.<name>]` table:
+
+```toml
+[permissions]
+processes = ["clangd"]
+
+[programs.clangd]
+for = "Completion, errors and go to definition"
+install = { linux = "sudo apt install clangd", macos = "brew install llvm", windows = "winget install LLVM.LLVM" }
+url = "https://clangd.llvm.org/installation"
+
+[programs.rust-analyzer]
+for = "Completion, errors and go to definition"
+install = "rustup component add rust-analyzer"   # the same everywhere
+url = "https://rust-analyzer.github.io/"
+```
+
+- **`install`** is one string when the command is the same on every system,
+  or a table with any of `linux`, `macos`, `windows`. A system the table
+  leaves out gets no command, only the link.
+- **`url`** is where to read more. It's the fallback for every system the
+  table misses, and for Linux distributions where `apt` is wrong.
+- **`for`** says what the plugin can't do without it, in a few words. merlin
+  shows it as "clangd isn't installed. Without it: completion, errors and go
+  to definition."
+- Every key is optional. `merlin plugin pack` warns, but doesn't fail, when a
+  name in `processes` has no `[programs]` entry, and fails when a
+  `[programs]` entry isn't in `processes` or a debugger's `command`.
+- `[[debuggers]] install` takes the same string-or-table form, and gains
+  `url`.
+
+`tools/registry.py` copies `programs` into each version in `index.json`, so
+Browse can say what's missing before anything downloads.
+
+### 12.2 Showing What's Missing
+
+The plugin decides what it needs (its manifest); merlin checks whether it's
+there. merlin looks each program up on `PATH` (the shell's `PATH`, from
+`shell_path.rs`) when a plugin starts, when Browse or the plugin's page
+opens, and again when the window gets focus, so installing in a terminal
+and coming back clears the message without a restart.
+
+Where it shows:
+
+- **The language card** in the status bar, which has a "not installed"
+  state in its approved mock-up: the program, what's missing without it,
+  the command with Copy, and the link.
+- **Browse**, on a plugin's entry: "Needs clangd" under its permissions,
+  before install, from the index.
+- **The plugin's page** in Settings › Plugins: a Programs list, each found
+  (with the path it was found at) or not (with the command, Copy and the
+  link).
+- **After installing**, the install card names any that are missing.
+
+A plugin can still call `spawn` for a program that isn't there and get the
+error back, as now. Nothing here stops a plugin installing or starting.
+
+### 12.3 Systems and Processors
+
+A plugin, or one part of it, can say where it works:
+
+```toml
+systems = ["linux", "macos"]          # absent means every system
+arch = ["x86_64", "aarch64"]          # absent means every processor
+
+[[debuggers]]
+id = "cppvsdbg"
+systems = ["windows"]
+# ...
+
+[programs.debugpy]
+systems = ["linux", "macos", "windows"]
+```
+
+- The values are Rust's `std::env::consts::OS` and `ARCH`: `linux`,
+  `macos`, `windows`; `x86_64`, `aarch64`. Those are what merlin is
+  released for. `pack` refuses anything else, so a typo doesn't hide a
+  plugin everywhere.
+- **Versions choose.** The version Browse installs or updates to (7.1)
+  becomes the newest that isn't yanked, has this `api`, and lists this
+  system and processor. So 0.3 can drop Windows while Windows keeps getting
+  0.2, and a later version can add it back.
+- **Browse** greys out a plugin with no version for this system: "Not
+  available for Windows." Search still finds it.
+- **The first-run install** of bundled plugins skips them.
+- **A linked plugin** (`merlin plugin install <dir>`) whose manifest leaves
+  this system out doesn't load, and its page says why.
+- A debugger or program left out for this system is as if the manifest
+  didn't have it: not tried, not shown as missing.
+
+### 12.4 Dependencies
+
+Today `depends = ["name"]` only stops a plugin starting when the other
+isn't installed, and the user has to find and install it themselves.
+
+```toml
+[depends]
+merlin-lsp = "0.2"        # an example; a semver requirement, read as Cargo reads it: ^0.2
+```
+
+- **Installing** a plugin installs what it depends on, in one step. The
+  permission card lists each plugin that will be installed and what each
+  asks for; one Install covers all of them.
+- **Choosing versions:** for each dependency, the newest version that meets
+  the requirement, the `api` and the system (12.3). One already installed
+  that meets it stays as it is. One that doesn't is updated, if a version
+  that meets every requirement on it exists.
+- **Conflicts:** only one version of a plugin is installed at a time. When
+  no version meets everything, nothing installs, and the card says which
+  plugins want what: "Go needs merlin-lsp 0.3; Rust needs 0.2."
+- **Updates** follow the same rule: an update that would break another
+  plugin's requirement waits, and says why.
+- **Removing** a plugin that others need asks first: "Go and Rust need
+  merlin-lsp." `installed.toml` records whether a plugin was installed by
+  the user or as a dependency; one installed as a dependency that nothing
+  needs any more is offered for removal along with the last plugin that
+  needed it.
+- A dependency only means "install and start this first". It doesn't give
+  the plugins a way to call each other; that's out of scope.
+- `index.json` already has `depends` per version; it becomes the table.
+
+### 12.5 Network Access
+
+A plugin can reach the network today only by starting a program, which
+needs `processes` and could do anything. Plugins that want one API (a
+GitHub pull request view, a docs search) need far less.
+
+```toml
+[permissions]
+network = ["api.github.com", "*.githubusercontent.com"]
+```
+
+- A new host function, `fetch(request) -> result<u32, string>`, starts an
+  HTTPS request and returns its id at once. The response comes to a new
+  export, `on-fetch(id, response)`, as process output comes to
+  `on-process`, so a slow server doesn't stall the plugin.
+- Only HTTPS, only the hosts listed. `*.` matches any subdomain, not the
+  domain itself. Redirects are followed only to listed hosts.
+- The permission reads "Connects to api.github.com and
+  *.githubusercontent.com". An update that adds a host asks again (7.3).
+- Bodies are capped (10 MB in, 10 MB out), and a plugin has at most 8
+  requests open at once.
+- `processes` stays as it is. A plugin that starts a program which uses the
+  network itself (an agent CLI, `gh`) only needs `processes`, and its
+  permission says so already (10.2).
+
+### 12.6 Agents
+
+An agent is a program that takes a prompt and works on the project:
+Claude Code, opencode, Gemini CLI and others. They speak different
+protocols, so merlin doesn't talk to any of them itself. A plugin starts
+the program (`processes`) and translates; merlin owns the UI: the chat
+panel, the permission card, and reviewing what changed.
+
+```toml
+[permissions]
+processes = ["claude"]
+agent = true
+
+[[agents]]
+id = "claude"
+name = "Claude Code"
+
+[programs.claude]
+for = "Chatting with Claude in merlin"
+install = "npm install -g @anthropic-ai/claude-code"
+url = "https://docs.claude.com/en/docs/claude-code/setup"
+```
+
+WIT additions, sketched; names may change when it's built:
+
+- **Exports** (merlin calls the plugin):
+  - `on-agent-prompt(chat, text, context)`: the user sent a message;
+    `context` lists what they attached (open file, selection, problems).
+  - `on-agent-cancel(chat)`: the user pressed Stop.
+  - `on-agent-answer(chat, request, answer)`: the user answered a
+    permission card: allow once, always allow, or deny.
+- **Host functions** (the plugin calls merlin):
+  - `agent-say(chat, part)`: text, thinking, or a tool call with its
+    status, streamed in pieces.
+  - `agent-ask(chat, request, tool, summary, details)`: shows the
+    permission card. For a file edit, `details` carries the path, so merlin
+    can keep the file as it was before the edit.
+  - `agent-done(chat, outcome)`: finished, failed, or cancelled.
+- **Reviewing:** merlin keeps each file as it was before an allowed edit,
+  and after a turn lists the files that changed with their diffs, and
+  Revert for each. That works whether the agent wrote the file itself (the
+  CLIs do) or asked merlin to.
+- **"Always allow"** is kept per workspace and per tool, in merlin's data
+  folder, not in the plugin.
+- `agent = true` asks "Adds an agent to the chat panel". It grants no file
+  access of its own: the program writes files, and `processes` already says
+  that a program can do anything the user can.
+
+Two plugins use this, after v0.2.0:
+
+1. **`claude`**, on the Claude CLI's stream-json mode (`claude -p
+   --input-format stream-json --output-format stream-json --verbose
+   --include-partial-messages`), with its permission prompts forwarded to
+   `agent-ask`. Its settings: the model, and the permission mode to start
+   in.
+2. **`acp`**, for any agent that speaks the Agent Client Protocol
+   (opencode, Gemini CLI and others). One `[[agents]]` entry per agent it's
+   set up for, from its settings. ACP is a plugin, not part of merlin, so
+   it can change on its own schedule.
+
+### 12.7 Also in v0.2.0 (No API Change)
+
+- **Automatic plugin updates**, on by default, for updates that ask for no
+  new permissions; **Keep at this version** on a plugin's page to stop them
+  for that plugin.
+- **Removing settings on uninstall:** the uninstall card offers to delete
+  the plugin's settings and stored data too (off by default).
+- **Replaced by:** a registry entry can say `replaced-by = "<name>"`. Browse
+  and the plugin's page then say "Replaced by X" and offer to install it.
+  This is in the registry's entry file and the index, not the manifest.
+- **Warn before an editor update** (11.1): the update card names installed
+  plugins that have no 0.15 version yet.
+
+### 12.8 Mock-ups Needed
+
+1. Missing programs: the Browse entry, the plugin page's Programs list, and
+   the install card's note.
+2. Systems: a greyed-out Browse entry.
+3. Dependencies: the install card listing several plugins, the conflict
+   message, and removing a plugin others need.
+4. Network: the permission line (small; may fold into 3).
+5. Agents: the chat panel, the permission card (Allow once / Always allow /
+   Deny), and reviewing a turn's changes.
+6. Automatic updates and Keep at this version, removing settings on
+   uninstall, and the Replaced by notice.
+
+### 12.9 Build Order
+
+1. Manifest: `programs`, the install form, `systems`/`arch`, the `depends`
+   table, `network`, `agent`, `[[agents]]`; `pack`'s checks; tests.
+2. Version choice and the dependency resolver in `registry.rs`, with tests
+   for conflicts and updates.
+3. WIT and host: `fetch`/`on-fetch`, the agent functions; the SDK.
+4. The UI, from the approved mock-ups.
+5. Bump all 13 plugins: `api = "0.15"`, a new `version`, real install
+   tables for clangd, rust-analyzer, gopls, pyright, typescript-language-server,
+   lldb, gdb and debugpy.
+6. Publish SDK 0.15.0, open the registry PR for the 13 plugins, merge it,
+   and only then tag v0.2.0: a merlin that updates itself must find 0.15
+   versions of the plugins it has installed from the registry.
+
+---
+
+## 13. Out of Scope
 
 - **Paid plugins.**
 - **Private plugins**, beyond what a private source (7.4) already covers.

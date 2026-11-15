@@ -119,8 +119,7 @@ Of section 7, the `install` hints in 7.2 and the Windows fallback in 7.4 are bui
 ### 7.2 Native Tool Dependencies (LSP & Debuggers) (Partly Built)
 - **Problem**: Plugins are 100% portable wasm, but depend on host system processes (`rust-analyzer`, `clangd`, `lldb-dap`, `gdb`).
 - **Built**: `[[debuggers]]` entries in `plugin.toml` carry an `install = "..."` hint (e.g. `sudo apt install lldb`), which the editor shows in a warning with a **Copy Install Command** action when starting a debug session finds none of a language's debuggers.
-- **Planned**: The editor does not block installation if a process is missing on `$PATH`. Instead, the install confirmation card reads the `install` hints (to be added for language servers too) and surfaces a copyable command:
-  > *"Installed Rust! Note: `rust-analyzer` was not found on your $PATH. Install it to enable completion and diagnostics: `rustup component add rust-analyzer` [Copy]"*
+- **Planned** (Milestone C, plugin-registry.md 12.1 to 12.3): install hints for every program, one per system, and merlin showing what's missing without blocking an install.
 
 ### 7.3 Wasm Optimization (`wasm-opt`) (Dropped)
 - **Problem**: Component `.wasm` files can be 2–3 MB each (e.g. `rust_language.wasm` is 2.9 MB).
@@ -366,18 +365,29 @@ nothing changed); and `MERLIN_NO_SELF_UPDATE` (the command with Copy). Not
 tried: macOS, Windows, and a real published release, which needs one signed
 by the `sign` job.
 
-### Milestone C: programs plugins need (7.2)
+### Milestone C: plugin API 0.15 and merlin v0.2.0
 
-**C1. Install hints for every program.** The manifest gains
-`[programs.<name>] install = { linux = "…", macos = "…", windows = "…" }`
-for what `processes` names, as `[[debuggers]]` has `install` today. The
-manifest refuses unknown keys, so this is an API bump, done with the next one.
-`tools/registry.py` copies the hints into `index.json`.
+Planned in full in plugin-registry.md section 12, for review. In short:
 
-**C2. Showing them.** After an install from Browse, and on the plugin's page,
-a program that isn't on `PATH` gets its command with Copy. The language
-status card already has a "not installed" state in its approved mock-up. The
-Browse page's part needs a small mock-up first.
+- **C1. How to install a program.** `[programs.<name>]` in the manifest,
+  with `install` as one command or one per system, a `url`, and what's
+  missing without it. `[[debuggers]] install` takes the same form.
+- **C2. Showing what's missing,** in the language card, Browse, the
+  plugin's page and the install card. merlin checks `PATH`; nothing blocks
+  an install.
+- **C3. Systems and processors:** `systems` and `arch` on a plugin, a
+  debugger or a program. Version choice respects them, so a plugin can drop
+  or add a system between versions.
+- **C4. Dependencies** installed together, with version requirements and
+  conflicts reported.
+- **C5. A `network` permission** for named HTTPS hosts, with `fetch`.
+- **C6. Agents:** `[[agents]]`, the chat panel, permission cards and
+  reviewing changes, owned by merlin; a plugin translates for each agent.
+  The `claude` and `acp` plugins follow v0.2.0.
+- **C7. Without an API change:** automatic plugin updates, Keep at this
+  version, removing settings on uninstall, Replaced by.
+
+Mock-ups first (section 12.8 there), then the build order in 12.9.
 
 ### Milestone D: running the registry
 
