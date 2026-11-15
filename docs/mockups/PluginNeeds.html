@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>What a plugin needs</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#08090a}
+.board{width:1620px;display:flex;background:#08090a;font-family:Inter,sans-serif}
+.board+.board{margin-top:40px}
+.w{width:1280px;height:800px;background:#0f1012;color:#d4d5da;display:flex;flex-direction:column;font-size:13px;overflow:hidden;position:relative;flex-shrink:0}
+.notes{flex:1;padding:28px 24px;display:flex;flex-direction:column;gap:16px;color:#8e9099;font-size:12.5px;line-height:1.5;min-width:0}
+.notes h3{margin:0 0 4px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#7c9cff}
+.notes b{color:#d4d5da;font-weight:600}
+.notes p{margin:0}
+.bar{height:40px;display:flex;align-items:center;gap:10px;padding:0 12px;flex-shrink:0}
+.logo{width:20px;height:20px;border-radius:5px;background:#7c9cff;color:#0f1012;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
+.search{margin:0 auto;width:400px;height:26px;border-radius:7px;background:#1c1d21;border:1px solid #2c2d33;color:#8e9099;display:flex;align-items:center;gap:8px;padding:0 10px;font-size:12.5px;box-sizing:border-box}
+.kbd{font-size:11px;background:#26272c;border-radius:4px;padding:1px 6px;color:#b4b6bd}
+.mid{flex:1;display:flex;gap:6px;padding-right:6px;min-height:0}
+.rail{width:44px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:6px;padding-top:6px}
+.ri{width:30px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:#7a7d86;font-size:14px}
+.island{background:#17181b;border-radius:10px;display:flex;flex-direction:column;min-width:0;overflow:hidden;position:relative}
+.tabs{height:32px;display:flex;align-items:center;gap:3px;padding:0 6px;flex-shrink:0}
+.tab{height:24px;padding:0 10px;border-radius:6px;display:flex;align-items:center;gap:6px;color:#8e9099;font-size:12.5px;white-space:nowrap}
+.tab.on{background:#26272c;color:#eef0f3;box-shadow:inset 0 0 0 1px #2c2d33}
+.ic{width:14px;height:14px;border-radius:3px;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;background:#3a2a1e;color:#f5a97f;flex-shrink:0}
+.split{flex:1;display:flex;min-height:0}
+.nav{width:176px;padding:12px 8px;display:flex;flex-direction:column;gap:2px;flex-shrink:0}
+.nv{height:30px;display:flex;align-items:center;gap:10px;padding:0 10px;border-radius:6px;font-size:13px;color:#b4b6bd}
+.nv.on{background:#26272c;color:#eef0f3}
+.nv .c{margin-left:auto;font-size:11px;color:#8e9099}
+.nv .dot{margin-left:auto;font-size:10.5px;font-weight:600;background:#2c3a5e;color:#c8d4ff;border-radius:8px;padding:0 6px;height:16px;display:flex;align-items:center}
+.body{flex:1;overflow:hidden;padding:14px 22px 0 18px;min-width:0;display:flex;flex-direction:column;position:relative}
+.find{height:32px;border:1px solid #2c2d33;border-radius:7px;background:#1f2024;display:flex;align-items:center;gap:8px;padding:0 10px;font-size:13px;color:#8e9099;box-sizing:border-box;flex-shrink:0}
+.scope{display:flex;gap:18px;font-size:12.5px;margin-top:12px;border-bottom:1px solid #222328;flex-shrink:0}
+.scope span{padding-bottom:8px;color:#8e9099}
+.scope span.on{color:#eef0f3;box-shadow:inset 0 -2px 0 #7c9cff}
+.cols{flex:1;display:flex;min-height:0;margin-top:12px}
+.plist{width:300px;flex-shrink:0;padding-right:10px;border-right:1px solid #222328;display:flex;flex-direction:column;gap:2px}
+.lt{display:flex;gap:20px;margin-bottom:10px;border-bottom:1px solid #222328;padding-left:4px}
+.lt span{height:28px;display:flex;align-items:center;gap:5px;font-size:12.5px;color:#8e9099}
+.lt span.on{color:#eef0f3;box-shadow:inset 0 -2px 0 #7c9cff}
+.lt .n{font-size:11px;color:#7a7d86}
+.lfind{height:30px;border:1px solid #2c2d33;border-radius:6px;background:#1a1b1e;display:flex;align-items:center;padding:0 10px;font-size:12px;color:#7a7d86;margin-bottom:6px;gap:8px}
+.lfind.typing{border-color:#3d4d7a;color:#eef0f3}
+.src{display:flex;align-items:center;gap:6px;font-size:11px;color:#7a7d86;padding:0 4px 6px}
+.src .r{margin-left:auto;color:#7c9cff}
+.gh{font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#7a7d86;padding:8px 10px 4px;display:flex;align-items:center}
+.gh .more{margin-left:auto;text-transform:none;letter-spacing:0;font-weight:500;color:#7c9cff;font-size:11.5px}
+.pi{height:44px;display:flex;align-items:center;gap:10px;padding:0 10px;border-radius:6px;flex-shrink:0}
+.pi.on{background:#26272c}
+.pi.dim .pn,.pi.dim .pico{opacity:.5}
+.pn{font-size:12.5px;color:#eef0f3;line-height:1.3;min-width:0}
+.pn div{font-size:11px;color:#8e9099;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pm{margin-left:auto;display:flex;align-items:center;gap:8px;flex-shrink:0}
+.pico{width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0}
+.sw{width:30px;height:18px;border-radius:9px;background:#2c2d33;position:relative;flex-shrink:0}
+.sw::after{content:"";position:absolute;left:3px;top:3px;width:12px;height:12px;border-radius:50%;background:#8e9099}
+.sw.on{background:#7c9cff}
+.sw.on::after{left:15px;background:#0f1012}
+.sw.lock{opacity:.4}
+.chip{font-size:10.5px;border-radius:4px;padding:1px 6px;font-weight:500;background:#24252a;color:#8e9099;white-space:nowrap}
+.chip.a{background:#2e2618;color:#e6b45c}
+.chip.b{background:#1f2638;color:#9ab0ff}
+.chip.g{background:#1b2a20;color:#7cc48a}
+.chip.r{background:#33191a;color:#f0807a}
+.page{flex:1;padding:0 0 0 18px;min-width:0;color:#8e9099;font-size:12.5px;display:flex;flex-direction:column;position:relative}
+.ph{display:flex;align-items:center;gap:12px}
+.ph .big{width:38px;height:38px;border-radius:9px;font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.ph .t1{font-size:16px;font-weight:600;color:#eef0f3}
+.ph .t2{font-size:11.5px;color:#8e9099;margin-top:2px}
+.ph .t2 a{color:#7c9cff;text-decoration:none}
+.btn{height:28px;border-radius:6px;padding:0 12px;font-size:12.5px;display:inline-flex;align-items:center;gap:6px;border:1px solid #2c2d33;background:#1f2024;color:#d4d5da;white-space:nowrap;box-sizing:border-box;font-family:Inter,sans-serif}
+.btn.p{background:#7c9cff;border-color:#7c9cff;color:#0f1012;font-weight:600}
+.btn.q{border-color:transparent;background:transparent;color:#8e9099;padding:0 6px}
+.btn.sm{height:24px;font-size:12px;padding:0 9px}
+.desc{margin:14px 0 0;color:#b4b6bd;line-height:1.55;font-size:13px;max-width:620px}
+.sec{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#8e9099;margin:20px 0 6px;display:flex;align-items:center;gap:8px}
+.perm{display:flex;align-items:center;gap:9px;font-size:12.5px;min-height:26px;color:#d4d5da}
+.perm .i{width:16px;text-align:center;flex-shrink:0}
+.perm .ok{color:#7cc48a}
+.perm .warn{color:#e6b45c}
+.perm .no{color:#5a5c63}
+.perm .s{color:#7a7d86;font-size:11.5px;margin-left:4px}
+.key{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#b4b6bd;background:#202126;border-radius:4px;padding:0 5px}
+.vt{width:100%;border-collapse:collapse;font-size:12px;max-width:620px}
+.vt td{height:28px;border-bottom:1px solid #222328;color:#b4b6bd;padding-right:14px;white-space:nowrap}
+.vt td:last-child{padding-right:0;text-align:right;width:100%}
+.vt tr.dim td{color:#5a5c63}
+.vt .v{font-family:'JetBrains Mono',monospace;color:#eef0f3}
+.vt tr.dim .v{color:#5a5c63}
+.vt s{color:#7a7d86}
+.banner{border-radius:8px;padding:10px 12px;display:flex;align-items:center;gap:10px;font-size:12.5px;line-height:1.45}
+.banner.a{border:1px solid #3a3320;background:#221f16;color:#e6d4a8}
+.banner.r{border:1px solid #4a2526;background:#251516;color:#f2c3c0}
+.banner.b{border:1px solid #2c3a5e;background:#171c2a;color:#c8d4ff}
+.banner.n{border:1px solid #2c2d33;background:#1a1b1e;color:#b4b6bd}
+.banner .acts{margin-left:auto;display:flex;gap:6px;flex-shrink:0}
+.card{position:absolute;background:#1c1d21;border:1px solid #2c2d33;border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.55);padding:14px 16px;box-sizing:border-box}
+.card h4{margin:0;font-size:13.5px;color:#eef0f3;font-weight:600}
+.card .sub{font-size:12px;color:#8e9099;margin:4px 0 8px;line-height:1.45}
+.card .acts{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
+.status{height:24px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px;color:#8e9099;flex-shrink:0}
+.status .prog{display:flex;align-items:center;gap:8px;color:#c8d4ff}
+.pbar{width:80px;height:4px;border-radius:2px;background:#26272c;overflow:hidden}
+.pbar i{display:block;height:100%;width:42%;background:#7c9cff}
+.tag{position:absolute;font-size:10.5px;font-weight:700;color:#0f1012;background:#7c9cff;border-radius:50%;width:18px;height:18px;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 3px #0f1012}
+/* the states board */
+.grid{width:1620px;display:grid;grid-template-columns:repeat(3,1fr);gap:20px;font-family:Inter,sans-serif}
+.st{background:#0f1012;border-radius:10px;padding:16px;color:#d4d5da;font-size:13px;display:flex;flex-direction:column;gap:10px;min-height:330px;box-sizing:border-box;position:relative}
+.st h2{margin:0;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#7c9cff}
+.st .say{font-size:12px;color:#8e9099;line-height:1.5;margin:0}
+.st .say b{color:#d4d5da;font-weight:600}
+.mini{background:#17181b;border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:2px}
+.notice{background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;padding:10px 12px;font-size:12.5px;display:flex;flex-direction:column;gap:8px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
+.notice .h{display:flex;gap:8px;align-items:flex-start;line-height:1.45}
+.notice .acts{display:flex;gap:6px;justify-content:flex-end}
+.term{background:#0b0c0d;border-radius:8px;padding:10px 12px;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#b4b6bd;line-height:1.6;white-space:pre}
+.term .c{color:#7a7d86}
+.term .y{color:#e6b45c}
+.msg{padding:10px 14px;font-size:12.5px;line-height:1.55}
+.who{font-size:11px;font-weight:600;color:#8e9099;margin-bottom:4px;display:flex;align-items:center;gap:6px}
+.you{background:#1c1d21;border-radius:8px;padding:8px 10px;color:#eef0f3}
+.fc{display:inline-flex;align-items:center;gap:4px;font-family:'JetBrains Mono',monospace;font-size:11px;background:#24252a;border-radius:4px;padding:1px 6px;color:#b4b6bd}
+.cb{font-family:'JetBrains Mono',monospace;font-size:11.5px;line-height:18px;background:#111214;border:1px solid #222328;border-radius:6px;padding:8px 10px;white-space:pre;margin-top:6px;color:#d4d5da}
+.edit{margin:4px 14px;border:1px solid #2c2d33;border-radius:8px;padding:8px 10px;display:flex;align-items:center;gap:8px;font-size:12px}
+.add{color:#6cc070}.del{color:#f0807a}
+.caret{display:inline-block;width:7px;height:14px;background:#7c9cff;vertical-align:-2px;margin-left:2px}
+.compose{margin:8px 10px 10px;border:1px solid #3a4466;border-radius:8px;background:#1c1d21;padding:8px 10px}
+.compose .txt{font-size:12.5px;color:#eef0f3;min-height:36px;line-height:1.5}
+.compose .row{display:flex;align-items:center;gap:6px;margin-top:6px}
+.hint{font-size:11px;color:#7a7d86;margin-left:auto}
+.tool{margin-left:auto;display:flex;gap:2px}
+.tb{width:22px;height:22px;border-radius:5px;display:flex;align-items:center;justify-content:center;color:#8e9099;font-size:12px}
+.code{font-family:'JetBrains Mono',monospace;font-size:13px;line-height:22px;white-space:pre;padding:4px 0}
+.ln{display:inline-block;width:40px;text-align:right;padding-right:20px;color:#5d6068}
+.k{color:#c4a7e7}.s{color:#a6d189}.f{color:#f0c674}.t{color:#9ccfd8}.c{color:#7f8794}.n{color:#f5a97f}
+.hint{font-size:11px;color:#7a7d86;margin-left:auto}
+/* added for these mock-ups */
+.head{width:1280px;font-family:Inter,sans-serif;color:#8e9099;font-size:12.5px;line-height:1.5;margin:0 0 18px}
+.head h1{font-size:15px;color:#eef0f3;font-weight:600;margin:0 0 4px}
+.sect{width:1280px;font-family:Inter,sans-serif;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#8e9099;margin:30px 0 10px}
+.grid{width:1280px;grid-template-columns:repeat(3,minmax(0,1fr))}
+.st{min-height:0}
+.pg{background:#17181b;border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:2px;font-size:12.5px;color:#8e9099}
+.pg .sec{margin:4px 0 6px}
+.prow{display:flex;align-items:flex-start;gap:9px;padding:6px 0;border-bottom:1px solid #222328;line-height:1.45}
+.prow:last-child{border-bottom:0}
+.prow .i{width:16px;text-align:center;flex-shrink:0}
+.prow .nm{font-family:'JetBrains Mono',monospace;font-size:12px;color:#eef0f3}
+.wd{color:#8e9099;font-size:11.5px}
+.ok{color:#7cc48a}.warn{color:#e6b45c}.bad{color:#f0807a}.mut{color:#5a5c63}
+.cmd{display:flex;align-items:center;gap:8px;background:#111214;border:1px solid #23252c;border-radius:6px;padding:4px 4px 4px 10px;font:11.5px 'JetBrains Mono',monospace;color:#d4d5da;margin-top:6px}
+.cmd span:first-child{flex:1;word-break:break-all;line-height:1.5}
+.cmd .btn{flex:none}
+.lnk{color:#7c9cff;font-size:11.5px}
+.c2{position:static;width:100%}
+.check{display:flex;align-items:flex-start;gap:8px;font-size:12px;color:#d4d5da;line-height:1.45;margin-top:8px}
+.box{width:14px;height:14px;border-radius:3px;border:1.5px solid #3a3c44;flex-shrink:0;margin-top:1px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;font-size:10px}
+.box.on{background:#7c9cff;border-color:#7c9cff;color:#0f1012;font-weight:700}
+.sysl{font-size:10.5px;color:#7a7d86}
+.rtabs{height:36px;display:flex;align-items:center;gap:2px;padding:0 6px;flex-shrink:0;border-bottom:1px solid #222328}
+.rt{height:26px;padding:0 9px;border-radius:6px;display:flex;align-items:center;gap:6px;font-size:12px;color:#8e9099;white-space:nowrap}
+.rt.on{background:#26272c;color:#eef0f3}
+body{padding:28px 24px;font-family:Inter,sans-serif}
+</style>
+</head>
+<body>
+<div class="head"><h1>What a plugin needs</h1>Plugin API 0.15, plugin-registry.md 12.1 to 12.5. Programs a plugin starts and how to install them, systems and processors, dependencies, and network access. Drawn as parts of Settings › Plugins (PluginBrowse.dc.html), with its styles. All new; all need approval.</div>
+
+<div class="sect">Programs (12.1, 12.2)</div>
+<div class="grid">
+
+  <div class="st">
+    <h2>1 · Browse: the list</h2>
+    <p class="say">The index has each version's <b>programs</b>, so before anything downloads the list says what isn't on this computer. Checked against <b>PATH</b>.</p>
+    <div class="mini">
+      <div class="pi"><div class="pico" style="background:#1e2a3a;color:#7fb4f5">C+</div><div class="pn">C/C++<div>clangd, lldb and gdb</div></div><div class="pm"><span class="chip a">needs clangd</span></div></div>
+      <div class="pi on"><div class="pico" style="background:#1b2f33;color:#7fd6e0">GO</div><div class="pn">Go<div>gopls, tests and tasks</div></div><div class="pm"><span class="chip a">needs gopls</span></div></div>
+      <div class="pi"><div class="pico" style="background:#3a2a1e;color:#f5a97f">RS</div><div class="pn">Rust<div>Cargo tasks and rust-analyzer</div></div><div class="pm"><span class="chip g">✓ installed</span></div></div>
+      <div class="pi"><div class="pico" style="background:#2a2236;color:#c4a7e7">JS</div><div class="pn">JavaScript<div>JS and TypeScript</div></div><div class="pm"></div></div>
+    </div>
+    <p class="say">Nothing is blocked: Install still works, and the plugin does what it can without the program.</p>
+  </div>
+
+  <div class="st">
+    <h2>2 · A plugin's page, before install</h2>
+    <p class="say">A section under what installing lets it do. The command is for <b>this system</b>; the link covers the rest.</p>
+    <div class="pg">
+      <div class="sec">Programs it uses</div>
+      <div class="prow"><span class="i warn">!</span><div style="flex:1;min-width:0"><span class="nm">gopls</span> <span class="wd">isn't installed</span><div class="wd">Without it: completion, errors and go to definition.</div><div class="cmd"><span>go install golang.org/x/tools/gopls@latest</span><span class="btn sm">Copy</span></div><div style="margin-top:5px"><span class="lnk">How to install gopls ↗</span></div></div></div>
+      <div class="prow"><span class="i ok">✓</span><div style="flex:1"><span class="nm">dlv</span> <span class="wd">/home/marc/go/bin/dlv</span><div class="wd">For debugging.</div></div></div>
+    </div>
+  </div>
+
+  <div class="st">
+    <h2>3 · After installing</h2>
+    <p class="say">The install's notice names what's still missing, with the same command. It's the only notice; the page keeps the rest.</p>
+    <div class="notice">
+      <div class="h"><span class="warn">!</span><div>Go is installed. <span class="key">gopls</span> isn't, so there's no completion, errors or go to definition yet.</div></div>
+      <div class="cmd" style="margin-top:0"><span>go install golang.org/x/tools/gopls@latest</span><span class="btn sm">Copy</span></div>
+      <div class="acts"><span class="btn sm q">How to Install ↗</span><span class="btn sm">Open Go's Page</span></div>
+    </div>
+    <p class="say">Install it in a terminal and come back: merlin looks again when the window gets focus, and the language starts its server without a restart.</p>
+  </div>
+
+  <div class="st">
+    <h2>4 · An installed plugin's page</h2>
+    <p class="say">Settings › Plugins › C/C++. Every program, found or not, with where it was found.</p>
+    <div class="pg">
+      <div class="sec">Programs</div>
+      <div class="prow"><span class="i ok">✓</span><div style="flex:1"><span class="nm">clangd</span> <span class="wd">/usr/bin/clangd</span><div class="wd">Completion, errors and go to definition.</div></div></div>
+      <div class="prow"><span class="i ok">✓</span><div style="flex:1"><span class="nm">lldb-dap</span> <span class="wd">/usr/bin/lldb-dap</span><div class="wd">Debugging, first choice.</div></div></div>
+      <div class="prow"><span class="i warn">!</span><div style="flex:1;min-width:0"><span class="nm">gdb</span> <span class="wd">isn't installed</span><div class="wd">Debugging, if lldb-dap isn't there.</div><div class="cmd"><span>sudo apt install gdb</span><span class="btn sm">Copy</span></div></div></div>
+    </div>
+  </div>
+
+  <div class="st">
+    <h2>5 · No command for this system</h2>
+    <p class="say">The plugin gave commands for Linux and macOS only. On Windows the row has the link alone.</p>
+    <div class="pg">
+      <div class="sec">Programs</div>
+      <div class="prow"><span class="i warn">!</span><div style="flex:1"><span class="nm">clangd</span> <span class="wd">isn't installed</span><div class="wd">Completion, errors and go to definition.</div><div style="margin-top:6px"><span class="lnk">How to install clangd on Windows ↗</span></div></div></div>
+    </div>
+    <p class="say">Same for a Linux where the given command is wrong (Fedora, Arch): the command is there, with the link under it.</p>
+  </div>
+
+  <div class="st">
+    <h2>6 · In the language card <span style="color:#7cc48a">(approved)</span></h2>
+    <p class="say">LanguageStatus.dc.html already has this state. It now reads the plugin's <b>for</b> and <b>url</b> too.</p>
+    <div class="notice">
+      <div style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:#eef0f3;font-weight:600">{ } Go<span class="chip a" style="margin-left:auto">not installed</span></div>
+      <div class="prow" style="border:0;padding:0"><span class="i warn">!</span><div style="flex:1;min-width:0"><span class="nm">gopls</span><div class="wd">Without it: completion, errors and go to definition.</div><div class="cmd"><span>go install golang.org/x/tools/gopls@latest</span><span class="btn sm">Copy</span></div></div></div>
+    </div>
+  </div>
+</div>
+
+<div class="sect">Systems and processors (12.3)</div>
+<div class="grid">
+
+  <div class="st">
+    <h2>7 · Browse on Windows</h2>
+    <p class="say">A plugin with no version for this system is greyed out, as one not built for this merlin is now. Search still finds it.</p>
+    <div class="mini">
+      <div class="pi"><div class="pico" style="background:#1e2a3a;color:#7fb4f5">C+</div><div class="pn">C/C++<div>clangd, lldb and gdb</div></div><div class="pm"><span class="chip a">needs clangd</span></div></div>
+      <div class="pi dim"><div class="pico" style="background:#2b2b20;color:#d8c97a">PF</div><div class="pn">perf<div>Profiles with Linux perf</div></div><div class="pm"><span class="chip">not for Windows</span></div></div>
+      <div class="pi dim"><div class="pico" style="background:#22262e;color:#9aa5b8">XC</div><div class="pn">Xcode Tools<div>Builds with xcodebuild</div></div><div class="pm"><span class="chip">macOS only</span></div></div>
+    </div>
+    <p class="say">Its page explains: "perf works on Linux. No version of it is for Windows." Install isn't offered.</p>
+  </div>
+
+  <div class="st">
+    <h2>8 · Versions decide</h2>
+    <p class="say">The Versions tab gets a Systems column. Install picks the newest that fits; here 0.3.0 dropped Windows, so Windows gets 0.2.4.</p>
+    <div class="pg">
+      <table class="vt">
+        <tr class="dim"><td class="v">0.3.0</td><td>API 0.15</td><td>Linux, macOS</td><td>not for Windows</td></tr>
+        <tr><td class="v">0.2.4</td><td>API 0.15</td><td>all</td><td><span class="chip b">Install picks this</span></td></tr>
+        <tr class="dim"><td class="v">0.2.3</td><td>API 0.14</td><td>all</td><td>older API</td></tr>
+      </table>
+    </div>
+    <p class="say">A processor shows the same way: "x86_64 only" on an ARM Mac.</p>
+  </div>
+
+  <div class="st">
+    <h2>9 · A linked plugin that says no</h2>
+    <p class="say">One linked with <b>merlin plugin install &lt;dir&gt;</b> whose manifest leaves this system out. It isn't loaded, and its page says why.</p>
+    <div class="banner n"><span>⊘</span><div>perf says it works on <b>Linux</b>, and this is Windows, so it isn't loaded. Its <span class="key">systems</span> are in plugin.toml.</div></div>
+    <p class="say">A debugger or program left out for this system is quietly skipped: not tried, and not listed as missing in 2 or 4.</p>
+  </div>
+</div>
+
+<div class="sect">Dependencies (12.4)</div>
+<div class="grid">
+
+  <div class="st">
+    <h2>10 · Installing with what it needs</h2>
+    <p class="say">One card for everything that installs. Each plugin with what it asks for; one button.</p>
+    <div class="card c2">
+      <h4>Install Go?</h4>
+      <div class="sub">Go needs Language Servers, which isn't installed. Both install together.</div>
+      <div class="prow"><div class="pico" style="background:#1b2f33;color:#7fd6e0;width:20px;height:20px;font-size:8px">GO</div><div style="flex:1"><span style="color:#eef0f3">Go 0.2.0</span><div class="wd"><span class="warn">⚠</span> Starts <span class="key">gopls</span> and <span class="key">dlv</span>, outside the sandbox</div></div></div>
+      <div class="prow"><div class="pico" style="background:#262838;color:#a9b4ff;width:20px;height:20px;font-size:8px">LS</div><div style="flex:1"><span style="color:#eef0f3">Language Servers 0.3.1</span> <span class="sysl">needed by Go</span><div class="wd"><span class="ok">✓</span> Reads and changes open files</div></div></div>
+      <div class="acts"><span class="btn sm">Cancel</span><span class="btn sm p">Install Both</span></div>
+    </div>
+  </div>
+
+  <div class="st">
+    <h2>11 · When versions don't agree</h2>
+    <p class="say">One version of each plugin at a time. If none satisfies everyone, nothing installs, and the card says who wants what.</p>
+    <div class="card c2">
+      <h4>Go can't be installed yet</h4>
+      <div class="sub">Go needs Language Servers 0.3 or later. Rust needs 0.2, and no version is both.</div>
+      <div class="wd" style="font-size:11.5px;line-height:1.5">When Rust has a version that works with Language Servers 0.3, Go can install.</div>
+      <div class="acts"><span class="btn sm q">Open Rust's Page</span><span class="btn sm">Close</span></div>
+    </div>
+  </div>
+
+  <div class="st">
+    <h2>12 · An update that has to wait</h2>
+    <p class="say">In Installed › Updates. Update All skips it.</p>
+    <div class="mini">
+      <div class="pi"><div class="pico" style="background:#262838;color:#a9b4ff">LS</div><div class="pn">Language Servers<div>0.3.1 waits: Rust needs 0.2</div></div><div class="pm"><span class="chip">waiting</span></div></div>
+      <div class="pi"><div class="pico" style="background:#2a2236;color:#c4a7e7">JS</div><div class="pn">JavaScript<div>0.2.0 → 0.2.1</div></div><div class="pm"><span class="btn sm">Update</span></div></div>
+    </div>
+  </div>
+
+  <div class="st">
+    <h2>13 · Uninstalling one that others need</h2>
+    <p class="say">Asks first, and names them. They stop starting until it's back.</p>
+    <div class="card c2">
+      <h4>Uninstall Language Servers?</h4>
+      <div class="sub">Go and Rust need it. They'll be turned off until it's installed again.</div>
+      <div class="acts"><span class="btn sm">Cancel</span><span class="btn sm" style="color:#f0807a;border-color:#4a2526">Uninstall</span></div>
+    </div>
+  </div>
+
+  <div class="st">
+    <h2>14 · Uninstalling the last one that needed it</h2>
+    <p class="say">A plugin installed only as a dependency is offered for removal with the last plugin that needed it. Ticked by default.</p>
+    <div class="card c2">
+      <h4>Uninstall Go?</h4>
+      <div class="check"><span class="box on">✓</span><div>Also uninstall Language Servers<div class="wd">Installed for Go; nothing else needs it.</div></div></div>
+      <div class="acts"><span class="btn sm">Cancel</span><span class="btn sm" style="color:#f0807a;border-color:#4a2526">Uninstall</span></div>
+    </div>
+  </div>
+
+  <div class="st">
+    <h2>15 · Network access (12.5)</h2>
+    <p class="say">A new line in what installing lets it do, in amber because it leaves the sandbox. An update that adds a host asks, as any wider permission does.</p>
+    <div class="pg">
+      <div class="sec">Installing lets it</div>
+      <div class="perm"><span class="i ok">✓</span>Read the files you open</div>
+      <div class="perm"><span class="i warn">⚠</span><span>Connect to <span class="key">api.github.com</span> and <span class="key">*.githubusercontent.com</span></span></div>
+    </div>
+    <div class="banner a"><div>GitHub 0.4.0 also wants to connect to <span class="key">gitlab.com</span>.</div><div class="acts"><span class="btn sm">Skip</span><span class="btn sm p">Allow and Update</span></div></div>
+  </div>
+</div>
+</body>
+</html>

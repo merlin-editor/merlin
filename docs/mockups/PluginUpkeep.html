@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keeping plugins up to date</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#08090a}
+.board{width:1620px;display:flex;background:#08090a;font-family:Inter,sans-serif}
+.board+.board{margin-top:40px}
+.w{width:1280px;height:800px;background:#0f1012;color:#d4d5da;display:flex;flex-direction:column;font-size:13px;overflow:hidden;position:relative;flex-shrink:0}
+.notes{flex:1;padding:28px 24px;display:flex;flex-direction:column;gap:16px;color:#8e9099;font-size:12.5px;line-height:1.5;min-width:0}
+.notes h3{margin:0 0 4px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#7c9cff}
+.notes b{color:#d4d5da;font-weight:600}
+.notes p{margin:0}
+.bar{height:40px;display:flex;align-items:center;gap:10px;padding:0 12px;flex-shrink:0}
+.logo{width:20px;height:20px;border-radius:5px;background:#7c9cff;color:#0f1012;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
+.search{margin:0 auto;width:400px;height:26px;border-radius:7px;background:#1c1d21;border:1px solid #2c2d33;color:#8e9099;display:flex;align-items:center;gap:8px;padding:0 10px;font-size:12.5px;box-sizing:border-box}
+.kbd{font-size:11px;background:#26272c;border-radius:4px;padding:1px 6px;color:#b4b6bd}
+.mid{flex:1;display:flex;gap:6px;padding-right:6px;min-height:0}
+.rail{width:44px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:6px;padding-top:6px}
+.ri{width:30px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:#7a7d86;font-size:14px}
+.island{background:#17181b;border-radius:10px;display:flex;flex-direction:column;min-width:0;overflow:hidden;position:relative}
+.tabs{height:32px;display:flex;align-items:center;gap:3px;padding:0 6px;flex-shrink:0}
+.tab{height:24px;padding:0 10px;border-radius:6px;display:flex;align-items:center;gap:6px;color:#8e9099;font-size:12.5px;white-space:nowrap}
+.tab.on{background:#26272c;color:#eef0f3;box-shadow:inset 0 0 0 1px #2c2d33}
+.ic{width:14px;height:14px;border-radius:3px;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;background:#3a2a1e;color:#f5a97f;flex-shrink:0}
+.split{flex:1;display:flex;min-height:0}
+.nav{width:176px;padding:12px 8px;display:flex;flex-direction:column;gap:2px;flex-shrink:0}
+.nv{height:30px;display:flex;align-items:center;gap:10px;padding:0 10px;border-radius:6px;font-size:13px;color:#b4b6bd}
+.nv.on{background:#26272c;color:#eef0f3}
+.nv .c{margin-left:auto;font-size:11px;color:#8e9099}
+.nv .dot{margin-left:auto;font-size:10.5px;font-weight:600;background:#2c3a5e;color:#c8d4ff;border-radius:8px;padding:0 6px;height:16px;display:flex;align-items:center}
+.body{flex:1;overflow:hidden;padding:14px 22px 0 18px;min-width:0;display:flex;flex-direction:column;position:relative}
+.find{height:32px;border:1px solid #2c2d33;border-radius:7px;background:#1f2024;display:flex;align-items:center;gap:8px;padding:0 10px;font-size:13px;color:#8e9099;box-sizing:border-box;flex-shrink:0}
+.scope{display:flex;gap:18px;font-size:12.5px;margin-top:12px;border-bottom:1px solid #222328;flex-shrink:0}
+.scope span{padding-bottom:8px;color:#8e9099}
+.scope span.on{color:#eef0f3;box-shadow:inset 0 -2px 0 #7c9cff}
+.cols{flex:1;display:flex;min-height:0;margin-top:12px}
+.plist{width:300px;flex-shrink:0;padding-right:10px;border-right:1px solid #222328;display:flex;flex-direction:column;gap:2px}
+.lt{display:flex;gap:20px;margin-bottom:10px;border-bottom:1px solid #222328;padding-left:4px}
+.lt span{height:28px;display:flex;align-items:center;gap:5px;font-size:12.5px;color:#8e9099}
+.lt span.on{color:#eef0f3;box-shadow:inset 0 -2px 0 #7c9cff}
+.lt .n{font-size:11px;color:#7a7d86}
+.lfind{height:30px;border:1px solid #2c2d33;border-radius:6px;background:#1a1b1e;display:flex;align-items:center;padding:0 10px;font-size:12px;color:#7a7d86;margin-bottom:6px;gap:8px}
+.lfind.typing{border-color:#3d4d7a;color:#eef0f3}
+.src{display:flex;align-items:center;gap:6px;font-size:11px;color:#7a7d86;padding:0 4px 6px}
+.src .r{margin-left:auto;color:#7c9cff}
+.gh{font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#7a7d86;padding:8px 10px 4px;display:flex;align-items:center}
+.gh .more{margin-left:auto;text-transform:none;letter-spacing:0;font-weight:500;color:#7c9cff;font-size:11.5px}
+.pi{height:44px;display:flex;align-items:center;gap:10px;padding:0 10px;border-radius:6px;flex-shrink:0}
+.pi.on{background:#26272c}
+.pi.dim .pn,.pi.dim .pico{opacity:.5}
+.pn{font-size:12.5px;color:#eef0f3;line-height:1.3;min-width:0}
+.pn div{font-size:11px;color:#8e9099;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pm{margin-left:auto;display:flex;align-items:center;gap:8px;flex-shrink:0}
+.pico{width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0}
+.sw{width:30px;height:18px;border-radius:9px;background:#2c2d33;position:relative;flex-shrink:0}
+.sw::after{content:"";position:absolute;left:3px;top:3px;width:12px;height:12px;border-radius:50%;background:#8e9099}
+.sw.on{background:#7c9cff}
+.sw.on::after{left:15px;background:#0f1012}
+.sw.lock{opacity:.4}
+.chip{font-size:10.5px;border-radius:4px;padding:1px 6px;font-weight:500;background:#24252a;color:#8e9099;white-space:nowrap}
+.chip.a{background:#2e2618;color:#e6b45c}
+.chip.b{background:#1f2638;color:#9ab0ff}
+.chip.g{background:#1b2a20;color:#7cc48a}
+.chip.r{background:#33191a;color:#f0807a}
+.page{flex:1;padding:0 0 0 18px;min-width:0;color:#8e9099;font-size:12.5px;display:flex;flex-direction:column;position:relative}
+.ph{display:flex;align-items:center;gap:12px}
+.ph .big{width:38px;height:38px;border-radius:9px;font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.ph .t1{font-size:16px;font-weight:600;color:#eef0f3}
+.ph .t2{font-size:11.5px;color:#8e9099;margin-top:2px}
+.ph .t2 a{color:#7c9cff;text-decoration:none}
+.btn{height:28px;border-radius:6px;padding:0 12px;font-size:12.5px;display:inline-flex;align-items:center;gap:6px;border:1px solid #2c2d33;background:#1f2024;color:#d4d5da;white-space:nowrap;box-sizing:border-box;font-family:Inter,sans-serif}
+.btn.p{background:#7c9cff;border-color:#7c9cff;color:#0f1012;font-weight:600}
+.btn.q{border-color:transparent;background:transparent;color:#8e9099;padding:0 6px}
+.btn.sm{height:24px;font-size:12px;padding:0 9px}
+.desc{margin:14px 0 0;color:#b4b6bd;line-height:1.55;font-size:13px;max-width:620px}
+.sec{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#8e9099;margin:20px 0 6px;display:flex;align-items:center;gap:8px}
+.perm{display:flex;align-items:center;gap:9px;font-size:12.5px;min-height:26px;color:#d4d5da}
+.perm .i{width:16px;text-align:center;flex-shrink:0}
+.perm .ok{color:#7cc48a}
+.perm .warn{color:#e6b45c}
+.perm .no{color:#5a5c63}
+.perm .s{color:#7a7d86;font-size:11.5px;margin-left:4px}
+.key{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#b4b6bd;background:#202126;border-radius:4px;padding:0 5px}
+.vt{width:100%;border-collapse:collapse;font-size:12px;max-width:620px}
+.vt td{height:28px;border-bottom:1px solid #222328;color:#b4b6bd;padding-right:14px;white-space:nowrap}
+.vt td:last-child{padding-right:0;text-align:right;width:100%}
+.vt tr.dim td{color:#5a5c63}
+.vt .v{font-family:'JetBrains Mono',monospace;color:#eef0f3}
+.vt tr.dim .v{color:#5a5c63}
+.vt s{color:#7a7d86}
+.banner{border-radius:8px;padding:10px 12px;display:flex;align-items:center;gap:10px;font-size:12.5px;line-height:1.45}
+.banner.a{border:1px solid #3a3320;background:#221f16;color:#e6d4a8}
+.banner.r{border:1px solid #4a2526;background:#251516;color:#f2c3c0}
+.banner.b{border:1px solid #2c3a5e;background:#171c2a;color:#c8d4ff}
+.banner.n{border:1px solid #2c2d33;background:#1a1b1e;color:#b4b6bd}
+.banner .acts{margin-left:auto;display:flex;gap:6px;flex-shrink:0}
+.card{position:absolute;background:#1c1d21;border:1px solid #2c2d33;border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.55);padding:14px 16px;box-sizing:border-box}
+.card h4{margin:0;font-size:13.5px;color:#eef0f3;font-weight:600}
+.card .sub{font-size:12px;color:#8e9099;margin:4px 0 8px;line-height:1.45}
+.card .acts{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
+.status{height:24px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px;color:#8e9099;flex-shrink:0}
+.status .prog{display:flex;align-items:center;gap:8px;color:#c8d4ff}
+.pbar{width:80px;height:4px;border-radius:2px;background:#26272c;overflow:hidden}
+.pbar i{display:block;height:100%;width:42%;background:#7c9cff}
+.tag{position:absolute;font-size:10.5px;font-weight:700;color:#0f1012;background:#7c9cff;border-radius:50%;width:18px;height:18px;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 3px #0f1012}
+/* the states board */
+.grid{width:1620px;display:grid;grid-template-columns:repeat(3,1fr);gap:20px;font-family:Inter,sans-serif}
+.st{background:#0f1012;border-radius:10px;padding:16px;color:#d4d5da;font-size:13px;display:flex;flex-direction:column;gap:10px;min-height:330px;box-sizing:border-box;position:relative}
+.st h2{margin:0;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#7c9cff}
+.st .say{font-size:12px;color:#8e9099;line-height:1.5;margin:0}
+.st .say b{color:#d4d5da;font-weight:600}
+.mini{background:#17181b;border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:2px}
+.notice{background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;padding:10px 12px;font-size:12.5px;display:flex;flex-direction:column;gap:8px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
+.notice .h{display:flex;gap:8px;align-items:flex-start;line-height:1.45}
+.notice .acts{display:flex;gap:6px;justify-content:flex-end}
+.term{background:#0b0c0d;border-radius:8px;padding:10px 12px;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#b4b6bd;line-height:1.6;white-space:pre}
+.term .c{color:#7a7d86}
+.term .y{color:#e6b45c}
+.msg{padding:10px 14px;font-size:12.5px;line-height:1.55}
+.who{font-size:11px;font-weight:600;color:#8e9099;margin-bottom:4px;display:flex;align-items:center;gap:6px}
+.you{background:#1c1d21;border-radius:8px;padding:8px 10px;color:#eef0f3}
+.fc{display:inline-flex;align-items:center;gap:4px;font-family:'JetBrains Mono',monospace;font-size:11px;background:#24252a;border-radius:4px;padding:1px 6px;color:#b4b6bd}
+.cb{font-family:'JetBrains Mono',monospace;font-size:11.5px;line-height:18px;background:#111214;border:1px solid #222328;border-radius:6px;padding:8px 10px;white-space:pre;margin-top:6px;color:#d4d5da}
+.edit{margin:4px 14px;border:1px solid #2c2d33;border-radius:8px;padding:8px 10px;display:flex;align-items:center;gap:8px;font-size:12px}
+.add{color:#6cc070}.del{color:#f0807a}
+.caret{display:inline-block;width:7px;height:14px;background:#7c9cff;vertical-align:-2px;margin-left:2px}
+.compose{margin:8px 10px 10px;border:1px solid #3a4466;border-radius:8px;background:#1c1d21;padding:8px 10px}
+.compose .txt{font-size:12.5px;color:#eef0f3;min-height:36px;line-height:1.5}
+.compose .row{display:flex;align-items:center;gap:6px;margin-top:6px}
+.hint{font-size:11px;color:#7a7d86;margin-left:auto}
+.tool{margin-left:auto;display:flex;gap:2px}
+.tb{width:22px;height:22px;border-radius:5px;display:flex;align-items:center;justify-content:center;color:#8e9099;font-size:12px}
+.code{font-family:'JetBrains Mono',monospace;font-size:13px;line-height:22px;white-space:pre;padding:4px 0}
+.ln{display:inline-block;width:40px;text-align:right;padding-right:20px;color:#5d6068}
+.k{color:#c4a7e7}.s{color:#a6d189}.f{color:#f0c674}.t{color:#9ccfd8}.c{color:#7f8794}.n{color:#f5a97f}
+.hint{font-size:11px;color:#7a7d86;margin-left:auto}
+/* added for these mock-ups */
+.head{width:1280px;font-family:Inter,sans-serif;color:#8e9099;font-size:12.5px;line-height:1.5;margin:0 0 18px}
+.head h1{font-size:15px;color:#eef0f3;font-weight:600;margin:0 0 4px}
+.sect{width:1280px;font-family:Inter,sans-serif;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#8e9099;margin:30px 0 10px}
+.grid{width:1280px;grid-template-columns:repeat(3,minmax(0,1fr))}
+.st{min-height:0}
+.pg{background:#17181b;border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:2px;font-size:12.5px;color:#8e9099}
+.pg .sec{margin:4px 0 6px}
+.prow{display:flex;align-items:flex-start;gap:9px;padding:6px 0;border-bottom:1px solid #222328;line-height:1.45}
+.prow:last-child{border-bottom:0}
+.prow .i{width:16px;text-align:center;flex-shrink:0}
+.prow .nm{font-family:'JetBrains Mono',monospace;font-size:12px;color:#eef0f3}
+.wd{color:#8e9099;font-size:11.5px}
+.ok{color:#7cc48a}.warn{color:#e6b45c}.bad{color:#f0807a}.mut{color:#5a5c63}
+.cmd{display:flex;align-items:center;gap:8px;background:#111214;border:1px solid #23252c;border-radius:6px;padding:4px 4px 4px 10px;font:11.5px 'JetBrains Mono',monospace;color:#d4d5da;margin-top:6px}
+.cmd span:first-child{flex:1;word-break:break-all;line-height:1.5}
+.cmd .btn{flex:none}
+.lnk{color:#7c9cff;font-size:11.5px}
+.c2{position:static;width:100%}
+.check{display:flex;align-items:flex-start;gap:8px;font-size:12px;color:#d4d5da;line-height:1.45;margin-top:8px}
+.box{width:14px;height:14px;border-radius:3px;border:1.5px solid #3a3c44;flex-shrink:0;margin-top:1px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;font-size:10px}
+.box.on{background:#7c9cff;border-color:#7c9cff;color:#0f1012;font-weight:700}
+.sysl{font-size:10.5px;color:#7a7d86}
+.rtabs{height:36px;display:flex;align-items:center;gap:2px;padding:0 6px;flex-shrink:0;border-bottom:1px solid #222328}
+.rt{height:26px;padding:0 9px;border-radius:6px;display:flex;align-items:center;gap:6px;font-size:12px;color:#8e9099;white-space:nowrap}
+.rt.on{background:#26272c;color:#eef0f3}
+body{padding:28px 24px;font-family:Inter,sans-serif}
+.popup{width:100%;box-sizing:border-box;background:#18191d;border:1px solid #2a2c34;border-radius:10px;box-shadow:0 14px 38px rgba(0,0,0,.55);padding:16px;display:flex;flex-direction:column;gap:12px}
+.popup .t{display:flex;align-items:center;justify-content:space-between;font-size:13.5px;font-weight:600;color:#eef0f3}
+.vbadge{font:500 11px 'JetBrains Mono',monospace;background:#1d2840;color:#7c9cff;padding:2px 6px;border-radius:4px}
+.popup .d{font-size:12px;color:#8e9099;line-height:1.5}
+.popup .acts{display:flex;justify-content:flex-end;gap:8px}
+.upill{display:inline-flex;align-items:center;gap:7px;height:26px;padding:0 10px 0 8px;border-radius:13px;background:#192338;border:1px solid #2c3e66;color:#8cb0ff;font-size:12px;font-weight:500;align-self:flex-end}
+.udot{width:7px;height:7px;border-radius:50%;background:#7c9cff;box-shadow:0 0 6px #7c9cff}
+.setrow{display:flex;align-items:flex-start;gap:12px;padding:10px 0;border-bottom:1px solid #222328}
+.setrow:last-child{border-bottom:0}
+.setrow .l{flex:1;font-size:12.5px;color:#eef0f3}
+.setrow .l div{font-size:11.5px;color:#8e9099;margin-top:2px;line-height:1.45}
+.setrow .kk{font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#5a5c63;margin-top:3px}
+.mn{background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;padding:4px;box-shadow:0 12px 32px rgba(0,0,0,.55);font-size:12.5px}
+.mn .mi{height:28px;display:flex;align-items:center;gap:8px;padding:0 8px;border-radius:5px;color:#d4d5da}
+.mn .mi.on{background:#262b3d;color:#eef0f3}
+.mn .mi .k2{margin-left:auto;font-size:11px;color:#7a7d86}
+.mn .mh{padding:5px 8px 4px;font-size:11px;color:#7a7d86}
+.mn .sep{height:1px;background:#2c2d33;margin:4px 2px}
+</style>
+</head>
+<body>
+<div class="head"><h1>Keeping plugins up to date</h1>plugin-registry.md 12.7, for merlin v0.2.0; no API change. Automatic updates, Keep at This Version, removing a plugin's settings, Replaced by, and the update card's warning about plugins. Drawn as parts of Settings › Plugins (PluginBrowse.dc.html) and the update card (AppUpdateStates.html). All new; all need approval.</div>
+
+<div class="sect">Automatic updates</div>
+<div class="grid">
+
+  <div class="st">
+    <h2>1 · The setting</h2>
+    <p class="say">At the top of Settings › Plugins › Installed, and in settings.toml. User only, like Check for updates.</p>
+    <div class="pg">
+      <div class="setrow"><div class="l">Update plugins automatically<div>Install plugin updates when they come out. An update that asks for more permissions waits for you.</div><div class="kk">plugins.auto_update</div></div><span class="sw on"></span></div>
+    </div>
+  </div>
+
+  <div class="st">
+    <h2>2 · After it updates some</h2>
+    <p class="say">No notice. A line in the status bar for a few seconds, and the plugins' rows say so until the next start.</p>
+    <div class="status" style="background:#0f1012;border-radius:6px;height:28px"><span>⑂ editor-rework</span><span class="prog">✓ Updated Rust and Go</span><span style="margin-left:auto">Ln 12, Col 4</span></div>
+    <div class="mini">
+      <div class="pi"><div class="pico" style="background:#3a2a1e;color:#f5a97f">RS</div><div class="pn">Rust<div>0.2.0 → 0.2.1, today</div></div><div class="pm"><span class="chip g">updated</span><span class="sw on"></span></div></div>
+      <div class="pi"><div class="pico" style="background:#1b2f33;color:#7fd6e0">GO</div><div class="pn">Go<div>0.2.0 → 0.2.2, today</div></div><div class="pm"><span class="chip g">updated</span><span class="sw on"></span></div></div>
+    </div>
+    <p class="say">A plugin that's running picks up the new version when it next starts, as an update does now.</p>
+  </div>
+
+  <div class="st">
+    <h2>3 · Keep at this version</h2>
+    <p class="say">A plugin's page, the menu by its version. Kept plugins aren't updated automatically or by Update All.</p>
+    <div class="mn">
+      <div class="mh">Python 0.2.4</div>
+      <div class="mi on"><span class="box on" style="width:12px;height:12px;font-size:9px">✓</span>Keep at 0.2.4</div>
+      <div class="mi">Install Another Version…</div>
+      <div class="sep"></div>
+      <div class="mi">Uninstall…</div>
+    </div>
+    <div class="mini">
+      <div class="pi"><div class="pico" style="background:#1c2a3a;color:#8fc1f5">PY</div><div class="pn">Python<div>0.3.0 is out; kept at 0.2.4</div></div><div class="pm"><span class="chip">kept</span><span class="btn sm">Update Anyway</span></div></div>
+    </div>
+  </div>
+</div>
+
+<div class="sect">Uninstalling and replacing</div>
+<div class="grid">
+
+  <div class="st">
+    <h2>4 · Removing its settings too</h2>
+    <p class="say">Off by default, so reinstalling gets them back. The card says what would go.</p>
+    <div class="card c2">
+      <h4>Uninstall Python?</h4>
+      <div class="check"><span class="box"></span><div>Also delete its settings and data<div class="wd">3 settings in your settings.toml, 1 in this workspace's, and 1.2 MB it stored.</div></div></div>
+      <div class="acts"><span class="btn sm">Cancel</span><span class="btn sm" style="color:#f0807a;border-color:#4a2526">Uninstall</span></div>
+    </div>
+    <p class="say">Settings in other workspaces aren't touched: merlin only knows this one's.</p>
+  </div>
+
+  <div class="st">
+    <h2>5 · Replaced by, in Browse</h2>
+    <p class="say">The registry entry says <b>replaced-by</b>. Browse lists it greyed, pointing at the new one.</p>
+    <div class="mini">
+      <div class="pi dim"><div class="pico" style="background:#22262e;color:#9aa5b8">PR</div><div class="pn">Pyright<div>Python with pyright</div></div><div class="pm"><span class="chip">replaced by Python</span></div></div>
+      <div class="pi"><div class="pico" style="background:#1c2a3a;color:#8fc1f5">PY</div><div class="pn">Python<div>pyright, debugpy, tests and tasks</div></div><div class="pm"></div></div>
+    </div>
+  </div>
+
+  <div class="st">
+    <h2>6 · Replaced by, when it's installed</h2>
+    <p class="say">A banner on its page and a chip in Installed. It keeps working; nothing changes until you choose.</p>
+    <div class="banner b"><div>Pyright is replaced by <b>Python</b>, which does what it did and more.</div><div class="acts"><span class="btn sm">Keep Pyright</span><span class="btn sm p">Switch</span></div></div>
+    <p class="say"><b>Switch</b> installs Python, asking for its permissions as usual, then uninstalls Pyright (card 4).</p>
+  </div>
+</div>
+
+<div class="sect">Updating merlin</div>
+<div class="grid">
+
+  <div class="st">
+    <h2>7 · Plugins not ready for the update</h2>
+    <p class="say">The approved Update Ready card, with a line when the new merlin's plugin API is one that some installed plugins have no version for yet. From the index, before anything downloads.</p>
+    <div class="upill"><span class="udot"></span>Update available ↓</div>
+    <div class="popup">
+      <div class="t"><span>Update Ready</span><span class="vbadge">v0.2.0</span></div>
+      <div class="d">You have v0.1.1. Restarting to update keeps your unsaved changes.</div>
+      <div class="banner a" style="font-size:12px"><div>Two of your plugins don't work with v0.2.0 yet: <b>Zig</b> and <b>Catch2</b>. They'll be off until they do.</div></div>
+      <div class="acts"><span class="btn sm q">Release notes</span><span class="btn sm">Later</span><span class="btn sm p">Restart &amp; Update</span></div>
+    </div>
+  </div>
+
+  <div class="st">
+    <h2>8 · After the update</h2>
+    <p class="say">Those plugins show in Installed as now (PluginBrowse, "not built for this API"), and update by themselves when a version comes out.</p>
+    <div class="mini">
+      <div class="pi dim"><div class="pico" style="background:#2b2b20;color:#d8c97a">ZG</div><div class="pn">Zig<div>No version for this merlin yet</div></div><div class="pm"><span class="chip a">waiting</span><span class="sw lock"></span></div></div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
