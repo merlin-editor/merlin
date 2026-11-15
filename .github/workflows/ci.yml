@@ -133,8 +133,9 @@ jobs:
             binary_name: merlin
             archive_name: merlin-macos-aarch64.tar.gz
 
-          # macOS Intel
-          - os: macos-13
+          # macOS Intel. GitHub retired macos-13; a job asking for it waits
+          # a day in the queue and then fails.
+          - os: macos-15-intel
             target: x86_64-apple-darwin
             binary_name: merlin
             archive_name: merlin-macos-x86_64.tar.gz
