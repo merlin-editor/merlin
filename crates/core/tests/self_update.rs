@@ -72,7 +72,7 @@ fn the_pill_opens_the_card_and_a_click_elsewhere_closes_it() {
         update(&s),
         "update: • Update available ↓\n\
          update card: Update Ready [v0.2.0]\n  \
-         A new version of Merlin is available (current: v0.1.0). Updates download and apply seamlessly without losing unsaved buffers.\n  \
+         You have v0.1.0. Restarting to update keeps your unsaved changes.\n  \
          [Release notes] [[Restart & Update]]\n"
     );
     s.run("key esc");
@@ -146,7 +146,7 @@ fn updating_goes_step_by_step_then_restarts_keeping_unsaved_files() {
          ○ Checking the signature\n  \
          ○ Putting it in place\n  \
          ○ Restarting\n  \
-         Your unsaved files come back as they are.\n  \
+         Unsaved changes are kept.\n  \
          [Release notes] [Cancel]\n"
     );
     s.send(Event::UpdateProgress {
@@ -193,7 +193,7 @@ fn with_the_card_closed_it_waits_to_be_restarted() {
          ✓ Downloaded · 23 MB\n  \
          ✓ Signature checked\n  \
          ✓ In place\n  \
-         v0.2.0 starts the next time merlin does. Restart now, or keep working.\n  \
+         v0.2.0 is installed and starts next time you open merlin.\n  \
          [Later] [[Restart Now]]\n"
     );
     click(&mut s, UpdateHit::Later);
@@ -219,13 +219,13 @@ fn cancel_and_a_failure_go_back_to_the_offer() {
     click(&mut s, UpdateHit::Install);
     actions(&mut s);
     s.send(Event::UpdateFailed(
-        "The download doesn't match the release's signature, so nothing was changed.".into(),
+        "The download failed its signature check. Nothing was changed.".into(),
     ));
     assert_eq!(
         update(&s),
         "update: • Update available ↓\n\
          update card: Update Failed [v0.2.0]\n  \
-         error: The download doesn't match the release's signature, so nothing was changed.\n  \
+         error: The download failed its signature check. Nothing was changed.\n  \
          [Release notes] [[Try Again]]\n"
     );
     click(&mut s, UpdateHit::Install);
@@ -244,7 +244,7 @@ fn a_merlin_that_cant_replace_itself_gives_the_command() {
         update(&s),
         "update: • Update available ↓\n\
          update card: Update Available [v0.2.0]\n  \
-         You have v0.1.0. merlin can't replace itself in /usr/bin, so update it the way you installed it, or with:\n  \
+         You have v0.1.0. merlin can't update itself in /usr/bin. Update it the way you installed it, or run:\n  \
          curl -fsSL https://example.org/install.sh | sh [Copy]\n  \
          [Release notes]\n"
     );

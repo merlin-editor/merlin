@@ -673,8 +673,7 @@ impl App {
             Err(err) if err.downcast_ref::<Mismatch>().is_some() => {
                 eprintln!("merlin: {tag}: {err:#}");
                 vec![Event::UpdateFailed(
-                    "The download doesn't match the release's signature, so nothing was changed."
-                        .into(),
+                    "The download failed its signature check. Nothing was changed.".into(),
                 )]
             }
             Err(err) => vec![Event::UpdateFailed(format!(

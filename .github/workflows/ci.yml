@@ -238,6 +238,8 @@ jobs:
           (cd archives && sha256sum merlin-*) > SHA256SUMS
           cat SHA256SUMS
           umask 077
+          # Gone whatever happens next, though the runner is thrown away too.
+          trap 'rm -f release.key' EXIT
           printf '%s\n' "$MINISIGN_SECRET_KEY" > release.key
           # The trusted comment names the release, so an older signed list
           # can't pass for a newer one.

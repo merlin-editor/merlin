@@ -93,7 +93,7 @@ curl -fsSL https://raw.githubusercontent.com/merlin-editor/merlin/main/scripts/i
 
 Running this command again checks for new releases and updates your installation automatically. With `minisign` installed, it also checks the release's signature.
 
-merlin also looks for a newer release itself, every 6 hours. When there is one, the title bar says "Update available": its card shows the release notes, and Restart & Update downloads it, checks its signature, and restarts with your unsaved files as they were. `check_for_updates = false` under `[editor]` turns this off.
+merlin also checks for a new version every 6 hours. When one is out, an "Update available" button appears in the title bar. Click it to read the release notes, then click Restart & Update: merlin downloads the new version, checks its signature, and restarts. Unsaved files are kept. To turn this off, switch off Check for updates in Settings, or set `check_for_updates = false` under `[editor]`.
 
 Prebuilt binaries for Linux, macOS (Apple Silicon & Intel), and Windows are also available directly from [GitHub Releases](https://github.com/merlin-editor/merlin/releases).
 

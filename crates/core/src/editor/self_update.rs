@@ -353,7 +353,7 @@ impl Editor {
                 (_, UpdateState::Offered) if offer.manual.is_some() => {
                     card.title = "Update Available".into();
                     card.text = format!(
-                        "You have {}. merlin can't replace itself {}, so update it the way you installed it, or with:",
+                        "You have {}. merlin can't update itself {}. Update it the way you installed it, or run:",
                         offer.current,
                         offer.manual.as_deref().unwrap_or_default()
                     );
@@ -363,7 +363,7 @@ impl Editor {
                 (_, UpdateState::Offered) => {
                     card.title = "Update Ready".into();
                     card.text = format!(
-                        "A new version of Merlin is available (current: {}). Updates download and apply seamlessly without losing unsaved buffers.",
+                        "You have {}. Restarting to update keeps your unsaved changes.",
                         offer.current
                     );
                     card.buttons.extend([notes, install]);
@@ -394,7 +394,7 @@ impl Editor {
                             mark: mark(s),
                         });
                     }
-                    card.text = "Your unsaved files come back as they are.".into();
+                    card.text = "Unsaved changes are kept.".into();
                     card.buttons.push(notes);
                     if *step <= UpdateStep::Check {
                         card.buttons
@@ -420,7 +420,7 @@ impl Editor {
                         });
                     }
                     card.text = format!(
-                        "{v} starts the next time merlin does. Restart now, or keep working."
+                        "{v} is installed and starts next time you open merlin."
                     );
                     card.buttons.extend([
                         button("Later", UpdateHit::Later, ButtonStyle::Ghost),

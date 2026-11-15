@@ -10,7 +10,7 @@ impl<'a> Frame<'a> {
         self.s_heading("Colour theme", Some(("More themes in Plugins ›", more)), c);
         let follow = Row {
             label: "Follow the system".into(),
-            about: "One theme for a dark desktop, another for a light one.".into(),
+            about: "Switch between a dark and a light theme with your desktop.".into(),
             key: "editor.theme_follows_system".into(),
             control: Control::Toggle(v.follow),
             changed: false,
