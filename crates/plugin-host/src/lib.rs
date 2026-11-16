@@ -267,13 +267,13 @@ struct Loaded {
 
 impl Loaded {
     fn handles_path(&self, path: Option<&str>) -> bool {
-        let Some((_, ext)) = path.and_then(|p| p.rsplit_once('.')) else {
+        let Some(path) = path else {
             return false;
         };
         self.manifest
             .languages
             .iter()
-            .any(|l| l.extensions.iter().any(|e| e.eq_ignore_ascii_case(ext)))
+            .any(|l| l.to_core().matches(Path::new(path)))
     }
 }
 
@@ -873,19 +873,15 @@ impl PluginHost {
     /// Whether a waiting plugin's `activate-on` matches the open file or
     /// the workspace.
     fn wants_start(&self, index: usize, snapshot: &Snapshot) -> bool {
-        let ext = snapshot
-            .path
-            .as_deref()
-            .and_then(|p| p.rsplit_once('.'))
-            .map(|(_, e)| e.to_ascii_lowercase());
         self.plugins[index].manifest.activate_on.iter().any(|t| {
             if let Some(id) = t.strip_prefix("language:") {
-                // The language's extensions, from whichever plugin adds it.
-                return ext.as_ref().is_some_and(|ext| {
+                // The language's files, from whichever plugin adds it.
+                return snapshot.path.as_deref().is_some_and(|path| {
                     self.plugins.iter().any(|p| {
-                        p.manifest.languages.iter().any(|l| {
-                            l.id == id && l.extensions.iter().any(|e| e.eq_ignore_ascii_case(ext))
-                        })
+                        p.manifest
+                            .languages
+                            .iter()
+                            .any(|l| l.id == id && l.to_core().matches(Path::new(path)))
                     })
                 });
             }

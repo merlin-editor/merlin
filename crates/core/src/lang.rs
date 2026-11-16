@@ -159,6 +159,9 @@ pub struct Language {
     pub name: String,
     /// File extensions, without the dot.
     pub extensions: Vec<String>,
+    /// Whole file names, for files whose extension says nothing, such as
+    /// `CMakeLists.txt`.
+    pub names: Vec<String>,
     pub line_comment: Option<String>,
     pub block_comment: Option<(String, String)>,
     /// What a line ends with for Enter to indent the next a level more,
@@ -167,6 +170,19 @@ pub struct Language {
     /// What the language calls an exception, such as Rust's `panic`, for
     /// the card when a run stops on one.
     pub exception: Option<String>,
+}
+
+impl Language {
+    /// Whether a file is in this language: its name is one of `names`,
+    /// or its extension one of `extensions`, in any case.
+    pub fn matches(&self, path: &std::path::Path) -> bool {
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if self.names.iter().any(|n| n == name) {
+            return true;
+        }
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        !ext.is_empty() && self.extensions.iter().any(|e| e.eq_ignore_ascii_case(ext))
+    }
 }
 
 /// How a plugin reads problems out of a task's output, as a VS Code

@@ -1,0 +1,29 @@
+name = "cmake"
+title = "CMake"
+description = "CMake colours, Configure, Build and Test tasks from presets, and compile commands for clangd"
+badge = "CM"
+hue = "green"
+version = "0.1.0"
+api = "0.16"
+component = "target/wasm32-wasip2/release/cmake.wasm"
+# Starts when the project has a CMakeLists.txt, or one of its files opens.
+activate-on = ["file:CMakeLists.txt", "language:cmake"]
+
+[permissions]
+editor-read = true
+# To read CMakePresets.json and a build's CMakeCache.txt.
+workspace-read = true
+# To configure in a terminal and hear when it ends.
+terminal = true
+
+# Where the configured build put compile_commands.json, for the C/C++
+# plugin's clangd.
+[shared]
+provides = ["compile-commands"]
+
+[[languages]]
+id = "cmake"
+name = "CMake"
+names = ["CMakeLists.txt"]
+extensions = ["cmake"]
+line-comment = "#"

@@ -79,20 +79,20 @@ impl Editor {
 
     /// The plugin that adds the shown file's language, if one does.
     fn language_owner(&self) -> Option<&str> {
-        let ext = self.extension();
+        let path = self.doc().buffer.path.as_ref()?;
         self.languages
             .iter()
-            .find(|(_, l)| l.extensions.iter().any(|e| e.eq_ignore_ascii_case(ext)))
+            .find(|(_, l)| l.matches(path))
             .map(|(plugin, _)| plugin.as_str())
     }
 
     /// The lines for the shown file, with the plugin each is from.
     fn file_status(&self) -> Vec<(&str, &StatusLine)> {
         let ext = self.extension();
-        if ext.is_empty() {
+        let owner = self.language_owner();
+        if ext.is_empty() && owner.is_none() {
             return Vec::new();
         }
-        let owner = self.language_owner();
         self.status_lines
             .iter()
             .flat_map(|((plugin, _), lines)| lines.iter().map(move |l| (plugin.as_str(), l)))

@@ -609,7 +609,12 @@ pub struct ManifestTheme {
 pub struct ManifestLanguage {
     pub id: String,
     pub name: String,
+    #[serde(default)]
     pub extensions: Vec<String>,
+    /// Whole file names, such as `CMakeLists.txt`, for files whose
+    /// extension says nothing.
+    #[serde(default)]
+    pub names: Vec<String>,
     #[serde(default)]
     pub line_comment: Option<String>,
     #[serde(default)]
@@ -630,6 +635,7 @@ impl ManifestLanguage {
                 .iter()
                 .map(|e| e.trim_start_matches('.').to_string())
                 .collect(),
+            names: self.names.clone(),
             line_comment: self.line_comment.clone(),
             block_comment: self.block_comment.clone(),
             indent_after: self.indent_after.clone(),

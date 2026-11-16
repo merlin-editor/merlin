@@ -965,11 +965,11 @@ impl Editor {
 
     /// The language a plugin added for the document drawn, if any.
     pub(crate) fn plugin_language(&self) -> Option<&Language> {
-        let ext = self.doc().buffer.path.as_ref()?.extension()?.to_str()?;
+        let path = self.doc().buffer.path.as_ref()?;
         self.languages
             .iter()
             .map(|(_, l)| l)
-            .find(|l| l.extensions.iter().any(|e| e == ext))
+            .find(|l| l.matches(path))
     }
 
     // Language tooling -------------------------------------------------------

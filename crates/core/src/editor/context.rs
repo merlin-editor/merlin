@@ -602,16 +602,9 @@ impl Editor {
                 .iter()
                 .any(|p| p.name == name && p.commands.iter().any(|c| c.id == command))
         };
-        if let Some(ext) = self
-            .doc()
-            .buffer
-            .path
-            .as_ref()
-            .and_then(|p| p.extension())
-            .and_then(|e| e.to_str())
-        {
+        if let Some(path) = self.doc().buffer.path.as_ref() {
             for (plugin, lang) in &self.languages {
-                if lang.extensions.iter().any(|e| e.eq_ignore_ascii_case(ext)) && has_cmd(plugin) {
+                if lang.matches(path) && has_cmd(plugin) {
                     return Some(plugin.clone());
                 }
             }
