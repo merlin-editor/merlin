@@ -121,6 +121,11 @@ fn a_turn_shows_its_plan_its_steps_and_its_text() {
     let shown = chat(&s);
     assert!(shown.contains("✓ Read it · ◌ Fix it"), "{shown}");
     assert!(shown.contains("It clears the cache too early."), "{shown}");
+    // Steps that are done fold to a line; a click opens them.
+    assert!(shown.contains("▸ 1 step · edited a file · 1 s"), "{shown}");
+    assert!(!shown.contains("Edited `src/main.rs`"), "{shown}");
+    s.click_entry("1 step", 1);
+    let shown = chat(&s);
     assert!(shown.contains("✓ Edited `src/main.rs` +5 −6"), "{shown}");
     assert!(shown.contains("Gemini is working…"), "{shown}");
 }

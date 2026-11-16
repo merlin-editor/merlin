@@ -103,8 +103,12 @@ impl Frame<'_> {
         let footer = sv.nodes.iter().position(|n| matches!(n, Node::Footer));
         let mut rows = Vec::with_capacity(sv.nodes.len());
         let mut y = 0.0;
-        for node in &sv.nodes {
-            let h = self.node_height(node, sv, inner);
+        // An agent's reply in a mode: its nodes sit in from a line in the
+        // mode's colour.
+        let lines = reply_lines(&sv.nodes);
+        for (node, line) in sv.nodes.iter().zip(&lines) {
+            let indent = if line.is_some() { REPLY_INDENT } else { 0.0 };
+            let h = self.node_height(node, sv, inner - indent);
             rows.push((y, h));
             y += h;
         }
@@ -184,7 +188,15 @@ impl Frame<'_> {
             if !in_footer && !pinned && (top + rh < body.y || top > body.bottom()) {
                 continue;
             }
-            let r = Rect::new(area.x, top, area.w, rh);
+            let r = match &lines[i] {
+                Some(colour) => {
+                    let c = agent::mode_colour(&self.p, colour);
+                    self.canvas
+                        .fill(Rect::new(area.x + 16.0, top, 2.0, rh).intersect(clip), c);
+                    Rect::new(area.x + REPLY_INDENT, top, area.w - REPLY_INDENT, rh)
+                }
+                None => Rect::new(area.x, top, area.w, rh),
+            };
             // An agent's box: what's attached, the text, and the row under
             // it, in one box tinted by the agent's mode.
             let group = in_footer
@@ -569,6 +581,10 @@ impl Frame<'_> {
             Node::Message(m) => self.message_layout(m, inner).height,
             Node::Chips { .. } => 32.0,
             Node::ComposeBar(_) => 38.0,
+            Node::Reply { .. } => 26.0,
+            Node::ReplyEnd => 8.0,
+            Node::Fold { .. } => 26.0,
+            Node::TurnFoot { .. } => 22.0,
             Node::Bar { .. } => 38.0,
             Node::Menu { items, .. } => 12.0 + 26.0 + items.len() as f32 * 26.0 + 6.0,
             Node::Edit(_) => 50.0,
@@ -734,6 +750,16 @@ impl Frame<'_> {
                 self.menu_card(title, items, sv, side, r, target, clip);
             }
             Node::ComposeBar(c) => self.compose_bar(c, sv, side, r, target, clip),
+            Node::Reply { author, mode } => self.reply_head(author, mode.as_ref(), r, clip),
+            Node::ReplyEnd => {}
+            Node::Fold {
+                label,
+                detail,
+                open,
+                running,
+                ..
+            } => self.fold_row(label, detail, *open, *running, sv, side, r, target, clip),
+            Node::TurnFoot { text, .. } => self.turn_foot(text, sv, side, r, target, clip),
             Node::Chips { chips, hint } | Node::Bar { chips, hint } => {
                 // An agent's header: under the tab row, a line below it.
                 let r = if matches!(node, Node::Bar { .. }) {
@@ -2174,4 +2200,27 @@ fn agent_box(nodes: &[Node], i: usize, footer_from: usize) -> Option<(usize, usi
         input
     };
     (start <= i && i <= input + 1).then_some((start, input + 1))
+}
+
+/// How far a reply's nodes sit in from its line.
+const REPLY_INDENT: f32 = 10.0;
+
+/// For each node, the colour of the reply line beside it, if it's inside
+/// an agent's reply written in a mode.
+fn reply_lines(nodes: &[Node]) -> Vec<Option<String>> {
+    let mut now: Option<String> = None;
+    nodes
+        .iter()
+        .map(|n| match n {
+            Node::Reply { mode, .. } => {
+                now = mode.as_ref().map(|(_, c)| c.clone());
+                None
+            }
+            Node::ReplyEnd => {
+                now = None;
+                None
+            }
+            _ => now.clone(),
+        })
+        .collect()
 }

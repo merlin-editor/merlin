@@ -1117,6 +1117,7 @@ fn target_count(node: &Node) -> usize {
         Node::Command { .. } => 1,
         Node::Bar { chips, .. } => chips.iter().filter(|c| !c.id.is_empty()).count(),
         Node::ComposeBar(c) => c.ids().len(),
+        Node::Fold { .. } | Node::TurnFoot { .. } => 1,
         Node::Menu { items, .. } => items.len(),
         _ => 0,
     }

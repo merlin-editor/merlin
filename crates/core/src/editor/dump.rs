@@ -616,6 +616,33 @@ fn dump_side(o: &mut String, which: &str, side: &SideView) {
                 let chips: String = chips.iter().map(|c| format!("({}) ", c.label)).collect();
                 format!("bar: {chips}{hint}")
             }
+            Node::Reply { author, mode } => match mode {
+                Some((name, _)) => format!("{author} [{}]:", name.to_uppercase()),
+                None => format!("{author}:"),
+            },
+            Node::ReplyEnd => "—".into(),
+            Node::Fold {
+                label,
+                detail,
+                open,
+                running,
+                ..
+            } => format!(
+                "{} {label}{}",
+                if *running {
+                    "◌"
+                } else if *open {
+                    "▾"
+                } else {
+                    "▸"
+                },
+                if detail.is_empty() {
+                    String::new()
+                } else {
+                    format!(" · {}", detail.replace('|', " · "))
+                }
+            ),
+            Node::TurnFoot { text, copy } => format!("foot: {text} [{}]", copy.label),
             Node::ComposeBar(c) => {
                 let mut text = String::from("box:");
                 if let Some((name, _)) = &c.mode {

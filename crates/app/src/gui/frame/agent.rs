@@ -928,3 +928,201 @@ impl Frame<'_> {
         }
     }
 }
+
+impl Frame<'_> {
+    /// Who a reply is from: the agent's mark, its mode's badge, its name.
+    pub(super) fn reply_head(
+        &mut self,
+        author: &str,
+        mode: Option<&(String, String)>,
+        r: Rect,
+        clip: Rect,
+    ) {
+        let p = self.p;
+        let colour = mode.map_or(p.accent, |(_, c)| mode_colour(&p, c));
+        let (mark, name) = match author.split_once(' ') {
+            Some((g, rest)) if !g.chars().any(char::is_alphanumeric) => (Some(g), rest),
+            _ => (None, author),
+        };
+        let mut x = r.x + 14.0;
+        let y = r.y + 6.0;
+        if let Some((label, _)) = mode {
+            let label = label.to_uppercase();
+            let face = Face::ui(9.5).bold();
+            let w = self.text.width(&label, face) + 12.0;
+            self.canvas
+                .round(Rect::new(x, y + 1.0, w, 16.0), 3.0, colour);
+            let on = if theme::is_light(&p) {
+                0xffffff
+            } else {
+                0x0f1012
+            };
+            self.text.draw_in_row(
+                &mut self.canvas,
+                &label,
+                face,
+                x + 6.0,
+                y + 1.0,
+                16.0,
+                on,
+                clip,
+            );
+            x += w + 6.0;
+        } else if let Some(g) = mark {
+            x += self.text.draw_in_row(
+                &mut self.canvas,
+                g,
+                Face::ui(11.0),
+                x,
+                y,
+                18.0,
+                colour,
+                clip,
+            ) + 5.0;
+        }
+        self.text.draw_in_row(
+            &mut self.canvas,
+            name,
+            Face::ui(11.0).bold(),
+            x,
+            y,
+            18.0,
+            p.muted,
+            clip,
+        );
+    }
+
+    /// A run of steps folded to one line: ▸ and what they did, or a
+    /// spinner and what the running one is doing; the time at the right.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn fold_row(
+        &mut self,
+        label: &str,
+        detail: &str,
+        open: bool,
+        running: bool,
+        sv: &SideView,
+        side: Side,
+        r: Rect,
+        target: Option<usize>,
+        clip: Rect,
+    ) {
+        let p = self.p;
+        let row = Rect::new(r.x + 8.0, r.y + 1.0, r.w - 16.0, r.h - 2.0);
+        let focused = sv.focused && target.is_some() && target == Some(sv.selected);
+        if focused {
+            self.canvas.round(row, 7.0, p.focus_row);
+        } else if self.hovered(row) {
+            self.canvas.round(row, 7.0, p.hover);
+        }
+        let mut x = row.x + 8.0;
+        if running {
+            self.step_mark(StepState::Running, x - 1.0, row.y, row.h, clip);
+        } else {
+            self.canvas
+                .chevron(x + 4.0, row.y + row.h / 2.0, 7.0, open, p.muted);
+        }
+        x += 16.0;
+        let (did, time) = detail.split_once('|').unwrap_or((detail, ""));
+        let face = Face::ui(12.0);
+        let tw = if time.is_empty() {
+            0.0
+        } else {
+            self.text.width(time, Face::ui(11.0))
+        };
+        let room = row.right() - 10.0 - tw - x;
+        let label = self.text.fit(label, face, room);
+        x += self.text.draw_in_row(
+            &mut self.canvas,
+            &label,
+            face,
+            x,
+            row.y,
+            row.h,
+            p.text,
+            clip,
+        );
+        if !did.is_empty() {
+            let rest = self
+                .text
+                .fit(&format!(" · {did}"), face, row.right() - 14.0 - tw - x);
+            self.text.draw_in_row(
+                &mut self.canvas,
+                &rest,
+                face,
+                x,
+                row.y,
+                row.h,
+                p.muted,
+                clip,
+            );
+        }
+        if !time.is_empty() {
+            self.text.draw_in_row(
+                &mut self.canvas,
+                time,
+                Face::ui(11.0),
+                row.right() - 8.0 - tw,
+                row.y,
+                row.h,
+                p.faint,
+                clip,
+            );
+        }
+        if let Some(t) = target {
+            self.hit(row, chat_pick(side, t));
+        }
+    }
+
+    /// Under a finished reply: model, time, tokens and cost, and Copy.
+    pub(super) fn turn_foot(
+        &mut self,
+        text: &str,
+        sv: &SideView,
+        side: Side,
+        r: Rect,
+        target: Option<usize>,
+        clip: Rect,
+    ) {
+        let p = self.p;
+        let face = Face::ui(11.0);
+        self.text.draw_in_row(
+            &mut self.canvas,
+            text,
+            face,
+            r.x + 14.0,
+            r.y,
+            r.h,
+            p.faint,
+            clip,
+        );
+        let copy = Rect::new(r.right() - 14.0 - 22.0, r.y + 1.0, 22.0, 20.0);
+        let focused = sv.focused && target.is_some() && target == Some(sv.selected);
+        if focused || self.hovered(copy) {
+            self.canvas.round(copy, 5.0, p.hover);
+        }
+        // Two overlapping squares: copy.
+        let c = if self.hovered(copy) {
+            p.bright
+        } else {
+            p.muted
+        };
+        self.canvas.outline(
+            Rect::new(copy.x + 8.0, copy.y + 4.0, 8.0, 9.0),
+            1.5,
+            1.2,
+            c,
+            p.island,
+        );
+        self.canvas.outline(
+            Rect::new(copy.x + 5.0, copy.y + 7.0, 8.0, 9.0),
+            1.5,
+            1.2,
+            c,
+            p.island,
+        );
+        if let Some(t) = target {
+            self.hit(copy, chat_pick(side, t));
+        }
+    }
+}

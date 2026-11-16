@@ -495,6 +495,8 @@ impl Session {
                         .filter(|c| !c.id.is_empty())
                         .map(|c| c.label.clone())
                         .collect(),
+                    crate::panel::Node::Fold { label, .. } => vec![label.clone()],
+                    crate::panel::Node::TurnFoot { copy, .. } => vec![copy.label.clone()],
                     // The box's row: the mode, the pills, the ring, and
                     // Send or Stop, by those names.
                     crate::panel::Node::ComposeBar(c) => {

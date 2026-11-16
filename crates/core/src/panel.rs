@@ -243,6 +243,28 @@ pub enum Node {
         chips: Vec<Chip>,
         hint: String,
     },
+    /// The start of an agent's reply: who (its mark and name) and the mode
+    /// it wrote in, a badge whose colour runs down the reply's side until
+    /// [`Node::ReplyEnd`].
+    Reply {
+        author: String,
+        mode: Option<(String, String)>,
+    },
+    ReplyEnd,
+    /// A run of an agent's steps, folded to one line: what they did, how
+    /// long they took, and whether one is still running. Clicked to open.
+    Fold {
+        id: String,
+        label: String,
+        detail: String,
+        open: bool,
+        running: bool,
+    },
+    /// Under a finished reply: its model, time, tokens and cost, and Copy.
+    TurnFoot {
+        text: String,
+        copy: Button,
+    },
     /// The bottom row of an agent's box, under its text: the agent's
     /// mode, merlin's edit pill and the plugin's chips, how full the
     /// context is, and Send or Stop.
@@ -562,6 +584,8 @@ impl Panel {
                 Node::Command { copy, .. } => vec![button(copy)],
                 Node::Bar { chips, .. } => chip_targets(chips),
                 Node::ComposeBar(c) => c.ids().into_iter().map(Target::Button).collect(),
+                Node::Fold { id, .. } => vec![Target::Button(id.clone())],
+                Node::TurnFoot { copy, .. } => vec![button(copy)],
                 Node::Menu { items, .. } => items
                     .iter()
                     .map(|(id, ..)| Target::Button(id.clone()))

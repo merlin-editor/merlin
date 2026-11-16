@@ -30,6 +30,8 @@ impl Frame<'_> {
         // An agent's header alone, or its text alone, as the chat splits
         // a turn.
         let (author, end) = match (m.mine, m.author.is_empty(), m.markdown.is_empty()) {
+            // Yours in an agent's chat: a bubble, no name.
+            (true, true, _) => (0.0, 10.0),
             (false, true, _) => (0.0, 4.0),
             (false, false, true) => (AUTHOR_H, 0.0),
             _ => (AUTHOR_H, 12.0),
@@ -60,7 +62,9 @@ impl Frame<'_> {
         let x = r.x + 14.0;
         let mut y = r.y + 4.0;
         let who = Face::ui(11.0).bold();
-        if m.mine {
+        if m.mine && m.author.is_empty() {
+            y += 4.0;
+        } else if m.mine {
             self.text
                 .draw_in_row(&mut self.canvas, "You", who, x, y, 18.0, p.muted, clip);
             y += AUTHOR_H - 4.0;
@@ -95,7 +99,34 @@ impl Frame<'_> {
                 .draw_in_row(&mut self.canvas, name, who, x + nx, y, 18.0, p.muted, clip);
             y += AUTHOR_H - 4.0;
         }
-        let (body_x, body_w) = if m.mine {
+        let (body_x, body_w) = if m.mine && m.author.is_empty() {
+            // A bubble at the right, as wide as its text needs: one line
+            // that fits, or all of the width but a little.
+            let chips = if m.chips.is_empty() { 0.0 } else { CHIPS_H };
+            let face = Face::ui(12.5);
+            let one_line = !m.markdown.contains('\n') && layout.md_h <= 24.0;
+            let chips_w: f32 = m
+                .chips
+                .iter()
+                .map(|c| self.text.width(&c.label, Face::ui(11.5)) + 20.0)
+                .sum();
+            let text_w = if one_line {
+                self.text.width(&m.markdown, face).max(chips_w) + 2.0 * PAD + 4.0
+            } else {
+                inner
+            };
+            let w = text_w.min(inner).max(60.0);
+            let b = Rect::new(x + inner - w, y, w, layout.md_h + chips + 2.0 * PAD);
+            self.canvas.outline(
+                b,
+                10.0,
+                1.0,
+                mix(p.accent, p.island, 0.28),
+                mix(p.accent, p.raised, 0.1),
+            );
+            y += PAD;
+            (b.x + PAD, w - 2.0 * PAD)
+        } else if m.mine {
             let chips = if m.chips.is_empty() { 0.0 } else { CHIPS_H };
             let b = Rect::new(x, y, inner, layout.md_h + chips + 2.0 * PAD);
             self.canvas.round(b, 8.0, p.raised);

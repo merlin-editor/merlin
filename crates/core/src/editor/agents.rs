@@ -277,11 +277,37 @@ pub(crate) struct Tab {
     /// merlin's edit pill: edits go through without a card (or, in a
     /// read-only mode, read-only commands run without one).
     pub auto: bool,
+    /// When each step was first and last heard of, by its id.
+    tool_times: std::collections::HashMap<String, (u64, u64)>,
+    /// Runs of steps opened, by turn and first item.
+    open_folds: HashSet<(usize, usize)>,
 }
 
 pub(crate) enum Turn {
     You { text: String, chips: Vec<String> },
-    Agent(Vec<Item>),
+    Agent(Reply),
+}
+
+/// An agent's reply: what it said and did, the mode it was in (name and
+/// colour), and when it started and ended, in ms.
+pub(crate) struct Reply {
+    items: Vec<Item>,
+    mode: Option<(String, String)>,
+    started: u64,
+    ended: Option<u64>,
+}
+
+impl std::ops::Deref for Reply {
+    type Target = Vec<Item>;
+    fn deref(&self) -> &Vec<Item> {
+        &self.items
+    }
+}
+
+impl std::ops::DerefMut for Reply {
+    fn deref_mut(&mut self) -> &mut Vec<Item> {
+        &mut self.items
+    }
 }
 
 pub(crate) enum Item {
@@ -413,6 +439,8 @@ impl Editor {
             usage: None,
             never_ok: false,
             auto: false,
+            tool_times: Default::default(),
+            open_folds: HashSet::new(),
         });
         Some(self.agents.tabs.len() - 1)
     }
@@ -484,6 +512,8 @@ impl Editor {
                 usage: None,
                 never_ok: false,
                 auto: false,
+                tool_times: Default::default(),
+                open_folds: HashSet::new(),
             });
             // An agent with a view of its own shows that, not merlin's chat.
             if self.spec(key).and_then(|s| s.view.clone()).is_none() {
@@ -596,6 +626,9 @@ impl Editor {
             AgentUpdate::Done { outcome, message } => {
                 let tab = &mut self.agents.tabs[i];
                 tab.busy = false;
+                if let Some(Turn::Agent(reply)) = tab.turns.last_mut() {
+                    reply.ended = Some(at);
+                }
                 tab.ended = (outcome != AgentOutcome::Finished || message.is_some())
                     .then_some((outcome, message));
                 // Nothing can be answered once the turn's over.
@@ -703,7 +736,17 @@ impl Editor {
         }
         let tab = &mut self.agents.tabs[i];
         if !matches!(tab.turns.last(), Some(Turn::Agent(_))) {
-            tab.turns.push(Turn::Agent(Vec::new()));
+            let mode = tab
+                .mode
+                .as_ref()
+                .and_then(|m| tab.modes.iter().find(|x| &x.id == m))
+                .map(|m| (m.name.clone(), m.colour.clone()));
+            tab.turns.push(Turn::Agent(Reply {
+                items: Vec::new(),
+                mode,
+                started: at,
+                ended: None,
+            }));
         }
         let Some(Turn::Agent(items)) = tab.turns.last_mut() else {
             return;
@@ -731,6 +774,10 @@ impl Editor {
             },
             AgentPart::Panel(nodes) => items.push(Item::Panel(plugin_pieces(nodes))),
             AgentPart::Tool(tool) => {
+                tab.tool_times
+                    .entry(tool.id.clone())
+                    .and_modify(|t| t.1 = at)
+                    .or_insert((at, at));
                 let found = items
                     .iter_mut()
                     .find(|i| matches!(i, Item::Tool(t) if t.id == tool.id));
@@ -1477,6 +1524,40 @@ impl Editor {
                 }
             }
             "copy" => fx.push(Effect::Copy(arg.to_string())),
+            "copyturn" => {
+                let text = self
+                    .agents
+                    .tabs
+                    .iter()
+                    .find(|t| t.key == key)
+                    .and_then(|t| t.turns.get(arg.parse::<usize>().ok()?))
+                    .and_then(|turn| match turn {
+                        Turn::Agent(reply) => Some(
+                            reply
+                                .iter()
+                                .filter_map(|i| match i {
+                                    Item::Text(t) => Some(t.as_str()),
+                                    _ => None,
+                                })
+                                .collect::<Vec<_>>()
+                                .join("\n\n"),
+                        ),
+                        Turn::You { .. } => None,
+                    });
+                if let Some(text) = text {
+                    fx.push(Effect::Copy(text));
+                }
+            }
+            "fold" => {
+                let mut parts = arg.split(':').filter_map(|p| p.parse::<usize>().ok());
+                if let (Some(turn), Some(first)) = (parts.next(), parts.next())
+                    && let Some(tab) = self.agents.tabs.iter_mut().find(|t| t.key == key)
+                    && !tab.open_folds.remove(&(turn, first))
+                {
+                    tab.open_folds.insert((turn, first));
+                }
+                self.draw_agent(&key);
+            }
             "url" => {
                 if arg.starts_with("https://") {
                     fx.push(Effect::OpenUrl(arg.to_string()));
@@ -1845,7 +1926,7 @@ impl Editor {
         for (n, turn) in tab.turns.iter().enumerate() {
             match turn {
                 Turn::You { text, chips } => nodes.push(Node::Message(Box::new(Message {
-                    author: "You".into(),
+                    author: String::new(),
                     mine: true,
                     markdown: text.clone(),
                     chips: chips
@@ -1858,9 +1939,9 @@ impl Editor {
                         .collect(),
                     streaming: false,
                 }))),
-                Turn::Agent(items) => {
+                Turn::Agent(reply) => {
                     let streaming = tab.busy && n == last;
-                    self.agent_turn_nodes(&mut nodes, &title, items, streaming, tab);
+                    self.agent_turn_nodes(&mut nodes, &title, n, reply, streaming, tab);
                 }
             }
         }
@@ -1982,22 +2063,22 @@ impl Editor {
         &self,
         nodes: &mut Vec<Node>,
         title: &str,
-        items: &[Item],
+        turn: usize,
+        reply: &Reply,
         streaming: bool,
         tab: &Tab,
     ) {
-        // The message: who, then thoughts, the plan, the text and the
-        // steps, each a quiet line, in the order they came.
-        nodes.push(Node::Message(Box::new(Message {
+        // Who, in the mode it wrote in; then thoughts, the plan, the text
+        // and runs of steps, folded, in the order they came.
+        nodes.push(Node::Reply {
             author: title.to_string(),
-            mine: false,
-            markdown: String::new(),
-            chips: Vec::new(),
-            streaming: false,
-        })));
+            mode: reply.mode.clone(),
+        });
+        let items: &[Item] = reply;
         let last_text = items.iter().rposition(|i| matches!(i, Item::Text(_)));
-        for (n, item) in items.iter().enumerate() {
-            match item {
+        let mut n = 0;
+        while n < items.len() {
+            match &items[n] {
                 Item::Thought(_, took) => nodes.push(Node::Styled(
                     match took {
                         Some(s) => format!("▸ Thought for {s} s"),
@@ -2015,8 +2096,111 @@ impl Editor {
                     chips: Vec::new(),
                     streaming: streaming && Some(n) == last_text,
                 }))),
-                Item::Tool(tool) => nodes.push(Node::Step(Box::new(self.step_line(tool, tab)))),
                 Item::Panel(parts) => nodes.extend(parts.iter().cloned()),
+                Item::Tool(_) => {
+                    let first = n;
+                    let mut tools = Vec::new();
+                    while let Some(Item::Tool(t)) = items.get(n) {
+                        tools.push(t);
+                        n += 1;
+                    }
+                    self.fold_nodes(nodes, tab, turn, first, &tools);
+                    continue;
+                }
+            }
+            n += 1;
+        }
+        // Under a finished reply: model, time, and what it used.
+        if let Some(ended) = reply.ended {
+            let mut parts = Vec::new();
+            if let Some(model) = tab
+                .header
+                .as_ref()
+                .and_then(|(chips, _)| chips.first())
+                .map(|c| c.label.trim_end_matches(" ▾").to_string())
+            {
+                parts.push(model);
+            }
+            parts.push(format!(
+                "{} s",
+                (ended.saturating_sub(reply.started) / 1000).max(1)
+            ));
+            if let Some((_, _, note)) = tab.usage.as_ref().filter(|u| !u.2.is_empty()) {
+                parts.push(note.clone());
+            }
+            nodes.push(Node::TurnFoot {
+                text: parts.join(" · "),
+                copy: button(&format!("agent:copyturn:{turn}"), "Copy"),
+            });
+        }
+        nodes.push(Node::ReplyEnd);
+    }
+
+    /// A run of steps: one line saying what they did, open to a line each.
+    /// The one still running says what it's doing.
+    fn fold_nodes(
+        &self,
+        nodes: &mut Vec<Node>,
+        tab: &Tab,
+        turn: usize,
+        first: usize,
+        tools: &[&AgentTool],
+    ) {
+        let count = |kind: ToolKind| tools.iter().filter(|t| t.kind == kind).count();
+        let plural = |n: usize, one: &str, many: &str| {
+            if n == 1 {
+                one.to_string()
+            } else {
+                many.replace('#', &n.to_string())
+            }
+        };
+        let mut did = Vec::new();
+        let (read, edited, ran, searched) = (
+            count(ToolKind::Read),
+            count(ToolKind::Edit),
+            count(ToolKind::Run),
+            count(ToolKind::Search),
+        );
+        if read > 0 {
+            did.push(plural(read, "read a file", "read # files"));
+        }
+        if edited > 0 {
+            did.push(plural(edited, "edited a file", "edited #"));
+        }
+        if ran > 0 {
+            did.push(plural(ran, "ran a command", "ran # commands"));
+        }
+        if searched > 0 {
+            did.push(plural(searched, "searched once", "searched # times"));
+        }
+        let running = tools
+            .iter()
+            .rev()
+            .find(|t| matches!(t.state, StepState::Running | StepState::Pending));
+        let steps = plural(tools.len(), "1 step", "# steps");
+        let (start, end) = tools.iter().fold((u64::MAX, 0), |(a, b), t| {
+            let (s, e) = tab.tool_times.get(&t.id).copied().unwrap_or((a.min(b), b));
+            (a.min(s), b.max(e))
+        });
+        let secs = (end.saturating_sub(start) / 1000).max(1);
+        let open = tab.open_folds.contains(&(turn, first));
+        nodes.push(Node::Fold {
+            id: format!("agent:fold:{turn}:{first}"),
+            label: match running {
+                Some(t) => format!("{} {} · {steps}", running_verb(t.kind), t.title),
+                None => steps,
+            },
+            detail: if running.is_some() {
+                String::new()
+            } else {
+                format!("{}|{secs} s", did.join(", "))
+            },
+            open,
+            running: running.is_some(),
+        });
+        if open {
+            for tool in tools {
+                nodes.push(Node::Step(Box::new(self.step_line(tool, tab))));
             }
         }
     }
@@ -2452,6 +2636,17 @@ const MODE_ITEMS: &[&str] = &[
     "agent.mode.6",
     "agent.mode.7",
 ];
+
+/// What a step that's running is doing, as "Reading".
+fn running_verb(kind: ToolKind) -> &'static str {
+    match kind {
+        ToolKind::Read => "Reading",
+        ToolKind::Edit => "Editing",
+        ToolKind::Run => "Running",
+        ToolKind::Search => "Searching",
+        ToolKind::Other => "Working on",
+    }
+}
 
 /// 950, 12k, 1M: a token count, short.
 fn short_tokens(n: u64) -> String {
