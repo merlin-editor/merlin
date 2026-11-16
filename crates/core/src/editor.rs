@@ -1,4 +1,5 @@
 mod actions;
+mod agent_review;
 mod agents;
 pub use agents::{
     AgentAnswer, AgentAsks, AgentCall, AgentContext, AgentMode, AgentOutcome, AgentPart,
@@ -100,6 +101,7 @@ pub use window::{
     ToastView, ToolView, UiEvent, WindowView,
 };
 
+pub use agent_review::{AgentBarView, AgentHunkView};
 pub use context::{
     ContextItem, ContextView, HoverButton, PopupKind, PopupView, ProblemView, SignatureView,
 };
@@ -443,6 +445,9 @@ pub struct Editor {
     opening_beside: Option<PathBuf>,
     /// A change since the last commit opened in place from its gutter bar.
     change_peek: Option<inline_change::ChangePeek>,
+    /// Rows an agent's changes open after each line of a file, worked out
+    /// for one document at one version.
+    agent_rows: std::cell::RefCell<agent_review::RowsCache>,
     /// Files open in the merge editor, and the one asked for until it's
     /// open: its path, the base version, and what Incoming and Current are.
     merges: Vec<merge_editor::Merging>,
@@ -695,6 +700,7 @@ impl Editor {
             diff_refresh: HashSet::new(),
             opening_beside: None,
             change_peek: None,
+            agent_rows: Default::default(),
             merges: Vec::new(),
             pending_merge: None,
             merge_staging: Vec::new(),

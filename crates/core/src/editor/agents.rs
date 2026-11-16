@@ -44,7 +44,7 @@ pub struct MissingProgram {
 }
 
 impl AgentSpec {
-    fn key(&self) -> String {
+    pub(crate) fn key(&self) -> String {
         format!("{}/{}", self.plugin, self.id)
     }
 }

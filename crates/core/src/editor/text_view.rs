@@ -70,6 +70,10 @@ pub struct TextView {
     pub diff: Option<super::compare::DiffMarks>,
     /// A change opened in place from its gutter bar.
     pub change: Option<super::inline_change::ChangeView>,
+    /// An agent's changes waiting to be kept: rows between lines for what
+    /// each took out and its Undo and Keep, and the bar at the bottom.
+    pub agent_hunks: Vec<super::agent_review::AgentHunkView>,
+    pub agent_bar: Option<super::agent_review::AgentBarView>,
     /// Columns at the gutter's left the blame column takes, and a
     /// commit's card over it.
     pub blame_cols: usize,
@@ -341,6 +345,8 @@ impl Editor {
                     bulb: None,
                     peek: None,
                     change: None,
+                    agent_hunks: Vec::new(),
+                    agent_bar: None,
                     blame_cols: 0,
                     blame_card: None,
                     merge: None,
@@ -368,6 +374,12 @@ impl Editor {
             self.carets().iter().filter_map(|c| c.selection()).collect();
         let selection = selections.first().copied();
         let hidden = self.hidden_lines();
+        // An agent's changes waiting to be kept, in a plain file view.
+        let hunks = if doc.review.is_none() && !self.in_compare() {
+            self.agent_hunks()
+        } else {
+            None
+        };
         let link = self.link_span();
         // A window drawing the text gets rows past both edges.
         let overscan = OVERSCAN;
@@ -437,6 +449,8 @@ impl Editor {
             peek: None,
             diff: None,
             change: None,
+            agent_hunks: Vec::new(),
+            agent_bar: None,
             blame_cols: self.blame_cols(),
             blame_card: None,
             merge: None,
@@ -482,6 +496,7 @@ impl Editor {
 
             let review = doc.review.as_ref().and_then(|r| r.lines.get(line)).copied();
             let git = doc.git_signs.get(line).copied().flatten();
+            let agent_added = hunks.as_ref().is_some_and(|h| Self::agent_added(h, line));
             let current = highlight_line && line == cur_line && review.is_none();
             let plain = if current {
                 Style::CurrentLine
@@ -492,6 +507,7 @@ impl Editor {
                 (Some((LineKind::Added, _)), _) => ('+', Style::DiffAdded, Style::DiffAdded),
                 (Some((LineKind::Removed, _)), _) => ('-', Style::DiffRemoved, Style::DiffRemoved),
                 (Some((LineKind::Gap, _)), _) => (' ', Style::Gutter, Style::Muted),
+                (None, _) if agent_added => ('▎', Style::GitAdded, Style::DiffAdded),
                 (None, Some(Sign::Added)) => ('▎', Style::GitAdded, plain),
                 (None, Some(Sign::Changed)) => ('▎', Style::GitChanged, plain),
                 (None, Some(Sign::Removed)) => ('‾', Style::GitRemoved, plain),
@@ -626,6 +642,13 @@ impl Editor {
                 view.change = self.change_view(row);
                 row += gap as i32;
             }
+            // An agent's change: what it took out, and Undo and Keep.
+            if let Some(h) = &hunks {
+                for gap in self.agent_gaps(h, line, row) {
+                    row += gap.rows as i32;
+                    view.agent_hunks.push(gap);
+                }
+            }
             // A conflict's note under it in the merge editor, or both
             // sides over it in the Result alone.
             if self.merge_gap(line) > 0 {
@@ -637,6 +660,7 @@ impl Editor {
             line += 1;
         }
         view.merge = self.merge_view(area.h as usize, notes);
+        view.agent_bar = hunks.as_ref().map(|h| self.agent_bar(h));
         view.sticky = self
             .sticky_lines(area)
             .into_iter()

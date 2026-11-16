@@ -550,6 +550,26 @@ fn draw_texts(
         let y = area.text.y + rows * row_h + glide / s;
         f.change_peek(change, area.text, y, row_h, change.rows);
     }
+    // An agent's changes: what each took out, its Undo and Keep, and the
+    // bar at the bottom of the file.
+    for text in texts {
+        let Some(area) = areas.groups.get(text.group) else {
+            continue;
+        };
+        let glide = glide_of(text.group);
+        let cell_w = grid.cell_w as f32 / s;
+        let x0 = area.text.x + text.area.x as f32 * cell_w;
+        let code = Rect::new(x0, area.text.y, text.area.w as f32 * cell_w, area.text.h);
+        let text_x = x0 + text.gutter as f32 * cell_w;
+        for hunk in &text.agent_hunks {
+            let rows = text.area.y as f32 + hunk.row as f32 - text.top_frac;
+            let y = area.text.y + rows * row_h + glide / s;
+            f.agent_hunk(hunk, code, text_x, y, row_h);
+        }
+        if let Some(bar) = &text.agent_bar {
+            f.agent_review_bar(bar, code);
+        }
+    }
 }
 
 /// Beside each group's code, its minimap and scrollbars, and a shadow

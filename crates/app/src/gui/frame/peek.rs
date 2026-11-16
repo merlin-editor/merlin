@@ -478,3 +478,203 @@ impl Frame<'_> {
         (inner, clip, head)
     }
 }
+
+impl Frame<'_> {
+    /// Rows an agent's change opens: what it took out, in red, or its Undo
+    /// and Keep with who made it.
+    pub fn agent_hunk(
+        &mut self,
+        hunk: &merlin_core::editor::AgentHunkView,
+        code: Rect,
+        text_x: f32,
+        y: f32,
+        ch: f32,
+    ) {
+        let p = self.p;
+        let clip = code;
+        if y > clip.bottom() || y + hunk.rows as f32 * ch < clip.y {
+            return;
+        }
+        let mono = Face::mono(13.0);
+        let mut ly = y;
+        for line in &hunk.removed {
+            let row = Rect::new(code.x, ly, code.w, ch).intersect(clip);
+            self.canvas.fill(row, mix(p.error, p.island, 0.13));
+            self.canvas.fill(
+                Rect::new(text_x - 10.0, ly, 3.0, ch).intersect(clip),
+                p.error,
+            );
+            let fitted = self.text.fit(line, mono, code.right() - text_x - 8.0);
+            self.text.draw_in_row(
+                &mut self.canvas,
+                &fitted,
+                mono,
+                text_x,
+                ly,
+                ch,
+                mix(p.error, p.text, 0.55),
+                clip,
+            );
+            ly += ch;
+        }
+        if hunk.more > 0 {
+            self.text.draw_in_row(
+                &mut self.canvas,
+                &format!("{} more lines taken out", hunk.more),
+                Face::ui(11.5),
+                text_x,
+                ly,
+                ch,
+                p.muted,
+                clip,
+            );
+        }
+        let Some((index, who)) = &hunk.buttons else {
+            return;
+        };
+        let by = y + (ch - 20.0) / 2.0;
+        let mut x = text_x;
+        for (label, keep) in [("Undo", false), ("Keep", true)] {
+            let w = self.text.width(label, Face::ui(11.5)) + 14.0;
+            let b = Rect::new(x, by, w, 20.0);
+            let hovered = self.hovered(b);
+            if keep {
+                self.canvas.round(
+                    b,
+                    5.0,
+                    if hovered {
+                        mix(p.accent, p.bright, 0.85)
+                    } else {
+                        p.accent
+                    },
+                );
+            } else {
+                self.canvas.outline(
+                    b,
+                    5.0,
+                    1.0,
+                    p.border,
+                    if hovered { p.border } else { p.chip },
+                );
+            }
+            let fg = if keep { p.island } else { p.bright };
+            self.text.draw_in_row(
+                &mut self.canvas,
+                label,
+                Face::ui(11.5),
+                x + 7.0,
+                by,
+                20.0,
+                fg,
+                clip,
+            );
+            self.hit(
+                b,
+                Hit::Ui(UiEvent::AgentHunk {
+                    index: *index,
+                    keep,
+                }),
+            );
+            x += w + 4.0;
+        }
+        self.text.draw_in_row(
+            &mut self.canvas,
+            &format!("{who} · this turn"),
+            Face::ui(11.0),
+            x + 6.0,
+            by,
+            20.0,
+            p.faint,
+            clip,
+        );
+    }
+
+    /// The bar at the bottom of a file an agent changed: which change, the
+    /// arrows, the next file, Undo File and Keep File.
+    pub fn agent_review_bar(&mut self, bar: &merlin_core::editor::AgentBarView, code: Rect) {
+        let p = self.p;
+        let face = Face::ui(12.0);
+        let small = Face::ui(11.0);
+        let said = format!("change {} of {}", bar.index, bar.count);
+        let next = bar.next_file.as_ref().map(|f| format!("{f} ›"));
+        let fw = self.text.width(&bar.file, face);
+        let sw = self.text.width(&said, small);
+        let nw = next
+            .as_ref()
+            .map_or(0.0, |n| self.text.width(n, small) + 16.0 + 9.0);
+        let uw = self.text.width("Undo File", face) + 18.0;
+        let kw = self.text.width("Keep File", face) + 18.0;
+        let w = 12.0 + fw + 8.0 + sw + 8.0 + 44.0 + nw + 8.0 + uw + 4.0 + kw + 6.0;
+        let r = Rect::new(
+            code.x + (code.w - w) / 2.0,
+            code.bottom() - 14.0 - 34.0,
+            w,
+            34.0,
+        );
+        self.canvas.shadow(r, 9.0, theme::is_light(&p));
+        self.canvas.outline(r, 9.0, 1.0, p.border, p.raised);
+        self.hit(r, Hit::Block);
+        let mut x = r.x + 12.0;
+        x += self
+            .text
+            .draw_in_row(&mut self.canvas, &bar.file, face, x, r.y, r.h, p.bright, r)
+            + 8.0;
+        x += self
+            .text
+            .draw_in_row(&mut self.canvas, &said, small, x, r.y, r.h, p.muted, r)
+            + 8.0;
+        for (glyph, forward) in [("↑", false), ("↓", true)] {
+            let b = Rect::new(x, r.y + 6.0, 22.0, 22.0);
+            if self.hovered(b) {
+                self.canvas.round(b, 5.0, p.hover);
+            }
+            self.centred(glyph, face, b, p.text, r);
+            self.hit(b, Hit::Ui(UiEvent::AgentHunkStep(forward)));
+            x += 22.0;
+        }
+        if let Some(next) = &next {
+            x += 8.0;
+            self.canvas
+                .fill(Rect::new(x, r.y + 9.0, 1.0, 16.0), p.border);
+            x += 8.0;
+            let w = self.text.width(next, small) + 8.0;
+            let b = Rect::new(x - 4.0, r.y + 6.0, w, 22.0);
+            if self.hovered(b) {
+                self.canvas.round(b, 5.0, p.hover);
+            }
+            self.text
+                .draw_in_row(&mut self.canvas, next, small, x, r.y, r.h, p.text, r);
+            self.hit(b, Hit::Ui(UiEvent::AgentNextFile));
+            x += w;
+        }
+        x += 8.0;
+        for (label, keep, w) in [("Undo File", false, uw), ("Keep File", true, kw)] {
+            let b = Rect::new(x, r.y + 5.0, w, 24.0);
+            let hovered = self.hovered(b);
+            if keep {
+                self.canvas.round(
+                    b,
+                    6.0,
+                    if hovered {
+                        mix(p.accent, p.bright, 0.85)
+                    } else {
+                        p.accent
+                    },
+                );
+            } else {
+                self.canvas.outline(
+                    b,
+                    6.0,
+                    1.0,
+                    p.border,
+                    if hovered { p.border } else { p.chip },
+                );
+            }
+            let fg = if keep { p.island } else { p.bright };
+            self.text
+                .draw_in_row(&mut self.canvas, label, face, x + 9.0, b.y, 24.0, fg, r);
+            self.hit(b, Hit::Ui(UiEvent::AgentHunkFile(keep)));
+            x += w + 4.0;
+        }
+    }
+}

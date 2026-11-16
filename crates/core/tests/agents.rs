@@ -823,3 +823,74 @@ fn keys_answer_a_card_and_words_instead_deny_it_and_go_next() {
         chat(&s)
     );
 }
+
+/// The agent changes two places in the file: the first line, and adds one
+/// at the end.
+fn two_changes(s: &mut Session) {
+    send(s, "go");
+    say(
+        s,
+        AgentUpdate::Ask {
+            request: 1,
+            what: AgentRequest::Edit {
+                path: "src/main.rs".into(),
+                diff: None,
+            },
+        },
+    );
+    s.click_entry("Allow Once", 1);
+    say(
+        s,
+        AgentUpdate::Write {
+            request: 2,
+            path: "src/main.rs".into(),
+            text: "fn start() {\n    println!(\"hi\");\n}\n// checked\n".into(),
+        },
+    );
+    say(
+        s,
+        AgentUpdate::Done {
+            outcome: AgentOutcome::Finished,
+            message: None,
+        },
+    );
+}
+
+#[test]
+fn each_change_in_the_editor_has_undo_and_keep() {
+    use merlin_core::UiEvent;
+    let mut s = session();
+    two_changes(&mut s);
+    let view = s.editor.text_views().remove(0);
+    let buttons: Vec<usize> = view
+        .agent_hunks
+        .iter()
+        .filter_map(|h| h.buttons.as_ref().map(|b| b.0))
+        .collect();
+    assert_eq!(buttons, [0, 1], "{:?}", view.agent_hunks);
+    assert!(
+        view.agent_hunks
+            .iter()
+            .any(|h| h.removed == ["fn main() {"]),
+        "{:?}",
+        view.agent_hunks
+    );
+    assert_eq!(view.agent_bar.as_ref().map(|b| b.count), Some(2));
+    // Undo the first: it's put back; the second stays to review.
+    s.send(Event::Ui(UiEvent::AgentHunk {
+        index: 0,
+        keep: false,
+    }));
+    assert_eq!(
+        s.text(),
+        "fn main() {\n    println!(\"hi\");\n}\n// checked\n"
+    );
+    assert!(chat(&s).contains("1 file changed +1 −0"), "{}", chat(&s));
+    // Keep the other: nothing's left to review.
+    s.send(Event::Ui(UiEvent::AgentHunk {
+        index: 0,
+        keep: true,
+    }));
+    assert!(!chat(&s).contains("file changed"), "{}", chat(&s));
+    assert!(s.editor.text_views()[0].agent_bar.is_none());
+}

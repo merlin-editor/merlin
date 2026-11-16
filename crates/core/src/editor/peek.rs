@@ -254,6 +254,7 @@ impl Editor {
     pub(crate) fn peek_gap(&self, line: usize) -> usize {
         self.references_gap(line)
             + self.change_gap(line)
+            + self.agent_gap(line)
             + self.merge_gap(line)
             + self.test_gap(line)
     }

@@ -108,6 +108,17 @@ pub enum UiEvent {
     DiffLine(usize),
     /// The buttons of a change opened in place: Stage, Revert, the next
     /// change or the one before, and close.
+    /// An agent's change in the editor: Undo or Keep it, by index.
+    AgentHunk {
+        index: usize,
+        keep: bool,
+    },
+    /// Undo File or Keep File, in the bar.
+    AgentHunkFile(bool),
+    /// The bar's arrows: the next change, or the one before.
+    AgentHunkStep(bool),
+    /// The bar's next file.
+    AgentNextFile,
     ChangeStage,
     ChangeRevert,
     ChangeStep(bool),
@@ -1019,6 +1030,10 @@ impl Editor {
             UiEvent::DiffStage(n) => self.toggle_change(n, fx),
             UiEvent::DiffRevert(n) => self.revert_change(n, fx),
             UiEvent::DiffLine(line) => self.toggle_line(line, fx),
+            UiEvent::AgentHunk { index, keep } => self.agent_hunk(index, keep, fx),
+            UiEvent::AgentHunkFile(keep) => self.agent_hunk_file(keep, fx),
+            UiEvent::AgentHunkStep(forward) => self.agent_hunk_step(forward),
+            UiEvent::AgentNextFile => self.agent_next_file(fx),
             UiEvent::ChangeStage => self.stage_change_peek(fx),
             UiEvent::ChangeRevert => self.revert_change_peek(),
             UiEvent::ChangeStep(forward) => self.step_change_peek(forward),
