@@ -66,7 +66,7 @@ Built 2026-11-16 and 17:
 
 ## What to build
 
-### No new UI
+### No new UI (built 2026-11-17)
 
 1. **Targets from CMake's file API.** Before configuring, the plugin
    writes `.cmake/api/v1/query/client-merlin/codemodel-v2` in the build
@@ -88,7 +88,17 @@ Built 2026-11-16 and 17:
 5. **More tasks**: Configure from scratch (`--fresh`), Clean and
    Install.
 
+How it went: the configure command creates the file API query itself
+(`cmake -E touch`), as plugins can't write files, and a new host call,
+`list-folder`, finds the reply's index, which `list-files` skips as a
+hidden folder. CTest's tests are listed by running `ctest` as a process,
+and run with the build first (`cmake --build … && ctest -j …`), as CMake
+Tools does. `-j` runs them in parallel (#3091). Tested with the real
+cmake and ctest.
+
 ### Needs a mock-up first
+
+`docs/mockups/CMake.html` proposes them, not approved yet.
 
 6. **The status bar**: the preset and the target, each a picker, with
    Build, Run and Debug, as CMake Tools has it.

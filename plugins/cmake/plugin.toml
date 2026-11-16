@@ -17,7 +17,7 @@ workspace-read = true
 terminal = true
 # To format CMake files with the server's edits.
 editor-write = true
-processes = ["neocmakelsp"]
+processes = ["neocmakelsp", "ctest"]
 
 # Where the configured build put compile_commands.json, for the C/C++
 # plugin's clangd.

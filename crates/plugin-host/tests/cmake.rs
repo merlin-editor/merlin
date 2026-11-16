@@ -229,3 +229,113 @@ fn a_real_configure_gives_targets_tasks_and_debugging() {
     assert_eq!(targets[0].build, "CMake: Build app");
     fs::remove_dir_all(root).ok();
 }
+
+/// With the real cmake and ctest: the tests show under the `add_test`
+/// lines they come from, and a run says how each went. Only where cmake
+/// is installed.
+#[test]
+fn ctest_tests_are_listed_and_run() {
+    use std::time::{Duration, Instant};
+    if std::process::Command::new("ctest")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        eprintln!("ctest isn't installed; skipping");
+        return;
+    }
+    let (mut host, root, _) = setup("ctest", false);
+    fs::write(
+        root.join("CMakeLists.txt"),
+        "cmake_minimum_required(VERSION 3.20)\nproject(demo C)\nenable_testing()\n\
+         add_executable(app main.c)\nadd_test(NAME unit COMMAND app)\n\
+         add_test(NAME fails COMMAND app 1)\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("main.c"),
+        "int main(int c, char **v) { return c > 1; }\n",
+    )
+    .unwrap();
+    let snapshot = at(&root, "CMakeLists.txt", "");
+    host.buffer_event(&BufferEvent::Switched, &snapshot);
+    let shell = |command: &str| {
+        let ran = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(command)
+            .current_dir(&root)
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&ran.stdout).into_owned()
+    };
+    let run = |host: &mut PluginHost, command: &str| {
+        host.run_command("cmake", command, snapshot.clone())
+            .into_iter()
+            .find_map(|e| match e {
+                Event::RunInTerminal { id, command, .. } => Some((id, command)),
+                _ => None,
+            })
+            .expect("a terminal run")
+    };
+    let (id, command) = run(&mut host, "task:CMake: Configure");
+    shell(&command);
+    host.terminal("cmake", &id, "", Some(0), snapshot.clone());
+
+    // The tests come once ctest has listed them.
+    let until = Instant::now() + Duration::from_secs(20);
+    let tests = loop {
+        let (events, _) = host.poll_processes(|| snapshot.clone());
+        if let Some(found) = events.into_iter().find_map(|e| match e {
+            Event::SetTests { path, tests, .. } if !tests.is_empty() => Some((path, tests)),
+            _ => None,
+        }) {
+            break found;
+        }
+        assert!(Instant::now() < until, "no tests listed");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert_eq!(tests.0, Path::new("CMakeLists.txt"));
+    let found: Vec<(&str, u32)> = tests.1.iter().map(|t| (t.id.as_str(), t.line)).collect();
+    assert_eq!(
+        found,
+        [("unit", 4), ("fails", 5)],
+        "by their add_test lines"
+    );
+
+    // One test runs alone, built first.
+    let (id, command) = run(&mut host, "run-test:fails");
+    assert!(
+        command.starts_with("cmake --build build && ctest --test-dir build"),
+        "{command}"
+    );
+    assert!(command.ends_with("-R \"^fails$\""), "{command}");
+    let output = shell(&command);
+    let events = host.terminal("cmake", &id, &output, Some(8), snapshot.clone());
+    let results = events
+        .into_iter()
+        .find_map(|e| match e {
+            Event::SetTestResults { results, .. } => Some(results),
+            _ => None,
+        })
+        .expect("results");
+    assert_eq!(results.len(), 1, "{results:?}");
+    assert_eq!(results[0].id, "fails");
+    assert_eq!(format!("{:?}", results[0].outcome), "Some(Failed)");
+    let (id, command) = run(&mut host, "run-tests:all");
+    let output = shell(&command);
+    let results = host
+        .terminal("cmake", &id, &output, Some(8), snapshot.clone())
+        .into_iter()
+        .find_map(|e| match e {
+            Event::SetTestResults { results, .. } => Some(results),
+            _ => None,
+        })
+        .expect("results");
+    let passed: Vec<&str> = results
+        .iter()
+        .filter(|r| format!("{:?}", r.outcome) == "Some(Passed)")
+        .map(|r| r.id.as_str())
+        .collect();
+    assert_eq!(passed, ["unit"]);
+    fs::remove_dir_all(root).ok();
+}

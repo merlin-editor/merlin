@@ -4,6 +4,7 @@
 //! plugin, so clangd finds it wherever the build is. neocmakelsp, when
 //! it's installed, completes, explains and finds what's in them.
 
+pub mod ctest;
 pub mod fileapi;
 pub mod lex;
 pub mod presets;
@@ -15,6 +16,7 @@ use merlin_plugin::prelude::*;
 use merlin_plugin::shared::{self, CompileCommands};
 use merlin_plugin::text::utf16_column;
 
+use ctest::CTest;
 use fileapi::Target;
 use lex::Kind;
 use presets::{Options, Presets};
@@ -64,6 +66,13 @@ struct Cmake {
     build: Option<(String, String)>,
     /// Its targets, from CMake's file API.
     targets: Vec<Target>,
+    /// CTest's tests, and the files the Tests view has them in.
+    tests: Vec<CTest>,
+    test_files: Vec<String>,
+    /// `ctest --show-only` running, and what it's printed so far.
+    listing: Option<(u32, String)>,
+    /// The tests a run in the terminal is for.
+    test_run: Vec<String>,
 }
 
 /// How to configure, from the plugin's settings.
@@ -112,6 +121,116 @@ impl Cmake {
         self.targets =
             fileapi::targets(&dir, |d| host::list_folder(d).ok(), read).unwrap_or_default();
         self.build = Some((dir, from));
+        self.find_tests();
+    }
+
+    /// Asks CTest for the build's tests, without a terminal: they come to
+    /// `process`.
+    fn find_tests(&mut self) {
+        let Some((dir, _)) = &self.build else {
+            return;
+        };
+        let args = [
+            "--test-dir".to_string(),
+            dir.clone(),
+            "--show-only=json-v1".into(),
+        ];
+        match host::spawn("ctest", &args, &[], Framing::Lines) {
+            Ok(process) => self.listing = Some((process, String::new())),
+            Err(err) => host::log(LogLevel::Info, &format!("No CTest tests: {err}")),
+        }
+    }
+
+    /// Shows the tests in the Tests view, by the file each is added in,
+    /// and takes them out of files that have none now.
+    fn show_tests(&mut self, tests: Vec<CTest>) {
+        let mut files: Vec<String> = tests.iter().map(|t| t.file.clone()).collect();
+        files.sort();
+        files.dedup();
+        for gone in self.test_files.iter().filter(|f| !files.contains(f)) {
+            host::set_tests(gone, "ctest", gone, &[]);
+        }
+        for file in &files {
+            let items: Vec<TestItem> = tests
+                .iter()
+                .filter(|t| &t.file == file)
+                .map(|t| TestItem {
+                    id: t.name.clone(),
+                    label: t.name.clone(),
+                    line: t.line,
+                    command: None,
+                })
+                .collect();
+            host::set_tests(file, "ctest", file, &items);
+        }
+        self.test_files = files;
+        self.tests = tests;
+    }
+
+    /// Builds, then runs these tests, or all of them, in parallel, in a
+    /// terminal; how each went comes from what CTest prints.
+    fn run_tests(&mut self, names: Option<Vec<String>>, failed: bool) {
+        let Some((dir, _)) = self.build.clone() else {
+            return host::notice(LogLevel::Info, "Configure the project first", &[]);
+        };
+        let dir = quote(&dir);
+        let mut command =
+            format!("cmake --build {dir} && ctest --test-dir {dir} --output-on-failure -j");
+        if failed {
+            command.push_str(" --rerun-failed");
+        }
+        let names = names.unwrap_or_else(|| self.tests.iter().map(|t| t.name.clone()).collect());
+        if names.len() < self.tests.len() && !failed {
+            let pattern: Vec<String> = names.iter().map(|n| ctest::exactly(n)).collect();
+            command.push_str(&format!(" -R {}", quote(&pattern.join("|"))));
+        }
+        let running: Vec<TestResult> = names
+            .iter()
+            .map(|n| TestResult {
+                id: n.clone(),
+                outcome: TestOutcome::Running,
+                message: String::new(),
+                line: None,
+            })
+            .collect();
+        host::set_test_results(&running);
+        host::set_test_run("ctest", true, None);
+        match host::run_in_terminal("ctest-run", "CTest", &command) {
+            Ok(()) => self.test_run = names,
+            Err(err) => {
+                host::set_test_run("ctest", false, None);
+                host::notice(LogLevel::Error, &err, &[]);
+            }
+        }
+    }
+
+    /// Debugs one test's own command line with the C/C++ plugin's
+    /// debugger.
+    fn debug_test(&self, name: &str) {
+        let Some(test) = self.tests.iter().find(|t| t.name == name) else {
+            return;
+        };
+        let Some((program, args)) = test.command.split_first() else {
+            return;
+        };
+        let launch = test
+            .folder
+            .as_ref()
+            .map(|f| serde_json::json!({ "cwd": f }).to_string())
+            .unwrap_or_default();
+        host::start_debugging(
+            &DebugTarget {
+                name: test.name.clone(),
+                debugger: String::new(),
+                language: "cpp".into(),
+                program: program.clone(),
+                args: args.to_vec(),
+                build: String::new(),
+                detail: "CTest".into(),
+                launch,
+            },
+            None,
+        );
     }
 
     /// The project's tasks for Run Task, and its programs for Run and
@@ -328,6 +447,30 @@ impl Plugin for Cmake {
             self.find_tasks();
             return;
         }
+        match id {
+            "find-tests" => return self.find_tests(),
+            "run-tests:all" => return self.run_tests(None, false),
+            "run-tests:failed" => return self.run_tests(None, true),
+            _ => {}
+        }
+        if id.starts_with("run-tests:group:") {
+            return self.run_tests(None, false);
+        }
+        if let Some(file) = id.strip_prefix("run-tests:file:") {
+            let names = self
+                .tests
+                .iter()
+                .filter(|t| t.file == file)
+                .map(|t| t.name.clone())
+                .collect();
+            return self.run_tests(Some(names), false);
+        }
+        if let Some(name) = id.strip_prefix("run-test:") {
+            return self.run_tests(Some(vec![name.to_string()]), false);
+        }
+        if let Some(name) = id.strip_prefix("debug-test:") {
+            return self.debug_test(name);
+        }
         let Some(name) = id.strip_prefix("task:") else {
             return;
         };
@@ -336,8 +479,70 @@ impl Plugin for Cmake {
         }
     }
 
-    /// A configure ended: once it worked, its build is the one in use.
-    fn terminal(&mut self, id: &str, _output: &str, code: Option<i32>) {
+    /// `ctest --show-only`'s output, line by line, read once it ends.
+    fn process(&mut self, process: u32, event: ProcessEvent) {
+        let Some((listing, text)) = &mut self.listing else {
+            return;
+        };
+        if *listing != process {
+            return;
+        }
+        match event {
+            ProcessEvent::Message(line) => {
+                text.push_str(&line);
+                text.push('\n');
+            }
+            ProcessEvent::Exit(_) => {
+                let text = std::mem::take(text);
+                self.listing = None;
+                let tests = ctest::tests(&text, &host::workspace_root());
+                self.show_tests(tests);
+            }
+            ProcessEvent::Stderr(_) => {}
+        }
+    }
+
+    /// A configure ended: once it worked, its build is the one in use. A
+    /// test run ended: how each test went.
+    fn terminal(&mut self, id: &str, output: &str, code: Option<i32>) {
+        if id == "ctest-run" {
+            let found = ctest::results(output);
+            let mut results: Vec<TestResult> = found
+                .iter()
+                .map(|(name, outcome)| TestResult {
+                    id: name.clone(),
+                    outcome: match outcome {
+                        ctest::Outcome::Passed => TestOutcome::Passed,
+                        ctest::Outcome::Failed(_) => TestOutcome::Failed,
+                        ctest::Outcome::Skipped => TestOutcome::Skipped,
+                    },
+                    message: match outcome {
+                        ctest::Outcome::Failed(why) => why.clone(),
+                        _ => String::new(),
+                    },
+                    line: None,
+                })
+                .collect();
+            // A test that never ran, as when the build failed, isn't
+            // running any more.
+            for name in std::mem::take(&mut self.test_run) {
+                if !found.iter().any(|(n, _)| *n == name) {
+                    results.push(TestResult {
+                        id: name,
+                        outcome: TestOutcome::Skipped,
+                        message: if code == Some(0) {
+                            String::new()
+                        } else {
+                            "didn't run".into()
+                        },
+                        line: None,
+                    });
+                }
+            }
+            host::set_test_results(&results);
+            host::set_test_run("ctest", false, None);
+            return;
+        }
         let Some((dir, from)) = self.running.remove(id) else {
             return;
         };
