@@ -15,6 +15,8 @@ const PYTHON_SERVER: Spec = Spec {
     settings: Some(r#"{"python":{"analysis":{"diagnosticMode":"openFilesOnly"}}}"#),
     options: &[],
     install: Some("npm install -g pyright"),
+    shared: &[],
+    adjust: None,
 };
 
 struct Python(Grammar);

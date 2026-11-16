@@ -28,6 +28,8 @@ pub(crate) struct Output {
 pub(crate) enum Arrival {
     Process(ProcessEvent),
     Fetched(Result<FetchResponse, String>),
+    /// The plugin shared a value under this key, or took it back.
+    Shared(String),
 }
 
 struct Process {
@@ -182,6 +184,12 @@ impl Processes {
                 wake();
             }
         }
+    }
+
+    /// Tells the host the plugin changed what it shares under `key`, so
+    /// the plugins that watch it hear.
+    pub fn announce_shared(&self, key: String) {
+        (self.arrivals(0))(Arrival::Shared(key));
     }
 
     /// The programs running, each with its process id.

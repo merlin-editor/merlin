@@ -671,7 +671,8 @@ merlin-lsp = "0.2"        # an example; a semver requirement, read as Cargo read
   needs any more is offered for removal along with the last plugin that
   needed it.
 - A dependency only means "install and start this first". It doesn't give
-  the plugins a way to call each other; that's out of scope.
+  the plugins a way to call each other. Plugins share values instead:
+  see section 13.
 - `index.json` already has `depends` per version; it becomes the table.
 
 ### 12.5 Network Access
@@ -938,7 +939,111 @@ tests too." merlin shows it after "Pyright is replaced by Python."
 
 ---
 
-## 13. Out of Scope
+## 13. Plugin API 0.16: Shared Values (Built 2026-11-16)
+
+Plugins can share values with each other. The first use: a build plugin,
+such as a CMake one, tells the C/C++ plugin where the build put
+`compile_commands.json`, so clangd finds it in any folder.
+
+### 13.1 Why Values, Not Calls
+
+Each plugin runs on its own thread, and the host hands it work in order.
+If one plugin called another and waited, two plugins calling each other
+would each wait on the other. VS Code solves the CMake case with calls:
+CMake Tools hands build settings to the C/C++ extension through a shared
+JavaScript API. That needs both in one process, and breaks when one
+updates and the other doesn't, or when they start in another order.
+
+A shared value has none of that. Nothing waits, the order plugins start in
+doesn't matter, and one that starts late reads what's there. It works the
+way settings do: read when needed, and told when it changes.
+
+Asking another plugin something and waiting for its answer isn't here.
+It's worth adding only when a real need shows.
+
+### 13.2 The Manifest
+
+```toml
+[shared]
+provides = ["compile-commands"]   # keys it shares values under
+watches = ["compile-commands"]    # keys whose values it reads
+```
+
+- A key is lowercase words of letters, digits and `-`, joined by dots, at
+  most 64 long.
+- A key with no dot is one every plugin may use, defined in the SDK, such as
+  `compile-commands`. A key with a dot is a plugin's own: it starts with the
+  plugin's name, as `cmake.targets`, and only that plugin may provide it.
+  Any plugin may watch it.
+- Sharing or reading a key the manifest doesn't list is an error, which
+  catches typos.
+
+### 13.3 The API
+
+In the WIT:
+- `share(key, value: option<string>)`: shares a value as JSON, at most
+  64 KB, in place of what the plugin shared under the key before. `none`
+  takes it back.
+- `shared(key) -> list<tuple<plugin, json>>`: what other plugins share
+  under the key, in the order they first shared. A plugin doesn't read its
+  own.
+- The export `on-shared(key)`: what another plugin shares under a key it
+  watches changed, or went.
+
+In the Rust SDK, `merlin_plugin::shared` gives each key a type, so both
+sides agree on its shape and never touch JSON:
+
+```rust
+use merlin_plugin::shared::{self, CompileCommands};
+
+// The CMake plugin, after configuring
+shared::provide(&CompileCommands { dir: "build/debug".into(), from: "CMake · debug".into() })?;
+
+// The C/C++ plugin
+fn shared_changed(&mut self, key: &str) {
+    if let Some(cc) = shared::get::<CompileCommands>() { /* … */ }
+}
+```
+
+`shared::all` lists every plugin's value with its name, `shared::withdraw`
+takes this plugin's back, and a plugin's own key gets a type the same way:
+a struct that implements `Shared` with its `KEY`.
+
+The LSP SDK's `Spec` has `shared`, the keys a server is set up from, whose
+change restarts it, and `adjust`, which has the last say over the server's
+settings each time it starts.
+
+### 13.4 Rules
+
+- **How long a value lasts:** while the plugin that shared it runs. When it
+  stops, fails, is turned off or uninstalled, or reloads without keeping its
+  state, its values go and the watchers are told. One that reloads keeping
+  its state keeps them.
+- **Who hears:** running plugins that watch the key, other than the one that
+  shared. One waiting to start isn't woken; it reads what's there when it
+  starts. A change that comes before the last one was delivered replaces it.
+- **The same value again** is no change, and nobody hears.
+- **More than one provider**, such as CMake and Meson in one repository:
+  readers get each one's value with its plugin's name. The C/C++ plugin
+  uses its `compile-commands` setting if set, else the first value.
+
+### 13.5 In the C/C++ Plugin
+
+It watches `compile-commands`, and has a `compile-commands` setting, the
+folder relative to the workspace or absolute, which wins over what's
+shared. Either goes to clangd as `compilationDatabasePath` in its
+`initializationOptions`; with neither, clangd looks for itself, in the
+file's folders and their `build/`. Checked against clangd 21: given a
+folder the file's folders don't lead to, it uses the compile commands
+there, and without it says "No compile commands".
+
+### 13.6 Not Built Yet
+
+- The CMake plugin itself (see `docs/cpp-research.md`).
+- Showing what plugins share, on a plugin's page or in Browse ("Works with
+  CMake"). That's UI, so it needs a mock-up first.
+
+## 14. Out of Scope
 
 - **Paid plugins.**
 - **Private plugins**, beyond what a private source (7.4) already covers.

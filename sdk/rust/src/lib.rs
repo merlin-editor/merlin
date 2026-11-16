@@ -39,17 +39,17 @@ pub mod bindings {
 /// processes and secrets.
 pub use bindings::merlin::plugin::host;
 pub use bindings::merlin::plugin::types::{
-    ActionKind, Breakpoint, BreakpointState, BufferEvent, Button, Chip, ChipRow, CodeAction,
-    Command, Completion, DebugLaunch, EditCard, EmptyState, Message, Progress, Row, DebugPause, DebugState, DebugTarget, DebugThread, DebugVariable,
-    DetailedDiagnostic, Diagnostic, DocSymbol, FileEdit, FoldRange, Framing, FunctionStop,
-    Colour, DrawCurve, DrawImage, DrawItem, DrawLine, DrawPoint, DrawRect, DrawText, Drawing,
-    Image, InlayHint, InlayKind, InlineValue, Input, Item, PageSize, Picture, RgbaPicture, Shape,
-    TextBox, Tile, LineRange, Location, LogLevel, Node,
-    OutputKind, Panel, PickItem, Position, ProcessEvent, ProjectSymbol, RenameInfo, Selection,
-    Setting, Severity, Signature, StackFrame, StatusItem, StatusState, StopFilter, Styled, Task,
-    TaskGroup, TestItem, TestOutcome, TestResult, TextChange, Token, TokenKind, TokenLayer, Tone,
-    FetchRequest, FetchResponse, ToolKind, StepState, PlanStep, AgentTool, AgentPart, AgentRequest,
-    AgentAnswer, AgentOutcome, AgentContext, AgentCommand, AgentMode, AgentAsks,
+    ActionKind, AgentAnswer, AgentAsks, AgentCommand, AgentContext, AgentMode, AgentOutcome,
+    AgentPart, AgentRequest, AgentTool, Breakpoint, BreakpointState, BufferEvent, Button, Chip,
+    ChipRow, CodeAction, Colour, Command, Completion, DebugLaunch, DebugPause, DebugState,
+    DebugTarget, DebugThread, DebugVariable, DetailedDiagnostic, Diagnostic, DocSymbol, DrawCurve,
+    DrawImage, DrawItem, DrawLine, DrawPoint, DrawRect, DrawText, Drawing, EditCard, EmptyState,
+    FetchRequest, FetchResponse, FileEdit, FoldRange, Framing, FunctionStop, Image, InlayHint,
+    InlayKind, InlineValue, Input, Item, LineRange, Location, LogLevel, Message, Node, OutputKind,
+    PageSize, Panel, PickItem, Picture, PlanStep, Position, ProcessEvent, Progress, ProjectSymbol,
+    RenameInfo, RgbaPicture, Row, Selection, Setting, Severity, Shape, Signature, StackFrame,
+    StatusItem, StatusState, StepState, StopFilter, Styled, Task, TaskGroup, TestItem, TestOutcome,
+    TestResult, TextBox, TextChange, Tile, Token, TokenKind, TokenLayer, Tone, ToolKind,
 };
 
 /// UTF-16 columns, which positions count, as LSP does.
@@ -100,6 +100,87 @@ pub mod settings {
     }
 }
 
+/// Values plugins share with each other. One plugin provides a value under
+/// a key, and the plugins that watch the key read it and hear when it
+/// changes. A CMake plugin, say, tells the C++ plugin where the build put
+/// `compile_commands.json`, without either calling the other.
+///
+/// Declare the keys in the manifest:
+///
+/// ```toml
+/// [shared]
+/// provides = ["compile-commands"]   # in the CMake plugin
+/// watches = ["compile-commands"]    # in the C++ plugin
+/// ```
+///
+/// Each key has a type, so both sides agree on what's in it. The keys
+/// every plugin may use are here, such as [`CompileCommands`]; a plugin's
+/// own start with its name and a dot, and it can define its type the same
+/// way:
+///
+/// ```ignore
+/// #[derive(serde::Serialize, serde::Deserialize)]
+/// struct Targets { names: Vec<String> }
+/// impl Shared for Targets { const KEY: &'static str = "cmake.targets"; }
+/// ```
+///
+/// A value lasts while its plugin runs: it goes when the plugin stops, and
+/// the watchers hear. A plugin that starts later reads what's there.
+pub mod shared {
+    use crate::host;
+    use serde::{Serialize, de::DeserializeOwned};
+
+    /// A value plugins share, and the key it goes under.
+    pub trait Shared: Serialize + DeserializeOwned {
+        const KEY: &'static str;
+    }
+
+    /// Shares `value` under its key, in place of what this plugin shared
+    /// there before. The key must be in the manifest's `shared.provides`.
+    pub fn provide<T: Shared>(value: &T) -> Result<(), String> {
+        let json = serde_json::to_string(value).map_err(|e| e.to_string())?;
+        host::share(T::KEY, Some(&json))
+    }
+
+    /// Takes back what this plugin shares under `T`'s key.
+    pub fn withdraw<T: Shared>() -> Result<(), String> {
+        host::share(T::KEY, None)
+    }
+
+    /// What other plugins share under `T`'s key, with each one's name, in
+    /// the order they shared it. The key must be in the manifest's
+    /// `shared.watches`. A value that doesn't read as `T` is left out.
+    pub fn all<T: Shared>() -> Vec<(String, T)> {
+        host::shared(T::KEY)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|(plugin, json)| Some((plugin, serde_json::from_str(&json).ok()?)))
+            .collect()
+    }
+
+    /// The first value shared under `T`'s key, if any.
+    pub fn get<T: Shared>() -> Option<T> {
+        all::<T>().into_iter().next().map(|(_, value)| value)
+    }
+
+    /// Where a build put `compile_commands.json`, for C and C++ language
+    /// servers such as clangd. Build plugins provide it, as CMake's does
+    /// after configuring; the C/C++ plugin watches it.
+    #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    pub struct CompileCommands {
+        /// The folder `compile_commands.json` is in: absolute, or relative
+        /// to the workspace root.
+        pub dir: String,
+        /// What made it, for people to read, as `CMake · debug`.
+        #[serde(default)]
+        pub from: String,
+    }
+
+    impl Shared for CompileCommands {
+        const KEY: &'static str = "compile-commands";
+    }
+}
+
 impl Picture {
     /// Pixels row by row, four bytes each: red, green, blue, alpha.
     pub fn rgba(width: u32, height: u32, pixels: Vec<u8>) -> Self {
@@ -113,13 +194,15 @@ impl Picture {
 
 pub mod prelude {
     pub use crate::{
-        ActionKind, Breakpoint, BreakpointState, BufferEvent, Button, Chip, CodeAction, Command, EditCard, Message, Progress, Row,
+        ActionKind, Breakpoint, BreakpointState, BufferEvent, Button, Chip, CodeAction, Command,
         Completion, DebugLaunch, DebugPause, DebugState, DebugTarget, DebugThread, DebugVariable,
-        DetailedDiagnostic, Diagnostic, DocSymbol, FileEdit, FoldRange, Framing, FunctionStop,
-        Picture, PageSize, RgbaPicture, TextBox, Tile, InlayHint, InlayKind, InlineValue, LineRange, Location, LogLevel, Node, OutputKind, Panel,
-        PickItem, Plugin, Position, ProcessEvent, ProjectSymbol, RenameInfo, Selection, Severity,
-        Signature, StackFrame, StatusItem, StatusState, StopFilter, Task, TaskGroup, TestItem,
-        TestOutcome, TestResult, TextChange, Token, TokenKind, TokenLayer, Tone, host, settings,
+        DetailedDiagnostic, Diagnostic, DocSymbol, EditCard, FileEdit, FoldRange, Framing,
+        FunctionStop, InlayHint, InlayKind, InlineValue, LineRange, Location, LogLevel, Message,
+        Node, OutputKind, PageSize, Panel, PickItem, Picture, Plugin, Position, ProcessEvent,
+        Progress, ProjectSymbol, RenameInfo, RgbaPicture, Row, Selection, Severity, Signature,
+        StackFrame, StatusItem, StatusState, StopFilter, Task, TaskGroup, TestItem, TestOutcome,
+        TestResult, TextBox, TextChange, Tile, Token, TokenKind, TokenLayer, Tone, host, settings,
+        shared,
     };
 }
 
@@ -163,6 +246,10 @@ pub trait Plugin: 'static {
     /// One of the plugin's settings changed, by its dotted key: the user
     /// set it, or the workspace did. [`settings`] reads the new value.
     fn setting_changed(&mut self, _key: &str) {}
+
+    /// What another plugin shares under a key the manifest watches changed,
+    /// or went: see [`shared`], which reads it.
+    fn shared_changed(&mut self, _key: &str) {}
 
     /// A command line from [`host::run_in_terminal`], or one of the
     /// plugin's tests', ended: all it printed, and its exit code.
@@ -209,7 +296,8 @@ pub trait Plugin: 'static {
 
     /// The user sent a message to one of the plugin's agents, by its id,
     /// in chat `chat`: a new chat the first time it's seen.
-    fn agent_prompt(&mut self, _chat: u32, _agent: &str, _text: &str, _context: Vec<AgentContext>) {}
+    fn agent_prompt(&mut self, _chat: u32, _agent: &str, _text: &str, _context: Vec<AgentContext>) {
+    }
     /// The user pressed Stop in chat `chat`.
     fn agent_cancel(&mut self, _chat: u32) {}
     /// Chat `chat` closed: stop its agent.
@@ -219,7 +307,8 @@ pub trait Plugin: 'static {
     /// A file from `host::agent_read` or `host::agent_write`.
     fn agent_file(&mut self, _chat: u32, _request: u32, _result: Result<String, String>) {}
     /// A run from `host::agent_run` ended: its output and exit code.
-    fn agent_run(&mut self, _chat: u32, _run: u32, _result: Result<(String, Option<i32>), String>) {}
+    fn agent_run(&mut self, _chat: u32, _run: u32, _result: Result<(String, Option<i32>), String>) {
+    }
     /// The user picked one of the modes from `host::agent_modes`.
     fn agent_mode(&mut self, _chat: u32, _mode: &str) {}
 
@@ -329,11 +418,7 @@ impl Node {
     }
 
     /// What a view says while it's empty, with buttons.
-    pub fn empty(
-        title: impl Into<String>,
-        text: impl Into<String>,
-        buttons: Vec<Button>,
-    ) -> Self {
+    pub fn empty(title: impl Into<String>, text: impl Into<String>, buttons: Vec<Button>) -> Self {
         Node::EmptyState(EmptyState {
             title: title.into(),
             text: text.into(),
@@ -724,6 +809,12 @@ macro_rules! export {
             fn on_setting_changed(key: String) {
                 $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
                     $crate::Plugin::setting_changed(p, &key)
+                })
+            }
+
+            fn on_shared(key: String) {
+                $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
+                    $crate::Plugin::shared_changed(p, &key)
                 })
             }
         }

@@ -6,7 +6,7 @@ description = "UI density, chrome & font presets"
 badge = "UI"
 hue = "purple"
 version = "0.2.0"
-api = "0.15"
+api = "0.16"
 
 [[packs]]
 label = "Compact"

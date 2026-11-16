@@ -21,6 +21,8 @@ const JS_SERVER: Spec = Spec {
     settings: Some(r#"{"tsserver":{"maxTsServerMemory":512}}"#),
     options: &[],
     install: Some("npm install -g typescript-language-server typescript"),
+    shared: &[],
+    adjust: None,
 };
 
 merlin_plugin::export!(WithLsp<JavaScript> => WithLsp::new(JavaScript::new(), "JavaScript", &[JS_SERVER]));

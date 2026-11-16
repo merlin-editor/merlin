@@ -1,7 +1,7 @@
 name = "testbed"
 title = "Testbed"
 version = "0.2.0"
-api = "0.15"
+api = "0.16"
 component = "target/wasm32-wasip2/release/testbed.wasm"
 
 [permissions]
@@ -11,6 +11,11 @@ agent = true
 
 # A scripted agent for the window's tests, and one whose program isn't
 # installed.
+# Shares where a build would be, and watches what other copies share.
+[shared]
+provides = ["compile-commands"]
+watches = ["compile-commands"]
+
 [[agents]]
 id = "echo"
 name = "Echo"

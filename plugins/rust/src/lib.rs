@@ -26,6 +26,8 @@ const RUST_SERVER: Spec = Spec {
         ("features", "cargo.features"),
     ],
     install: Some("rustup component add rust-analyzer"),
+    shared: &[],
+    adjust: None,
 };
 
 merlin_plugin::export!(WithLsp<Rust> => WithLsp::new(Rust::new(), "Rust", &[RUST_SERVER]));

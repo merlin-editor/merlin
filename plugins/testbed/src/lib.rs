@@ -103,6 +103,9 @@ impl Plugin for Testbed {
             "log",
             "warn",
             "fail",
+            "share",
+            "unshare",
+            "share-bad",
         ]
         .map(|id| Command::new(id, format!("Testbed: {id}")))
         .into()
@@ -150,6 +153,26 @@ impl Plugin for Testbed {
             "set-secret" => {
                 if let Err(err) = host::set_secret("token", "hunter2") {
                     host::notify(&err);
+                }
+            }
+            "share" => {
+                let value = shared::CompileCommands {
+                    dir: "build".into(),
+                    from: "Testbed".into(),
+                };
+                if let Err(err) = shared::provide(&value) {
+                    host::notify(&err);
+                }
+            }
+            "unshare" => {
+                let _ = shared::withdraw::<shared::CompileCommands>();
+            }
+            // A key the manifest doesn't list, and JSON that isn't.
+            "share-bad" => {
+                for (key, value) in [("cmake.targets", "[]"), ("compile-commands", "{")] {
+                    if let Err(err) = host::share(key, Some(value)) {
+                        host::notify(&err);
+                    }
                 }
             }
             "show-secret" => host::notify(&format!("secret: {:?}", host::get_secret("token"))),
@@ -261,6 +284,14 @@ impl Plugin for Testbed {
 
     fn setting_changed(&mut self, key: &str) {
         self.log.push(format!("{key} changed"));
+    }
+
+    fn shared_changed(&mut self, key: &str) {
+        let values: Vec<String> = shared::all::<shared::CompileCommands>()
+            .into_iter()
+            .map(|(plugin, c)| format!("{plugin}: {}", c.dir))
+            .collect();
+        host::notify(&format!("{key} now [{}]", values.join(", ")));
     }
 
     fn review(&mut self, id: &str, accepted: bool) {

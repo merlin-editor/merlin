@@ -1,7 +1,7 @@
 [package]
 name = "merlin-plugin"
 description = "Write merlin plugins in Rust"
-version = "0.15.0"
+version = "0.16.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/merlin-editor/merlin"
@@ -12,6 +12,8 @@ categories = ["development-tools", "text-editors", "wasm"]
 include = ["src/**", "wit/**", "README.md"]
 
 [dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 wit-bindgen = "0.63"
 
 # docs.rs builds it for the target plugins use.

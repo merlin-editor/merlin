@@ -10,6 +10,8 @@ const GO_SERVER: Spec = Spec {
     settings: None,
     options: &[],
     install: Some("go install golang.org/x/tools/gopls@latest"),
+    shared: &[],
+    adjust: None,
 };
 
 merlin_plugin::export!(WithLsp<Grammar> => WithLsp::new(

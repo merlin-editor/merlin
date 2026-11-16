@@ -570,5 +570,8 @@ pub(crate) fn server_settings(spec: &Spec) -> Value {
         }
         at[parts[parts.len() - 1]] = value;
     }
+    if let Some(adjust) = spec.adjust {
+        adjust(&mut settings);
+    }
     settings
 }

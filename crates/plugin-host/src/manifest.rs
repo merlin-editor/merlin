@@ -105,6 +105,62 @@ pub struct Manifest {
     /// File types it opens in a tab of its own: see [`ManifestEditor`].
     #[serde(default)]
     pub editors: Vec<ManifestEditor>,
+    /// Values it shares with other plugins, and the ones it watches: see
+    /// [`ManifestShared`].
+    #[serde(default)]
+    pub shared: ManifestShared,
+}
+
+/// `[shared]`: the keys a plugin shares values under, and the keys whose
+/// values it reads. A key everyone agrees on, such as `compile-commands`,
+/// has no dot; a plugin's own starts with its name and a dot, as
+/// `cmake.targets`, and only that plugin may provide it.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct ManifestShared {
+    #[serde(default)]
+    pub provides: Vec<String>,
+    #[serde(default)]
+    pub watches: Vec<String>,
+}
+
+/// Whether `key` will do as a shared value's key: lowercase words of
+/// letters, digits and `-`, joined by dots, at most 64 long.
+pub fn valid_shared_key(key: &str) -> bool {
+    key.len() <= 64
+        && key.split('.').all(|word| {
+            word.chars().next().is_some_and(|c| c.is_ascii_lowercase())
+                && word
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        })
+}
+
+/// Keys that are well formed, and provided ones that are the plugin's own
+/// when they have a dot.
+fn check_shared(manifest: &Manifest) -> Result<()> {
+    let shared = &manifest.shared;
+    for key in shared.provides.iter().chain(&shared.watches) {
+        if !valid_shared_key(key) {
+            bail!(
+                "shared key {key:?} isn't lowercase words of letters, digits and -, \
+                 joined by dots"
+            );
+        }
+    }
+    for key in &shared.provides {
+        if let Some((owner, _)) = key.split_once('.')
+            && owner != manifest.name
+        {
+            bail!(
+                "shared provides {key:?}, which belongs to {owner}; a key with a dot \
+                 starts with the plugin's own name, as {}.{}",
+                manifest.name,
+                key.split_once('.').map_or("", |(_, rest)| rest)
+            );
+        }
+    }
+    Ok(())
 }
 
 /// `[package]`: what goes in the plugin's `.merlin` archive.
@@ -1074,6 +1130,7 @@ pub fn manifest(dir: &Path) -> Result<Manifest> {
         }
     }
     check_needs(&manifest).with_context(|| format!("in {}", path.display()))?;
+    check_shared(&manifest).with_context(|| format!("in {}", path.display()))?;
     for trigger in &manifest.activate_on {
         let known = trigger.starts_with("language:")
             || trigger.starts_with("file:")
@@ -1245,7 +1302,7 @@ mod tests {
     fn an_agents_own_view_must_be_one_of_its_views_on_the_right() {
         let parse = |extra: &str| {
             let text = format!(
-                "name = \"a\"\ntitle = \"A\"\nversion = \"0.1.0\"\napi = \"0.15\"\ncomponent = \"a.wasm\"\n\
+                "name = \"a\"\ntitle = \"A\"\nversion = \"0.1.0\"\napi = \"0.16\"\ncomponent = \"a.wasm\"\n\
                  [[agents]]\nid = \"x\"\nname = \"X\"\nview = \"board\"\n{extra}"
             );
             let manifest: Manifest = toml::from_str(&text).unwrap();

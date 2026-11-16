@@ -4,7 +4,7 @@ description = "C & C++ syntax, outlines & clangd"
 badge = "C+"
 hue = "blue"
 version = "0.2.0"
-api = "0.15"
+api = "0.16"
 component = "target/wasm32-wasip2/release/cpp.wasm"
 # Starts when one of its files opens, or the project has one.
 activate-on = ["language:c", "language:cpp", "file:CMakeLists.txt"]
@@ -14,6 +14,16 @@ symbols = "project-symbols"
 editor-read = true
 editor-write = true
 processes = ["clangd"]
+
+# Where the build put compile_commands.json: a build plugin, such as
+# CMake's, says so. The setting below wins over it.
+[shared]
+watches = ["compile-commands"]
+
+[settings.compile-commands]
+type = "text"
+title = "Compile commands folder"
+description = "The folder compile_commands.json is in, relative to the workspace or absolute. Empty to use the one a build plugin shares, or let clangd look for it."
 
 [[languages]]
 id = "c"

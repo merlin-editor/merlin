@@ -22,6 +22,7 @@ pub mod package;
 mod process;
 pub mod registry;
 mod secrets;
+mod shared;
 mod state;
 mod worker;
 
@@ -44,6 +45,7 @@ use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
 
 use process::{Output, Processes};
 use secrets::Secrets;
+use shared::{MAX_SHARED, SharedBoard};
 use state::*;
 use worker::{Finished, Instance, Ticket, Worker};
 
@@ -58,7 +60,7 @@ use bindings::merlin::plugin::{host, types};
 
 /// The API version this host implements. A manifest names the version it was
 /// built for and loads only on an exact match while the API is 0.x.
-pub const API_VERSION: &str = "0.15";
+pub const API_VERSION: &str = "0.16";
 
 /// Roughly six billion instructions per call, about a second. It stops a
 /// plugin stuck in a loop, and leaves room for a language plugin to colour
@@ -339,6 +341,8 @@ pub struct PluginHost {
     workspace_settings: toml::Table,
     /// Plugins the user turned off, by name, which load without running.
     disabled: Vec<String>,
+    /// What plugins share with each other.
+    board: SharedBoard,
 }
 
 const ALLOW: &str = "merlin:allow";
@@ -382,6 +386,7 @@ impl PluginHost {
             user_settings: toml::Table::new(),
             workspace_settings: toml::Table::new(),
             disabled: Vec::new(),
+            board: SharedBoard::default(),
         })
     }
 
@@ -696,6 +701,8 @@ impl PluginHost {
             images: Default::default(),
             next_agent_id: 0,
             agent_runs: Default::default(),
+            shared_keys: manifest.shared.clone(),
+            board: self.board.clone(),
         };
         let mut store = Store::new(&self.engine, state);
         store.limiter(|s| &mut s.limits);
@@ -907,8 +914,13 @@ impl PluginHost {
         else {
             return (None, events);
         };
+        let newly = failed && !plugin.failed;
         plugin.failed |= failed;
         events.extend(more);
+        if newly {
+            let name = plugin.manifest.name.clone();
+            events.extend(self.withdraw_shared(&name));
+        }
         (result, events)
     }
 
@@ -998,6 +1010,47 @@ impl PluginHost {
 
     fn index(&self, name: &str) -> Option<usize> {
         self.plugins.iter().position(|p| p.manifest.name == name)
+    }
+
+    /// Tells the running plugins that watch `key`, other than `from`, that
+    /// what's shared under it changed. One waiting to start isn't woken:
+    /// it reads what's there when it starts. A newer change replaces one
+    /// not delivered yet.
+    fn tell_watchers(&mut self, key: &str, from: &str, snapshot: &Snapshot) -> Vec<Event> {
+        let mut events = Vec::new();
+        for i in 0..self.plugins.len() {
+            let p = &self.plugins[i];
+            if p.manifest.name == from
+                || p.dormant
+                || p.disabled
+                || p.failed
+                || p.worker.is_none()
+                || !p.manifest.shared.watches.iter().any(|k| k == key)
+            {
+                continue;
+            }
+            let owned = key.to_string();
+            events.extend(self.post(
+                i,
+                snapshot.clone(),
+                Some(format!("shared:{key}")),
+                false,
+                move |b, s| b.call_on_shared(s, &owned),
+                |_| Vec::new(),
+            ));
+        }
+        events
+    }
+
+    /// Takes back what a plugin shares, as when it stops, and tells the
+    /// plugins that watch it.
+    fn withdraw_shared(&mut self, name: &str) -> Vec<Event> {
+        let keys = self.board.lock().unwrap().withdraw(name);
+        let mut events = Vec::new();
+        for key in keys {
+            events.extend(self.tell_watchers(&key, name, &Snapshot::default()));
+        }
+        events
     }
 
     /// Takes new settings for plugins: the `[plugins]` table of the user's
@@ -1592,9 +1645,13 @@ impl PluginHost {
             if self.plugins[i].generation != done.generation {
                 continue;
             }
+            let newly = done.failed && !self.plugins[i].failed;
             self.plugins[i].failed |= done.failed;
             changed |= !done.quiet;
             events.extend(done.events);
+            if newly {
+                events.extend(self.withdraw_shared(&done.plugin));
+            }
         }
         let pending: Vec<Output> = self.output_rx.try_iter().take(MESSAGES_PER_POLL).collect();
         if pending.is_empty() {
@@ -1611,6 +1668,10 @@ impl PluginHost {
             }
             let event = match output.event {
                 process::Arrival::Process(event) => event,
+                process::Arrival::Shared(key) => {
+                    events.extend(self.tell_watchers(&key, &output.plugin, &snapshot));
+                    continue;
+                }
                 process::Arrival::Fetched(response) => {
                     let id = output.process;
                     events.extend(self.post_call(i, snapshot.clone(), move |b, s| {
@@ -1731,6 +1792,11 @@ impl PluginHost {
                 plugin.generation = generation;
                 plugin.failed = false;
                 let kept = state.is_some();
+                // What it shared goes with its state; one that keeps its
+                // state keeps sharing it.
+                if !kept {
+                    events.extend(self.withdraw_shared(&plugin_name));
+                }
                 events.extend(self.activate(i, state));
                 events.push(Event::PluginLog {
                     plugin: plugin_name,
@@ -1777,7 +1843,8 @@ impl PluginHost {
         if !on {
             // Dropping the instance stops its processes.
             plugin.worker = None;
-            return vec![
+            let mut events = self.withdraw_shared(name);
+            events.extend([
                 Event::SetPanel {
                     plugin: name.to_string(),
                     panel: None,
@@ -1794,7 +1861,8 @@ impl PluginHost {
                     plugin: name.to_string(),
                     id: None,
                 },
-            ];
+            ]);
+            return events;
         }
         let plugin = &self.plugins[i];
         match self.instantiate(&plugin.manifest, &plugin.wasm, plugin.generation + 1) {
@@ -1818,7 +1886,8 @@ impl PluginHost {
             return Vec::new();
         };
         self.plugins.remove(i);
-        vec![
+        let mut events = self.withdraw_shared(name);
+        events.extend([
             Event::SetPanel {
                 plugin: name.to_string(),
                 panel: None,
@@ -1839,7 +1908,8 @@ impl PluginHost {
                 plugin: name.to_string(),
                 id: None,
             },
-        ]
+        ]);
+        events
     }
 
     /// Deletes the secrets a plugin stored, as when it's uninstalled with

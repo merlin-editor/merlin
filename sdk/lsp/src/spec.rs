@@ -16,4 +16,12 @@ pub struct Spec {
     pub options: &'static [(&'static str, &'static str)],
     /// How to install it, for the language card when it isn't.
     pub install: Option<&'static str>,
+    /// Keys of values other plugins share that the server is set up from:
+    /// a change to one restarts it. They must be in the manifest's
+    /// `shared.watches`.
+    pub shared: &'static [&'static str],
+    /// Has the last say over the JSON settings, after `settings` and
+    /// `options`: to put in what a shared value says, say. It runs each
+    /// time the server starts.
+    pub adjust: Option<fn(&mut serde_json::Value)>,
 }

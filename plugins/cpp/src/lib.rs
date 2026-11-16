@@ -6,6 +6,7 @@ pub mod lex;
 
 use merlin_lsp::{Spec, WithLsp};
 use merlin_plugin::prelude::*;
+use merlin_plugin::shared::{CompileCommands, Shared};
 use merlin_plugin::text::utf16_column;
 
 use lex::Kind;
@@ -39,7 +40,25 @@ const CPP_SERVER: Spec = Spec {
     settings: None,
     options: &[],
     install: Some("sudo apt install clangd"),
+    shared: &[CompileCommands::KEY],
+    adjust: Some(compile_commands),
 };
+
+/// Tells clangd where `compile_commands.json` is: the setting, else what a
+/// build plugin shares, else nothing, and clangd looks for itself.
+fn compile_commands(options: &mut serde_json::Value) {
+    let dir = settings::text("compile-commands")
+        .filter(|d| !d.trim().is_empty())
+        .or_else(|| shared::get::<CompileCommands>().map(|c| c.dir));
+    let Some(dir) = dir else {
+        return;
+    };
+    let dir = std::path::Path::new(host::workspace_root().as_str()).join(dir.trim());
+    if !options.is_object() {
+        *options = serde_json::Value::Object(Default::default());
+    }
+    options["compilationDatabasePath"] = dir.to_string_lossy().into_owned().into();
+}
 
 const EXTENSIONS: &[&str] = &[
     "c", "h", "cpp", "cc", "cxx", "c++", "hpp", "hh", "hxx", "h++", "ipp", "inl", "tpp",

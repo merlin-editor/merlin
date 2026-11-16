@@ -29,6 +29,10 @@ pub(super) struct State {
     pub(super) next_agent_id: u32,
     /// Each run's chat, by run.
     pub(super) agent_runs: HashMap<u32, u32>,
+    /// The keys it shares and watches, from its manifest.
+    pub(super) shared_keys: ManifestShared,
+    /// What every plugin shares.
+    pub(super) board: SharedBoard,
 }
 
 /// Milliseconds since the host started, for when agents said things.
@@ -1019,6 +1023,38 @@ impl host::Host for State {
             toml::Value::Float(f) => types::Setting::Float(*f),
             other => types::Setting::Other(other.to_string()),
         })
+    }
+
+    fn share(&mut self, key: String, value: Option<String>) -> Result<(), String> {
+        if !self.shared_keys.provides.contains(&key) {
+            return Err(format!(
+                "{key:?} isn't in the manifest's shared.provides, so it can't be shared"
+            ));
+        }
+        if let Some(value) = &value {
+            if value.len() > MAX_SHARED {
+                return Err(format!(
+                    "a shared value is at most {} KB, and this is {} KB",
+                    MAX_SHARED / 1024,
+                    value.len().div_ceil(1024)
+                ));
+            }
+            serde_json::from_str::<serde_json::Value>(value)
+                .map_err(|e| format!("a shared value is JSON, and this isn't: {e}"))?;
+        }
+        if self.board.lock().unwrap().set(&key, &self.name, value) {
+            self.processes.announce_shared(key);
+        }
+        Ok(())
+    }
+
+    fn shared(&mut self, key: String) -> Result<Vec<(String, String)>, String> {
+        if !self.shared_keys.watches.contains(&key) {
+            return Err(format!(
+                "{key:?} isn't in the manifest's shared.watches, so it can't be read"
+            ));
+        }
+        Ok(self.board.lock().unwrap().get(&key, &self.name))
     }
 
     fn get_secret(&mut self, key: String) -> Option<String> {

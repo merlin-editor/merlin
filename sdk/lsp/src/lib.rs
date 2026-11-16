@@ -130,10 +130,22 @@ impl Lsp {
 
     /// A setting a server gets changed: those servers start again with it.
     pub fn setting_changed(&mut self, key: &str) {
+        self.restart_where(key, |s| s.options.iter().any(|(k, _)| *k == key));
+    }
+
+    /// A shared value a server is set up from changed: those servers start
+    /// again with it.
+    pub fn shared_changed(&mut self, key: &str) {
+        self.restart_where(key, |s| s.shared.contains(&key));
+    }
+
+    /// Starts again the running servers whose spec `uses` says, because of
+    /// what `key` names.
+    fn restart_where(&mut self, key: &str, uses: impl Fn(&Spec) -> bool) {
         let affected: Vec<&str> = self
             .specs
             .iter()
-            .filter(|s| s.options.iter().any(|(k, _)| *k == key))
+            .filter(|s| uses(s))
             .map(|s| s.program)
             .collect();
         if affected.is_empty() {
@@ -312,6 +324,16 @@ impl Plugin for Lsp {
         Lsp::pick(self, picker, item);
     }
 
+    fn setting_changed(&mut self, key: &str) {
+        Lsp::setting_changed(self, key);
+        self.report_status();
+    }
+
+    fn shared_changed(&mut self, key: &str) {
+        Lsp::shared_changed(self, key);
+        self.report_status();
+    }
+
     fn buffer(&mut self, event: BufferEvent) {
         Lsp::buffer(self, event);
         self.report_status();
@@ -386,6 +408,12 @@ impl<P: Plugin> Plugin for WithLsp<P> {
     fn setting_changed(&mut self, key: &str) {
         self.inner.setting_changed(key);
         self.lsp.setting_changed(key);
+        self.lsp.report_status();
+    }
+
+    fn shared_changed(&mut self, key: &str) {
+        self.inner.shared_changed(key);
+        self.lsp.shared_changed(key);
         self.lsp.report_status();
     }
 

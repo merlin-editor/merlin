@@ -1137,3 +1137,57 @@ fn drawings_come_with_their_shapes_and_frames() {
     let more = drawing(&moving).unwrap().items.len();
     assert_eq!(more, d.items.len() + 1, "the moving dot");
 }
+
+/// A second copy of the testbed, named `second`, next to the first.
+fn second_copy(dir: &Path) -> PathBuf {
+    let second = dir.parent().unwrap().join("second");
+    fs::create_dir_all(second.join("target/wasm32-wasip2/release")).unwrap();
+    fs::copy(dir.join(WASM), second.join(WASM)).unwrap();
+    let manifest = fs::read_to_string(dir.join("plugin.toml"))
+        .unwrap()
+        .replacen("name = \"testbed\"", "name = \"second\"", 1)
+        .replacen("title = \"Testbed\"", "title = \"Second\"", 1);
+    fs::write(second.join("plugin.toml"), manifest).unwrap();
+    second
+}
+
+#[test]
+fn plugins_share_values_with_the_plugins_that_watch_them() {
+    let (dir, mut config) = setup("shared");
+    config.ask = false;
+    let second = second_copy(&dir);
+    let mut host = PluginHost::new(config).unwrap();
+    host.load(&dir).unwrap();
+    host.load(&second).unwrap();
+    let poll = |host: &mut PluginHost| notices(host.poll_processes(snapshot).0);
+
+    // The watcher hears; the one that shared doesn't.
+    assert!(host.run_command("testbed", "share", snapshot()).is_empty());
+    assert_eq!(poll(&mut host), ["compile-commands now [testbed: build]"]);
+    // The same value again is no change.
+    host.run_command("testbed", "share", snapshot());
+    assert!(poll(&mut host).is_empty());
+
+    // Each reads the others' values, not its own.
+    host.run_command("second", "share", snapshot());
+    assert_eq!(poll(&mut host), ["compile-commands now [second: build]"]);
+
+    host.run_command("testbed", "unshare", snapshot());
+    assert_eq!(poll(&mut host), ["compile-commands now []"]);
+
+    // A plugin that stops takes back what it shared.
+    host.run_command("testbed", "share", snapshot());
+    poll(&mut host);
+    let events = host.set_enabled("testbed", false);
+    assert_eq!(notices(events), ["compile-commands now []"]);
+
+    // Keys the manifest doesn't list, and values that aren't JSON.
+    let errors = notices(host.run_command("second", "share-bad", snapshot()));
+    assert_eq!(errors.len(), 2, "{errors:?}");
+    assert!(
+        errors[0].contains("isn't in the manifest's shared.provides"),
+        "{errors:?}"
+    );
+    assert!(errors[1].contains("is JSON, and this isn't"), "{errors:?}");
+    fs::remove_dir_all(dir.parent().unwrap()).ok();
+}

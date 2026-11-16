@@ -1,4 +1,4 @@
-package merlin:plugin@0.15.0;
+package merlin:plugin@0.16.0;
 
 interface types {
   /// What a run of text is, for its colour.
@@ -1157,6 +1157,15 @@ interface host {
   set-secret: func(key: string, value: string) -> result<_, string>;
   delete-secret: func(key: string);
 
+  /// Shares a value with other plugins under a key the manifest's
+  /// `shared.provides` lists, as JSON of at most 64 KB; none takes it
+  /// back. It lasts while the plugin runs. Plugins that watch the key
+  /// hear of it at `on-shared`.
+  share: func(key: string, value: option<string>) -> result<_, string>;
+  /// What other plugins share under a key the manifest's `shared.watches`
+  /// lists: each plugin's name and its JSON, in the order they shared.
+  shared: func(key: string) -> result<list<tuple<string, string>>, string>;
+
   /// Starts an HTTPS request to a host `permissions.network` lists, and
   /// returns its id at once. The response arrives at `on-fetch`. Bodies
   /// are at most 10 MB each way, and at most 8 requests are open at once.
@@ -1248,6 +1257,10 @@ world plugin {
   export page-text: func(surface: u32, page: u32) -> list<text-box>;
   /// The document's tab closed.
   export close-document: func(surface: u32);
+
+  /// What another plugin shares under a key the manifest watches
+  /// changed, or went. `shared` has what's there now.
+  export on-shared: func(key: string);
 
   /// A request from `fetch` ended: its response, or why there's none.
   export on-fetch: func(id: u32, response: result<fetch-response, string>);
