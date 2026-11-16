@@ -290,8 +290,8 @@ impl Frame<'_> {
     fn ask_rows(&mut self, a: &AskCard, w: f32) -> usize {
         let mut rows = 1;
         let mut x = 0.0;
-        for b in a.buttons.iter().chain(&a.quiet) {
-            let bw = self.small_width(&b.label);
+        for (n, b) in a.buttons.iter().chain(&a.quiet).enumerate() {
+            let bw = self.small_width(&format!("{} {}", n + 1, b.label));
             if x > 0.0 && x + bw > w {
                 rows += 1;
                 x = 0.0;
@@ -456,13 +456,15 @@ impl Frame<'_> {
         for (k, (b, look)) in buttons.into_iter().enumerate() {
             let index = target.map(|t| t + k);
             let focused = sv.focused && index == Some(sv.selected);
-            // Answers that don't fit go on the next line.
-            let need = self.small_width(&b.label);
+            // Each answer with its key, 1 to 9. Those that don't fit go
+            // on the next line.
+            let label = format!("{} {}", k + 1, b.label);
+            let need = self.small_width(&label);
             if bx > x && bx + need > x + w {
                 bx = x;
                 y += SMALL_H + 6.0;
             }
-            let bw = self.small_button(&b.label, bx, y, look, focused);
+            let bw = self.small_button(&label, bx, y, look, focused);
             if let Some(index) = index {
                 self.hit(Rect::new(bx, y, bw, SMALL_H), chat_pick(side, index));
             }

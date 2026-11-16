@@ -768,3 +768,58 @@ fn a_message_sent_while_it_works_waits_and_goes_next() {
     );
     assert!(!chat(&s).contains("next:"));
 }
+
+#[test]
+fn keys_answer_a_card_and_words_instead_deny_it_and_go_next() {
+    let mut s = session();
+    send(&mut s, "go");
+    calls(&mut s);
+    say(
+        &mut s,
+        AgentUpdate::Ask {
+            request: 5,
+            what: AgentRequest::Run("cargo test".into()),
+        },
+    );
+    s.run("key 3");
+    let c = calls(&mut s);
+    assert!(
+        matches!(
+            &c[..],
+            [AgentCall::Answer {
+                request: 5,
+                answer: AgentAnswer::Deny,
+                ..
+            }]
+        ),
+        "{c:?}"
+    );
+    say(
+        &mut s,
+        AgentUpdate::Ask {
+            request: 6,
+            what: AgentRequest::Run("cargo test".into()),
+        },
+    );
+    assert!(
+        chat(&s).contains("Or tell it what to do instead"),
+        "{}",
+        chat(&s)
+    );
+    s.click_entry("Allow Once", 1);
+    calls(&mut s);
+    // A mode that never asks says so above the box.
+    with_modes(&mut s);
+    say(
+        &mut s,
+        AgentUpdate::Modes {
+            modes: vec![mode("yolo", AgentAsks::Never)],
+            current: "yolo".into(),
+        },
+    );
+    assert!(
+        chat(&s).contains("acts without asking in Yolo"),
+        "{}",
+        chat(&s)
+    );
+}

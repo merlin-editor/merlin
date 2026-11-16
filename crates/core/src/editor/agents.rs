@@ -19,6 +19,8 @@ use crate::panel::{
 pub(crate) const AGENT: &str = "merlin.agent:";
 /// The chat's text box.
 const PROMPT: &str = "agent.prompt";
+/// Under a permission card: what to do instead.
+pub(crate) const INSTEAD: &str = "agent.instead";
 
 /// An agent a plugin adds, as `[[agents]]` declares it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -2049,6 +2051,15 @@ impl Editor {
         }
         if let Some(ask) = tab.asks.first() {
             nodes.push(Node::Ask(Box::new(self.ask_card(&agent, ask, tab))));
+            // Or what to do instead: it denies, and goes to the agent next.
+            if ask.request.is_some() || ask.held.is_some() {
+                nodes.push(Node::Input {
+                    id: INSTEAD.into(),
+                    placeholder: "Or tell it what to do instead…".into(),
+                    secret: false,
+                    multiline: false,
+                });
+            }
         }
         match &tab.ended {
             Some((AgentOutcome::Cancelled, _)) => {
@@ -2079,6 +2090,26 @@ impl Editor {
             _ => {}
         }
         nodes.push(Node::Footer);
+        // A mode that never asks says so, in red, above the box.
+        if let Some(m) = tab
+            .mode
+            .as_ref()
+            .and_then(|m| tab.modes.iter().find(|x| &x.id == m))
+            .filter(|m| m.asks == AgentAsks::Never)
+        {
+            nodes.push(Node::Banner {
+                title: vec![(
+                    format!(
+                        "{agent} acts without asking in {}. merlin still lists its file changes to Keep or Undo.",
+                        m.name
+                    ),
+                    false,
+                )],
+                detail: String::new(),
+                tone: Tone::Error,
+                buttons: Vec::new(),
+            });
+        }
         // Above the box: the plan, messages waiting, and changed files.
         let plan = tab.turns.iter().rev().find_map(|t| match t {
             Turn::Agent(reply) => reply.iter().find_map(|i| match i {
@@ -2681,6 +2712,18 @@ impl Editor {
         true
     }
 
+    /// What to do instead, typed under a card: the card is denied and the
+    /// words go to the agent next.
+    pub(crate) fn agent_instead(&mut self, panel: &str, text: &str, fx: &mut Vec<Effect>) {
+        let Some(key) = panel.strip_prefix(AGENT).map(str::to_string) else {
+            return;
+        };
+        if let Some(tab) = self.agents.tabs.iter_mut().find(|t| t.key == key) {
+            tab.queued.insert(0, text.trim().to_string());
+        }
+        self.agent_answer(&key, AgentAnswer::Deny, fx);
+    }
+
     /// Enter and Esc answer a permission card while one shows.
     pub(crate) fn agent_key(&mut self, key: crate::key::Key, fx: &mut Vec<Effect>) -> bool {
         let Some(tab_key) = self.shown_agent() else {
@@ -2726,6 +2769,40 @@ impl Editor {
             .any(|t| t.key == tab_key && !t.asks.is_empty());
         if !asking {
             return false;
+        }
+        // 1, 2, 3…: the card's answers in order, while nothing's typed.
+        let typed = self
+            .inputs
+            .get(&(format!("{AGENT}{tab_key}"), PROMPT.to_string()))
+            .is_some_and(|t| !t.is_empty());
+        let in_instead = self
+            .focused_input(Side::Right)
+            .is_some_and(|(_, id)| id == INSTEAD);
+        if let crate::key::KeyCode::Char(c @ '1'..='9') = key.code
+            && !typed
+            && !in_instead
+            && !key.ctrl
+            && !key.alt
+        {
+            let ids: Vec<String> = self
+                .agents
+                .tabs
+                .iter()
+                .find(|t| t.key == tab_key)
+                .and_then(|t| Some(self.ask_card(&self.agent_name(&tab_key), t.asks.first()?, t)))
+                .map(|card| {
+                    card.buttons
+                        .iter()
+                        .chain(&card.quiet)
+                        .map(|b| b.id.clone())
+                        .collect()
+                })
+                .unwrap_or_default();
+            if let Some(id) = ids.get(c as usize - '1' as usize) {
+                let id = id.clone();
+                self.agent_click(&id, fx);
+                return true;
+            }
         }
         match key.code {
             crate::key::KeyCode::Enter if !key.ctrl => {

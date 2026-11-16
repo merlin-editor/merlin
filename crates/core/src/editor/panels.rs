@@ -456,7 +456,11 @@ impl Editor {
                             if input_key.0 == super::debug::DEBUG {
                                 self.debug_submit(&input_key.1, &text, fx);
                             } else {
-                                self.view_submit(&input_key.0, &text, fx);
+                                if input_key.1 == super::agents::INSTEAD {
+                                    self.agent_instead(&input_key.0, &text, fx);
+                                } else {
+                                    self.view_submit(&input_key.0, &text, fx);
+                                }
                             }
                         }
                     }
