@@ -30,6 +30,21 @@ type = "list"
 title = "Compilers to ask"
 description = "Compilers clangd may run to learn their include folders and target, as globs such as /usr/bin/arm-none-eabi-*. Needed for gcc and cross-compilers; clang's own clangd already knows."
 
+[settings.fallback-style]
+type = "choice"
+title = "Style when there's no .clang-format"
+default = "LLVM"
+choices = [
+    { value = "LLVM", label = "LLVM: 2 spaces" },
+    { value = "Google", label = "Google: 2 spaces" },
+    { value = "Chromium", label = "Chromium: 2 spaces" },
+    { value = "Mozilla", label = "Mozilla: 2 spaces" },
+    { value = "GNU", label = "GNU: 2 spaces, braces on their own lines" },
+    { value = "WebKit", label = "WebKit: 4 spaces" },
+    { value = "Microsoft", label = "Microsoft: 4 spaces, braces on their own lines" },
+]
+description = "How clangd lays out code it formats or writes, such as an extracted function, in a project without a .clang-format file. A .clang-format always wins; add one for anything else, such as LLVM's style with 4 spaces."
+
 [[languages]]
 id = "c"
 name = "C"

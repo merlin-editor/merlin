@@ -216,7 +216,8 @@ printers are lldb-dap's and gdb's own, so they need checking there first.
      project has no `.clang-format`. Its `--fallback-style` takes only a
      style's name (`LLVM`, `Google`, `WebKit`…): a `{…}` style is ignored
      without a word, and so is the indent a formatting request sends.
-     Only a `.clang-format` gives LLVM with 4 spaces.
+     Only a `.clang-format` gives LLVM with 4 spaces. The plugin has a
+     "Style when there's no .clang-format" setting with the named ones.
    - After define outline, the source file showed a stale error until
      both files were saved: clangd doesn't recheck one open file when a
      header it includes changes, and merlin sends only the active file.
