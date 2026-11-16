@@ -828,6 +828,13 @@ this order, each step committed and checked against its cards:
 8. @ (2), hover Edit, Copy and Rewind (8), chats kept and listed (9), ↓ and
    Alt ↑ ↓ (10), Follow Along (11), tab dots (12).
 
+All eight built 2026-11-16 and checked in the window with the testbed's
+Echo and with Antigravity. Left out for now: @'s symbols, terminal output
+and branch changes; Alt ↑ ↓; coloured badges inside the mode menu and the
+hand-over buttons; "tell it what to do instead" sits under the card, not
+in it; Review in the changes bar opens a tab per file; a past chat opened
+again starts the agent afresh (ACP's `session/load` isn't used yet).
+
 **ACP is a library, and each agent is its own plugin** (decided
 2026-11-16). merlin's agent API above is the layer between merlin and every
 agent plugin; ACP is what many agent programs speak on their side.
