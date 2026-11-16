@@ -148,6 +148,15 @@ while True:
         send({"id": message["id"], "result": [{
             "uri": uri, "range": {"start": {"line": 2, "character": 4}, "end": {"line": 2, "character": 8}},
         }]})
+    elif method in ("textDocument/declaration", "textDocument/implementation"):
+        # One declaration, as a location link; two implementations.
+        uri = params["textDocument"]["uri"]
+        at = lambda l: {"start": {"line": l, "character": 4}, "end": {"line": l, "character": 5}}
+        if method == "textDocument/declaration":
+            result = [{"targetUri": uri, "targetRange": at(1), "targetSelectionRange": at(1)}]
+        else:
+            result = [{"uri": uri, "range": at(1)}, {"uri": uri, "range": at(2)}]
+        send({"id": message["id"], "result": result})
     elif method == "textDocument/completion":
         items = [
             {"label": "push", "detail": "fn(&mut self, T)", "sortText": "2"},

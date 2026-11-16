@@ -27,6 +27,7 @@ const RUST_SERVER: Spec = Spec {
     ],
     install: Some("rustup component add rust-analyzer"),
     flags: &[],
+    restarts: &[],
     shared: &[],
     adjust: None,
 };

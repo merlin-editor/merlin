@@ -439,6 +439,18 @@ impl Lsp {
                     None => host::log(LogLevel::Info, "Go to Definition: none found"),
                 }
             }
+            Request::GoTo { what } => {
+                let places = locations(result);
+                match places.as_slice() {
+                    [] => host::log(LogLevel::Info, &format!("Go to {what}: none found")),
+                    [one] => host::open_at(&one.path, one.start),
+                    _ => host::show_references(&places),
+                }
+            }
+            Request::SwitchSourceHeader => match result.as_str().and_then(path_of) {
+                Some(path) => host::open_at(&path, Position { line: 0, column: 0 }),
+                None => host::notice(LogLevel::Info, "No matching header or source file", &[]),
+            },
             Request::DefinitionLink => {
                 let list = match result {
                     Value::Array(list) => list.iter().collect(),
@@ -576,4 +588,24 @@ impl Lsp {
             }
         }
     }
+}
+
+/// Places from a location, a list of them, or location links.
+fn locations(result: &Value) -> Vec<Location> {
+    let list = match result {
+        Value::Array(list) => list.iter().collect(),
+        Value::Null => Vec::new(),
+        one => vec![one],
+    };
+    list.into_iter()
+        .filter_map(|l| {
+            let uri = l.get("targetUri").or(l.get("uri"))?.as_str()?;
+            let range = l.get("targetSelectionRange").or(l.get("range"))?;
+            Some(Location {
+                path: path_of(uri)?,
+                start: position(&range["start"]),
+                end: position(&range["end"]),
+            })
+        })
+        .collect()
 }

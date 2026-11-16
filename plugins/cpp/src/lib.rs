@@ -44,24 +44,60 @@ const CPP_SERVER: Spec = Spec {
         ("fallback-style", "--fallback-style="),
     ],
     install: Some("sudo apt install clangd"),
+    restarts: &["compile-commands", "include-folders", "defines"],
     shared: &[CompileCommands::KEY],
-    adjust: Some(compile_commands),
+    adjust: Some(adjust),
 };
 
-/// Tells clangd where `compile_commands.json` is: the setting, else what a
-/// build plugin shares, else nothing, and clangd looks for itself.
-fn compile_commands(options: &mut serde_json::Value) {
-    let dir = settings::text("compile-commands")
-        .filter(|d| !d.trim().is_empty())
-        .or_else(|| shared::get::<CompileCommands>().map(|c| c.dir));
-    let Some(dir) = dir else {
-        return;
-    };
-    let dir = std::path::Path::new(host::workspace_root().as_str()).join(dir.trim());
+/// clangd's start-up options from the plugin's settings and what build
+/// plugins share.
+fn adjust(options: &mut serde_json::Value) {
     if !options.is_object() {
         *options = serde_json::Value::Object(Default::default());
     }
-    options["compilationDatabasePath"] = dir.to_string_lossy().into_owned().into();
+    let root = host::workspace_root();
+    if let Some(dir) = compile_commands_dir() {
+        let dir = std::path::Path::new(&root).join(dir.trim());
+        options["compilationDatabasePath"] = dir.to_string_lossy().into_owned().into();
+    }
+    let flags = fallback_flags(&root, &list("include-folders"), &list("defines"));
+    if !flags.is_empty() {
+        options["fallbackFlags"] = flags.into();
+    }
+}
+
+/// Where `compile_commands.json` is: the setting, else what a build
+/// plugin shares, else nothing, and clangd looks for itself.
+fn compile_commands_dir() -> Option<String> {
+    settings::text("compile-commands")
+        .filter(|d| !d.trim().is_empty())
+        .or_else(|| shared::get::<CompileCommands>().map(|c| c.dir))
+}
+
+/// A list setting's items, trimmed, without empty ones.
+fn list(key: &str) -> Vec<String> {
+    let Some(merlin_plugin::Setting::Other(text)) = host::get_setting(key) else {
+        return Vec::new();
+    };
+    serde_json::from_str::<Vec<String>>(&text)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+/// Flags for files no compile command covers: include folders, relative
+/// to the workspace or absolute, and defines, as `NAME` or `NAME=value`.
+fn fallback_flags(root: &str, folders: &[String], defines: &[String]) -> Vec<String> {
+    let folders = folders.iter().map(|f| {
+        let path = std::path::Path::new(root).join(f);
+        format!("-I{}", path.display())
+    });
+    let defines = defines
+        .iter()
+        .map(|d| format!("-D{}", d.trim_start_matches("-D")));
+    folders.chain(defines).collect()
 }
 
 const EXTENSIONS: &[&str] = &[
@@ -152,3 +188,26 @@ merlin_plugin::export!(WithLsp<Cpp> => WithLsp::new(
     "C/C++",
     &[CPP_SERVER],
 ));
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fallback_flags_hold_include_folders_and_defines() {
+        let flags = fallback_flags(
+            "/work",
+            &["include".into(), "/opt/sdk/include".into()],
+            &["DEBUG".into(), "-DLEVEL=2".into()],
+        );
+        assert_eq!(
+            flags,
+            [
+                "-I/work/include",
+                "-I/opt/sdk/include",
+                "-DDEBUG",
+                "-DLEVEL=2"
+            ]
+        );
+    }
+}

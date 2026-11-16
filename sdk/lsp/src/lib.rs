@@ -70,11 +70,37 @@ impl Lsp {
         }
     }
 
+    fn go_to(&mut self, method: &str, what: &str) {
+        self.ask(method, Request::GoTo { what: what.into() });
+    }
+
+    /// Opens the header for the source file, or the source for the header,
+    /// as clangd finds it.
+    fn switch_source_header(&mut self) {
+        let Some((path, spec, language)) = self.active() else {
+            return;
+        };
+        self.catch_up(&path, spec, language);
+        let server = self.ensure(spec);
+        server.request(
+            "textDocument/switchSourceHeader",
+            json!({"uri": uri(&path)}),
+            Request::SwitchSourceHeader,
+        );
+    }
+
     pub fn commands(&self) -> Vec<Command> {
         let prefix = self.title;
-        vec![
+        let clangd = self.specs.iter().any(|s| s.program == "clangd");
+        let mut commands = vec![
             Command::new("hover", format!("{prefix}: Show Hover")).key("alt+k"),
             Command::new("definition", format!("{prefix}: Go to Definition")).key("alt+d"),
+            Command::new("declaration", format!("{prefix}: Go to Declaration")),
+            Command::new("implementation", format!("{prefix}: Go to Implementations")),
+            Command::new(
+                "type-definition",
+                format!("{prefix}: Go to Type Definition"),
+            ),
             Command::new("complete", format!("{prefix}: Complete")).key("ctrl+space"),
             Command::new("restart", format!("{prefix}: Restart Servers")),
             // Ctrl+. in the editor, which offers them its own way.
@@ -94,7 +120,18 @@ impl Lsp {
             Command::new("rename", format!("{prefix}: Rename")),
             // The editor's Shift+F12, which peeks at them.
             Command::new("references", format!("{prefix}: Find References")),
-        ]
+        ];
+        // clangd's own, with the key its VS Code extension gives it.
+        if clangd {
+            commands.push(
+                Command::new(
+                    "switch-source-header",
+                    format!("{prefix}: Switch Header/Source"),
+                )
+                .key("alt+o"),
+            );
+        }
+        commands
     }
 
     pub fn run_command(&mut self, id: &str) {
@@ -103,6 +140,10 @@ impl Lsp {
             // The editor's hover as the mouse rests, which it doesn't list.
             "hover-rest" => self.ask("textDocument/hover", Request::Hover { manual: false }),
             "definition" => self.ask("textDocument/definition", Request::Definition),
+            "declaration" => self.go_to("textDocument/declaration", "Declaration"),
+            "implementation" => self.go_to("textDocument/implementation", "Implementations"),
+            "type-definition" => self.go_to("textDocument/typeDefinition", "Type Definition"),
+            "switch-source-header" => self.switch_source_header(),
             // The editor's Ctrl over a name, which it doesn't list.
             "definition-link" => self.ask("textDocument/definition", Request::DefinitionLink),
             "code-actions" => self.ask("textDocument/codeAction", Request::CodeActions),
@@ -133,7 +174,7 @@ impl Lsp {
     /// A setting a server gets changed: those servers start again with it.
     pub fn setting_changed(&mut self, key: &str) {
         self.restart_where(key, |s| {
-            s.options.iter().chain(s.flags).any(|(k, _)| *k == key)
+            s.options.iter().chain(s.flags).any(|(k, _)| *k == key) || s.restarts.contains(&key)
         });
     }
 

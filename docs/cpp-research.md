@@ -221,10 +221,27 @@ printers are lldb-dap's and gdb's own, so they need checking there first.
    - After define outline, the source file showed a stale error until
      both files were saved: clangd doesn't recheck one open file when a
      header it includes changes, and merlin sends only the active file.
-3. **The rest of the LSP SDK**: declaration, implementation, type
-   definition, links, highlights, selection ranges, switch header/source,
-   and inactive regions. Mostly commands and keys; inactive regions and
-   highlights need a look in the mock-ups.
+3. **The rest of the LSP SDK** (part built 2026-11-16):
+   - Built: Go to Declaration, Go to Implementations (several go to the
+     peek view) and Go to Type Definition, in the palette; Switch
+     Header/Source on Alt+O, with clangd. Plugins may bind only Ctrl or
+     Alt and a letter, so Implementations has no Ctrl+F12; adding them
+     to the right-click menu needs a mock-up.
+   - Include folders and Defines settings, sent to clangd as
+     `fallbackFlags` for files no compile command covers. There's no
+     standard setting: the flags go to C and C++ files alike, and
+     `-std=c++20` on a C file is an error. `Spec.restarts` lists settings
+     that `adjust` reads, so changing one restarts the server; before,
+     changing "Compile commands folder" didn't.
+   - Not needed: expand selection is the editor's own (Shift+Alt+→), and
+     Ctrl+click on an `#include` already opens it, through clangd's
+     definition.
+   - Left as is: errors in other open files update when the header is
+     saved. clangd re-checks the files that include a header only when it
+     changes on disk; its `forceRebuild` would do it sooner, at the cost
+     of a rebuild on each switch. VS Code with clangd does the same.
+   - Still to do, after a look in the mock-ups: highlighting the name's
+     other uses, and dimming inactive `#if` blocks.
 4. **Needs a mock-up first**:
    - The CMake plugin's status bar, presets and build output.
    - A call and type hierarchy view.

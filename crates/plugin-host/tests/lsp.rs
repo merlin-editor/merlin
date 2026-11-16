@@ -132,6 +132,25 @@ fn definition_opens_the_location() {
 }
 
 #[test]
+fn one_declaration_opens_and_several_implementations_peek() {
+    let mut host = started();
+    host.run_command("rust", "declaration", snapshot());
+    let Event::OpenAt { line, column, .. } = wait_for(&mut host, "declaration", |e| {
+        matches!(e, Event::OpenAt { .. })
+    }) else {
+        unreachable!()
+    };
+    assert_eq!((line, column), (1, 4), "from the link's selection range");
+    host.run_command("rust", "implementation", snapshot());
+    let Event::ShowReferences(places) = wait_for(&mut host, "implementations", |e| {
+        matches!(e, Event::ShowReferences(_))
+    }) else {
+        unreachable!()
+    };
+    assert_eq!(places.len(), 2);
+}
+
+#[test]
 fn completions_come_sorted_with_their_insert_text() {
     let mut host = started();
     host.run_command("rust", "complete", snapshot());

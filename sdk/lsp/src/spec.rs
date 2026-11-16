@@ -26,6 +26,9 @@ pub struct Spec {
     /// a change to one restarts it. They must be in the manifest's
     /// `shared.watches`.
     pub shared: &'static [&'static str],
+    /// The plugin's settings `adjust` reads: a change to one restarts the
+    /// server, as for `options` and `flags`.
+    pub restarts: &'static [&'static str],
     /// Has the last say over the JSON settings, after `settings` and
     /// `options`: to put in what a shared value says, say. It runs each
     /// time the server starts.

@@ -229,3 +229,52 @@ fn clangds_refactors_run_and_make_their_edit() {
     );
     std::fs::remove_dir_all(root).ok();
 }
+
+/// Alt+O goes between a source file and its header, as clangd finds them.
+/// Only where clangd is installed.
+#[test]
+fn switches_between_header_and_source() {
+    use std::time::{Duration, Instant};
+    if std::process::Command::new("clangd")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        eprintln!("clangd isn't installed; skipping");
+        return;
+    }
+    let (mut host, events) = host();
+    let key = events.iter().find_map(|e| match e {
+        Event::RegisterPlugin { commands, .. } => commands
+            .iter()
+            .find(|c| c.id == "switch-source-header")
+            .map(|c| c.key.clone()),
+        _ => None,
+    });
+    assert_eq!(key, Some(Some("alt+o".to_string())));
+    let root = std::env::temp_dir().join(format!("merlin-cpp-switch-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("shape.h"), "int area();\n").unwrap();
+    let text = "#include \"shape.h\"\nint area() { return 1; }\n";
+    std::fs::write(root.join("shape.cpp"), text).unwrap();
+    let at = Snapshot {
+        root: root.clone(),
+        ..snapshot("shape.cpp", text)
+    };
+    host.buffer_event(&BufferEvent::Switched, &at);
+    host.run_command("cpp", "switch-source-header", at.clone());
+    let until = Instant::now() + Duration::from_secs(30);
+    let path = loop {
+        let (events, _) = host.poll_processes(|| at.clone());
+        if let Some(path) = events.into_iter().find_map(|e| match e {
+            Event::OpenAt { path, .. } => Some(path),
+            _ => None,
+        }) {
+            break path;
+        }
+        assert!(Instant::now() < until, "no header opened");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert_eq!(path, Path::new("shape.h"));
+    std::fs::remove_dir_all(root).ok();
+}

@@ -22,6 +22,7 @@ const JS_SERVER: Spec = Spec {
     options: &[],
     install: Some("npm install -g typescript-language-server typescript"),
     flags: &[],
+    restarts: &[],
     shared: &[],
     adjust: None,
 };

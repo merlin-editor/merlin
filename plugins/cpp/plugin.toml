@@ -25,6 +25,16 @@ type = "text"
 title = "Compile commands folder"
 description = "The folder compile_commands.json is in, relative to the workspace or absolute. Empty to use the one a build plugin shares, or let clangd look for it."
 
+[settings.include-folders]
+type = "list"
+title = "Include folders"
+description = "Folders to find headers in, relative to the workspace or absolute, for files no compile_commands.json or compile_flags.txt covers: a project without a build system, say."
+
+[settings.defines]
+type = "list"
+title = "Defines"
+description = "Macros to define, as NAME or NAME=value, for files no compile_commands.json or compile_flags.txt covers."
+
 [settings.query-driver]
 type = "list"
 title = "Compilers to ask"

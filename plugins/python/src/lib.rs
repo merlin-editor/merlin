@@ -16,6 +16,7 @@ const PYTHON_SERVER: Spec = Spec {
     options: &[],
     install: Some("npm install -g pyright"),
     flags: &[],
+    restarts: &[],
     shared: &[],
     adjust: None,
 };

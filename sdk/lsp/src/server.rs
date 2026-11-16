@@ -29,6 +29,13 @@ pub(crate) enum Request {
     /// Where the name under Ctrl is defined, for the editor to show as a
     /// link: every place, without going there.
     DefinitionLink,
+    /// Go to a declaration, implementation or type definition, as `what`
+    /// names it: one place opens, several go to the peek view.
+    GoTo {
+        what: String,
+    },
+    /// clangd's own: the header for a source file, or the other way.
+    SwitchSourceHeader,
     CodeActions,
     /// A code action's command, which the server runs.
     ExecuteCommand,
