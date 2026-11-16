@@ -54,7 +54,7 @@ pub(crate) struct Saving {
 impl Editor {
     /// The file's indentation: the `.editorconfig`'s, else the file's own
     /// when detection is on, else the settings'.
-    pub(crate) fn indent(&self) -> Indent {
+    pub fn indent(&self) -> Indent {
         let doc = self.doc();
         let config = &doc.config;
         let mut indent = match doc.indent {

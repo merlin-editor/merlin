@@ -217,6 +217,9 @@ pub struct Snapshot {
     pub changed: Option<Vec<(u32, u32)>>,
     /// The file the last right-click menu was opened on.
     pub menu_target: Option<String>,
+    /// The active file's indentation: tabs or not, and the width. None
+    /// when no file is open.
+    pub indent: Option<(bool, u32)>,
 }
 
 /// Selected text, and where it starts and ends as lines and UTF-16 columns.

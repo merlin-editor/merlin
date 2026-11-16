@@ -1096,6 +1096,10 @@ fn snapshot(editor: &Editor, root: &Path) -> Snapshot {
             .map(|((start, end), text)| Selection { start, end, text }),
         changed: editor.changed_lines(),
         menu_target: editor.menu_target(),
+        indent: buffer.path.as_ref().map(|_| {
+            let indent = editor.indent();
+            (indent.tabs, indent.width as u32)
+        }),
     }
 }
 

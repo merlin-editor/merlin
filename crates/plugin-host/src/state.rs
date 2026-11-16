@@ -254,6 +254,11 @@ impl host::Host for State {
         Ok(types::Position { line, column })
     }
 
+    fn active_indent(&mut self) -> types::Indent {
+        let (tabs, width) = self.snapshot.indent.unwrap_or((false, 4));
+        types::Indent { tabs, width }
+    }
+
     fn active_selection(&mut self) -> Result<Option<types::Selection>, String> {
         self.need(self.permissions.editor_read, "editor-read")?;
         let at = |(line, column)| types::Position { line, column };

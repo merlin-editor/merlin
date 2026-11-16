@@ -54,6 +54,7 @@ fn snapshot() -> Snapshot {
         selection: None,
         changed: None,
         menu_target: None,
+        indent: None,
     }
 }
 
@@ -311,6 +312,15 @@ fn formatting_sends_the_servers_edits_and_changed_lines_ask_for_their_ranges() {
     assert_eq!(
         format_edits(&mut host, "format", snapshot()),
         [((1, 7), (1, 8), "  ".to_string())]
+    );
+    // The server hears the file's own indentation.
+    let tabbed = Snapshot {
+        indent: Some((true, 8)),
+        ..snapshot()
+    };
+    assert_eq!(
+        format_edits(&mut host, "format", tabbed),
+        [((1, 7), (1, 8), "\t".to_string())]
     );
     let changed = Snapshot {
         changed: Some(vec![(2, 2), (0, 0)]),

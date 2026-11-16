@@ -415,7 +415,9 @@ impl Lsp {
         let ready = server.status == Status::Ready;
         let (formats, ranges) = (server.formats || !ready, server.formats_ranges || !ready);
         let doc = json!({"uri": uri(&path)});
-        let options = json!({"tabSize": 4, "insertSpaces": true});
+        // The file's own indentation, as the status bar shows it.
+        let indent = host::active_indent();
+        let options = json!({"tabSize": indent.width, "insertSpaces": !indent.tabs});
         let name = active.rsplit('/').next().unwrap_or(&active).to_string();
         match what {
             Formatting::File if formats => server.request(

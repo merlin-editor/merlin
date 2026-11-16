@@ -57,6 +57,7 @@ fn snapshot(text: &str) -> Snapshot {
         selection: None,
         changed: None,
         menu_target: None,
+        indent: None,
     }
 }
 

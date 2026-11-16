@@ -211,7 +211,15 @@ printers are lldb-dap's and gdb's own, so they need checking there first.
    `workspace/applyEdit` is made. The code actions request sends the
    selection, which extracting needs. Checked with clangd 21: "Replace
    with deduced type" turns `auto` into `int`. Extract function and
-   define outline go the same way but weren't tried in the window.
+   define outline were then tried in the window, and both work.
+   - clangd lays out what it writes in LLVM's style, 2 spaces, when the
+     project has no `.clang-format`. Its `--fallback-style` takes only a
+     style's name (`LLVM`, `Google`, `WebKit`…): a `{…}` style is ignored
+     without a word, and so is the indent a formatting request sends.
+     Only a `.clang-format` gives LLVM with 4 spaces.
+   - After define outline, the source file showed a stale error until
+     both files were saved: clangd doesn't recheck one open file when a
+     header it includes changes, and merlin sends only the active file.
 3. **The rest of the LSP SDK**: declaration, implementation, type
    definition, links, highlights, selection ranges, switch header/source,
    and inactive regions. Mostly commands and keys; inactive regions and

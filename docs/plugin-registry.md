@@ -1043,6 +1043,13 @@ there, and without it says "No compile commands".
 - Showing what plugins share, on a plugin's page or in Browse ("Works with
   CMake"). That's UI, so it needs a mock-up first.
 
+### 13.7 Also in 0.16: the File's Indentation
+
+`active-indent()` gives the open file's indentation as the status bar
+shows it: tabs or spaces, and the width, from its `.editorconfig`, else
+the file, else the settings. The LSP SDK sends it with formatting
+requests, which always said 4 spaces before.
+
 ## 14. Out of Scope
 
 - **Paid plugins.**

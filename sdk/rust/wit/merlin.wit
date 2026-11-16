@@ -534,6 +534,13 @@ interface types {
     lines(tuple<string, u32, u32>),
   }
 
+  /// One level of indentation in a file: a tab, or `width` spaces. With
+  /// tabs, `width` is the columns a tab counts as.
+  record indent {
+    tabs: bool,
+    width: u32,
+  }
+
   /// A place in a file: a line, and a column counted in UTF-16 code units,
   /// as LSP counts them. Both start at 0.
   record position {
@@ -880,7 +887,7 @@ interface types {
 /// What the editor offers a plugin. Calls that need a permission check the
 /// plugin's manifest and return an error naming the permission if denied.
 interface host {
-  use types.{status-item, framing, pick-item, position, selection, text-change, diagnostic, detailed-diagnostic, code-action, file-edit, rename-info, location, project-symbol, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint, signature, task, test-item, test-result, debug-target, debug-launch, function-stop, breakpoint, debug-state, debug-thread, stack-frame, debug-variable, breakpoint-state, stop-filter, inline-value, output-kind, log-level, button, picture, fetch-request, agent-part, agent-request, agent-outcome, chip, agent-command, agent-mode};
+  use types.{status-item, framing, pick-item, position, indent, selection, text-change, diagnostic, detailed-diagnostic, code-action, file-edit, rename-info, location, project-symbol, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint, signature, task, test-item, test-result, debug-target, debug-launch, function-stop, breakpoint, debug-state, debug-thread, stack-frame, debug-variable, breakpoint-state, stop-filter, inline-value, output-kind, log-level, button, picture, fetch-request, agent-part, agent-request, agent-outcome, chip, agent-command, agent-mode};
 
   /// Text of the active buffer. Needs `editor-read`.
   active-text: func() -> result<string, string>;
@@ -899,6 +906,11 @@ interface host {
 
   /// The cursor in the active buffer. Needs `editor-read`.
   active-cursor: func() -> result<position, string>;
+
+  /// The active file's indentation, as the status bar shows it: from its
+  /// `.editorconfig`, else the file itself, else the settings. 4 spaces
+  /// when no file is open.
+  active-indent: func() -> indent;
 
   /// The selection in the active buffer, if anything is selected. Needs
   /// `editor-read`.
