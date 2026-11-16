@@ -9,6 +9,7 @@ const GO_SERVER: Spec = Spec {
     files: &[("go", "go")],
     settings: None,
     options: &[],
+    snippets: false,
     // The manifest's [programs] says how to install it, per system.
     install: None,
     flags: &[],

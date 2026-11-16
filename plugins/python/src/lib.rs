@@ -14,6 +14,7 @@ const PYTHON_SERVER: Spec = Spec {
     files: &[("py", "python"), ("pyi", "python")],
     settings: Some(r#"{"python":{"analysis":{"diagnosticMode":"openFilesOnly"}}}"#),
     options: &[],
+    snippets: false,
     // The manifest's [programs] says how to install it, per system.
     install: None,
     flags: &[],

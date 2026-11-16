@@ -20,6 +20,7 @@ const JS_SERVER: Spec = Spec {
     ],
     settings: Some(r#"{"tsserver":{"maxTsServerMemory":512}}"#),
     options: &[],
+    snippets: false,
     // The manifest's [programs] says how to install it, per system.
     install: None,
     flags: &[],

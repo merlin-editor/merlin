@@ -34,11 +34,12 @@ pub(crate) fn formatted(path: &str, edits: &Value) {
 impl Lsp {
     /// The server and language id for a path, by its extension.
     pub(crate) fn spec_for(&self, path: &str) -> Option<(&'static Spec, &'static str)> {
-        let ext = path.rsplit_once('.')?.1;
+        let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+        let ext = name.rsplit_once('.').map(|(_, e)| e);
         self.specs.iter().find_map(|s| {
             s.files
                 .iter()
-                .find(|(e, _)| e.eq_ignore_ascii_case(ext))
+                .find(|(e, _)| *e == name || ext.is_some_and(|x| e.eq_ignore_ascii_case(x)))
                 .map(|(_, id)| (s, *id))
         })
     }
@@ -129,7 +130,7 @@ impl Lsp {
                         "textDocument": {
                             "synchronization": {"didSave": true},
                             "hover": {"contentFormat": ["markdown", "plaintext"]},
-                            "completion": {"completionItem": {"snippetSupport": false}},
+                            "completion": {"completionItem": {"snippetSupport": spec.snippets}},
                             "definition": {},
                             "declaration": {"linkSupport": true},
                             "implementation": {"linkSupport": true},

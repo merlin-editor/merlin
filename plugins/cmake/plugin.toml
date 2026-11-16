@@ -1,6 +1,6 @@
 name = "cmake"
 title = "CMake"
-description = "CMake colours, Configure, Build and Test tasks from presets, and compile commands for clangd"
+description = "CMake colours, completion and hover, Configure, Build and Test tasks from presets, and compile commands for clangd"
 badge = "CM"
 hue = "green"
 version = "0.1.0"
@@ -15,11 +15,19 @@ editor-read = true
 workspace-read = true
 # To configure in a terminal and hear when it ends.
 terminal = true
+# To format CMake files with the server's edits.
+editor-write = true
+processes = ["neocmakelsp"]
 
 # Where the configured build put compile_commands.json, for the C/C++
 # plugin's clangd.
 [shared]
 provides = ["compile-commands"]
+
+[programs.neocmakelsp]
+for = "Completion, hover, go to definition and formatting"
+install = "cargo install neocmakelsp"
+url = "https://github.com/neocmakelsp/neocmakelsp"
 
 [[languages]]
 id = "cmake"

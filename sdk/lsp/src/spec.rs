@@ -5,7 +5,8 @@
 pub struct Spec {
     pub program: &'static str,
     pub args: &'static [&'static str],
-    /// Extensions and the LSP language id of each.
+    /// Extensions, or whole file names such as `CMakeLists.txt`, and the
+    /// LSP language id of each.
     pub files: &'static [(&'static str, &'static str)],
     /// Optional JSON settings sent as `initializationOptions` and returned
     /// for `workspace/configuration` requests.
@@ -20,6 +21,11 @@ pub struct Spec {
     /// after it joined by commas; a switch that's on adds the flag alone.
     /// A change to one restarts the server.
     pub flags: &'static [(&'static str, &'static str)],
+    /// Whether it's told merlin takes snippets in completions, for a
+    /// server that completes only then, as neocmakelsp does. merlin
+    /// inserts a snippet as plain text, its placeholders' words kept,
+    /// without tab stops.
+    pub snippets: bool,
     /// How to install it, for the language card when it isn't. The
     /// manifest's `[programs]` entry wins, as it can differ per system.
     pub install: Option<&'static str>,

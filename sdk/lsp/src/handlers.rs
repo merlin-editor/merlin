@@ -561,8 +561,13 @@ impl Lsp {
                         let insert = item["textEdit"]["newText"]
                             .as_str()
                             .or(item["insertText"].as_str())
-                            .unwrap_or(&label)
-                            .to_string();
+                            .unwrap_or(&label);
+                        // insertTextFormat 2 is a snippet.
+                        let insert = if item["insertTextFormat"].as_u64() == Some(2) {
+                            plain_snippet(insert)
+                        } else {
+                            insert.to_string()
+                        };
                         let detail = item["labelDetails"]["detail"]
                             .as_str()
                             .or(item["detail"].as_str())
@@ -590,6 +595,73 @@ impl Lsp {
     }
 }
 
+/// A snippet as the text it inserts: `${1:name}` as `name`, a choice
+/// `${1|a,b|}` as its first, and tab stops and variables as nothing.
+pub(crate) fn plain_snippet(snippet: &str) -> String {
+    fn body(chars: &[char], i: &mut usize, until: Option<char>, out: &mut String) {
+        while let Some(&c) = chars.get(*i) {
+            if Some(c) == until {
+                return;
+            }
+            *i += 1;
+            match c {
+                '\\' => {
+                    if let Some(&next) = chars.get(*i) {
+                        out.push(next);
+                        *i += 1;
+                    }
+                }
+                '$' => match chars.get(*i) {
+                    Some('{') => {
+                        *i += 1;
+                        // A number or name, then `:` and a default, `|`
+                        // and choices, or `}`.
+                        while chars.get(*i).is_some_and(|c| c.is_alphanumeric() || *c == '_') {
+                            *i += 1;
+                        }
+                        match chars.get(*i) {
+                            Some(':') => {
+                                *i += 1;
+                                body(chars, i, Some('}'), out);
+                            }
+                            Some('|') => {
+                                *i += 1;
+                                let mut first = true;
+                                while let Some(&c) = chars.get(*i) {
+                                    *i += 1;
+                                    match c {
+                                        '|' => break,
+                                        ',' => first = false,
+                                        c if first => out.push(c),
+                                        _ => {}
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                        // Past what's left to the closing `}`.
+                        while chars.get(*i).is_some_and(|c| *c != '}') {
+                            *i += 1;
+                        }
+                        *i += 1;
+                    }
+                    Some(c) if c.is_alphanumeric() || *c == '_' => {
+                        while chars.get(*i).is_some_and(|c| c.is_alphanumeric() || *c == '_') {
+                            *i += 1;
+                        }
+                    }
+                    _ => out.push('$'),
+                },
+                c => out.push(c),
+            }
+        }
+    }
+    let chars: Vec<char> = snippet.chars().collect();
+    let mut out = String::new();
+    body(&chars, &mut 0, None, &mut out);
+    out
+}
+
 /// Places from a location, a list of them, or location links.
 fn locations(result: &Value) -> Vec<Location> {
     let list = match result {
@@ -608,4 +680,20 @@ fn locations(result: &Value) -> Vec<Location> {
             })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::plain_snippet;
+
+    #[test]
+    fn snippets_insert_as_plain_text() {
+        assert_eq!(plain_snippet("add_library(${1:name} $0)"), "add_library(name )");
+        assert_eq!(plain_snippet("if(${1:cond})\n\t$0\nendif()"), "if(cond)\n\t\nendif()");
+        assert_eq!(plain_snippet("${1|PUBLIC,PRIVATE|} x"), "PUBLIC x");
+        assert_eq!(plain_snippet("${1:outer ${2:inner}}"), "outer inner");
+        assert_eq!(plain_snippet("cost \\$5 ${TM_FILENAME}"), "cost $5 ");
+        assert_eq!(plain_snippet("set(${1})"), "set()");
+        assert_eq!(plain_snippet("plain"), "plain");
+    }
 }

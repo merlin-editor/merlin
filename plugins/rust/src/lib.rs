@@ -25,6 +25,7 @@ const RUST_SERVER: Spec = Spec {
         ("check-command", "check.command"),
         ("features", "cargo.features"),
     ],
+    snippets: false,
     // The manifest's [programs] says how to install it, per system.
     install: None,
     flags: &[],

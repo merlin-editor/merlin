@@ -89,6 +89,14 @@ impl Editor {
     /// The lines for the shown file, with the plugin each is from.
     fn file_status(&self) -> Vec<(&str, &StatusLine)> {
         let ext = self.extension();
+        let name = self
+            .doc()
+            .buffer
+            .path
+            .as_ref()
+            .and_then(|p| p.file_name())
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
         let owner = self.language_owner();
         if ext.is_empty() && owner.is_none() {
             return Vec::new();
@@ -98,7 +106,11 @@ impl Editor {
             .flat_map(|((plugin, _), lines)| lines.iter().map(move |l| (plugin.as_str(), l)))
             .filter(|(plugin, l)| match l.extensions.is_empty() {
                 true => owner == Some(*plugin),
-                false => l.extensions.iter().any(|e| e.eq_ignore_ascii_case(ext)),
+                // An extension, or a whole name such as CMakeLists.txt.
+                false => l
+                    .extensions
+                    .iter()
+                    .any(|e| e == name || (!ext.is_empty() && e.eq_ignore_ascii_case(ext))),
             })
             .collect()
     }

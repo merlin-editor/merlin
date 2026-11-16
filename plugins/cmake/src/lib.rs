@@ -1,13 +1,15 @@
 //! CMake, as a plugin: colours for `CMakeLists.txt` and `.cmake` files,
 //! Configure, Build and Test as tasks, from the project's presets when it
 //! has them, and the build's `compile_commands.json` shared with the C/C++
-//! plugin, so clangd finds it wherever the build is.
+//! plugin, so clangd finds it wherever the build is. neocmakelsp, when
+//! it's installed, completes, explains and finds what's in them.
 
 pub mod lex;
 pub mod presets;
 
 use std::collections::BTreeMap;
 
+use merlin_lsp::{Spec, WithLsp};
 use merlin_plugin::prelude::*;
 use merlin_plugin::shared::{self, CompileCommands};
 use merlin_plugin::text::utf16_column;
@@ -16,6 +18,23 @@ use lex::Kind;
 use presets::Presets;
 
 const MAX_BYTES: usize = 512 * 1024;
+
+/// neocmakelsp: completion, hover, go to definition, formatting and
+/// symbols. It completes only for editors that take snippets.
+const CMAKE_SERVER: Spec = Spec {
+    program: "neocmakelsp",
+    args: &["stdio"],
+    files: &[("CMakeLists.txt", "cmake"), ("cmake", "cmake")],
+    settings: None,
+    options: &[],
+    flags: &[],
+    restarts: &[],
+    shared: &[],
+    adjust: None,
+    snippets: true,
+    // The manifest's [programs] says how to install it, per system.
+    install: None,
+};
 
 /// What a task without a command line does when Run Task picks it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -216,7 +235,11 @@ impl Plugin for Cmake {
     }
 }
 
-merlin_plugin::export!(Cmake);
+merlin_plugin::export!(WithLsp<Cmake> => WithLsp::new(
+    Cmake::default(),
+    "CMake",
+    &[CMAKE_SERVER],
+));
 
 #[cfg(test)]
 mod tests {
