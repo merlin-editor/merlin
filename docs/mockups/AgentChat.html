@@ -1,0 +1,686 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent chat, reworked</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#08090a}
+.board{width:1620px;display:flex;background:#08090a;font-family:Inter,sans-serif}
+.board+.board{margin-top:40px}
+.w{width:1280px;height:800px;background:#0f1012;color:#d4d5da;display:flex;flex-direction:column;font-size:13px;overflow:hidden;position:relative;flex-shrink:0}
+.notes{flex:1;padding:28px 24px;display:flex;flex-direction:column;gap:16px;color:#8e9099;font-size:12.5px;line-height:1.5;min-width:0}
+.notes h3{margin:0 0 4px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#7c9cff}
+.notes b{color:#d4d5da;font-weight:600}
+.notes p{margin:0}
+.bar{height:40px;display:flex;align-items:center;gap:10px;padding:0 12px;flex-shrink:0}
+.logo{width:20px;height:20px;border-radius:5px;background:#7c9cff;color:#0f1012;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
+.search{margin:0 auto;width:400px;height:26px;border-radius:7px;background:#1c1d21;border:1px solid #2c2d33;color:#8e9099;display:flex;align-items:center;gap:8px;padding:0 10px;font-size:12.5px;box-sizing:border-box}
+.kbd{font-size:11px;background:#26272c;border-radius:4px;padding:1px 6px;color:#b4b6bd}
+.mid{flex:1;display:flex;gap:6px;padding-right:6px;min-height:0}
+.rail{width:44px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:6px;padding-top:6px}
+.ri{width:30px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:#7a7d86;font-size:14px}
+.island{background:#17181b;border-radius:10px;display:flex;flex-direction:column;min-width:0;overflow:hidden;position:relative}
+.tabs{height:32px;display:flex;align-items:center;gap:3px;padding:0 6px;flex-shrink:0}
+.tab{height:24px;padding:0 10px;border-radius:6px;display:flex;align-items:center;gap:6px;color:#8e9099;font-size:12.5px;white-space:nowrap}
+.tab.on{background:#26272c;color:#eef0f3;box-shadow:inset 0 0 0 1px #2c2d33}
+.ic{width:14px;height:14px;border-radius:3px;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;background:#3a2a1e;color:#f5a97f;flex-shrink:0}
+.split{flex:1;display:flex;min-height:0}
+.nav{width:176px;padding:12px 8px;display:flex;flex-direction:column;gap:2px;flex-shrink:0}
+.nv{height:30px;display:flex;align-items:center;gap:10px;padding:0 10px;border-radius:6px;font-size:13px;color:#b4b6bd}
+.nv.on{background:#26272c;color:#eef0f3}
+.nv .c{margin-left:auto;font-size:11px;color:#8e9099}
+.nv .dot{margin-left:auto;font-size:10.5px;font-weight:600;background:#2c3a5e;color:#c8d4ff;border-radius:8px;padding:0 6px;height:16px;display:flex;align-items:center}
+.body{flex:1;overflow:hidden;padding:14px 22px 0 18px;min-width:0;display:flex;flex-direction:column;position:relative}
+.find{height:32px;border:1px solid #2c2d33;border-radius:7px;background:#1f2024;display:flex;align-items:center;gap:8px;padding:0 10px;font-size:13px;color:#8e9099;box-sizing:border-box;flex-shrink:0}
+.scope{display:flex;gap:18px;font-size:12.5px;margin-top:12px;border-bottom:1px solid #222328;flex-shrink:0}
+.scope span{padding-bottom:8px;color:#8e9099}
+.scope span.on{color:#eef0f3;box-shadow:inset 0 -2px 0 #7c9cff}
+.cols{flex:1;display:flex;min-height:0;margin-top:12px}
+.plist{width:300px;flex-shrink:0;padding-right:10px;border-right:1px solid #222328;display:flex;flex-direction:column;gap:2px}
+.lt{display:flex;gap:20px;margin-bottom:10px;border-bottom:1px solid #222328;padding-left:4px}
+.lt span{height:28px;display:flex;align-items:center;gap:5px;font-size:12.5px;color:#8e9099}
+.lt span.on{color:#eef0f3;box-shadow:inset 0 -2px 0 #7c9cff}
+.lt .n{font-size:11px;color:#7a7d86}
+.lfind{height:30px;border:1px solid #2c2d33;border-radius:6px;background:#1a1b1e;display:flex;align-items:center;padding:0 10px;font-size:12px;color:#7a7d86;margin-bottom:6px;gap:8px}
+.lfind.typing{border-color:#3d4d7a;color:#eef0f3}
+.src{display:flex;align-items:center;gap:6px;font-size:11px;color:#7a7d86;padding:0 4px 6px}
+.src .r{margin-left:auto;color:#7c9cff}
+.gh{font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#7a7d86;padding:8px 10px 4px;display:flex;align-items:center}
+.gh .more{margin-left:auto;text-transform:none;letter-spacing:0;font-weight:500;color:#7c9cff;font-size:11.5px}
+.pi{height:44px;display:flex;align-items:center;gap:10px;padding:0 10px;border-radius:6px;flex-shrink:0}
+.pi.on{background:#26272c}
+.pi.dim .pn,.pi.dim .pico{opacity:.5}
+.pn{font-size:12.5px;color:#eef0f3;line-height:1.3;min-width:0}
+.pn div{font-size:11px;color:#8e9099;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pm{margin-left:auto;display:flex;align-items:center;gap:8px;flex-shrink:0}
+.pico{width:24px;height:24px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0}
+.sw{width:30px;height:18px;border-radius:9px;background:#2c2d33;position:relative;flex-shrink:0}
+.sw::after{content:"";position:absolute;left:3px;top:3px;width:12px;height:12px;border-radius:50%;background:#8e9099}
+.sw.on{background:#7c9cff}
+.sw.on::after{left:15px;background:#0f1012}
+.sw.lock{opacity:.4}
+.chip{font-size:10.5px;border-radius:4px;padding:1px 6px;font-weight:500;background:#24252a;color:#8e9099;white-space:nowrap}
+.chip.a{background:#2e2618;color:#e6b45c}
+.chip.b{background:#1f2638;color:#9ab0ff}
+.chip.g{background:#1b2a20;color:#7cc48a}
+.chip.r{background:#33191a;color:#f0807a}
+.page{flex:1;padding:0 0 0 18px;min-width:0;color:#8e9099;font-size:12.5px;display:flex;flex-direction:column;position:relative}
+.ph{display:flex;align-items:center;gap:12px}
+.ph .big{width:38px;height:38px;border-radius:9px;font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.ph .t1{font-size:16px;font-weight:600;color:#eef0f3}
+.ph .t2{font-size:11.5px;color:#8e9099;margin-top:2px}
+.ph .t2 a{color:#7c9cff;text-decoration:none}
+.btn{height:28px;border-radius:6px;padding:0 12px;font-size:12.5px;display:inline-flex;align-items:center;gap:6px;border:1px solid #2c2d33;background:#1f2024;color:#d4d5da;white-space:nowrap;box-sizing:border-box;font-family:Inter,sans-serif}
+.btn.p{background:#7c9cff;border-color:#7c9cff;color:#0f1012;font-weight:600}
+.btn.q{border-color:transparent;background:transparent;color:#8e9099;padding:0 6px}
+.btn.sm{height:24px;font-size:12px;padding:0 9px}
+.desc{margin:14px 0 0;color:#b4b6bd;line-height:1.55;font-size:13px;max-width:620px}
+.sec{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#8e9099;margin:20px 0 6px;display:flex;align-items:center;gap:8px}
+.perm{display:flex;align-items:center;gap:9px;font-size:12.5px;min-height:26px;color:#d4d5da}
+.perm .i{width:16px;text-align:center;flex-shrink:0}
+.perm .ok{color:#7cc48a}
+.perm .warn{color:#e6b45c}
+.perm .no{color:#5a5c63}
+.perm .s{color:#7a7d86;font-size:11.5px;margin-left:4px}
+.key{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#b4b6bd;background:#202126;border-radius:4px;padding:0 5px}
+.vt{width:100%;border-collapse:collapse;font-size:12px;max-width:620px}
+.vt td{height:28px;border-bottom:1px solid #222328;color:#b4b6bd;padding-right:14px;white-space:nowrap}
+.vt td:last-child{padding-right:0;text-align:right;width:100%}
+.vt tr.dim td{color:#5a5c63}
+.vt .v{font-family:'JetBrains Mono',monospace;color:#eef0f3}
+.vt tr.dim .v{color:#5a5c63}
+.vt s{color:#7a7d86}
+.banner{border-radius:8px;padding:10px 12px;display:flex;align-items:center;gap:10px;font-size:12.5px;line-height:1.45}
+.banner.a{border:1px solid #3a3320;background:#221f16;color:#e6d4a8}
+.banner.r{border:1px solid #4a2526;background:#251516;color:#f2c3c0}
+.banner.b{border:1px solid #2c3a5e;background:#171c2a;color:#c8d4ff}
+.banner.n{border:1px solid #2c2d33;background:#1a1b1e;color:#b4b6bd}
+.banner .acts{margin-left:auto;display:flex;gap:6px;flex-shrink:0}
+.card{position:absolute;background:#1c1d21;border:1px solid #2c2d33;border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.55);padding:14px 16px;box-sizing:border-box}
+.card h4{margin:0;font-size:13.5px;color:#eef0f3;font-weight:600}
+.card .sub{font-size:12px;color:#8e9099;margin:4px 0 8px;line-height:1.45}
+.card .acts{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
+.status{height:24px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px;color:#8e9099;flex-shrink:0}
+.status .prog{display:flex;align-items:center;gap:8px;color:#c8d4ff}
+.pbar{width:80px;height:4px;border-radius:2px;background:#26272c;overflow:hidden}
+.pbar i{display:block;height:100%;width:42%;background:#7c9cff}
+.tag{position:absolute;font-size:10.5px;font-weight:700;color:#0f1012;background:#7c9cff;border-radius:50%;width:18px;height:18px;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 3px #0f1012}
+/* the states board */
+.grid{width:1620px;display:grid;grid-template-columns:repeat(3,1fr);gap:20px;font-family:Inter,sans-serif}
+.st{background:#0f1012;border-radius:10px;padding:16px;color:#d4d5da;font-size:13px;display:flex;flex-direction:column;gap:10px;min-height:330px;box-sizing:border-box;position:relative}
+.st h2{margin:0;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#7c9cff}
+.st .say{font-size:12px;color:#8e9099;line-height:1.5;margin:0}
+.st .say b{color:#d4d5da;font-weight:600}
+.mini{background:#17181b;border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:2px}
+.notice{background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;padding:10px 12px;font-size:12.5px;display:flex;flex-direction:column;gap:8px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
+.notice .h{display:flex;gap:8px;align-items:flex-start;line-height:1.45}
+.notice .acts{display:flex;gap:6px;justify-content:flex-end}
+.term{background:#0b0c0d;border-radius:8px;padding:10px 12px;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#b4b6bd;line-height:1.6;white-space:pre}
+.term .c{color:#7a7d86}
+.term .y{color:#e6b45c}
+.msg{padding:10px 14px;font-size:12.5px;line-height:1.55}
+.who{font-size:11px;font-weight:600;color:#8e9099;margin-bottom:4px;display:flex;align-items:center;gap:6px}
+.you{background:#1c1d21;border-radius:8px;padding:8px 10px;color:#eef0f3}
+.fc{display:inline-flex;align-items:center;gap:4px;font-family:'JetBrains Mono',monospace;font-size:11px;background:#24252a;border-radius:4px;padding:1px 6px;color:#b4b6bd}
+.cb{font-family:'JetBrains Mono',monospace;font-size:11.5px;line-height:18px;background:#111214;border:1px solid #222328;border-radius:6px;padding:8px 10px;white-space:pre;margin-top:6px;color:#d4d5da}
+.edit{margin:4px 14px;border:1px solid #2c2d33;border-radius:8px;padding:8px 10px;display:flex;align-items:center;gap:8px;font-size:12px}
+.add{color:#6cc070}.del{color:#f0807a}
+.caret{display:inline-block;width:7px;height:14px;background:#7c9cff;vertical-align:-2px;margin-left:2px}
+.compose{margin:8px 10px 10px;border:1px solid #3a4466;border-radius:8px;background:#1c1d21;padding:8px 10px}
+.compose .txt{font-size:12.5px;color:#eef0f3;min-height:36px;line-height:1.5}
+.compose .row{display:flex;align-items:center;gap:6px;margin-top:6px}
+.hint{font-size:11px;color:#7a7d86;margin-left:auto}
+.tool{margin-left:auto;display:flex;gap:2px}
+.tb{width:22px;height:22px;border-radius:5px;display:flex;align-items:center;justify-content:center;color:#8e9099;font-size:12px}
+.code{font-family:'JetBrains Mono',monospace;font-size:13px;line-height:22px;white-space:pre;padding:4px 0}
+.ln{display:inline-block;width:40px;text-align:right;padding-right:20px;color:#5d6068}
+.k{color:#c4a7e7}.s{color:#a6d189}.f{color:#f0c674}.t{color:#9ccfd8}.c{color:#7f8794}.n{color:#f5a97f}
+.hint{font-size:11px;color:#7a7d86;margin-left:auto}
+/* added for these mock-ups */
+.head{width:1280px;font-family:Inter,sans-serif;color:#8e9099;font-size:12.5px;line-height:1.5;margin:0 0 18px}
+.head h1{font-size:15px;color:#eef0f3;font-weight:600;margin:0 0 4px}
+.sect{width:1280px;font-family:Inter,sans-serif;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#8e9099;margin:30px 0 10px}
+.grid{width:1280px;grid-template-columns:repeat(3,minmax(0,1fr))}
+.st{min-height:0}
+.pg{background:#17181b;border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:2px;font-size:12.5px;color:#8e9099}
+.pg .sec{margin:4px 0 6px}
+.prow{display:flex;align-items:flex-start;gap:9px;padding:6px 0;border-bottom:1px solid #222328;line-height:1.45}
+.prow:last-child{border-bottom:0}
+.prow .i{width:16px;text-align:center;flex-shrink:0}
+.prow .nm{font-family:'JetBrains Mono',monospace;font-size:12px;color:#eef0f3}
+.wd{color:#8e9099;font-size:11.5px}
+.ok{color:#7cc48a}.warn{color:#e6b45c}.bad{color:#f0807a}.mut{color:#5a5c63}
+.cmd{display:flex;align-items:center;gap:8px;background:#111214;border:1px solid #23252c;border-radius:6px;padding:4px 4px 4px 10px;font:11.5px 'JetBrains Mono',monospace;color:#d4d5da;margin-top:6px}
+.cmd span:first-child{flex:1;word-break:break-all;line-height:1.5}
+.cmd .btn{flex:none}
+.lnk{color:#7c9cff;font-size:11.5px}
+.c2{position:static;width:100%}
+.check{display:flex;align-items:flex-start;gap:8px;font-size:12px;color:#d4d5da;line-height:1.45;margin-top:8px}
+.box{width:14px;height:14px;border-radius:3px;border:1.5px solid #3a3c44;flex-shrink:0;margin-top:1px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;font-size:10px}
+.box.on{background:#7c9cff;border-color:#7c9cff;color:#0f1012;font-weight:700}
+.sysl{font-size:10.5px;color:#7a7d86}
+.rtabs{height:36px;display:flex;align-items:center;gap:2px;padding:0 6px;flex-shrink:0;border-bottom:1px solid #222328}
+.rt{height:26px;padding:0 9px;border-radius:6px;display:flex;align-items:center;gap:6px;font-size:12px;color:#8e9099;white-space:nowrap}
+.rt.on{background:#26272c;color:#eef0f3}
+body{padding:28px 24px;font-family:Inter,sans-serif}
+.ri{position:relative}
+.ri.on{background:#1c1d21;color:#eef0f3}
+.ri.on::before{content:"";position:absolute;left:-7px;top:7px;width:2px;height:16px;border-radius:1px;background:#7c9cff}
+.rsep{width:20px;height:1px;background:#2c2d33;margin:2px 0}
+.addl{background:#16261b;display:inline-block;width:100%}
+.gut{display:inline-block;width:3px;height:22px;background:#6cc070;vertical-align:top;margin-right:-3px}
+.trow{display:flex;align-items:center;gap:8px;font-size:12px;color:#b4b6bd;padding:3px 0}
+.trow .tag2{font-family:'JetBrains Mono',monospace;font-size:11px;color:#d4d5da}
+.trow .r{margin-left:auto;display:flex;gap:6px;align-items:center}
+.spin{width:10px;height:10px;border-radius:50%;border:1.6px solid #2c3e66;border-top-color:#7c9cff;box-sizing:border-box;flex-shrink:0;display:inline-block}
+.ask{margin:6px 12px;border:1px solid #3a4466;background:#171c2a;border-radius:8px;padding:10px 12px;font-size:12.5px;color:#d4d5da;display:flex;flex-direction:column;gap:8px}
+.ask.a{border-color:#4a3f22;background:#221f16}
+.ask .q{color:#eef0f3;font-weight:600;font-size:12.5px}
+.ask .acts{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.ask .k{font-size:10.5px;color:#7a7d86;margin-left:4px}
+.dl{font-family:'JetBrains Mono',monospace;font-size:11px;line-height:17px;background:#111214;border:1px solid #222328;border-radius:6px;padding:6px 8px;white-space:pre;overflow:hidden}
+.dl .m{color:#f0807a;background:#2a1718;display:block}
+.dl .p{color:#7cc48a;background:#16261b;display:block}
+.plan{display:flex;flex-direction:column;gap:3px;font-size:12px;margin-top:6px;color:#b4b6bd}
+.plan .x{color:#5a5c63;text-decoration:line-through}
+.thought{font-size:11.5px;color:#7a7d86}
+.panel{height:180px;flex-shrink:0}
+.rev{margin:6px 12px;border:1px solid #2c2d33;border-radius:8px;padding:8px 10px;font-size:12px;display:flex;flex-direction:column;gap:2px}
+.rev .hd{display:flex;align-items:center;gap:8px;color:#eef0f3;font-weight:600;padding-bottom:4px}
+.rev .fr{display:flex;align-items:center;gap:8px;height:26px;color:#d4d5da}
+.rev .fr .r{margin-left:auto;display:flex;gap:4px}
+.mn{background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;padding:4px;box-shadow:0 12px 32px rgba(0,0,0,.55);font-size:12.5px}
+.mn .mi{height:28px;display:flex;align-items:center;gap:8px;padding:0 8px;border-radius:5px;color:#d4d5da}
+.mn .mi.on{background:#262b3d;color:#eef0f3}
+.mn .mi .k2{margin-left:auto;font-size:11px;color:#7a7d86}
+.mn .mh{padding:5px 8px 4px;font-size:11px;color:#7a7d86}
+.mn .sep{height:1px;background:#2c2d33;margin:4px 2px}
+.setrow{display:flex;align-items:flex-start;gap:12px;padding:10px 0;border-bottom:1px solid #222328}
+.setrow:last-child{border-bottom:0}
+.setrow .l{flex:1;font-size:12.5px;color:#eef0f3}
+.setrow .l div{font-size:11.5px;color:#8e9099;margin-top:2px;line-height:1.45}
+.setrow .kk{font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#5a5c63;margin-top:3px}
+.mn{background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;padding:4px;box-shadow:0 12px 32px rgba(0,0,0,.55);font-size:12.5px}
+.mn .mi{height:28px;display:flex;align-items:center;gap:8px;padding:0 8px;border-radius:5px;color:#d4d5da}
+.mn .mi.on{background:#262b3d;color:#eef0f3}
+.mn .mi .k2{margin-left:auto;font-size:11px;color:#7a7d86}
+.mn .mh{padding:5px 8px 4px;font-size:11px;color:#7a7d86}
+.mn .sep{height:1px;background:#2c2d33;margin:4px 2px}
+.rtabs{height:36px;display:flex;align-items:center;gap:2px;padding:0 6px;flex-shrink:0;border-bottom:1px solid #222328}
+.rt{height:26px;padding:0 9px;border-radius:6px;display:flex;align-items:center;gap:6px;font-size:12px;color:#8e9099;white-space:nowrap;position:relative}
+.rt.on{background:#26272c;color:#eef0f3}
+.rt .bd{width:6px;height:6px;border-radius:50%;background:#7c9cff}
+.rt .bd.o{background:#e6b45c}
+/* the chat */
+.cx{flex:1;overflow:hidden;padding:4px 0;position:relative}
+.ub{margin:8px 12px 4px auto;max-width:82%;background:#1f2230;border:1px solid #2c3450;border-radius:10px 10px 3px 10px;padding:7px 10px;color:#eef0f3;font-size:12.5px;line-height:1.5;position:relative}
+.ub .fc{margin-top:4px}
+.ar{padding:6px 14px;font-size:12.5px;line-height:1.55;color:#d4d5da;position:relative}
+.ar p{margin:0 0 6px}
+.dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:#7cc48a;margin-right:7px;vertical-align:1px;flex-shrink:0}
+.dot.b{background:#7c9cff}.dot.m{background:#5a5c63}.dot.rd{background:#f0807a}
+.grp{margin:2px 12px;border-radius:7px;padding:5px 8px;font-size:12px;color:#8e9099;display:flex;align-items:center;gap:6px}
+.grp:hover,.grp.h{background:#1c1d21}
+.grp .r{margin-left:auto;font-size:11px;color:#7a7d86}
+.stp{display:flex;align-items:center;gap:7px;font-size:12px;color:#b4b6bd;padding:2px 0 2px 22px}
+.stp .m{font-family:'JetBrains Mono',monospace;font-size:11px;color:#d4d5da}
+.stp .r{margin-left:auto;font-size:11px;color:#7a7d86;padding-right:8px}
+.hov{position:absolute;top:-10px;right:10px;display:flex;gap:1px;background:#1c1d21;border:1px solid #2c2d33;border-radius:6px;padding:2px;box-shadow:0 6px 16px rgba(0,0,0,.5)}
+.hov span{height:20px;padding:0 6px;border-radius:4px;display:flex;align-items:center;font-size:11px;color:#b4b6bd;gap:4px}
+.hov span.on{background:#26272c;color:#eef0f3}
+/* above the box */
+.dock{margin:0 10px;display:flex;flex-direction:column;gap:6px}
+.todo{border:1px solid #2c2d33;border-radius:8px;background:#17181b;padding:6px 10px;font-size:12px;color:#b4b6bd}
+.todo .hd{display:flex;align-items:center;gap:6px;color:#eef0f3;font-weight:500;font-size:12px}
+.todo .hd .r{margin-left:auto;color:#7a7d86;font-weight:400;font-size:11px}
+.todo .it{display:flex;align-items:center;gap:7px;padding:2px 0}
+.todo .x{color:#5a5c63;text-decoration:line-through}
+.rbar{border:1px solid #2c2d33;border-radius:8px;background:#17181b;font-size:12px;color:#d4d5da}
+.rbar .hd{height:32px;display:flex;align-items:center;gap:7px;padding:0 6px 0 10px}
+.rbar .hd .r{margin-left:auto;display:flex;gap:4px}
+.rbar .fr{height:26px;display:flex;align-items:center;gap:7px;padding:0 6px 0 10px;border-top:1px solid #222328}
+.rbar .fr .nm{color:#d4d5da}
+.rbar .fr .dir{color:#7a7d86;font-size:11px}
+.rbar .fr .r{margin-left:auto;display:flex;gap:2px;align-items:center}
+.ib{height:20px;padding:0 6px;border-radius:4px;display:inline-flex;align-items:center;font-size:11.5px;color:#b4b6bd}
+.ib.on{background:#26272c;color:#eef0f3}
+.qd{border:1px dashed #3a3d46;border-radius:8px;padding:5px 6px 5px 10px;font-size:12px;color:#b4b6bd;display:flex;align-items:center;gap:6px}
+.qd .l{font-size:10.5px;color:#7a7d86;text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+.qd .r{margin-left:auto;display:flex;gap:2px}
+/* the box */
+.pbox{margin:6px 10px 10px;border:1px solid #2c2d33;border-radius:10px;background:#1c1d21;padding:8px 8px 6px 10px}
+.pbox.f{border-color:#3d4d7a}
+.pbox .txt{font-size:12.5px;color:#eef0f3;min-height:38px;line-height:1.5}
+.pbox .txt .ph{color:#6a6d76}
+.pbox .row{display:flex;align-items:center;gap:4px;margin-top:6px}
+.pill{height:22px;border-radius:6px;padding:0 7px;display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:#b4b6bd;white-space:nowrap}
+.pill.b{background:#24252a}
+.pill .k3{color:#7a7d86}
+.ring{width:16px;height:16px;border-radius:50%;background:conic-gradient(#7c9cff 0 38%,#2c2d33 38% 100%);display:inline-flex;align-items:center;justify-content:center}
+.ring::after{content:"";width:10px;height:10px;border-radius:50%;background:#1c1d21}
+.send{width:26px;height:26px;border-radius:7px;background:#7c9cff;color:#0f1012;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;margin-left:2px}
+.send.stop{background:#2c2d33;color:#eef0f3;font-size:9px}
+.send.off{background:#26272c;color:#5a5c63}
+.mention{color:#9ab0ff;background:#1f2638;border-radius:4px;padding:0 4px;font-family:'JetBrains Mono',monospace;font-size:11.5px}
+/* editor review */
+.hk{display:flex;gap:4px;padding:2px 0 4px 60px}
+.hk .btn{height:20px;font-size:11px;padding:0 7px}
+.dell{background:#2a1718;display:inline-block;width:100%;color:#c99}
+.gutr{display:inline-block;width:3px;height:22px;background:#f0807a;vertical-align:top;margin-right:-3px}
+.revbar{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;align-items:center;gap:8px;background:#1c1d21;border:1px solid #2c2d33;border-radius:9px;padding:5px 6px 5px 12px;box-shadow:0 10px 28px rgba(0,0,0,.55);font-size:12px;color:#d4d5da;white-space:nowrap}
+.revbar .k3{color:#7a7d86;font-size:11px}
+.jump{position:absolute;left:50%;transform:translateX(-50%);width:28px;height:28px;border-radius:50%;background:#26272c;border:1px solid #33353c;color:#d4d5da;display:flex;align-items:center;justify-content:center;font-size:13px;box-shadow:0 6px 16px rgba(0,0,0,.5)}
+.src2{font-size:10.5px;color:#5a5c63;line-height:1.5;width:1280px;font-family:Inter,sans-serif;margin-top:24px}
+.src2 a{color:#7a7d86}
+.tbl{width:100%;border-collapse:collapse;font-size:12px}
+.tbl td{padding:6px 8px;border-bottom:1px solid #222328;color:#b4b6bd;vertical-align:top;line-height:1.45}
+.tbl td:first-child{color:#eef0f3;width:32%}
+.tbl td.by{color:#8e9099;width:24%}
+.cx{min-height:0}
+.island{min-height:0}
+.hk{font-family:Inter,sans-serif;white-space:normal}
+.spin{width:10px;height:10px;border-radius:50%;border:1.6px solid #2c3e66;border-top-color:#7c9cff;box-sizing:border-box;flex-shrink:0;display:inline-block}
+.pbox .row{flex-wrap:nowrap;overflow:hidden}
+.pbox,.dock{flex-shrink:0}
+.pill{padding:0 6px}.pbox .row{gap:2px}
+.tbl td.by{white-space:nowrap}
+.hov,.hov span{white-space:nowrap}
+/* an agent's modes */
+.mb{height:20px;padding:0 8px;border-radius:4px;display:inline-flex;align-items:center;font-size:10.5px;font-weight:700;letter-spacing:.06em;color:#0f1012;flex-shrink:0}
+.mb.bu{background:#5c9cf5}.mb.pl{background:#9d7cd8}.mb.gr{background:#7fd88f}.mb.or{background:#f5a742}.mb.gy{background:#8e9099}
+.pbox.bu{border-color:#3d5f96}.pbox.pl{border-color:#5d4a86}
+.send.bu{background:#5c9cf5}.send.pl{background:#9d7cd8}
+.spin.pl{border-color:#3b3150;border-top-color:#9d7cd8}
+.rule{border-left:2px solid #9d7cd8;padding-left:10px}
+.rule.bu{border-color:#5c9cf5}
+.hand{border:1px solid #2c2d33;border-radius:8px;padding:7px 10px;font-size:12px;display:flex;align-items:center;gap:8px;color:#b4b6bd}
+.tf{font-size:11px;color:#7a7d86;display:flex;gap:6px;align-items:center;padding:2px 14px 6px}
+.tf .r{margin-left:auto}
+.st .mi .dt{width:7px;height:7px;border-radius:50%;display:inline-block}
+.grid4{width:1280px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;font-family:Inter,sans-serif}
+.ap{background:#17181b;border-radius:10px;display:flex;flex-direction:column;overflow:hidden;min-height:640px}
+.ap .rtabs{height:34px}
+.ap .cx{flex:1;display:flex;flex-direction:column;gap:6px;padding:8px 0}
+.ap .ub{margin:0 10px 0 auto}
+.ap .pbox{margin:6px 8px 8px}
+.ap .say2{font-size:11.5px;color:#8e9099;line-height:1.5;padding:10px 12px 0}
+.ap h2{margin:0;padding:12px 12px 0;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#7c9cff}
+.mm{margin:0 8px}
+.mm .mi{height:auto;min-height:28px;padding:5px 8px;align-items:flex-start}
+.mm .mi .d{font-size:11px;color:#7a7d86;line-height:1.4;margin-top:2px}
+.mm .mi .mb{margin-top:1px}
+.warnline{margin:0 8px;border:1px solid #4a2526;background:#251516;color:#f2c3c0;border-radius:7px;padding:6px 9px;font-size:11.5px;line-height:1.45}
+.mb.rd{background:#f0807a}
+.mb.sm{height:15px;font-size:9px;padding:0 5px}
+.rule.gr{border-color:#7fd88f}.rule.rd{border-color:#f0807a}.rule.or{border-color:#f5a742}
+.pbox.rd{border-color:#7a3a3a}.pbox.or{border-color:#7a5a2a}
+.send.rd{background:#f0807a}.send.or{background:#f5a742}
+</style>
+</head>
+<body>
+<div class="head"><h1>The agent chat, reworked</h1>What people use most and ask for most in agent panels (Claude Code's VS Code extension, Zed's Agent Panel, Cursor), redrawn in merlin's style. It changes the approved Agents.html and AgentUi.html where they meet: the plugin's chips move from the header into the box, an agent's modes (opencode's build and plan) get a coloured badge that tints the chat, Enter sends, steps fold, and a turn's changes stay in a bar above the box until you keep or undo them, with Keep and Undo on each change in the editor too. merlin still draws every permission card and the review. Approved 2026-11-16.</div>
+
+<div class="board">
+<div class="w">
+  <div class="bar"><div class="logo">m</div><span style="font-weight:600;color:#eef0f3">merlin</span><span style="font-size:12px;color:#8e9099">⑂ editor-rework</span><div class="search">⌕ Search files, commands, symbols and text <span class="kbd" style="margin-left:auto">Ctrl Shift P</span></div></div>
+  <div class="mid">
+    <div class="rail"><div class="ri">❐</div><div class="ri">⌕</div><div class="ri">⑂</div><div class="ri">⚗</div><div class="ri">▷</div><div class="ri">☰</div></div>
+
+    <div class="island" style="flex:1">
+      <div class="tabs"><div class="tab"><span class="ic">RS</span>frame.rs <span class="add" style="font-size:10px">●</span></div><div class="tab on"><span class="ic">RS</span>palette.rs <span class="add" style="font-size:10px">●</span></div></div>
+      <div class="code"><span class="ln">38</span><span class="k">impl</span> <span class="t">Palette</span> {
+<span class="ln">39</span>    <span class="c">/// Lays out the rows for the window's width.</span>
+<span class="ln">40</span>    <span class="k">pub fn</span> <span class="f">layout</span>(&amp;<span class="k">mut</span> self, width: <span class="t">f32</span>) {
+<span class="dell"><span class="gutr"></span><span class="ln"></span>        self.cache.<span class="f">clear</span>();</span>
+<span class="addl"><span class="gut"></span><span class="ln">41</span>        <span class="k">let</span> heights = self.<span class="f">rows</span>()</span>
+<span class="addl"><span class="gut"></span><span class="ln">42</span>            .<span class="f">iter</span>().<span class="f">map</span>(|r| r.<span class="f">height</span>(width))</span>
+<span class="addl"><span class="gut"></span><span class="ln">43</span>            .<span class="f">collect</span>();</span>
+<span class="addl"><span class="gut"></span><span class="ln">44</span>        self.cache = heights;</span><div class="hk"><span class="btn sm">Undo</span><span class="btn sm p">Keep</span><span style="font-size:11px;color:#7a7d86;align-self:center;margin-left:4px">◇ opencode · build</span></div><span class="ln">45</span>    }
+<span class="ln">46</span>
+<span class="ln">47</span>    <span class="k">fn</span> <span class="f">rows</span>(&amp;self) -&gt; <span class="t">Vec</span>&lt;<span class="t">Row</span>&gt; {
+<span class="ln">48</span>        self.items.<span class="f">iter</span>().<span class="f">map</span>(<span class="t">Row</span>::<span class="f">from</span>).<span class="f">collect</span>()
+<span class="ln">49</span>    }
+<span class="addl"><span class="gut"></span><span class="ln">50</span></span>
+<span class="addl"><span class="gut"></span><span class="ln">51</span>    <span class="c">/// The rows' heights, built before the cache is replaced.</span></span><div class="hk"><span class="btn sm">Undo</span><span class="btn sm p">Keep</span></div><span class="ln">52</span>}</div>
+      <div class="revbar"><span>palette.rs</span><span class="k3">change 1 of 2</span><span class="ib">↑</span><span class="ib">↓</span><span style="width:1px;height:16px;background:#2c2d33"></span><span class="ib">frame.rs ›</span><span class="btn sm">Undo File</span><span class="btn sm p">Keep File</span></div>
+    </div>
+
+    <div class="island" style="width:420px;flex-shrink:0">
+      <div class="rtabs">
+        <div class="rt on">◇ opencode</div>
+        <div class="rt">◆ Antigravity <span class="bd o"></span></div>
+        <div class="tool" style="margin-left:auto"><div class="tb">⟲</div><div class="tb">+</div><div class="tb">⋯</div></div>
+      </div>
+      <div class="cx">
+        <div class="ub">The palette flickers when the window resizes. Fix it and check it builds.<br><span class="fc">palette.rs 40–47</span></div>
+        <div class="ar">
+          <div class="thought" style="margin-bottom:4px">▸ Thought for 4 s</div>
+        </div>
+        <div class="grp">▾ <span style="color:#d4d5da">4 steps</span> · read 2 files, edited 2, ran a command<span class="r">12 s</span></div>
+        <div class="stp"><span class="dot"></span>Read <span class="m">palette.rs</span></div>
+        <div class="stp"><span class="dot"></span>Edited <span class="m">palette.rs</span> <span class="add">+6</span> <span class="del">−1</span></div>
+        <div class="stp"><span class="dot"></span>Edited <span class="m">frame.rs</span> <span class="add">+12</span> <span class="del">−6</span></div>
+        <div class="stp"><span class="dot"></span>Ran <span class="m">cargo check -p merlin-app</span><span class="r lnk">Terminal ↗</span></div>
+        <div class="ar"><p><code class="key">layout</code> cleared the cache before the new heights were in, so a frame drawn in between had no rows. It now builds them first and swaps them in. It builds.</p></div>
+        <div class="ub" style="margin-top:14px">Now add a test for it.<div class="hov"><span>✎ Edit</span><span>⧉ Copy</span><span class="on">↶ Rewind</span></div></div>
+        <div class="grp"><span class="spin"></span> <span style="color:#d4d5da">Writing the test</span> · 2 steps<span class="r">▸</span></div>
+      </div>
+      <div class="dock">
+        <div class="todo"><div class="hd">☰ Plan <span style="color:#8e9099;font-weight:400">3 of 4</span><span class="r">▾</span></div><div class="it"><span class="spin"></span>Run the palette's tests</div></div>
+        <div class="qd"><span class="l">Next</span>and run clippy after<span class="r"><span class="ib">✎</span><span class="ib">✕</span><span class="ib on">Send Now</span></span></div>
+        <div class="rbar"><div class="hd"><span>2 files changed</span><span class="add">+18</span><span class="del">−7</span><span class="r"><span class="btn sm q">Review</span><span class="btn sm">Undo All</span><span class="btn sm p">Keep All</span></span></div></div>
+      </div>
+      <div class="pbox bu">
+        <div style="display:flex;gap:4px;margin-bottom:4px"><span class="pill b">RS palette.rs ✕</span></div>
+        <div class="txt"><span class="ph">Ask opencode · @ to add context · / for commands</span></div>
+        <div class="row"><span class="mb bu">BUILD</span><span class="pill">＋</span><span class="pill">⏸ Ask before edits ▾</span><span class="pill">Big Pickle ▾</span><span style="margin-left:auto" class="pill" title="38%"><span class="ring"></span></span><span class="send stop">■</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="status"><span>⑂ editor-rework</span><span class="prog"><span class="spin"></span>opencode is working</span><span style="margin-left:auto">Ln 41, Col 9</span><span>Rust</span></div>
+</div>
+<div class="notes">
+  <h3>The window</h3>
+  <p><b>Messages:</b> yours in a tinted bubble at the right; the agent's as plain text. Zed users asked for the two to look different.</p>
+  <p><b>Steps fold</b> into one line per run ("4 steps · read 2 files, edited 2, ran a command"); click to open. The running one shows what it's doing now.</p>
+  <p><b>Above the box:</b> the plan, folded to the step it's on; a message you sent while it works, waiting its turn; and the files changed but not yet kept.</p>
+  <p><b>The box</b> holds everything you set: the agent's mode as a coloured badge (Tab switches), what's attached, merlin's edit mode, the plugin's chips (model, thinking), how full the context is, and Send, which turns into Stop while it works.</p>
+  <p><b>In the editor,</b> each change is tinted, with Undo and Keep under it, and a bar to step through changes and files. The most-wanted item in Claude Code's VS Code tracker.</p>
+  <p><b>Tabs</b> get a dot: blue when an agent waits for you, amber when it finished while you were in another tab.</p>
+</div>
+</div>
+
+<div class="sect">The box</div>
+<div class="grid">
+  <div class="st">
+    <h2>1 · Enter sends</h2>
+    <p class="say"><b>Enter</b> sends and <b>Shift Enter</b> starts a new line, as in Claude Code, Zed and Cursor. (Ctrl Enter still sends.) Paste a picture and it's attached.</p>
+    <div class="pbox f" style="margin:0"><div class="txt">Why does <span class="mention">@palette.rs</span> clear the cache in <span class="mention">@layout</span>?</div><div class="row"><span class="pill b">🖼 screenshot.png ✕</span><span style="margin-left:auto" class="pill"><span class="ring"></span>38%</span><span class="send">↑</span></div></div>
+  </div>
+  <div class="st">
+    <h2>2 · @ adds context</h2>
+    <p class="say">Typing <b>@</b> lists what can go with the message: files and folders, symbols, the selection, the problems, a terminal's output, the changes on this branch. Each becomes a chip in the text.</p>
+    <div class="mn">
+      <div class="mh">Add to the message</div>
+      <div class="mi on">📄 palette.rs<span class="k2">crates/app/src/gui</span></div>
+      <div class="mi">ƒ layout<span class="k2">Palette · palette.rs</span></div>
+      <div class="mi">▭ Selection<span class="k2">palette.rs 40–47</span></div>
+      <div class="mi">⚠ Problems<span class="k2">2 errors</span></div>
+      <div class="mi">▸ Terminal: cargo test<span class="k2">last 200 lines</span></div>
+      <div class="mi">⑂ Branch changes<span class="k2">6 files</span></div>
+    </div>
+    <div class="pbox f" style="margin:0"><div class="txt">Fix <span style="color:#eef0f3">@pal</span></div></div>
+  </div>
+  <div class="st">
+    <h2>3 · Edit mode, and the context left</h2>
+    <p class="say">merlin's own mode, the same for every agent: <b>Ask before edits</b> shows the card; <b>Edit automatically</b> lets edits in the workspace through, still listed for Keep and Undo. Commands always ask unless always allowed. <b>Shift Tab</b> switches it; <b>Tab</b> switches the agent's mode (cards 13–18).</p>
+    <div class="mn">
+      <div class="mi on">⏸ Ask before edits<span class="k2">✓</span></div>
+      <div class="mi">⏵ Edit automatically<span class="k2">you review after</span></div>
+    </div>
+    <p class="say">The ring fills as the chat's context does. Hovering it:</p>
+    <div class="notice" style="font-size:12px"><div><b style="color:#eef0f3">38% of 1M tokens</b><div class="wd">12.4k tokens this chat · $0.03</div></div><div class="acts"><span class="btn sm">Compact Now</span></div></div>
+  </div>
+</div>
+
+<div class="sect">While it works</div>
+<div class="grid">
+  <div class="st">
+    <h2>4 · Send while it works</h2>
+    <p class="say">A message sent while the agent works waits above the box, and goes when the turn ends. Edit or remove it, or <b>Send Now</b> to stop the turn and send it. Esc stops. Asked for in Claude Code's tracker.</p>
+    <div class="qd"><span class="l">Next</span>and run clippy after<span class="r"><span class="ib">✎</span><span class="ib">✕</span><span class="ib on">Send Now</span></span></div>
+    <div class="pbox f" style="margin:0"><div class="txt"><span class="ph">Ask Antigravity · @ to add context · / for commands</span></div><div class="row"><span class="pill">⏸ Ask before edits ▾</span><span style="margin-left:auto" class="pill"><span class="ring"></span>41%</span><span class="send stop">■</span></div></div>
+  </div>
+  <div class="st">
+    <h2>5 · Steps fold</h2>
+    <p class="say">A run of steps is one line; open it to see each, with Terminal ↗ for commands. Long threads stay short, which Zed's users asked for. The plan above the box keeps its place.</p>
+    <div class="mini" style="padding:6px 0">
+      <div class="grp h">▸ <span style="color:#d4d5da">6 steps</span> · read 4 files, searched twice<span class="r">8 s</span></div>
+      <div class="grp">▾ <span style="color:#d4d5da">3 steps</span> · edited 2, ran a command<span class="r">5 s</span></div>
+      <div class="stp"><span class="dot"></span>Edited <span class="m">palette.rs</span> <span class="add">+6</span> <span class="del">−1</span></div>
+      <div class="stp"><span class="dot"></span>Edited <span class="m">frame.rs</span> <span class="add">+12</span> <span class="del">−6</span></div>
+      <div class="stp"><span class="dot rd"></span>Ran <span class="m">cargo test palette</span><span class="r"><span class="del">exit 101</span> · <span class="lnk">Terminal ↗</span></span></div>
+    </div>
+  </div>
+  <div class="st">
+    <h2>6 · merlin asks, with keys</h2>
+    <p class="say">The card shows exactly what will run before you answer (asked for in Zed). <b>1 2 3</b> answer it; or type what to do instead and Enter, which denies and tells the agent.</p>
+    <div class="ask" style="margin:0">
+      <div style="display:flex;align-items:center;gap:6px;font-size:10.5px;color:#9ab0ff;font-weight:600;letter-spacing:.04em">🔒 MERLIN ASKS</div>
+      <div class="q">Antigravity wants to run a command</div>
+      <div class="cmd" style="margin-top:0"><span>cargo test -p merlin-app palette</span></div>
+      <div class="acts"><span class="btn sm p">1 Allow Once</span><span class="btn sm">2 Always Allow <span class="key">cargo test</span></span><span class="btn sm q">3 Deny</span></div>
+      <div class="lfind" style="margin:0;background:#141720">Or tell it what to do instead…</div>
+    </div>
+  </div>
+</div>
+
+<div class="sect">Changes and going back</div>
+<div class="grid">
+  <div class="st">
+    <h2>7 · Changes wait to be kept</h2>
+    <p class="say">Changed files stay in the bar across turns until kept or undone, so the next message doesn't hide them. Open it for each file; <b>Review</b> opens all the changes in one tab. Keep All can be undone with Ctrl Z.</p>
+    <div class="rbar">
+      <div class="hd"><span>2 files changed</span><span class="add">+18</span><span class="del">−7</span><span class="r"><span class="btn sm q">Review</span><span class="btn sm">Undo All</span><span class="btn sm p">Keep All</span></span></div>
+      <div class="fr"><span class="ic">RS</span><span class="nm">palette.rs</span><span class="dir">gui</span><span class="add">+6</span><span class="del">−1</span><span class="r"><span class="ib">Undo</span><span class="ib on">Keep</span></span></div>
+      <div class="fr"><span class="ic">RS</span><span class="nm">frame.rs</span><span class="dir">gui</span><span class="add">+12</span><span class="del">−6</span><span class="r"><span class="ib">Undo</span><span class="ib">Keep</span></span></div>
+    </div>
+  </div>
+  <div class="st">
+    <h2>8 · Rewind from a message</h2>
+    <p class="say">Hovering a message shows Edit (yours), Copy and <b>Rewind</b>. Rewind takes back what the agent changed from there on, starts a new chat from there, or both. Editing your message and sending again does both.</p>
+    <div class="ub" style="margin:34px 0 0 auto;max-width:100%">Now add a test for it.<div class="hov" style="top:-30px"><span>✎ Edit</span><span>⧉ Copy</span><span class="on">↶ Rewind</span></div></div>
+    <div class="mn">
+      <div class="mi on">Undo the changes from here<span class="k2">2 files</span></div>
+      <div class="mi">New chat from here<span class="k2">keeps the files</span></div>
+      <div class="mi">Both</div>
+    </div>
+  </div>
+  <div class="st">
+    <h2>9 · Past chats</h2>
+    <p class="say">⟲ in the tab row lists chats for this workspace: those open, with what each is doing, then recent ones, with search. Click one to open it; hover to rename or remove. A chat keeps working when you switch away.</p>
+    <div class="mn">
+      <div class="lfind" style="margin:2px 2px 4px">⌕ Search chats</div>
+      <div class="mh">Open</div>
+      <div class="mi on">◇ Palette flicker on resize<span class="k2">this tab</span></div>
+      <div class="mi">🔒 ◆ Bug review and fix plan<span class="k2" style="color:#9ab0ff">needs you</span></div>
+      <div class="mi"><span class="spin"></span> ◇ Add a multiply function<span class="k2">working</span></div>
+      <div class="mh">Recent</div>
+      <div class="mi">◆ Tests for the tab strip<span class="k2">2 h ago</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="sect">Getting around</div>
+<div class="grid">
+  <div class="st">
+    <h2>10 · Back to the newest</h2>
+    <p class="say">Scrolled up, a ↓ appears above the box. <b>Alt ↑ / Alt ↓</b> jump between your messages. Asked for in Zed.</p>
+    <div class="mini" style="height:120px;position:relative"><div class="ar" style="padding:0 4px;color:#8e9099">…the cache is rebuilt each frame, which is what made it flicker.</div><div class="jump" style="bottom:8px">↓</div></div>
+  </div>
+  <div class="st">
+    <h2>11 · Follow the agent</h2>
+    <p class="say">In ⋯, <b>Follow Along</b> opens each file as the agent edits it, at the change, as Zed does. Off by default.</p>
+    <div class="mn"><div class="mi">New Chat<span class="k2">Ctrl N</span></div><div class="mi on">Follow Along<span class="k2">✓</span></div><div class="mi">Copy the Chat as Markdown</div><div class="sep"></div><div class="mi">Agent Settings…<span class="k2">Antigravity's page</span></div></div>
+  </div>
+  <div class="st">
+    <h2>12 · Tab dots</h2>
+    <p class="say">An agent tab you're not looking at says how it's doing. The status bar says it too.</p>
+    <div class="rtabs" style="border:0;padding:0;gap:6px"><div class="rt on">◆ Antigravity</div><div class="rt">◇ opencode <span class="bd"></span></div><div class="rt">◆ Antigravity 2 <span class="bd o"></span></div></div>
+    <p class="say"><span style="color:#7c9cff">●</span> waits for you (a card) · <span style="color:#e6b45c">●</span> finished while you were away · no dot: working or idle.</p>
+  </div>
+</div>
+
+<div class="sect">The agent's modes</div>
+<div class="grid">
+  <div class="st">
+    <h2>13 · A badge for the mode</h2>
+    <p class="say">When the agent has modes (opencode's <b>build</b> and <b>plan</b>, your own agents, Antigravity's Default and Auto), the box starts with a badge in the mode's colour. <b>Tab</b> moves to the next; a click lists them.</p>
+    <div class="pbox bu" style="margin:0"><div class="txt"><span class="ph">Ask opencode · @ to add context · / for commands</span></div><div class="row"><span class="mb bu">BUILD</span><span class="pill">⏸ Ask before edits ▾</span><span class="pill">Big Pickle ▾</span><span style="margin-left:auto" class="pill"><span class="ring"></span></span><span class="send bu">↑</span></div></div>
+    <div class="pbox pl" style="margin:0"><div class="txt"><span class="ph">Ask opencode · @ to add context · / for commands</span></div><div class="row"><span class="mb pl">PLAN</span><span class="pill">⏸ Ask before commands ▾</span><span class="pill">Big Pickle ▾</span><span style="margin-left:auto" class="pill"><span class="ring"></span></span><span class="send pl">↑</span></div></div>
+  </div>
+  <div class="st">
+    <h2>14 · The chat takes its colour</h2>
+    <p class="say">The box's edge, Send, the spinner, the running step and the plan take the mode's colour, so you can tell at a glance. Each reply keeps the colour of the mode that wrote it, with a line down its side.</p>
+    <div class="mini" style="gap:6px">
+      <div class="rule"><div class="who"><span class="mb pl" style="height:16px;font-size:9.5px;padding:0 6px">PLAN</span> opencode</div><div style="font-size:12.5px;line-height:1.5">Three places clear the cache early. I'd fix <code class="key">layout</code> first.</div><div class="stp" style="padding-left:0"><span class="spin pl"></span>Reading <span class="m">frame.rs</span></div></div>
+      <div class="rule bu"><div class="who"><span class="mb bu" style="height:16px;font-size:9.5px;padding:0 6px">BUILD</span> opencode</div><div style="font-size:12.5px;line-height:1.5">Done: <code class="key">layout</code> builds the heights first.</div></div>
+    </div>
+  </div>
+  <div class="st">
+    <h2>15 · merlin's cards keep merlin's colour</h2>
+    <p class="say">Permission cards, Keep and Undo, and Rewind never take a mode's colour: they look the same whatever the agent or mode, so a plugin can't dress something up as one of them.</p>
+    <div class="ask" style="margin:0">
+      <div style="display:flex;align-items:center;gap:6px;font-size:10.5px;color:#9ab0ff;font-weight:600;letter-spacing:.04em">🔒 MERLIN ASKS</div>
+      <div class="q">opencode (<span class="mb pl" style="height:15px;font-size:9px;padding:0 5px">PLAN</span>) wants to run a command</div>
+      <div class="cmd" style="margin-top:0"><span>git log --oneline -20</span></div>
+      <div class="acts"><span class="btn sm p">1 Allow Once</span><span class="btn sm">2 Always Allow <span class="key">git log</span></span><span class="btn sm q">3 Deny</span></div>
+    </div>
+  </div>
+  <div class="st">
+    <h2>16 · From plan to build</h2>
+    <p class="say">When the agent asks to leave a mode (opencode's plan hand-over, Claude's exit from plan mode), merlin asks with both badges. Afterwards a quiet line says what you chose.</p>
+    <div class="ask" style="margin:0">
+      <div style="display:flex;align-items:center;gap:6px;font-size:10.5px;color:#9ab0ff;font-weight:600;letter-spacing:.04em">🔒 MERLIN ASKS</div>
+      <div class="q">opencode's plan is ready. Start building?</div>
+      <div class="acts"><span class="btn sm p">1 Switch to <span class="mb bu" style="height:15px;font-size:9px;padding:0 5px;margin-left:4px">BUILD</span></span><span class="btn sm">2 Keep Planning</span><span class="lnk" style="margin-left:auto">Open the plan ↗</span></div>
+    </div>
+    <div class="hand"><span class="ok">✓</span><span class="mb pl" style="height:15px;font-size:9px;padding:0 5px">PLAN</span>→<span class="mb bu" style="height:15px;font-size:9px;padding:0 5px">BUILD</span><span class="wd">you switched to build</span></div>
+  </div>
+  <div class="st">
+    <h2>17 · Read-only modes</h2>
+    <p class="say">A mode the plugin marks read-only (plan) can't edit, so merlin's edit mode becomes the commands' instead: <b>Ask before commands</b> or <b>Run read-only commands</b> (ls, grep, git log), as your opencode extension does.</p>
+    <div class="mn">
+      <div class="mi on">⏸ Ask before commands<span class="k2">✓</span></div>
+      <div class="mi">⏵ Run read-only commands<span class="k2">ls, grep, git log…</span></div>
+    </div>
+  </div>
+  <div class="st">
+    <h2>18 · Who picks the colours</h2>
+    <p class="say">The plugin: each mode's name, colour and whether it's read-only. A colour is one of merlin's hues, so it reads in light and dark themes, or the agent's own (opencode's <span class="key">color</span> setting), softened to fit. opencode's plugin: build blue, plan purple, then green, orange, peach.</p>
+    <div style="display:flex;gap:6px;flex-wrap:wrap"><span class="mb bu">BUILD</span><span class="mb pl">PLAN</span><span class="mb gr">REVIEW</span><span class="mb or">DOCS</span><span class="mb gy">DEFAULT</span></div>
+    <div class="tf" style="padding:6px 0 0"><span>Under each reply:</span><span>Big Pickle · 12 s · 8.2k tokens · $0.01</span><span class="r">⧉</span></div>
+  </div>
+</div>
+
+<div class="sect">Each agent</div>
+<div class="head" style="margin-bottom:12px">What each agent sends decides what its chat shows. opencode and Antigravity are what they send today, checked over ACP on 2026-11-16. Claude Code and Codex have no merlin plugin yet: theirs come from their ACP adapters' docs, and the names may differ when built. A mode can also say how the agent asks: when it does, merlin's own edit pill steps aside and follows the mode, and merlin's cards still come up for what the mode asks about.</div>
+<div class="grid4">
+
+  <div class="ap">
+    <h2>opencode</h2>
+    <p class="say2">Two modes from its <span class="key">mode</span> option, colours from the plugin. Its modes don't say how it asks, so merlin's edit pill stays.</p>
+    <div class="rtabs" style="margin-top:10px"><div class="rt on">◇ opencode</div><div class="tool" style="margin-left:auto"><div class="tb">⟲</div><div class="tb">+</div><div class="tb">⋯</div></div></div>
+    <div class="cx">
+      <div class="ub">How does layout use the cache?</div>
+      <div class="ar rule" style="margin:0 12px;padding:2px 10px"><div class="who"><span class="mb pl sm">PLAN</span> opencode</div><div style="font-size:12px;line-height:1.5"><code class="key">layout</code> clears it, then refills it row by row.</div></div>
+      <div style="flex:1"></div>
+      <div class="mn mm">
+        <div class="mh">Mode · Tab</div>
+        <div class="mi"><span class="mb bu">BUILD</span><div>Build<div class="d">Edits and runs commands</div></div></div>
+        <div class="mi on"><span class="mb pl">PLAN</span><div>Plan<div class="d">Reads and plans; can't edit</div></div><span class="k2">✓</span></div>
+      </div>
+    </div>
+    <div class="pbox pl"><div class="txt"><span class="ph">Ask opencode…</span></div><div class="row"><span class="mb pl">PLAN</span><span class="pill">⏸ Ask before commands ▾</span><span style="margin-left:auto" class="pill"><span class="ring"></span></span><span class="send pl">↑</span></div><div class="row" style="margin-top:2px"><span class="pill">Big Pickle ▾</span></div></div>
+  </div>
+
+  <div class="ap">
+    <h2>Antigravity</h2>
+    <p class="say2">Four modes, each saying how it asks, so the badge replaces merlin's pill. Its model and thinking level are chips; its 13 commands are on /.</p>
+    <div class="rtabs" style="margin-top:10px"><div class="rt on">◆ Antigravity</div><div class="tool" style="margin-left:auto"><div class="tb">⟲</div><div class="tb">+</div><div class="tb">⋯</div></div></div>
+    <div class="cx">
+      <div class="ub">Fix the flicker and run the tests.</div>
+      <div class="ar rule gr" style="margin:0 12px;padding:2px 10px"><div class="who"><span class="mb gr sm">ACCEPT EDITS</span> Antigravity</div><div class="stp" style="padding-left:0"><span class="dot"></span>Edited <span class="m">palette.rs</span> <span class="add">+6</span> <span class="del">−1</span></div><div class="stp" style="padding-left:0"><span class="spin"></span>Asking to run <span class="m">cargo test</span></div></div>
+      <div style="flex:1"></div>
+      <div class="mn mm">
+        <div class="mh">Mode · Tab</div>
+        <div class="mi"><span class="mb bu">DEFAULT</span><div>Default<div class="d">Asks before edits and commands</div></div></div>
+        <div class="mi on"><span class="mb gr">ACCEPT EDITS</span><div>Accept edits<div class="d">Edits without asking; you Keep or Undo after</div></div><span class="k2">✓</span></div>
+        <div class="mi"><span class="mb or">AUTO</span><div>Auto<div class="d">Edits and safe commands; asks before the rest</div></div></div>
+        <div class="mi"><span class="mb pl">PLAN</span><div>Plan<div class="d">Reads and plans; can't edit</div></div></div>
+      </div>
+    </div>
+    <div class="pbox" style="border-color:#3a6a46"><div class="txt"><span class="ph">Ask Antigravity…</span></div><div class="row"><span class="mb gr">ACCEPT EDITS</span><span class="pill">Gemini 4 Argon ▾</span><span style="margin-left:auto" class="pill"><span class="ring"></span></span><span class="send" style="background:#7fd88f">↑</span></div><div class="row" style="margin-top:2px"><span class="pill">Medium ▾</span></div></div>
+  </div>
+
+  <div class="ap">
+    <h2>Claude Code · next</h2>
+    <p class="say2">From its ACP adapter: Default, Accept edits, Plan, Auto, Don't ask, and Bypass (only if allowed). Leaving plan mode asks how to go on, in merlin's card.</p>
+    <div class="rtabs" style="margin-top:10px"><div class="rt on">✳ Claude Code</div><div class="tool" style="margin-left:auto"><div class="tb">⟲</div><div class="tb">+</div><div class="tb">⋯</div></div></div>
+    <div class="cx">
+      <div class="ub">Plan the tab strip tests.</div>
+      <div class="ar rule" style="margin:0 12px;padding:2px 10px"><div class="who"><span class="mb pl sm">PLAN</span> Claude Code</div><div class="plan" style="margin-top:0"><span>1. Test closing the last tab</span><span>2. Test dragging between groups</span><span>3. Test pinned tabs</span></div></div>
+      <div style="flex:1"></div>
+      <div class="ask" style="margin:0 8px">
+        <div style="display:flex;align-items:center;gap:6px;font-size:10.5px;color:#9ab0ff;font-weight:600;letter-spacing:.04em">🔒 MERLIN ASKS</div>
+        <div class="q">Claude Code's plan is ready. Start?</div>
+        <div class="acts" style="flex-direction:column;align-items:stretch">
+          <span class="btn sm p">1 Yes, in <span class="mb gr sm" style="margin-left:4px">ACCEPT EDITS</span></span>
+          <span class="btn sm">2 Yes, in <span class="mb bu sm" style="margin-left:4px">DEFAULT</span></span>
+          <span class="btn sm q">3 Keep Planning</span>
+        </div>
+      </div>
+    </div>
+    <div class="pbox pl"><div class="txt"><span class="ph">Ask Claude Code…</span></div><div class="row"><span class="mb pl">PLAN</span><span class="pill">Opus 5.5 ▾</span><span style="margin-left:auto" class="pill"><span class="ring"></span></span><span class="send pl">↑</span></div></div>
+  </div>
+
+  <div class="ap">
+    <h2>Codex · if someone writes it</h2>
+    <p class="say2">From the Codex adapters: three modes from read-only to full access. In full access Codex runs commands itself, outside merlin's cards, so the box says so in red.</p>
+    <div class="rtabs" style="margin-top:10px"><div class="rt on">◎ Codex</div><div class="tool" style="margin-left:auto"><div class="tb">⟲</div><div class="tb">+</div><div class="tb">⋯</div></div></div>
+    <div class="cx">
+      <div class="ub">Update the lockfile and rebuild.</div>
+      <div class="ar rule rd" style="margin:0 12px;padding:2px 10px"><div class="who"><span class="mb rd sm">FULL ACCESS</span> Codex</div><div class="stp" style="padding-left:0"><span class="dot"></span>Ran <span class="m">cargo update</span><span class="r" style="padding:0">itself</span></div></div>
+      <div style="flex:1"></div>
+      <div class="mn mm">
+        <div class="mh">Mode · Tab</div>
+        <div class="mi"><span class="mb pl">READ ONLY</span><div>Read only<div class="d">Reads and answers</div></div></div>
+        <div class="mi"><span class="mb bu">AGENT</span><div>Agent<div class="d">Works in the workspace; asks for more</div></div></div>
+        <div class="mi on"><span class="mb rd">FULL ACCESS</span><div>Full access<div class="d">No sandbox, never asks</div></div><span class="k2">✓</span></div>
+      </div>
+      <div class="warnline">Codex runs commands without asking. merlin still lists its file changes to Keep or Undo.</div>
+    </div>
+    <div class="pbox rd"><div class="txt"><span class="ph">Ask Codex…</span></div><div class="row"><span class="mb rd">FULL ACCESS</span><span class="pill">gpt-5.6 ▾</span><span style="margin-left:auto" class="pill"><span class="ring"></span></span><span class="send rd">↑</span></div></div>
+  </div>
+</div>
+
+<div class="grid" style="margin-top:20px">
+  <div class="st">
+    <h2>19 · Colours that mean the same</h2>
+    <p class="say">merlin suggests, in the plugin docs, one meaning per colour, so a badge reads the same in any agent. A plugin can still choose its own.</p>
+    <div style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:#b4b6bd">
+      <div><span class="mb pl">PURPLE</span> &nbsp;reads only: plan, read-only</div>
+      <div><span class="mb bu">BLUE</span> &nbsp;asks first: build, default, agent</div>
+      <div><span class="mb gr">GREEN</span> &nbsp;edits on its own: accept edits</div>
+      <div><span class="mb or">ORANGE</span> &nbsp;edits and some commands: auto</div>
+      <div><span class="mb rd">RED</span> &nbsp;never asks: bypass, full access</div>
+    </div>
+  </div>
+  <div class="st">
+    <h2>20 · How a mode asks</h2>
+    <p class="say">With each mode, the plugin can say one of: <b>reads only</b>, <b>asks first</b>, <b>edits on its own</b>, <b>edits and safe commands</b>, <b>never asks</b>. merlin then shows its card for what the mode asks about, and nothing for what the agent does itself. Without it (opencode), merlin's edit pill stays.</p>
+  </div>
+  <div class="st">
+    <h2>21 · Never asks, said plainly</h2>
+    <p class="say">A mode that never asks is red, and its box carries a red line saying the agent acts without asking. Switching to it asks once per chat, as merlin's card: <b>Let Codex run commands without asking?</b></p>
+    <div class="warnline" style="margin:0">Codex runs commands without asking. merlin still lists its file changes to Keep or Undo.</div>
+  </div>
+</div>
+
+<div class="sect">What this is based on</div>
+<div class="st" style="width:1280px;box-sizing:border-box;display:block">
+<table class="tbl">
+<tr><td>Diff review with Keep / Undo on each change, in the editor</td><td class="by">Claude Code VS Code, Cursor</td><td>Top-ranked UI request in Claude Code's VS Code issues ("like Copilot Edits Review"). Cursor users complain when per-change buttons go missing or reviews vanish after a restart; changes should wait across turns.</td></tr>
+<tr><td>Send while it works (queued)</td><td class="by">Claude Code, Zed</td><td>Requested in Claude Code's tracker; Zed queues by default with edit, remove and Send Now.</td></tr>
+<tr><td>Mode and model in the box, context meter</td><td class="by">Claude Code VS Code, Zed</td><td>Claude Code puts the mode and model under the prompt with a context indicator; Zed shows model and token use in the editor footer. "Show the active model" is a popular request.</td></tr>
+<tr><td>Rewind / checkpoints</td><td class="by">Claude Code, Cursor</td><td>Claude Code: hover a message to fork or rewind code. Cursor: Restore Checkpoint. Zed removed per-message checkpoints in Oct 2026 because snapshotting big repos was slow; merlin keeps only the files an agent touched, so it doesn't have that cost.</td></tr>
+<tr><td>Folding steps, distinct messages, scroll to newest</td><td class="by">Zed requests</td><td>Discussions on collapsible responses, telling user and AI messages apart, a scroll-to-bottom button, and seeing a tool's arguments before approving.</td></tr>
+<tr><td>Modes with colours, plan hand-over, read-only modes</td><td class="by">Chat for OpenCode (yours)</td><td>A filled badge for the agent, Tab to switch, the whole panel in the agent's colour (build blue, plan purple), replies tinted by the agent that wrote them, the plan-to-build hand-over in both colours, and the approve toggle meaning read-only commands in plan. Also: open chats with "needs you" and "working", a footer of model, time, tokens and cost per reply.</td></tr>
+<tr><td>Copy, edit and resend, past chats, @-mentions, Enter to send</td><td class="by">all three</td><td>Standard in every panel; a copy button is a high-priority Claude Code request.</td></tr>
+</table>
+</div>
+<div class="src2">Sources: <a href="https://code.claude.com/docs/en/vs-code">Claude Code in VS Code</a> · <a href="https://zed.dev/docs/ai/agent-panel.html">Zed Agent Panel</a> · <a href="https://claudeissues.com/platform/vscode-ide">Claude Code VS Code issues by engagement</a> · <a href="https://github.com/zed-industries/zed/discussions/34158">Zed #34158</a>, <a href="https://github.com/zed-industries/zed/discussions/53162">#53162</a>, <a href="https://github.com/zed-industries/zed/discussions/51298">#51298</a>, <a href="https://github.com/zed-industries/zed/discussions/46241">#46241</a> · <a href="https://forum.cursor.com/t/per-change-keep-undo-buttons-missing-after-agent-edits-only-undo-all-available/158983">Cursor forum on Keep / Undo</a> · <a href="https://www.gradually.ai/en/changelogs/zed/">Zed changelog (checkpoints removed)</a></div>
+</body>
+</html>

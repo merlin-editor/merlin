@@ -798,6 +798,36 @@ The WIT, as built (`sdk/rust/wit/merlin.wit`):
   cards merlin adds use them. merlin's permission cards say "merlin asks"
   with a lock, which no plugin piece can draw.
 
+**The chat, reworked** (AgentChat.html, approved 2026-11-16). Built in
+this order, each step committed and checked against its cards:
+
+1. API: `agent-modes(chat, modes, current)`, each mode with its name, a
+   hue (merlin's, or `#rrggbb` softened to fit the theme) and how it asks
+   (reads only, asks first, edits on its own, edits and safe commands,
+   never asks); `on-agent-mode(chat, mode)` when the user picks one;
+   `agent-usage(chat, used, size, note)` for the context ring and the
+   turn's footer; `agent-request::mode(list<string>)` for leaving a mode,
+   answered with `agent-answer::mode(string)`. `agent-header`'s chips move
+   into the box; its note becomes the ring's hover.
+2. merlin-acp: the `mode` config option (or `modes`) as modes, with the
+   suggested colours; `usage_update` as usage; a permission whose tool is
+   `switch_mode` as a mode request. opencode: build blue, plan purple
+   (read-only). Antigravity: Default blue, Accept edits green, Auto orange,
+   Plan purple.
+3. The box (cards 1, 3, 13, 17, 18, 21): attachments above the text; the
+   mode badge, merlin's edit pill (only when the mode doesn't say how it
+   asks), the plugin's chips, the ring, Send or Stop; Enter sends, Tab
+   switches mode, Shift Tab the edit pill; the chat tinted by the mode.
+4. Messages (5, 14, 18): yours as a bubble, the agent's with a line in its
+   mode's colour; steps folded per run; the footer under each reply.
+5. Above the box (4, 7): the plan, a queued message, and the changed files,
+   kept across turns until kept or undone.
+6. The editor: Undo and Keep under each change, and the floating bar.
+7. Cards (6, 15, 16, 21): keys 1 to 3, "tell it what to do instead", the
+   mode hand-over, and asking once before a mode that never asks.
+8. @ (2), hover Edit, Copy and Rewind (8), chats kept and listed (9), ↓ and
+   Alt ↑ ↓ (10), Follow Along (11), tab dots (12).
+
 **ACP is a library, and each agent is its own plugin** (decided
 2026-11-16). merlin's agent API above is the layer between merlin and every
 agent plugin; ACP is what many agent programs speak on their side.
