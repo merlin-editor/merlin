@@ -164,8 +164,10 @@ impl Frame<'_> {
         }
         let scroll = state.scroll[k].clamp(0.0, (total - body.h).max(0.0));
         state.scroll[k] = scroll;
+        let scrolled_up =
+            sv.name.starts_with("merlin.agent:") && scroll < (total - body.h).max(0.0) - 1.0;
         if sv.name.starts_with("merlin.agent:") {
-            state.unstuck[k] = scroll < (total - body.h).max(0.0) - 1.0;
+            state.unstuck[k] = scrolled_up;
         }
 
         for (i, node) in sv.nodes.iter().enumerate() {
@@ -257,6 +259,31 @@ impl Frame<'_> {
             self.node(node, sv, side, r, target, selected, clip, state);
             state.compose = false;
         }
+        // Scrolled up in an agent's chat: ↓ above the box, to the newest.
+        if scrolled_up {
+            let b = Rect::new(
+                body.x + body.w / 2.0 - 14.0,
+                body.bottom() - 36.0,
+                28.0,
+                28.0,
+            );
+            let p = self.p;
+            self.canvas.shadow(b, 14.0, crate::theme::is_light(&p));
+            self.canvas.outline(
+                b,
+                14.0,
+                1.0,
+                p.border,
+                if self.hovered(b) { p.border } else { p.raised },
+            );
+            let (cx, cy) = (b.x + 14.0, b.y + 9.0);
+            self.canvas.line((cx, cy), (cx, cy + 10.0), 1.6, p.bright);
+            self.canvas
+                .line((cx - 4.0, cy + 6.0), (cx, cy + 10.0), 1.6, p.bright);
+            self.canvas
+                .line((cx + 4.0, cy + 6.0), (cx, cy + 10.0), 1.6, p.bright);
+            self.hit(b, Hit::SideToEnd(side));
+        }
     }
 
     /// The panels a side can show, as tabs along its header: each with
@@ -288,7 +315,8 @@ impl Frame<'_> {
                 .as_ref()
                 .map_or(0.0, |b| self.text.width(b, badge_face).max(7.0) + 14.0);
             let tw = self.text.width(&tab.title, face);
-            let r = Rect::new(x, y, icon_w + tw + from_w + badge_w + 20.0, h);
+            let dot_w = if tab.dot.is_some() { 12.0 } else { 0.0 };
+            let r = Rect::new(x, y, icon_w + tw + dot_w + from_w + badge_w + 20.0, h);
             if r.x >= clip.right() {
                 break;
             }
@@ -306,6 +334,13 @@ impl Frame<'_> {
             self.text
                 .draw_in_row(&mut self.canvas, &tab.title, face, tx, y, h, colour, clip);
             tx += tw;
+            // An agent waiting for you is blue; one done while away, amber.
+            if let Some(waiting) = tab.dot {
+                let c = agent::mode_colour(&p, if waiting { "blue" } else { "orange" });
+                self.canvas
+                    .round(Rect::new(tx + 6.0, y + h / 2.0 - 3.0, 6.0, 6.0), 3.0, c);
+                tx += dot_w;
+            }
             if let Some(from) = &from {
                 self.text.draw_in_row(
                     &mut self.canvas,

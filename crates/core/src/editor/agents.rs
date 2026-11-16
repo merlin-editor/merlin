@@ -260,6 +260,8 @@ pub(crate) struct Agents {
     rewind: Option<(String, usize)>,
     /// The project's files were asked for, for `@`.
     pub want_files: bool,
+    /// Follow Along: each file the agent edits opens, at the change.
+    pub follow: bool,
     /// Past chats in this workspace, newest first.
     pub past: Vec<PastChat>,
     /// The latest time heard, in ms, for "2 hours ago".
@@ -314,6 +316,8 @@ pub(crate) struct Tab {
     forked: usize,
     /// When the chat's first turn ended, in ms: who it is among past chats.
     started: Option<u64>,
+    /// It finished while its tab wasn't showing.
+    unseen: bool,
 }
 
 #[derive(Clone)]
@@ -480,6 +484,7 @@ impl Editor {
             history: Vec::new(),
             forked: 0,
             started: None,
+            unseen: false,
             queued: Vec::new(),
             plan_open: false,
             changes_open: false,
@@ -559,6 +564,7 @@ impl Editor {
                 history: Vec::new(),
                 forked: 0,
                 started: None,
+                unseen: false,
                 queued: Vec::new(),
                 plan_open: false,
                 changes_open: false,
@@ -688,6 +694,10 @@ impl Editor {
                 tab.allowed_runs.clear();
                 self.end_thought(i, at);
                 self.keep_chat(i, at, fx);
+                let name = format!("{AGENT}{key}");
+                let showing = self.bar(Side::Right).visible
+                    && self.bar(Side::Right).active.as_deref() == Some(name.as_str());
+                self.agents.tabs[i].unseen = !showing;
                 // The next message waiting goes now, unless it failed.
                 let tab = &mut self.agents.tabs[i];
                 if outcome != AgentOutcome::Failed && !tab.queued.is_empty() {
@@ -1215,6 +1225,9 @@ impl Editor {
             text: text.clone(),
             revision: doc.buffer.revision(),
         });
+        let first = crate::diff::runs(&before, &text)
+            .first()
+            .map(|(_, new)| new.start);
         self.agent_changed(plugin, chat, path, before, &text);
         fx.push(Effect::Agent {
             plugin: plugin.to_string(),
@@ -1224,6 +1237,19 @@ impl Editor {
                 result: Ok(String::new()),
             },
         });
+        // Follow Along: the file comes forward, at the change.
+        if self.agents.follow
+            && let Some(line) = first
+        {
+            self.open(path.to_path_buf(), fx);
+            if self.doc().buffer.path.as_deref() == Some(path) {
+                let at = self.doc().line_start(line.min(self.doc().last_line()));
+                let doc = self.doc_mut();
+                doc.cursor = at;
+                doc.anchor = None;
+                self.reveal_cursor();
+            }
+        }
     }
 
     /// A file opened: the writes waiting for it go in.
@@ -1960,6 +1986,26 @@ impl Editor {
         self.draw_agent(key);
     }
 
+    /// The dot on an agent's tab: waiting for you, or finished unseen.
+    pub(crate) fn agent_dot(&self, name: &str) -> Option<bool> {
+        let key = name.strip_prefix(AGENT)?;
+        let tab = self.agents.tabs.iter().find(|t| t.key == key)?;
+        if !tab.asks.is_empty() {
+            Some(true)
+        } else {
+            tab.unseen.then_some(false)
+        }
+    }
+
+    /// An agent's tab came forward: what it finished is seen.
+    pub(crate) fn agent_seen(&mut self, name: &str) {
+        if let Some(key) = name.strip_prefix(AGENT)
+            && let Some(tab) = self.agents.tabs.iter_mut().find(|t| t.key == key)
+        {
+            tab.unseen = false;
+        }
+    }
+
     /// Keeps a chat among the past ones, as it is now.
     fn keep_chat(&mut self, i: usize, at: u64, fx: &mut Vec<Effect>) {
         let tab = &self.agents.tabs[i];
@@ -2304,7 +2350,13 @@ impl Editor {
     pub(crate) fn agent_more_menu(&mut self) {
         self.popup = None;
         self.context = Some(super::context::ContextMenu {
-            items: vec!["agent.allowed", "agent.new_chat", "-", "agent.close"],
+            items: vec![
+                "agent.new_chat",
+                "agent.follow",
+                "agent.allowed",
+                "-",
+                "agent.close",
+            ],
             selected: None,
             title: None,
         });
@@ -2417,6 +2469,13 @@ impl Editor {
             "agent.find" => "Find Agent Plugins…",
             "agent.allowed" => "Allowed in This Workspace",
             "agent.new_chat" => "New Chat",
+            "agent.follow" => {
+                return Some((
+                    "Follow Along".into(),
+                    self.agents.follow.then(|| "✓".to_string()),
+                    false,
+                ));
+            }
             "agent.close" => "Close This Agent",
             _ => return None,
         };
@@ -2463,6 +2522,7 @@ impl Editor {
                 self.draw_agent(&key);
             }
             "agent.usage" => {}
+            "agent.follow" => self.agents.follow = !self.agents.follow,
             "agent.rewind.undo" | "agent.rewind.new" | "agent.rewind.both" => {
                 if let Some((k, n)) = self.agents.rewind.take() {
                     let undo = id != "agent.rewind.new";

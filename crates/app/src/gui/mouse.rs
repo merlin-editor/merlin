@@ -256,6 +256,12 @@ impl Gui<'_> {
                     self.redraw();
                 }
             }
+            Hit::SideToEnd(side) => {
+                let k = super::frame::side_index(side);
+                self.state.scroll[k] = f32::MAX;
+                self.state.unstuck[k] = false;
+                self.redraw();
+            }
             Hit::MaximizePanel => {
                 if let Some(shown) = &self.window {
                     let h = shown.window.inner_size().height as f32 / self.scale();

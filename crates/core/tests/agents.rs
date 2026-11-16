@@ -968,3 +968,31 @@ fn a_finished_chat_is_kept_and_listed_under_chats() {
     assert!(shown.contains("Fix the flicker"), "{shown}");
     assert!(shown.contains("doesn't see what's above"), "{shown}");
 }
+
+#[test]
+fn an_agent_tab_has_a_dot_while_it_waits() {
+    let mut s = session();
+    send(&mut s, "go");
+    let dot = |s: &Session| {
+        s.editor
+            .window_view()
+            .right
+            .and_then(|r| {
+                r.panels
+                    .iter()
+                    .find(|p| p.title.contains("Gemini"))
+                    .map(|p| p.dot)
+            })
+            .flatten()
+    };
+    say(
+        &mut s,
+        AgentUpdate::Ask {
+            request: 3,
+            what: AgentRequest::Run("cargo test".into()),
+        },
+    );
+    assert_eq!(dot(&s), Some(true));
+    s.click_entry("Allow Once", 1);
+    assert_eq!(dot(&s), None);
+}

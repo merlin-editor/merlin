@@ -102,6 +102,8 @@ pub enum Hit {
     Terminal(u64),
     /// Makes the panel as tall as it goes, or back.
     MaximizePanel,
+    /// An agent's chat, scrolled up: back to its newest.
+    SideToEnd(Side),
     /// A part of the Settings tab.
     Settings(SettingsAction),
     /// A document's pages, where the wheel scrolls and the mouse selects.
@@ -168,7 +170,7 @@ pub struct State {
     pub input_scroll: HashMap<String, f32>,
     /// A chat scrolled up from its end, which then stays put as messages
     /// come; at its end, it follows them.
-    unstuck: [bool; 4],
+    pub(super) unstuck: [bool; 4],
     /// The text box being drawn is a chat's, inside the box with its chips.
     compose: bool,
 }

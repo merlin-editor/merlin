@@ -309,6 +309,9 @@ pub struct PanelTab {
     /// The plugin a view is from, by its title, for the panel's tabs.
     pub from: Option<String>,
     pub badge: u32,
+    /// An agent's tab: a blue dot while it waits for you (`true`), amber
+    /// when it finished while you were elsewhere (`false`).
+    pub dot: Option<bool>,
 }
 
 /// A button in a plugin view's header, running one of its commands.
@@ -595,6 +598,7 @@ impl Editor {
                     icon: view.and_then(|v| v.icon.clone()),
                     from: view.map(|v| self.plugin_title(&v.plugin)),
                     badge: view.map_or(0, |v| v.badge),
+                    dot: self.agent_dot(&n),
                     name: n,
                 }
             })
@@ -1075,6 +1079,7 @@ impl Editor {
                 } else if side == Side::Bottom {
                     self.show_bottom(&name);
                 } else {
+                    self.agent_seen(&name);
                     self.bar_mut(side).active = Some(name);
                     self.focus_panel(side);
                 }
