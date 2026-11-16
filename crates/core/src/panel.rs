@@ -265,6 +265,23 @@ pub enum Node {
         text: String,
         copy: Button,
     },
+    /// Above an agent's box: its plan, folded to the step it's on (ticked
+    /// so far of all), or open to every step. Clicked: `agent:plan`.
+    PlanDock {
+        steps: Vec<(String, StepState)>,
+        open: bool,
+    },
+    /// Above an agent's box: a message sent while it works, waiting its
+    /// turn, with Edit (`agent:queue-edit:n`), ✕ (`agent:queue-drop:n`)
+    /// and Send Now (`agent:queue-now:n`).
+    Queued {
+        index: usize,
+        text: String,
+    },
+    /// Above an agent's box: the files it changed, waiting to be kept or
+    /// undone, with Review, Undo All and Keep All, and open, each file's
+    /// Undo and Keep.
+    ChangesBar(Box<ChangesBar>),
     /// The bottom row of an agent's box, under its text: the agent's
     /// mode, merlin's edit pill and the plugin's chips, how full the
     /// context is, and Send or Stop.
@@ -299,6 +316,36 @@ pub struct StepLine {
     /// Links at the right end, as "Terminal ↗", then quiet buttons, as Stop.
     pub links: Vec<Button>,
     pub buttons: Vec<Button>,
+}
+
+/// The files an agent changed, as the bar above its box shows them.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct ChangesBar {
+    /// Each file's path, lines added and removed.
+    pub files: Vec<(String, u32, u32)>,
+    pub open: bool,
+}
+
+impl ChangesBar {
+    pub fn ids(&self) -> Vec<String> {
+        let mut ids: Vec<String> = [
+            "agent:changes",
+            "agent:review-all",
+            "agent:revert-all",
+            "agent:keep-all",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        if self.open {
+            for (path, ..) in &self.files {
+                ids.push(format!("agent:review:{path}"));
+                ids.push(format!("agent:revert:{path}"));
+                ids.push(format!("agent:keep:{path}"));
+            }
+        }
+        ids
+    }
 }
 
 /// The row under an agent chat's text box.
@@ -585,6 +632,12 @@ impl Panel {
                 Node::Bar { chips, .. } => chip_targets(chips),
                 Node::ComposeBar(c) => c.ids().into_iter().map(Target::Button).collect(),
                 Node::Fold { id, .. } => vec![Target::Button(id.clone())],
+                Node::PlanDock { .. } => vec![Target::Button("agent:plan".into())],
+                Node::Queued { index, .. } => ["queue-edit", "queue-drop", "queue-now"]
+                    .iter()
+                    .map(|w| Target::Button(format!("agent:{w}:{index}")))
+                    .collect(),
+                Node::ChangesBar(c) => c.ids().into_iter().map(Target::Button).collect(),
                 Node::TurnFoot { copy, .. } => vec![button(copy)],
                 Node::Menu { items, .. } => items
                     .iter()

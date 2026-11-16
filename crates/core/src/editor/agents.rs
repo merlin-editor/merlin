@@ -11,8 +11,8 @@ use std::path::{Path, PathBuf};
 
 use super::{Editor, Effect, Side};
 use crate::panel::{
-    AskCard, Button, ChangedFile, ChangesCard, Chip, ComposeBar, Message, Node, Panel, StepLine,
-    StepState, Tone,
+    AskCard, Button, ChangedFile, ChangesBar, ChangesCard, Chip, ComposeBar, Message, Node, Panel,
+    StepLine, StepState, Tone,
 };
 
 /// The prefix of an agent tab's panel name.
@@ -281,6 +281,11 @@ pub(crate) struct Tab {
     tool_times: std::collections::HashMap<String, (u64, u64)>,
     /// Runs of steps opened, by turn and first item.
     open_folds: HashSet<(usize, usize)>,
+    /// Messages sent while the agent worked, waiting their turn.
+    pub queued: Vec<String>,
+    /// Whether the plan above the box, and the changed files, are open.
+    plan_open: bool,
+    changes_open: bool,
 }
 
 pub(crate) enum Turn {
@@ -441,6 +446,9 @@ impl Editor {
             auto: false,
             tool_times: Default::default(),
             open_folds: HashSet::new(),
+            queued: Vec::new(),
+            plan_open: false,
+            changes_open: false,
         });
         Some(self.agents.tabs.len() - 1)
     }
@@ -514,6 +522,9 @@ impl Editor {
                 auto: false,
                 tool_times: Default::default(),
                 open_folds: HashSet::new(),
+                queued: Vec::new(),
+                plan_open: false,
+                changes_open: false,
             });
             // An agent with a view of its own shows that, not merlin's chat.
             if self.spec(key).and_then(|s| s.view.clone()).is_none() {
@@ -636,6 +647,12 @@ impl Editor {
                 tab.allowed_paths.clear();
                 tab.allowed_runs.clear();
                 self.end_thought(i, at);
+                // The next message waiting goes now, unless it failed.
+                let tab = &mut self.agents.tabs[i];
+                if outcome != AgentOutcome::Failed && !tab.queued.is_empty() {
+                    let next = tab.queued.remove(0);
+                    self.agent_send(&key, &next, fx);
+                }
             }
             AgentUpdate::Read { request, path } => {
                 let full = self.agent_path(&path);
@@ -1339,7 +1356,16 @@ impl Editor {
         let Some(i) = self.agents.tabs.iter().position(|t| t.key == key) else {
             return;
         };
-        if self.agents.tabs[i].busy || spec.missing.is_some() || text.trim().is_empty() {
+        if spec.missing.is_some() || text.trim().is_empty() {
+            return;
+        }
+        let name = format!("{AGENT}{key}");
+        // While it works, a message waits its turn above the box.
+        if self.agents.tabs[i].busy {
+            self.agents.tabs[i].queued.push(text.trim().to_string());
+            self.inputs.remove(&(name.clone(), PROMPT.to_string()));
+            self.input_cursors.remove(&(name, PROMPT.to_string()));
+            self.draw_agent(key);
             return;
         }
         let (context, chips) = self.agent_context(i);
@@ -1350,7 +1376,6 @@ impl Editor {
         });
         tab.busy = true;
         tab.ended = None;
-        tab.changes.clear();
         fx.push(Effect::Agent {
             plugin: spec.plugin.clone(),
             call: AgentCall::Prompt {
@@ -1360,7 +1385,6 @@ impl Editor {
                 context,
             },
         });
-        let name = format!("{AGENT}{key}");
         self.inputs.remove(&(name.clone(), PROMPT.to_string()));
         self.input_cursors.remove(&(name, PROMPT.to_string()));
         self.draw_agent(key);
@@ -1547,6 +1571,84 @@ impl Editor {
                 if let Some(text) = text {
                     fx.push(Effect::Copy(text));
                 }
+            }
+            "plan" | "changes" => {
+                if let Some(tab) = self.agents.tabs.iter_mut().find(|t| t.key == key) {
+                    if what == "plan" {
+                        tab.plan_open = !tab.plan_open;
+                    } else {
+                        tab.changes_open = !tab.changes_open;
+                    }
+                }
+                self.draw_agent(&key);
+            }
+            "keep" | "keep-all" => {
+                let root = self.root.clone();
+                if let Some(tab) = self.agents.tabs.iter_mut().find(|t| t.key == key) {
+                    tab.changes.retain(|c| {
+                        what == "keep"
+                            && c.path.strip_prefix(&root).unwrap_or(&c.path) != Path::new(arg)
+                    });
+                }
+                self.draw_agent(&key);
+            }
+            "review-all" => {
+                let all: Vec<(PathBuf, String)> = self
+                    .agents
+                    .tabs
+                    .iter()
+                    .find(|t| t.key == key)
+                    .map(|t| {
+                        t.changes
+                            .iter()
+                            .map(|c| (c.path.clone(), c.before.clone()))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let name = self.agent_name(&key);
+                for (path, before) in all {
+                    self.review_against(path, before, &format!("Before {name}"), fx);
+                }
+            }
+            "queue-edit" | "queue-drop" | "queue-now" => {
+                let n: usize = arg.parse().unwrap_or(usize::MAX);
+                let Some(tab) = self.agents.tabs.iter_mut().find(|t| t.key == key) else {
+                    return true;
+                };
+                if n >= tab.queued.len() {
+                    return true;
+                }
+                match what {
+                    "queue-edit" => {
+                        let text = tab.queued.remove(n);
+                        let input = (format!("{AGENT}{key}"), PROMPT.to_string());
+                        self.input_cursors.insert(input.clone(), text.len());
+                        self.inputs.insert(input, text);
+                    }
+                    "queue-drop" => {
+                        tab.queued.remove(n);
+                    }
+                    _ => {
+                        // Send Now: this one goes first, and the turn stops.
+                        let text = tab.queued.remove(n);
+                        tab.queued.insert(0, text);
+                        if tab.busy
+                            && let Some(spec) = self.spec(&key).cloned()
+                        {
+                            let chat = self
+                                .agents
+                                .tabs
+                                .iter()
+                                .find(|t| t.key == key)
+                                .map_or(0, |t| t.chat);
+                            fx.push(Effect::Agent {
+                                plugin: spec.plugin,
+                                call: AgentCall::Cancel { chat },
+                            });
+                        }
+                    }
+                }
+                self.draw_agent(&key);
             }
             "fold" => {
                 let mut parts = arg.split(':').filter_map(|p| p.parse::<usize>().ok());
@@ -1976,16 +2078,33 @@ impl Editor {
             }
             _ => {}
         }
-        if !tab.busy
-            && !tab.changes.is_empty()
-            && tab
-                .ended
-                .as_ref()
-                .is_none_or(|(o, _)| *o != AgentOutcome::Cancelled)
-        {
-            nodes.push(Node::Changes(Box::new(self.changes_card(tab))));
-        }
         nodes.push(Node::Footer);
+        // Above the box: the plan, messages waiting, and changed files.
+        let plan = tab.turns.iter().rev().find_map(|t| match t {
+            Turn::Agent(reply) => reply.iter().find_map(|i| match i {
+                Item::Plan(p) => Some(p),
+                _ => None,
+            }),
+            Turn::You { .. } => None,
+        });
+        if let Some(plan) = plan
+            && (tab.busy || plan.iter().any(|s| s.state != StepState::Done))
+            && !plan.is_empty()
+        {
+            nodes.push(Node::PlanDock {
+                steps: plan.iter().map(|s| (s.text.clone(), s.state)).collect(),
+                open: tab.plan_open,
+            });
+        }
+        for (index, text) in tab.queued.iter().enumerate() {
+            nodes.push(Node::Queued {
+                index,
+                text: text.clone(),
+            });
+        }
+        if !tab.changes.is_empty() {
+            nodes.push(Node::ChangesBar(Box::new(self.changes_bar(tab))));
+        }
         let waiting = !tab.asks.is_empty();
         // What goes with the message, above its text.
         if let Some(path) = self.doc().buffer.path.as_deref() {
@@ -2086,9 +2205,8 @@ impl Editor {
                     },
                     Tone::Muted,
                 )),
-                Item::Plan(plan) => nodes.push(Node::Steps(
-                    plan.iter().map(|s| (s.text.clone(), s.state)).collect(),
-                )),
+                // The plan shows above the box, where it keeps its place.
+                Item::Plan(_) => {}
                 Item::Text(text) => nodes.push(Node::Message(Box::new(Message {
                     author: String::new(),
                     mine: false,
@@ -2386,6 +2504,18 @@ impl Editor {
         }
     }
 
+    fn changes_bar(&self, tab: &Tab) -> ChangesBar {
+        ChangesBar {
+            files: tab
+                .changes
+                .iter()
+                .map(|c| (self.shown_path(&c.path), c.added, c.removed))
+                .collect(),
+            open: tab.changes_open,
+        }
+    }
+
+    #[allow(dead_code)]
     fn changes_card(&self, tab: &Tab) -> ChangesCard {
         let n = tab.changes.len();
         ChangesCard {
@@ -2517,8 +2647,8 @@ impl Editor {
         if let Some(ask) = tab.asks.first() {
             extra.push(Node::Ask(Box::new(self.ask_card(&spec.name, ask, tab))));
         }
-        if !tab.busy && !tab.changes.is_empty() {
-            extra.push(Node::Changes(Box::new(self.changes_card(tab))));
+        if !tab.changes.is_empty() {
+            extra.push(Node::ChangesBar(Box::new(self.changes_bar(tab))));
         }
         if !extra.is_empty() {
             panel.nodes.push(Node::Footer);

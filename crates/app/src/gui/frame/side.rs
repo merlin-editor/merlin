@@ -582,6 +582,21 @@ impl Frame<'_> {
             Node::Chips { .. } => 32.0,
             Node::ComposeBar(_) => 38.0,
             Node::Reply { .. } => 26.0,
+            Node::PlanDock { steps, open } => {
+                if *open {
+                    34.0 + steps.len() as f32 * 20.0
+                } else {
+                    52.0
+                }
+            }
+            Node::Queued { .. } => 38.0,
+            Node::ChangesBar(c) => {
+                40.0 + if c.open {
+                    c.files.len() as f32 * 26.0
+                } else {
+                    0.0
+                }
+            }
             Node::ReplyEnd => 8.0,
             Node::Fold { .. } => 26.0,
             Node::TurnFoot { .. } => 22.0,
@@ -752,6 +767,11 @@ impl Frame<'_> {
             Node::ComposeBar(c) => self.compose_bar(c, sv, side, r, target, clip),
             Node::Reply { author, mode } => self.reply_head(author, mode.as_ref(), r, clip),
             Node::ReplyEnd => {}
+            Node::PlanDock { steps, open } => {
+                self.plan_dock(steps, *open, sv, side, r, target, clip)
+            }
+            Node::Queued { text, .. } => self.queued_row(text, sv, side, r, target, clip),
+            Node::ChangesBar(c) => self.changes_bar(c, sv, side, r, target, clip),
             Node::Fold {
                 label,
                 detail,

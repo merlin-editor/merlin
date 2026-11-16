@@ -6,7 +6,7 @@ use std::fmt::Write;
 
 use super::window::SideView;
 use super::{Editor, PopupKind, TextView};
-use crate::panel::Node;
+use crate::panel::{Node, StepState};
 
 impl Editor {
     /// What a window shows now, as text.
@@ -643,6 +643,34 @@ fn dump_side(o: &mut String, which: &str, side: &SideView) {
                 }
             ),
             Node::TurnFoot { text, copy } => format!("foot: {text} [{}]", copy.label),
+            Node::PlanDock { steps, open } => {
+                let done = steps.iter().filter(|s| s.1 == StepState::Done).count();
+                let now = steps
+                    .iter()
+                    .find(|s| s.1 != StepState::Done)
+                    .map_or("", |s| s.0.as_str());
+                if *open {
+                    let all: Vec<&str> = steps.iter().map(|s| s.0.as_str()).collect();
+                    format!("plan {done} of {} ▾ | {}", steps.len(), all.join(" | "))
+                } else {
+                    format!("plan {done} of {}: {now}", steps.len())
+                }
+            }
+            Node::Queued { text, .. } => format!("next: {text} [✎] [✕] [Send Now]"),
+            Node::ChangesBar(c) => {
+                let (a, r) = c.files.iter().fold((0, 0), |(a, r), f| (a + f.1, r + f.2));
+                let n = c.files.len();
+                let mut text = format!(
+                    "{n} {} changed +{a} −{r} [Review] [Undo All] [Keep All]",
+                    if n == 1 { "file" } else { "files" }
+                );
+                if c.open {
+                    for (p, a, r) in &c.files {
+                        text += &format!(" | {p} +{a} −{r} [Undo] [Keep]");
+                    }
+                }
+                text
+            }
             Node::ComposeBar(c) => {
                 let mut text = String::from("box:");
                 if let Some((name, _)) = &c.mode {

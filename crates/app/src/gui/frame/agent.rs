@@ -1126,3 +1126,368 @@ impl Frame<'_> {
         }
     }
 }
+
+impl Frame<'_> {
+    /// A card above the box: a rounded box at the box's width.
+    fn dock_card(&mut self, r: Rect, dashed: bool) -> Rect {
+        let p = self.p;
+        let card = Rect::new(r.x + 10.0, r.y + 3.0, r.w - 20.0, r.h - 6.0);
+        if dashed {
+            // A message waiting: a quieter, dotted edge.
+            self.canvas.round(card, 8.0, p.island);
+            let mut x = card.x + 6.0;
+            while x < card.right() - 6.0 {
+                self.canvas.fill(Rect::new(x, card.y, 4.0, 1.0), p.border);
+                self.canvas
+                    .fill(Rect::new(x, card.bottom() - 1.0, 4.0, 1.0), p.border);
+                x += 7.0;
+            }
+            let mut y = card.y + 6.0;
+            while y < card.bottom() - 6.0 {
+                self.canvas.fill(Rect::new(card.x, y, 1.0, 4.0), p.border);
+                self.canvas
+                    .fill(Rect::new(card.right() - 1.0, y, 1.0, 4.0), p.border);
+                y += 7.0;
+            }
+        } else {
+            self.canvas.outline(card, 8.0, 1.0, p.border, p.island);
+        }
+        card
+    }
+
+    /// The plan above the box: "☰ Plan 3 of 4" and the step it's on, or
+    /// open, every step.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn plan_dock(
+        &mut self,
+        steps: &[(String, StepState)],
+        open: bool,
+        sv: &SideView,
+        side: Side,
+        r: Rect,
+        target: Option<usize>,
+        clip: Rect,
+    ) {
+        let p = self.p;
+        let card = self.dock_card(r, false);
+        let inside = card.inset(1.0).intersect(clip);
+        let focused = sv.focused && target.is_some() && target == Some(sv.selected);
+        if focused || self.hovered(card) {
+            self.canvas.round(card.inset(1.0), 7.0, p.hover);
+        }
+        let done = steps.iter().filter(|s| s.1 == StepState::Done).count();
+        let x = card.x + 10.0;
+        let mut y = card.y + 4.0;
+        let w = self.text.draw_in_row(
+            &mut self.canvas,
+            "☰ Plan",
+            Face::ui(12.0).medium(),
+            x,
+            y,
+            20.0,
+            p.bright,
+            inside,
+        );
+        self.text.draw_in_row(
+            &mut self.canvas,
+            &format!("{done} of {}", steps.len()),
+            Face::ui(12.0),
+            x + w + 6.0,
+            y,
+            20.0,
+            p.muted,
+            inside,
+        );
+        self.canvas
+            .chevron(card.right() - 14.0, y + 10.0, 7.0, open, p.muted);
+        y += 20.0;
+        let shown: Vec<&(String, StepState)> = if open {
+            steps.iter().collect()
+        } else {
+            steps
+                .iter()
+                .find(|s| s.1 != StepState::Done)
+                .into_iter()
+                .collect()
+        };
+        for (text, state) in shown {
+            self.step_mark(*state, x - 1.0, y, 20.0, inside);
+            let t = self.text.fit(text, Face::ui(12.0), card.w - 40.0);
+            let colour = match state {
+                StepState::Done => p.faint,
+                StepState::Running => p.text,
+                _ => p.muted,
+            };
+            self.text.draw_in_row(
+                &mut self.canvas,
+                &t,
+                Face::ui(12.0),
+                x + 16.0,
+                y,
+                20.0,
+                colour,
+                inside,
+            );
+            y += 20.0;
+        }
+        if let Some(t) = target {
+            self.hit(card, chat_pick(side, t));
+        }
+    }
+
+    /// A message waiting its turn: "NEXT", its text, ✎, ✕ and Send Now.
+    pub(super) fn queued_row(
+        &mut self,
+        text: &str,
+        sv: &SideView,
+        side: Side,
+        r: Rect,
+        target: Option<usize>,
+        clip: Rect,
+    ) {
+        let p = self.p;
+        let card = self.dock_card(r, true);
+        let inside = card.inset(1.0).intersect(clip);
+        let x = card.x + 10.0;
+        let lw = self.text.draw_in_row(
+            &mut self.canvas,
+            "NEXT",
+            Face::ui(10.5).bold(),
+            x,
+            card.y,
+            card.h,
+            p.faint,
+            inside,
+        );
+        // At the right: ✎, ✕, Send Now.
+        let now_w = self.text.width("Send Now", Face::ui(12.0)) + 18.0;
+        let now_x = card.right() - 6.0 - now_w;
+        let drop_x = now_x - 24.0;
+        let edit_x = drop_x - 24.0;
+        let room = edit_x - (x + lw + 8.0) - 4.0;
+        let t = self.text.fit(text, Face::ui(12.0), room);
+        self.text.draw_in_row(
+            &mut self.canvas,
+            &t,
+            Face::ui(12.0),
+            x + lw + 8.0,
+            card.y,
+            card.h,
+            p.text,
+            inside,
+        );
+        let by = card.y + (card.h - SMALL_H) / 2.0;
+        let at = |k: usize| target.map(|t| t + k);
+        let focus = |k: usize| sv.focused && at(k).is_some() && at(k) == Some(sv.selected);
+        for (k, (glyph, gx)) in [("✎", edit_x), ("✕", drop_x)].into_iter().enumerate() {
+            let b = Rect::new(gx, by, 22.0, SMALL_H);
+            if focus(k) || self.hovered(b) {
+                self.canvas.round(b, 5.0, p.hover);
+            }
+            self.text.draw_in_row(
+                &mut self.canvas,
+                glyph,
+                Face::ui(12.0),
+                gx + 6.0,
+                by,
+                SMALL_H,
+                p.muted,
+                inside,
+            );
+            if let Some(t) = at(k) {
+                self.hit(b, chat_pick(side, t));
+            }
+        }
+        self.small_button("Send Now", now_x, by, Look::Plain, focus(2));
+        if let Some(t) = at(2) {
+            self.hit(Rect::new(now_x, by, now_w, SMALL_H), chat_pick(side, t));
+        }
+    }
+
+    /// The files changed, waiting to be kept: "2 files changed +18 −7",
+    /// Review, Undo All and Keep All; open, each file's Undo and Keep.
+    pub(super) fn changes_bar(
+        &mut self,
+        c: &merlin_core::ChangesBar,
+        sv: &SideView,
+        side: Side,
+        r: Rect,
+        target: Option<usize>,
+        clip: Rect,
+    ) {
+        let p = self.p;
+        let card = self.dock_card(r, false);
+        let inside = card.inset(1.0).intersect(clip);
+        let at = |k: usize| target.map(|t| t + k);
+        let focus = |k: usize| sv.focused && at(k).is_some() && at(k) == Some(sv.selected);
+        let head = Rect::new(card.x, card.y, card.w, 34.0);
+        let by = head.y + (head.h - SMALL_H) / 2.0;
+        // At the right: Review, Undo All, Keep All.
+        let keep_w = self.text.width("Keep All", Face::ui(12.0)) + 18.0;
+        let undo_w = self.text.width("Undo All", Face::ui(12.0)) + 18.0;
+        let review_w = self.text.width("Review", Face::ui(12.0)) + 18.0;
+        let keep_x = head.right() - 6.0 - keep_w;
+        let undo_x = keep_x - 4.0 - undo_w;
+        let n = c.files.len();
+        let (a, rm) = c.files.iter().fold((0, 0), |(a, r), f| (a + f.1, r + f.2));
+        let said = format!("{n} {} changed", if n == 1 { "file" } else { "files" });
+        let said_w = self.text.width(&said, Face::ui(12.0))
+            + self.text.width(&format!("+{a} −{rm}"), Face::ui(12.0))
+            + 26.0;
+        // Short of room, Review steps aside: the head still opens the list.
+        let show_review = head.x + said_w < undo_x - 2.0 - review_w;
+        let review_x = if show_review {
+            undo_x - 2.0 - review_w
+        } else {
+            undo_x
+        };
+        // The head opens the list.
+        let toggle = Rect::new(head.x, head.y, review_x - head.x, head.h);
+        if focus(0) || self.hovered(toggle) {
+            self.canvas.round(toggle.inset(2.0), 6.0, p.hover);
+        }
+        let mut x = head.x + 10.0;
+        x += self.text.draw_in_row(
+            &mut self.canvas,
+            &said,
+            Face::ui(12.0),
+            x,
+            head.y,
+            head.h,
+            p.text,
+            inside,
+        ) + 7.0;
+        x += self.text.draw_in_row(
+            &mut self.canvas,
+            &format!("+{a}"),
+            Face::ui(12.0),
+            x,
+            head.y,
+            head.h,
+            p.success,
+            inside,
+        ) + 5.0;
+        self.text.draw_in_row(
+            &mut self.canvas,
+            &format!("−{rm}"),
+            Face::ui(12.0),
+            x,
+            head.y,
+            head.h,
+            p.error,
+            inside,
+        );
+        if let Some(t) = at(0) {
+            self.hit(toggle, chat_pick(side, t));
+        }
+        for (k, (label, bx, w, look)) in [
+            ("Review", review_x, review_w, Look::Quiet),
+            ("Undo All", undo_x, undo_w, Look::Plain),
+            ("Keep All", keep_x, keep_w, Look::Primary),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            if k == 0 && !show_review {
+                continue;
+            }
+            self.small_button(label, bx, by, look, focus(k + 1));
+            if let Some(t) = at(k + 1) {
+                self.hit(Rect::new(bx, by, w, SMALL_H), chat_pick(side, t));
+            }
+        }
+        if !c.open {
+            return;
+        }
+        let mut y = head.bottom();
+        for (n, (path, added, removed)) in c.files.iter().enumerate() {
+            self.canvas
+                .fill(Rect::new(card.x + 1.0, y, card.w - 2.0, 1.0), p.line);
+            let row = Rect::new(card.x, y, card.w, 26.0);
+            let base = 4 + 3 * n;
+            let name = path.rsplit('/').next().unwrap_or(path).to_string();
+            let mut fx = row.x + 10.0;
+            self.file_icon(&name, None, fx, y + 6.0, 14.0, inside);
+            fx += 20.0;
+            let keep_w = self.text.width("Keep", Face::ui(11.5)) + 14.0;
+            let undo_w = self.text.width("Undo", Face::ui(11.5)) + 14.0;
+            let keep_x = row.right() - 6.0 - keep_w;
+            let undo_x = keep_x - 2.0 - undo_w;
+            let name_r = Rect::new(fx - 22.0, y, undo_x - fx + 18.0, 26.0);
+            if focus(base) || self.hovered(name_r) {
+                self.canvas.round(name_r.inset(2.0), 5.0, p.hover);
+            }
+            fx += self.text.draw_in_row(
+                &mut self.canvas,
+                &name,
+                Face::ui(12.0),
+                fx,
+                y,
+                26.0,
+                p.text,
+                inside,
+            ) + 6.0;
+            let dir = path.rsplit_once('/').map_or("", |(d, _)| d);
+            let dir = dir.rsplit('/').next().unwrap_or(dir);
+            if !dir.is_empty() {
+                fx += self.text.draw_in_row(
+                    &mut self.canvas,
+                    dir,
+                    Face::ui(11.0),
+                    fx,
+                    y,
+                    26.0,
+                    p.faint,
+                    inside,
+                ) + 6.0;
+            }
+            fx += self.text.draw_in_row(
+                &mut self.canvas,
+                &format!("+{added}"),
+                Face::ui(11.5),
+                fx,
+                y,
+                26.0,
+                p.success,
+                inside,
+            ) + 4.0;
+            self.text.draw_in_row(
+                &mut self.canvas,
+                &format!("−{removed}"),
+                Face::ui(11.5),
+                fx,
+                y,
+                26.0,
+                p.error,
+                inside,
+            );
+            if let Some(t) = at(base) {
+                self.hit(name_r, chat_pick(side, t));
+            }
+            for (k, (label, bx, w)) in [("Undo", undo_x, undo_w), ("Keep", keep_x, keep_w)]
+                .into_iter()
+                .enumerate()
+            {
+                let b = Rect::new(bx, y + 3.0, w, 20.0);
+                let hot = self.hovered(b);
+                if focus(base + 1 + k) || hot {
+                    self.canvas.round(b, 4.0, p.hover);
+                }
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    label,
+                    Face::ui(11.5),
+                    bx + 7.0,
+                    b.y,
+                    20.0,
+                    if hot { p.bright } else { p.muted },
+                    inside,
+                );
+                if let Some(t) = at(base + 1 + k) {
+                    self.hit(b, chat_pick(side, t));
+                }
+            }
+            y += 26.0;
+        }
+    }
+}

@@ -496,6 +496,31 @@ impl Session {
                         .map(|c| c.label.clone())
                         .collect(),
                     crate::panel::Node::Fold { label, .. } => vec![label.clone()],
+                    crate::panel::Node::PlanDock { .. } => vec!["Plan".into()],
+                    crate::panel::Node::Queued { text, .. } => {
+                        vec![
+                            format!("{text} ✎"),
+                            format!("{text} ✕"),
+                            format!("{text} Send Now"),
+                        ]
+                    }
+                    crate::panel::Node::ChangesBar(c) => {
+                        let n = c.files.len();
+                        let mut l = vec![
+                            format!("{n} {} changed", if n == 1 { "file" } else { "files" }),
+                            "Review All".into(),
+                            "Undo All".into(),
+                            "Keep All".into(),
+                        ];
+                        if c.open {
+                            for (p, ..) in &c.files {
+                                l.push(format!("{p} Review"));
+                                l.push(format!("{p} Undo"));
+                                l.push(format!("{p} Keep"));
+                            }
+                        }
+                        l
+                    }
                     crate::panel::Node::TurnFoot { copy, .. } => vec![copy.label.clone()],
                     // The box's row: the mode, the pills, the ring, and
                     // Send or Stop, by those names.

@@ -119,7 +119,7 @@ fn a_turn_shows_its_plan_its_steps_and_its_text() {
         })),
     );
     let shown = chat(&s);
-    assert!(shown.contains("✓ Read it · ◌ Fix it"), "{shown}");
+    assert!(shown.contains("plan 1 of 2: Fix it"), "{shown}");
     assert!(shown.contains("It clears the cache too early."), "{shown}");
     // Steps that are done fold to a line; a click opens them.
     assert!(shown.contains("▸ 1 step · edited a file · 1 s"), "{shown}");
@@ -290,12 +290,18 @@ fn a_finished_turn_lists_its_changes_and_revert_puts_them_back() {
     );
     let shown = chat(&s);
     assert!(
-        shown.contains("Changed 1 file [Revert All] | src/main.rs +1 −3"),
+        shown.contains("1 file changed +1 −3 [Review] [Undo All] [Keep All]"),
         "{shown}"
     );
-    s.click_entry("src/main.rs Revert", 1);
+    s.click_entry("1 file changed", 1);
+    assert!(
+        chat(&s).contains("| src/main.rs +1 −3 [Undo] [Keep]"),
+        "{}",
+        chat(&s)
+    );
+    s.click_entry("src/main.rs Undo", 1);
     assert_eq!(s.text(), TEXT);
-    assert!(!chat(&s).contains("Changed 1 file"));
+    assert!(!chat(&s).contains("file changed"));
 }
 
 #[test]
@@ -404,10 +410,10 @@ fn a_file_the_agent_writes_itself_is_still_reviewed() {
     );
     let shown = chat(&s);
     assert!(
-        shown.contains("Changed 1 file [Revert All] | src/main.rs +1 −3"),
+        shown.contains("1 file changed +1 −3 [Review] [Undo All] [Keep All]"),
         "{shown}"
     );
-    s.click_entry("src/main.rs Revert", 1);
+    s.click_entry("Undo All", 1);
     assert_eq!(s.text(), TEXT);
 }
 
@@ -737,4 +743,28 @@ fn read_only_commands_are_told_apart() {
     assert!(!ro("find . -delete"));
     assert!(!ro("cat $(rm -rf x)"));
     assert!(!ro("cargo test"));
+}
+
+#[test]
+fn a_message_sent_while_it_works_waits_and_goes_next() {
+    let mut s = session();
+    send(&mut s, "first");
+    calls(&mut s);
+    s.run("paste and then this; key enter");
+    assert!(calls(&mut s).is_empty());
+    let shown = chat(&s);
+    assert!(shown.contains("next: and then this"), "{shown}");
+    say(
+        &mut s,
+        AgentUpdate::Done {
+            outcome: AgentOutcome::Finished,
+            message: None,
+        },
+    );
+    let c = calls(&mut s);
+    assert!(
+        matches!(&c[..], [AgentCall::Prompt { text, .. }] if text == "and then this"),
+        "{c:?}"
+    );
+    assert!(!chat(&s).contains("next:"));
 }
