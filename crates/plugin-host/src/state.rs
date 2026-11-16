@@ -1037,6 +1037,27 @@ impl host::Host for State {
         });
     }
 
+    fn set_status_chips(&mut self, chips: Vec<types::StatusChip>) {
+        self.events.push(Event::SetStatusChips {
+            plugin: self.name.clone(),
+            chips: chips
+                .into_iter()
+                .map(|c| merlin_core::panel::StatusChip {
+                    id: c.id,
+                    text: c.text,
+                    tone: match c.tone {
+                        types::Tone::Normal => merlin_core::panel::Tone::Normal,
+                        types::Tone::Muted => merlin_core::panel::Tone::Muted,
+                        types::Tone::Strong => merlin_core::panel::Tone::Strong,
+                        types::Tone::Warning => merlin_core::panel::Tone::Warning,
+                        types::Tone::Error => merlin_core::panel::Tone::Error,
+                    },
+                    busy: c.busy,
+                })
+                .collect(),
+        });
+    }
+
     fn show_picker(&mut self, id: String, title: String, items: Vec<types::PickItem>) {
         self.events.push(Event::ShowPicker {
             plugin: self.name.clone(),
@@ -1047,6 +1068,8 @@ impl host::Host for State {
                 .map(|i| PickItem {
                     id: i.id,
                     label: i.label,
+                    detail: i.detail,
+                    group: i.group,
                 })
                 .collect(),
         });

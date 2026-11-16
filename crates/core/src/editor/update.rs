@@ -189,6 +189,10 @@ impl Editor {
                 title,
                 items,
             } => {
+                self.picker_extras = items
+                    .iter()
+                    .map(|i| (i.id.clone(), (i.detail.clone(), i.group.clone())))
+                    .collect();
                 let items = items.into_iter().map(|i| (i.id, i.label)).collect();
                 self.palette = Some(Palette::new(
                     Source::Picker { plugin, id },
@@ -284,6 +288,12 @@ impl Editor {
             } => self.tokens_came(&path, layer, lines, tokens),
             Event::SetSymbols { path, symbols } => self.symbols_came(&path, symbols),
             Event::SetStatus { plugin, set, lines } => self.status_came(plugin, set, lines),
+            Event::SetStatusChips { plugin, chips } => {
+                self.status_chips.retain(|(p, _)| *p != plugin);
+                if !chips.is_empty() {
+                    self.status_chips.push((plugin, chips));
+                }
+            }
             Event::SetTasks { plugin, set, tasks } => self.tasks_came(plugin, set, tasks),
             Event::SetTests {
                 plugin,

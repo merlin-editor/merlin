@@ -736,6 +736,29 @@ impl Editor {
                     .collect()
             } else if matches!(p.source, Source::Search { .. }) {
                 p.rows.iter().map(|r| r.extra.clone()).collect()
+            } else if matches!(p.source, Source::Picker { .. })
+                && self
+                    .picker_extras
+                    .values()
+                    .any(|(d, g)| !d.is_empty() || !g.is_empty())
+            {
+                // A plugin's picker: each row's detail, and its group's
+                // heading over the first of it shown.
+                let mut last = String::new();
+                shown
+                    .iter()
+                    .map(|(id, _)| {
+                        let (detail, group) =
+                            self.picker_extras.get(id).cloned().unwrap_or_default();
+                        let heading = (!group.is_empty() && group != last).then(|| group.clone());
+                        last = group;
+                        PaletteExtra {
+                            detail,
+                            heading,
+                            ..Default::default()
+                        }
+                    })
+                    .collect()
             } else if matches!(p.source, Source::Restored) {
                 shown
                     .iter()

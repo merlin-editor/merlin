@@ -294,6 +294,11 @@ pub enum Event {
         title: String,
         items: Vec<PickItem>,
     },
+    /// A plugin's items in the status bar, replacing its earlier ones.
+    SetStatusChips {
+        plugin: String,
+        chips: Vec<crate::panel::StatusChip>,
+    },
     InsertText(String),
     Notify(String),
     /// A notice with buttons, each a label and the command it runs.

@@ -550,10 +550,23 @@ pub struct Panel {
     pub nodes: Vec<Node>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct PickItem {
     pub id: String,
     pub label: String,
+    /// Dimmed at the right.
+    pub detail: String,
+    /// A heading over the first of its group.
+    pub group: String,
+}
+
+/// A plugin's item in the status bar; a click goes to the plugin.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct StatusChip {
+    pub id: String,
+    pub text: String,
+    pub tone: Tone,
+    pub busy: bool,
 }
 
 /// The chips that can be clicked, as targets.

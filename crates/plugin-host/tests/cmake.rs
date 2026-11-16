@@ -360,3 +360,42 @@ fn ctest_tests_are_listed_and_run() {
     assert_eq!(passed, ["unit"]);
     fs::remove_dir_all(root).ok();
 }
+
+#[test]
+fn cmakes_own_errors_are_read_from_a_configure() {
+    let (_host, root, events) = setup("matcher", false);
+    let matchers = events
+        .into_iter()
+        .find_map(|e| match e {
+            Event::RegisterProblemMatchers { plugin, matchers } if plugin == "cmake" => {
+                Some(matchers)
+            }
+            _ => None,
+        })
+        .expect("CMake's problem matcher");
+    let m = &matchers[0];
+    let first = m.lines[0]
+        .regex
+        .captures("CMake Error at libs/CMakeLists.txt:13 (find_package):")
+        .expect("the place");
+    let group = |i: Option<usize>| i.and_then(|i| first.get(i)).map_or("", |g| g.as_str());
+    assert_eq!(
+        [
+            group(m.lines[0].severity),
+            group(m.lines[0].file),
+            group(m.lines[0].line)
+        ],
+        ["Error", "libs/CMakeLists.txt", "13"]
+    );
+    assert!(
+        m.lines[0]
+            .regex
+            .is_match("CMake Warning (dev) at CMakeLists.txt:4 (add_library):")
+    );
+    let second = m.lines[1]
+        .regex
+        .captures("  By not providing \"Findfmt.cmake\" in CMAKE_MODULE_PATH")
+        .expect("the message");
+    assert!(second[1].starts_with("By not providing"));
+    fs::remove_dir_all(root).ok();
+}

@@ -48,7 +48,7 @@ pub use bindings::merlin::plugin::types::{
     Indent, InlayHint, InlayKind, InlineValue, Input, Item, LineRange, Location, LogLevel, Message,
     Node, OutputKind, PageSize, Panel, PickItem, Picture, PlanStep, Position, ProcessEvent,
     Progress, ProjectSymbol, RenameInfo, RgbaPicture, Row, Selection, Setting, Severity, Shape,
-    Signature, StackFrame, StatusItem, StatusState, StepState, StopFilter, Styled, Task, TaskGroup,
+    Signature, StackFrame, StatusChip, StatusItem, StatusState, StepState, StopFilter, Styled, Task, TaskGroup,
     TestItem, TestOutcome, TestResult, TextBox, TextChange, Tile, Token, TokenKind, TokenLayer,
     Tone, ToolKind,
 };

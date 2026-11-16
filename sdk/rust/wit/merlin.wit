@@ -375,6 +375,20 @@ interface types {
   record pick-item {
     id: string,
     label: string,
+    /// Dimmed at the right, such as where it's from.
+    detail: string,
+    /// A heading over the first of its group, such as Programs.
+    group: string,
+  }
+
+  /// One of a plugin's items in the status bar, as CMake's preset and
+  /// target. A click comes to `on-click` with its id.
+  record status-chip {
+    id: string,
+    text: string,
+    tone: tone,
+    /// A spinner before it, while something's under way.
+    busy: bool,
   }
 
   /// How messages on a process's stdout and stdin are delimited.
@@ -907,7 +921,7 @@ interface types {
 /// What the editor offers a plugin. Calls that need a permission check the
 /// plugin's manifest and return an error naming the permission if denied.
 interface host {
-  use types.{status-item, framing, pick-item, position, indent, selection, text-change, diagnostic, detailed-diagnostic, code-action, file-edit, rename-info, location, project-symbol, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint, signature, task, test-item, test-result, debug-target, debug-launch, function-stop, breakpoint, debug-state, debug-thread, stack-frame, debug-variable, breakpoint-state, stop-filter, inline-value, output-kind, log-level, button, picture, fetch-request, agent-part, agent-request, agent-outcome, chip, agent-command, agent-mode};
+  use types.{status-item, status-chip, framing, pick-item, position, indent, selection, text-change, diagnostic, detailed-diagnostic, code-action, file-edit, rename-info, location, project-symbol, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint, signature, task, test-item, test-result, debug-target, debug-launch, function-stop, breakpoint, debug-state, debug-thread, stack-frame, debug-variable, breakpoint-state, stop-filter, inline-value, output-kind, log-level, button, picture, fetch-request, agent-part, agent-request, agent-outcome, chip, agent-command, agent-mode};
 
   /// Text of the active buffer. Needs `editor-read`.
   active-text: func() -> result<string, string>;
@@ -1165,6 +1179,9 @@ interface host {
   /// text, while paused; `debug-set:<children>:<name>` sets a variable in
   /// what `children` lists to the text.
   set-watch: func(index: u32, value: debug-variable) -> result<_, string>;
+
+  /// Replaces this plugin's items in the status bar, after the problems.
+  set-status-chips: func(chips: list<status-chip>);
 
   /// Lets the user pick one item. The choice arrives at `on-pick`.
   show-picker: func(id: string, title: string, items: list<pick-item>);

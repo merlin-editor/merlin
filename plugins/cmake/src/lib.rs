@@ -15,6 +15,7 @@ use merlin_lsp::{Spec, WithLsp};
 use merlin_plugin::prelude::*;
 use merlin_plugin::shared::{self, CompileCommands};
 use merlin_plugin::text::utf16_column;
+use merlin_plugin::{StatusChip, Tone};
 
 use ctest::CTest;
 use fileapi::Target;
@@ -74,6 +75,26 @@ struct Cmake {
     listing: Option<(u32, String)>,
     /// The tests a run in the terminal is for.
     test_run: Vec<String>,
+    /// What the status bar says of the build.
+    state: State,
+    /// The target the status bar's Build, Run and Debug are for.
+    target: Option<String>,
+}
+
+/// How the build is, for the status bar.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+enum State {
+    #[default]
+    NotConfigured,
+    /// Configuring, as `from` names it.
+    Configuring(String),
+    Failed(String),
+    Ready,
+}
+
+/// `CMake · Debug` as `Debug`.
+fn short(from: &str) -> &str {
+    from.strip_prefix("CMake · ").unwrap_or(from)
 }
 
 /// How to configure, from the plugin's settings.
@@ -114,6 +135,7 @@ impl Cmake {
             self.configured(dir, from);
         }
         self.find_tasks();
+        self.chips();
     }
 
     /// A build that's configured: shared with C/C++, and its targets read.
@@ -122,7 +144,188 @@ impl Cmake {
         self.targets =
             fileapi::targets(&dir, |d| host::list_folder(d).ok(), read).unwrap_or_default();
         self.build = Some((dir, from));
+        self.state = State::Ready;
+        // The target stays if the build still has it, else its first
+        // program.
+        if !self
+            .target
+            .as_ref()
+            .is_some_and(|t| t == "all" || self.targets.iter().any(|x| &x.name == t))
+        {
+            self.target = self
+                .targets
+                .iter()
+                .find(|t| t.is_program())
+                .or(self.targets.first())
+                .map(|t| t.name.clone());
+        }
         self.find_tests();
+        self.chips();
+    }
+
+    /// The status bar's items: the preset, or how the build is, and the
+    /// target with Build, Run and Debug.
+    fn chips(&self) {
+        let label = self.build.as_ref().map(|(_, from)| short(from).to_string());
+        let mut chips = vec![match &self.state {
+            State::Configuring(from) => StatusChip {
+                id: "preset".into(),
+                text: format!("CMake: Configuring {}…", short(from)),
+                tone: Tone::Normal,
+                busy: true,
+            },
+            State::Failed(from) => StatusChip {
+                id: "preset".into(),
+                text: format!("CMake: {} failed ▾", short(from)),
+                tone: Tone::Error,
+                busy: false,
+            },
+            State::NotConfigured => StatusChip {
+                id: "preset".into(),
+                text: "CMake: Configure ▾".into(),
+                tone: Tone::Normal,
+                busy: false,
+            },
+            State::Ready => StatusChip {
+                id: "preset".into(),
+                text: format!("⚙ CMake: {} ▾", label.unwrap_or_default()),
+                tone: Tone::Normal,
+                busy: false,
+            },
+        }];
+        if self.state == State::Ready
+            && let Some(target) = &self.target
+        {
+            chips.push(StatusChip {
+                id: "target".into(),
+                text: format!("◎ {target} ▾"),
+                tone: Tone::Normal,
+                busy: false,
+            });
+            chips.push(StatusChip {
+                id: "build".into(),
+                text: "⚒ Build".into(),
+                tone: Tone::Normal,
+                busy: false,
+            });
+            if self.program(target).is_some() {
+                for (id, text) in [("run", "▶ Run"), ("debug", "⏵ Debug")] {
+                    chips.push(StatusChip {
+                        id: id.into(),
+                        text: text.into(),
+                        tone: Tone::Normal,
+                        busy: false,
+                    });
+                }
+            }
+        }
+        host::set_status_chips(&chips);
+    }
+
+    /// A target's program, if it's one.
+    fn program(&self, name: &str) -> Option<&Target> {
+        self.targets
+            .iter()
+            .find(|t| t.name == name && t.is_program() && t.artifact.is_some())
+    }
+
+    /// Picks the preset: each configure, then each from scratch.
+    fn pick_preset(&self) {
+        let items: Vec<PickItem> = self
+            .actions
+            .iter()
+            .map(|(name, action)| {
+                let Action::Configure { dir, .. } = action;
+                let label = name.strip_prefix("CMake: Configure ").unwrap_or(name);
+                let label = if name == "CMake: Configure" {
+                    "Configure"
+                } else {
+                    label
+                };
+                let scratch = name.ends_with("from Scratch");
+                PickItem {
+                    id: name.clone(),
+                    label: if scratch {
+                        format!("Configure {label}")
+                    } else {
+                        label.to_string()
+                    },
+                    detail: if scratch { String::new() } else { dir.clone() },
+                    group: if scratch {
+                        "From scratch".into()
+                    } else {
+                        String::new()
+                    },
+                }
+            })
+            .collect();
+        // The presets first, then from scratch.
+        let (mut items, fresh): (Vec<PickItem>, Vec<PickItem>) =
+            items.into_iter().partition(|i| i.group.is_empty());
+        items.extend(fresh);
+        host::show_picker("cmake-preset", "Pick the preset", &items);
+    }
+
+    /// Picks the target: programs, then libraries, then all of them.
+    fn pick_target(&self) {
+        let mut items: Vec<PickItem> = Vec::new();
+        for (group, programs) in [("Programs", true), ("Libraries", false)] {
+            for t in self.targets.iter().filter(|t| t.is_program() == programs) {
+                items.push(PickItem {
+                    id: t.name.clone(),
+                    label: t.name.clone(),
+                    detail: if programs {
+                        t.artifact.clone().unwrap_or_default()
+                    } else {
+                        t.kind.to_ascii_lowercase().replace('_', " ")
+                    },
+                    group: group.into(),
+                });
+            }
+        }
+        items.push(PickItem {
+            id: "all".into(),
+            label: "all".into(),
+            detail: "every target".into(),
+            group: "Everything".into(),
+        });
+        host::show_picker("cmake-target", "Pick the target", &items);
+    }
+
+    /// Builds the target, then runs or debugs its program.
+    fn build_target(&self, then: &str) {
+        let (Some((dir, _)), Some(target)) = (&self.build, &self.target) else {
+            return;
+        };
+        let build = if target == "all" {
+            format!("cmake --build {}", quote(dir))
+        } else {
+            format!("cmake --build {} --target {}", quote(dir), quote(target))
+        };
+        let program = self.program(target);
+        match (then, program) {
+            ("run", Some(t)) => {
+                let path = t.artifact.clone().unwrap_or_default();
+                let command = format!("{build} && {}", quote(&run_path(&path)));
+                let _ = host::run_in_terminal("cmake-run", &format!("Run {target}"), &command);
+            }
+            ("debug", Some(t)) => host::start_debugging(
+                &DebugTarget {
+                    name: t.name.clone(),
+                    debugger: String::new(),
+                    language: "cpp".into(),
+                    program: t.artifact.clone().unwrap_or_default(),
+                    args: Vec::new(),
+                    build: format!("CMake: Build {}", t.name),
+                    detail: "CMake".into(),
+                    launch: String::new(),
+                },
+                None,
+            ),
+            _ => {
+                let _ = host::run_in_terminal("cmake-build", "CMake: Build", &build);
+            }
+        }
     }
 
     /// Asks CTest for the build's tests, without a terminal: they come to
@@ -344,6 +547,8 @@ impl Cmake {
             Ok(()) => {
                 self.running
                     .insert(run, (dir.to_string(), from.to_string()));
+                self.state = State::Configuring(from.to_string());
+                self.chips();
             }
             Err(err) => host::notice(LogLevel::Error, &err, &[]),
         }
@@ -550,11 +755,53 @@ impl Plugin for Cmake {
         if code == Some(0) {
             self.configured(dir, from);
             self.find_tasks();
+        } else {
+            self.state = State::Failed(from);
+            self.chips();
         }
     }
 
     fn setting_changed(&mut self, _key: &str) {
         self.find_tasks();
+    }
+
+    /// The status bar's items.
+    fn click(&mut self, button: &str) {
+        self.start();
+        match button {
+            "preset" => self.pick_preset(),
+            "target" => self.pick_target(),
+            "build" | "run" | "debug" => self.build_target(button),
+            _ => {}
+        }
+    }
+
+    fn pick(&mut self, picker: &str, item: &str) {
+        match picker {
+            "cmake-target" => {
+                self.target = Some(item.to_string());
+                self.chips();
+            }
+            "cmake-preset" => {
+                let Some(Action::Configure { command, dir, from }) =
+                    self.actions.get(item).cloned()
+                else {
+                    return;
+                };
+                // Another build that's configured already is used as it
+                // is; any other, or from scratch, configures.
+                let configured = !item.ends_with("from Scratch")
+                    && self.build.as_ref().is_some_and(|(d, _)| *d != dir)
+                    && read(&format!("{dir}/CMakeCache.txt")).is_some();
+                if configured {
+                    self.configured(dir, from);
+                    self.find_tasks();
+                } else {
+                    self.configure(&command, &dir, &from);
+                }
+            }
+            _ => {}
+        }
     }
 
     fn colour_text(&mut self, _language: &str, text: &str) -> Vec<Token> {

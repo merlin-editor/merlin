@@ -355,6 +355,7 @@ fn a_plugin_picker_reports_the_choice() {
             .map(|i| PickItem {
                 id: i.into(),
                 label: i.to_uppercase(),
+                ..PickItem::default()
             })
             .into(),
     });

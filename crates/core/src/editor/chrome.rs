@@ -18,6 +18,8 @@ pub(crate) enum Action {
     View(&'static str),
     /// The same for a plugin's view, where it lives.
     Plugin(String),
+    /// A plugin's status bar item, by the plugin and the item's id.
+    Click(String, String),
 }
 
 /// A status bar item: its text, style, and what clicking does.
@@ -35,6 +37,7 @@ impl Editor {
     pub(crate) fn act(&mut self, action: Action, fx: &mut Vec<Effect>) {
         match action {
             Action::Run(command) => self.run(command, fx),
+            Action::Click(plugin, button) => fx.push(Effect::PluginClick { plugin, button }),
             Action::View(view) => {
                 let shown = self.bar(Side::Left).visible
                     && self.active_panel_name(Side::Left).as_deref() == Some(view);
@@ -161,6 +164,20 @@ impl Editor {
             Style::Status,
             Some(Action::Run("view.problems")),
         ));
+        // Plugins' own items, as CMake's preset and target.
+        for (plugin, chips) in &self.status_chips {
+            for chip in chips {
+                left.push((
+                    format!(" {} ", chip.text),
+                    match chip.tone {
+                        crate::panel::Tone::Error => Style::StatusError,
+                        crate::panel::Tone::Strong => Style::StatusAccent,
+                        _ => Style::Status,
+                    },
+                    Some(Action::Click(plugin.clone(), chip.id.clone())),
+                ));
+            }
+        }
         // A passing line, as plugins that updated by themselves.
         if let Some(note) = &self.status_note {
             left.push((
@@ -294,11 +311,21 @@ impl Editor {
 
         let mut items = Vec::new();
         for (text, style, action) in left {
+            // A plugin's item that's busy turns a spinner before it.
+            let busy = match &action {
+                Some(Action::Click(plugin, id)) => self
+                    .status_chips
+                    .iter()
+                    .filter(|(p, _)| p == plugin)
+                    .flat_map(|(_, chips)| chips)
+                    .any(|c| &c.id == id && c.busy),
+                _ => false,
+            };
             items.push(StatusItem {
                 text,
                 style,
                 action,
-                mark: None,
+                mark: busy.then_some(super::StatusMark::Spinner),
                 right: false,
             });
         }

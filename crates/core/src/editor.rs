@@ -602,6 +602,10 @@ pub struct Editor {
     plugin_list: Vec<PluginSummary>,
     /// Plugins' lines for the language card, by plugin and set.
     status_lines: Vec<((String, String), Vec<crate::lang::StatusLine>)>,
+    /// Plugins' items in the status bar, by plugin.
+    status_chips: Vec<(String, Vec<crate::panel::StatusChip>)>,
+    /// The open plugin picker's details and groups, by item id.
+    picker_extras: std::collections::HashMap<String, (String, String)>,
     /// Whether the language card is open.
     language_card: bool,
     /// A newer merlin, and how updating to it is going.
@@ -771,6 +775,8 @@ impl Editor {
             problems: Vec::new(),
             plugin_list: Vec::new(),
             status_lines: Vec::new(),
+            status_chips: Vec::new(),
+            picker_extras: Default::default(),
             language_card: false,
             app_update: None,
             update_card: None,

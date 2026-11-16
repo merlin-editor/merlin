@@ -71,6 +71,14 @@ choices = [
 ]
 description = "What builds a project without presets. Ninja is faster where it's installed."
 
+# CMake's own errors in a configure's output, at their line:
+# `CMake Error at CMakeLists.txt:13 (find_package):`, then the message.
+[[problem-matchers]]
+lines = [
+    { regex = '^CMake (Error|Warning)(?: \(dev\))? at (.+):(\d+) \([A-Za-z_0-9]+\):$', severity = 1, file = 2, line = 3 },
+    { regex = '^\s+(\S.*)$', message = 1 },
+]
+
 [[languages]]
 id = "cmake"
 name = "CMake"
