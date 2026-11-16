@@ -4,6 +4,7 @@
 //! plugin, so clangd finds it wherever the build is. neocmakelsp, when
 //! it's installed, completes, explains and finds what's in them.
 
+pub mod addfile;
 pub mod cache;
 pub mod ctest;
 pub mod fileapi;
@@ -93,6 +94,8 @@ struct Cmake {
     configured_at: Option<std::time::Instant>,
     /// How the last test run went: passed and failed.
     test_counts: (usize, usize),
+    /// New sources it's asked about, so it asks once.
+    asked: std::collections::BTreeSet<String>,
 }
 
 /// How the build is, for the status bar.
@@ -896,8 +899,82 @@ impl Cmake {
         panel
     }
 
+    /// Asks which target takes a new source file, once per file.
+    fn offer_target(&mut self, path: &str) {
+        let root = host::workspace_root();
+        let path = path
+            .strip_prefix(&format!("{}/", root.trim_end_matches('/')))
+            .unwrap_or(path)
+            .to_string();
+        if self.state != State::Ready || !addfile::is_source(&path) || self.asked.contains(&path) {
+            return;
+        }
+        let candidates = addfile::candidates(&self.targets, &path);
+        if candidates.is_empty() {
+            return;
+        }
+        self.asked.insert(path.clone());
+        let name = path.rsplit('/').next().unwrap_or(&path);
+        // The likeliest target last, where a notice puts its main button.
+        let mut buttons = vec![Button::new("not-now", "Not Now")];
+        buttons.extend(candidates.iter().rev().map(|t| {
+            Button::new(
+                format!("add:{}:{path}", t.name),
+                format!("Add to {}", t.name),
+            )
+        }));
+        host::notice(
+            LogLevel::Info,
+            &format!("Add {name} to a target? No target builds it yet."),
+            &buttons,
+        );
+    }
+
+    /// Puts a source in the command that adds the target, as an edit
+    /// Undo reverts.
+    fn add_to_target(&self, target: &str, path: &str) {
+        let Some(t) = self.targets.iter().find(|t| t.name == target) else {
+            return;
+        };
+        let Some((file, line)) = &t.defined else {
+            return;
+        };
+        let root = host::workspace_root();
+        let file = file
+            .strip_prefix(&format!("{}/", root.trim_end_matches('/')))
+            .unwrap_or(file);
+        let dir = file.rsplit_once('/').map_or(".", |(d, _)| d);
+        let Some(text) = read(file) else {
+            return;
+        };
+        let Some(((line, column), insert)) = addfile::insertion(&text, *line, path, dir) else {
+            return host::notice(
+                LogLevel::Warn,
+                &format!("Couldn't find where {target} is added in {file}"),
+                &[],
+            );
+        };
+        let at = Position { line, column };
+        let edit = FileEdit {
+            path: file.to_string(),
+            edits: vec![TextChange {
+                start: at,
+                end: at,
+                text: insert,
+            }],
+        };
+        if let Err(err) = host::apply_edits(&[edit]) {
+            host::notice(LogLevel::Error, &err, &[]);
+        }
+    }
+
     /// A click in the view or on a chip.
     fn clicked(&mut self, id: &str) {
+        if let Some(rest) = id.strip_prefix("add:")
+            && let Some((target, path)) = rest.split_once(':')
+        {
+            return self.add_to_target(target, path);
+        }
         if let Some(name) = id.strip_prefix("target:") {
             if !self.opened.remove(name) {
                 self.opened.insert(name.to_string());
@@ -1288,6 +1365,8 @@ impl Plugin for Cmake {
             if presets {
                 self.find_tasks();
             }
+            // A new source no target has: which target takes it.
+            self.offer_target(path);
             // A build that's configured configures again, as CMake Tools
             // does, unless that's turned off.
             if (presets || is_cmake(path)) && settings::flag("configure-on-save").unwrap_or(true) {

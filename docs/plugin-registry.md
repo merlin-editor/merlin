@@ -1050,6 +1050,18 @@ shows it: tabs or spaces, and the width, from its `.editorconfig`, else
 the file, else the settings. The LSP SDK sends it with formatting
 requests, which always said 4 spaces before.
 
+### 13.8 Also in 0.16: for CMake and completions
+
+- `list-folder(path)` lists one workspace folder, hidden and ignored
+  entries too, for a build's own files.
+- A completion has a `kind` and `documentation`; the list colours the
+  name by kind and shows the chosen one's docs.
+- `set-status-chips` puts a plugin's items in the status bar, each with
+  a tone and a spinner while busy; a click comes to `on-click`.
+- A picker's items have a `detail` and a `group`.
+- A plugin whose `activate-on` names a file the project has hears every
+  file switched to or saved, not only its own language's.
+
 ## 14. Out of Scope
 
 - **Paid plugins.**

@@ -96,9 +96,26 @@ and run with the build first (`cmake --build … && ctest -j …`), as CMake
 Tools does. `-j` runs them in parallel (#3091). Tested with the real
 cmake and ctest.
 
-### Needs a mock-up first
+### Needs a mock-up first (approved and built 2026-11-17)
 
-`docs/mockups/CMake.html` proposes them, not approved yet.
+`docs/mockups/CMake.html`, approved 2026-11-17 ("Look great"), with a
+fourth artboard for coloured completions in every language. Built:
+- The status bar's preset and target (a plugin's `set-status-chips`),
+  each a picker with details and groups, with Build, Run and Debug.
+- The CMake view in the rail: the build with Configure and a menu,
+  targets by folder with their sources, tests with Run All, and the
+  cache with ON/OFF and choice chips or a box, changes held until
+  Configure.
+- Configuring with a spinner, failed in red with CMake's errors in
+  Problems at their line (a problem matcher, so the language server's
+  problems for the same file don't replace them), and not configured.
+- A new source file saved: a notice offers the nearest targets, and
+  Add puts it in the command that adds the target, as an edit.
+- Where it differs from the mock-up: a row's actions show as chips all
+  the time rather than on hover, as every plugin view's rows do; a
+  boolean's switch is ON and OFF chips, as views have no switch; and
+  adding a file is merlin's notice with a button per target rather than
+  a card with a picker.
 
 6. **The status bar**: the preset and the target, each a picker, with
    Build, Run and Debug, as CMake Tools has it.
