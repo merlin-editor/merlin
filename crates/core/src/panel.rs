@@ -243,6 +243,10 @@ pub enum Node {
         chips: Vec<Chip>,
         hint: String,
     },
+    /// The bottom row of an agent's box, under its text: the agent's
+    /// mode, merlin's edit pill and the plugin's chips, how full the
+    /// context is, and Send or Stop.
+    ComposeBar(Box<ComposeBar>),
     /// A small menu card: a title, then items, each id, label and what it
     /// does at the right. As an agent's slash commands.
     Menu {
@@ -273,6 +277,50 @@ pub struct StepLine {
     /// Links at the right end, as "Terminal ↗", then quiet buttons, as Stop.
     pub links: Vec<Button>,
     pub buttons: Vec<Button>,
+}
+
+/// The row under an agent chat's text box.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct ComposeBar {
+    /// The agent's mode, as its badge: its name and colour (a hue's name,
+    /// `#rrggbb`, or empty for the accent). Clicked: `agent:modes`.
+    pub mode: Option<(String, String)>,
+    /// merlin's edit pill, then the plugin's chips.
+    pub chips: Vec<Chip>,
+    /// How full the context is, in percent, and what it says on hover.
+    /// Clicked: `agent:ring`.
+    pub ring: Option<(u8, String)>,
+    /// Stop while the agent works (`agent:stop`); Send otherwise
+    /// (`agent:send`).
+    pub stop: bool,
+}
+
+impl ComposeBar {
+    /// Its clickable parts' ids, in the order Tab visits them.
+    pub fn ids(&self) -> Vec<String> {
+        let mut ids = Vec::new();
+        if self.mode.is_some() {
+            ids.push("agent:modes".to_string());
+        }
+        ids.extend(
+            self.chips
+                .iter()
+                .filter(|c| !c.id.is_empty())
+                .map(|c| c.id.clone()),
+        );
+        if self.ring.is_some() {
+            ids.push("agent:ring".into());
+        }
+        ids.push(
+            if self.stop {
+                "agent:stop"
+            } else {
+                "agent:send"
+            }
+            .into(),
+        );
+        ids
+    }
 }
 
 /// A permission card.
@@ -471,6 +519,7 @@ impl Panel {
                     chips.iter_mut().for_each(|c| f(&mut c.id))
                 }
                 Node::Message(m) => m.chips.iter_mut().for_each(|c| f(&mut c.id)),
+                Node::ComposeBar(c) => c.chips.iter_mut().for_each(|c| f(&mut c.id)),
                 Node::Edit(e) => e.buttons.iter_mut().for_each(|b| f(&mut b.id)),
                 Node::Empty { buttons, .. } => buttons.iter_mut().for_each(|b| f(&mut b.id)),
                 Node::Drawing(d) => d.items.iter_mut().for_each(|i| f(&mut i.id)),
@@ -512,6 +561,7 @@ impl Panel {
                     .collect(),
                 Node::Command { copy, .. } => vec![button(copy)],
                 Node::Bar { chips, .. } => chip_targets(chips),
+                Node::ComposeBar(c) => c.ids().into_iter().map(Target::Button).collect(),
                 Node::Menu { items, .. } => items
                     .iter()
                     .map(|(id, ..)| Target::Button(id.clone()))

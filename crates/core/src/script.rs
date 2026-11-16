@@ -495,6 +495,25 @@ impl Session {
                         .filter(|c| !c.id.is_empty())
                         .map(|c| c.label.clone())
                         .collect(),
+                    // The box's row: the mode, the pills, the ring, and
+                    // Send or Stop, by those names.
+                    crate::panel::Node::ComposeBar(c) => {
+                        let mut labels = Vec::new();
+                        if let Some((name, _)) = &c.mode {
+                            labels.push(name.to_uppercase());
+                        }
+                        labels.extend(
+                            c.chips
+                                .iter()
+                                .filter(|c| !c.id.is_empty())
+                                .map(|c| c.label.clone()),
+                        );
+                        if c.ring.is_some() {
+                            labels.push("Context".into());
+                        }
+                        labels.push(if c.stop { "Stop" } else { "Send" }.into());
+                        labels
+                    }
                     _ => continue,
                 };
                 let Some(k) = labels.iter().position(|l| l.contains(label)) else {

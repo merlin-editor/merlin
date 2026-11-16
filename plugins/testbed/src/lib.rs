@@ -3,9 +3,9 @@
 
 use merlin_plugin::prelude::*;
 use merlin_plugin::{
-    AgentAnswer, AgentCommand, AgentContext, AgentOutcome, AgentPart, AgentRequest, AgentTool,
-    Colour, DrawCurve, DrawItem, DrawLine, DrawPoint, DrawRect, DrawText, Drawing, PlanStep, Shape,
-    StepState, ToolKind,
+    AgentAnswer, AgentAsks, AgentCommand, AgentContext, AgentMode, AgentOutcome, AgentPart,
+    AgentRequest, AgentTool, Colour, DrawCurve, DrawItem, DrawLine, DrawPoint, DrawRect, DrawText,
+    Drawing, PlanStep, Shape, StepState, ToolKind,
 };
 
 #[derive(Default)]
@@ -23,6 +23,8 @@ struct Testbed {
     frame: u32,
     /// The Echo agent's turn, by chat.
     turns: std::collections::HashMap<u32, Turn>,
+    /// Echo's mode, by chat: build or plan.
+    modes: std::collections::HashMap<u32, String>,
 }
 
 /// Where Echo's scripted turn has got to: it reads the attached file,
@@ -286,14 +288,28 @@ impl Plugin for Testbed {
             label: label.into(),
             tone: Tone::Normal,
         };
-        let _ = host::agent_header(
-            chat,
-            &[
-                chip("echo:model", "Echo 1 ▾"),
-                chip("echo:mode", "Plan first ▾"),
-            ],
-            "12.4k tokens · $0.03",
-        );
+        let mode = self
+            .modes
+            .entry(chat)
+            .or_insert_with(|| "build".into())
+            .clone();
+        let modes = [
+            AgentMode {
+                id: "build".into(),
+                name: "Build".into(),
+                colour: "blue".into(),
+                asks: AgentAsks::Unsaid,
+            },
+            AgentMode {
+                id: "plan".into(),
+                name: "Plan".into(),
+                colour: "purple".into(),
+                asks: AgentAsks::ReadsOnly,
+            },
+        ];
+        let _ = host::agent_modes(chat, &modes, &mode);
+        let _ = host::agent_usage(chat, 380_000, 1_000_000, "12.4k tokens · $0.03");
+        let _ = host::agent_header(chat, &[chip("echo:model", "Echo 1 ▾")], "");
         let command = |name: &str, description: &str| AgentCommand {
             name: name.into(),
             description: description.into(),
@@ -371,6 +387,10 @@ impl Plugin for Testbed {
                 ..Turn::default()
             },
         );
+    }
+
+    fn agent_mode(&mut self, chat: u32, mode: &str) {
+        self.modes.insert(chat, mode.to_string());
     }
 
     fn agent_file(&mut self, chat: u32, request: u32, got: Result<String, String>) {

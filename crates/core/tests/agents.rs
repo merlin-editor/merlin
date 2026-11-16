@@ -443,7 +443,7 @@ fn the_agents_header_and_its_own_pieces_show_and_their_clicks_go_to_it() {
     );
     let shown = chat(&s);
     assert!(
-        shown.contains("bar: (Gemini 3 Pro ▾) (Sneaky) 12.4k tokens · $0.03"),
+        shown.contains("box: (⏸ Ask before edits ▾) (Gemini 3 Pro ▾) (Sneaky) [■]"),
         "{shown}"
     );
     assert!(shown.contains("Update All 3"), "{shown}");
@@ -660,4 +660,76 @@ fn leaving_plan_asks_with_the_modes_to_go_on_in() {
         matches!(&c[..], [AgentCall::Answer { request: 4, answer: AgentAnswer::Mode(m), .. }] if m == "build"),
         "{c:?}"
     );
+}
+
+#[test]
+fn the_box_shows_the_mode_the_edit_pill_and_how_full_the_context_is() {
+    let mut s = session();
+    send(&mut s, "go");
+    with_modes(&mut s);
+    say(
+        &mut s,
+        AgentUpdate::Usage {
+            used: 380_000,
+            size: 1_000_000,
+            note: "12.4k tokens · $0.03".into(),
+        },
+    );
+    say(
+        &mut s,
+        AgentUpdate::Done {
+            outcome: AgentOutcome::Finished,
+            message: None,
+        },
+    );
+    let shown = chat(&s);
+    assert!(
+        shown.contains("box: [BUILD] (⏸ Ask before edits ▾) ◔38% [↑]"),
+        "{shown}"
+    );
+    // Shift Tab: edits go through without a card.
+    s.run("key shift+tab");
+    assert!(
+        chat(&s).contains("(⏵ Edit automatically ▾)"),
+        "{}",
+        chat(&s)
+    );
+    calls(&mut s);
+    send(&mut s, "again");
+    calls(&mut s);
+    say(
+        &mut s,
+        AgentUpdate::Ask {
+            request: 9,
+            what: AgentRequest::Edit {
+                path: "src/main.rs".into(),
+                diff: None,
+            },
+        },
+    );
+    let c = calls(&mut s);
+    assert!(
+        matches!(&c[..], [AgentCall::Answer { request: 9, .. }]),
+        "{c:?}"
+    );
+    // In a read-only mode the pill is about commands.
+    s.run("key tab");
+    assert!(
+        chat(&s).contains("[PLAN] (⏵ Run read-only commands ▾)"),
+        "{}",
+        chat(&s)
+    );
+}
+
+#[test]
+fn read_only_commands_are_told_apart() {
+    use merlin_core::editor::read_only_command as ro;
+    assert!(ro("ls -la src"));
+    assert!(ro("git log --oneline -20 2>/dev/null | head"));
+    assert!(ro("grep -rn foo . && wc -l x"));
+    assert!(!ro("git commit -m x"));
+    assert!(!ro("ls > out.txt"));
+    assert!(!ro("find . -delete"));
+    assert!(!ro("cat $(rm -rf x)"));
+    assert!(!ro("cargo test"));
 }

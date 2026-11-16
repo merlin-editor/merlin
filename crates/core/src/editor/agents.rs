@@ -11,8 +11,8 @@ use std::path::{Path, PathBuf};
 
 use super::{Editor, Effect, Side};
 use crate::panel::{
-    AskCard, Button, ChangedFile, ChangesCard, Chip, Message, Node, Panel, StepLine, StepState,
-    Tone,
+    AskCard, Button, ChangedFile, ChangesCard, Chip, ComposeBar, Message, Node, Panel, StepLine,
+    StepState, Tone,
 };
 
 /// The prefix of an agent tab's panel name.
@@ -274,6 +274,9 @@ pub(crate) struct Tab {
     pub usage: Option<(u64, u64, String)>,
     /// Whether the user let a mode that never asks run, in this chat.
     never_ok: bool,
+    /// merlin's edit pill: edits go through without a card (or, in a
+    /// read-only mode, read-only commands run without one).
+    pub auto: bool,
 }
 
 pub(crate) enum Turn {
@@ -409,6 +412,7 @@ impl Editor {
             mode: None,
             usage: None,
             never_ok: false,
+            auto: false,
         });
         Some(self.agents.tabs.len() - 1)
     }
@@ -479,6 +483,7 @@ impl Editor {
                 mode: None,
                 usage: None,
                 never_ok: false,
+                auto: false,
             });
             // An agent with a view of its own shows that, not merlin's chat.
             if self.spec(key).and_then(|s| s.view.clone()).is_none() {
@@ -573,7 +578,8 @@ impl Editor {
                 };
                 // Reading outside the workspace always asks.
                 let outside = matches!(&what, AgentRequest::Read(p) if !self.in_workspace(p));
-                if !outside && rule.is_some_and(|r| self.agents.allowed.contains(&r)) {
+                let auto = self.auto_allows(i, &what);
+                if !outside && (auto || rule.is_some_and(|r| self.agents.allowed.contains(&r))) {
                     self.allow_for_turn(i, &what);
                     fx.push(Effect::Agent {
                         plugin: plugin.to_string(),
@@ -622,9 +628,14 @@ impl Editor {
             } => {
                 let full = self.agent_path(&path);
                 let shown = self.shown_path(&full);
+                let edit = AgentRequest::Edit {
+                    path: shown.clone(),
+                    diff: None,
+                };
                 let allowed = self.in_workspace(&path)
                     && (self.agents.tabs[i].allowed_paths.contains(&shown)
-                        || self.agents.allowed.contains(&format!("{key}|edit")));
+                        || self.agents.allowed.contains(&format!("{key}|edit"))
+                        || self.auto_allows(i, &edit));
                 if allowed {
                     self.agent_write(plugin, chat, request, &full, text, fx);
                 } else {
@@ -645,7 +656,8 @@ impl Editor {
             AgentUpdate::Run { run, command, cwd } => {
                 let rule = command_rule(&command);
                 let allowed = self.agents.tabs[i].allowed_runs.contains(&rule)
-                    || self.agents.allowed.contains(&format!("{key}|run:{rule}"));
+                    || self.agents.allowed.contains(&format!("{key}|run:{rule}"))
+                    || self.auto_allows(i, &AgentRequest::Run(command.clone()));
                 if allowed {
                     self.agent_run(i, run, command, cwd, fx);
                 } else {
@@ -760,6 +772,52 @@ impl Editor {
         let bar = self.bar_mut(Side::Right);
         bar.visible = true;
         bar.active = Some(name);
+    }
+
+    /// How the chat's current mode asks.
+    fn mode_asks(tab: &Tab) -> AgentAsks {
+        tab.mode
+            .as_ref()
+            .and_then(|m| tab.modes.iter().find(|x| &x.id == m))
+            .map_or(AgentAsks::Unsaid, |m| m.asks)
+    }
+
+    /// Whether the chat's mode, or merlin's edit pill, lets this through
+    /// without a card. Reading outside the workspace always asks.
+    fn auto_allows(&self, i: usize, what: &AgentRequest) -> bool {
+        let tab = &self.agents.tabs[i];
+        let asks = Self::mode_asks(tab);
+        match what {
+            AgentRequest::Edit { .. } => match asks {
+                AgentAsks::Unsaid => tab.auto,
+                AgentAsks::Edits | AgentAsks::EditsAndSafeCommands | AgentAsks::Never => true,
+                AgentAsks::ReadsOnly | AgentAsks::AsksFirst => false,
+            },
+            AgentRequest::Run(command) => match asks {
+                AgentAsks::Never => true,
+                AgentAsks::EditsAndSafeCommands => read_only_command(command),
+                AgentAsks::ReadsOnly => tab.auto && read_only_command(command),
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+
+    /// merlin's edit pill, by how the chat's mode asks: none when the
+    /// mode says itself.
+    fn edit_pill(tab: &Tab) -> Option<Chip> {
+        let label = match (Self::mode_asks(tab), tab.auto) {
+            (AgentAsks::Unsaid, false) => "⏸ Ask before edits ▾",
+            (AgentAsks::Unsaid, true) => "⏵ Edit automatically ▾",
+            (AgentAsks::ReadsOnly, false) => "⏸ Ask before commands ▾",
+            (AgentAsks::ReadsOnly, true) => "⏵ Run read-only commands ▾",
+            _ => return None,
+        };
+        Some(Chip {
+            id: "agent:edit".into(),
+            label: label.into(),
+            tone: Tone::Normal,
+        })
     }
 
     /// Switches a chat's agent to one of its modes, as Tab or the badge's
@@ -1346,6 +1404,33 @@ impl Editor {
                     });
                 }
             }
+            "modes" => self.agent_modes_menu(&key),
+            "edit" => {
+                self.popup = None;
+                self.context = Some(super::context::ContextMenu {
+                    items: vec!["agent.auto.off", "agent.auto.on"],
+                    selected: None,
+                    title: None,
+                });
+                self.focus = super::Focus::Menu;
+            }
+            "ring" => {
+                self.popup = None;
+                self.context = Some(super::context::ContextMenu {
+                    items: vec!["agent.usage", "agent.compact"],
+                    selected: None,
+                    title: None,
+                });
+                self.focus = super::Focus::Menu;
+            }
+            "send" => {
+                let input = (format!("{AGENT}{key}"), PROMPT.to_string());
+                let text = self.inputs.remove(&input).unwrap_or_default();
+                self.input_cursors.remove(&input);
+                if !text.trim().is_empty() {
+                    self.agent_submit(&input.0, &text, fx);
+                }
+            }
             "attach" => {
                 if let Some(tab) = self.agents.tabs.iter_mut().find(|t| t.key == key) {
                     tab.attach = !tab.attach;
@@ -1526,6 +1611,21 @@ impl Editor {
         self.focus = super::Focus::Menu;
     }
 
+    /// The mode badge's menu: the agent's modes.
+    fn agent_modes_menu(&mut self, key: &str) {
+        let Some(tab) = self.agents.tabs.iter().find(|t| t.key == key) else {
+            return;
+        };
+        let items = MODE_ITEMS.iter().take(tab.modes.len()).copied().collect();
+        self.popup = None;
+        self.context = Some(super::context::ContextMenu {
+            items,
+            selected: None,
+            title: Some("Mode · Tab".into()),
+        });
+        self.focus = super::Focus::Menu;
+    }
+
     /// The ⋯ menu.
     pub(crate) fn agent_more_menu(&mut self) {
         self.popup = None;
@@ -1547,6 +1647,69 @@ impl Editor {
                 Some(_) => (label, Some("not installed".into()), true),
                 None => (label, Some(spec.plugin.clone()), false),
             });
+        }
+        let key = self.shown_agent().unwrap_or_default();
+        let tab = self.agents.tabs.iter().find(|t| t.key == key);
+        if let Some(n) = MODE_ITEMS.iter().position(|i| *i == id) {
+            let tab = tab?;
+            let m = tab.modes.get(n)?;
+            let what = match m.asks {
+                AgentAsks::Unsaid => "",
+                AgentAsks::ReadsOnly => "Reads and plans; can't edit",
+                AgentAsks::AsksFirst => "Asks before edits and commands",
+                AgentAsks::Edits => "Edits without asking; you Keep or Undo after",
+                AgentAsks::EditsAndSafeCommands => "Edits and safe commands; asks before the rest",
+                AgentAsks::Never => "Never asks",
+            };
+            let on = tab.mode.as_deref() == Some(m.id.as_str());
+            let right = if on {
+                "✓".to_string()
+            } else {
+                what.to_string()
+            };
+            return Some((m.name.clone(), Some(right), m.asks == AgentAsks::Never));
+        }
+        let read_only = tab.is_some_and(|t| Self::mode_asks(t) == AgentAsks::ReadsOnly);
+        let auto = tab.is_some_and(|t| t.auto);
+        match id {
+            "agent.auto.off" | "agent.auto.on" => {
+                let on = id == "agent.auto.on";
+                let label = match (read_only, on) {
+                    (false, false) => "⏸ Ask before edits",
+                    (false, true) => "⏵ Edit automatically",
+                    (true, false) => "⏸ Ask before commands",
+                    (true, true) => "⏵ Run read-only commands",
+                };
+                let right = if on == auto {
+                    "✓"
+                } else if on && read_only {
+                    "ls, grep, git log…"
+                } else if on {
+                    "you review after"
+                } else {
+                    ""
+                };
+                return Some((
+                    label.into(),
+                    Some(right.into()).filter(|r: &String| !r.is_empty()),
+                    false,
+                ));
+            }
+            "agent.usage" => {
+                let (used, size, note) = tab?.usage.clone()?;
+                let label = if size > 0 {
+                    format!(
+                        "{:.0}% of {} tokens",
+                        used as f64 * 100.0 / size as f64,
+                        short_tokens(size)
+                    )
+                } else {
+                    format!("{} tokens", short_tokens(used))
+                };
+                return Some((label, Some(note).filter(|n| !n.is_empty()), false));
+            }
+            "agent.compact" => return Some(("Compact Now".into(), Some("/compact".into()), false)),
+            _ => {}
         }
         let label = match id {
             "agent.setup" => "Agent Settings…",
@@ -1578,7 +1741,32 @@ impl Editor {
             }
             return true;
         }
+        if let Some(n) = MODE_ITEMS.iter().position(|i| *i == id) {
+            let mode = self
+                .agents
+                .tabs
+                .iter()
+                .find(|t| t.key == key)
+                .and_then(|t| t.modes.get(n))
+                .map(|m| m.id.clone());
+            if let Some(mode) = mode {
+                self.set_agent_mode(&key, &mode, fx);
+            }
+            return true;
+        }
         match id {
+            "agent.auto.off" | "agent.auto.on" => {
+                if let Some(tab) = self.agents.tabs.iter_mut().find(|t| t.key == key) {
+                    tab.auto = id == "agent.auto.on";
+                }
+                self.draw_agent(&key);
+            }
+            "agent.usage" => {}
+            "agent.compact" => {
+                if !key.is_empty() {
+                    self.agent_send(&key, "/compact", fx);
+                }
+            }
             "agent.setup" => {
                 let plugin = self
                     .spec(&key)
@@ -1653,12 +1841,6 @@ impl Editor {
             }
             return Panel { title, nodes };
         }
-        if let Some((chips, note)) = &tab.header {
-            nodes.push(Node::Bar {
-                chips: chips.clone(),
-                hint: note.clone(),
-            });
-        }
         let last = tab.turns.len().saturating_sub(1);
         for (n, turn) in tab.turns.iter().enumerate() {
             match turn {
@@ -1724,57 +1906,75 @@ impl Editor {
         }
         nodes.push(Node::Footer);
         let waiting = !tab.asks.is_empty();
+        // What goes with the message, above its text.
+        if let Some(path) = self.doc().buffer.path.as_deref() {
+            let name = path
+                .file_name()
+                .map_or(String::new(), |n| n.to_string_lossy().into_owned());
+            nodes.push(Node::Chips {
+                chips: vec![Chip {
+                    id: "agent:attach".into(),
+                    label: if tab.attach {
+                        format!("{name} ✕")
+                    } else {
+                        format!("{name} left out")
+                    },
+                    tone: if tab.attach {
+                        Tone::Normal
+                    } else {
+                        Tone::Muted
+                    },
+                }],
+                hint: String::new(),
+            });
+        }
         nodes.push(Node::Input {
             id: PROMPT.into(),
             placeholder: if waiting {
                 format!("{agent} is waiting for you to answer.")
             } else if tab.busy {
                 format!("{agent} is working…")
-            } else {
+            } else if tab.commands.is_empty() {
                 format!("Ask {agent}")
+            } else {
+                format!("Ask {agent} · / for commands")
             },
             secret: false,
             multiline: true,
         });
-        let mut chips = Vec::new();
-        if let Some(path) = self.doc().buffer.path.as_deref() {
-            let name = path
-                .file_name()
-                .map_or(String::new(), |n| n.to_string_lossy().into_owned());
-            chips.push(Chip {
-                id: "agent:attach".into(),
-                label: if tab.attach {
-                    format!("+ {name}")
-                } else {
-                    format!("{name} left out")
-                },
-                tone: if tab.attach {
-                    Tone::Normal
-                } else {
-                    Tone::Muted
-                },
-            });
+        let mode = tab
+            .mode
+            .as_ref()
+            .and_then(|m| tab.modes.iter().find(|x| &x.id == m))
+            .map(|m| (m.name.clone(), m.colour.clone()));
+        let mut chips: Vec<Chip> = Self::edit_pill(tab).into_iter().collect();
+        if let Some((plugin_chips, _)) = &tab.header {
+            chips.extend(plugin_chips.iter().cloned());
         }
-        chips.push(Chip {
-            id: "agent:pick".into(),
-            label: format!("{agent} ▾"),
-            tone: Tone::Normal,
-        });
-        if tab.busy || waiting {
-            chips.push(Chip {
-                id: "agent:stop".into(),
-                label: "■ Stop".into(),
-                tone: Tone::Strong,
+        let ring = tab
+            .usage
+            .as_ref()
+            .filter(|u| u.1 > 0)
+            .map(|(used, size, note)| {
+                let full = (*used as f64 * 100.0 / *size as f64)
+                    .round()
+                    .clamp(0.0, 100.0) as u8;
+                let said = format!("{full}% of {} tokens", short_tokens(*size));
+                (
+                    full,
+                    if note.is_empty() {
+                        said
+                    } else {
+                        format!("{said} · {note}")
+                    },
+                )
             });
-        }
-        nodes.push(Node::Chips {
+        nodes.push(Node::ComposeBar(Box::new(ComposeBar {
+            mode,
             chips,
-            hint: if tab.busy || waiting {
-                String::new()
-            } else {
-                "Ctrl Enter to send".into()
-            },
-        });
+            ring,
+            stop: tab.busy || waiting,
+        })));
         Panel { title, nodes }
     }
 
@@ -2172,6 +2372,28 @@ impl Editor {
         let Some(tab_key) = self.shown_agent() else {
             return false;
         };
+        // Shift Tab in the box: merlin's edit pill, when it shows.
+        let back_tab = key.code == crate::key::KeyCode::BackTab
+            || (key.code == crate::key::KeyCode::Tab && key.shift);
+        if back_tab
+            && self
+                .focused_input(Side::Right)
+                .is_some_and(|(_, id)| id == PROMPT)
+        {
+            let shown = self
+                .agents
+                .tabs
+                .iter()
+                .find(|t| t.key == tab_key)
+                .is_some_and(|t| Self::edit_pill(t).is_some());
+            if shown {
+                if let Some(tab) = self.agents.tabs.iter_mut().find(|t| t.key == tab_key) {
+                    tab.auto = !tab.auto;
+                }
+                self.draw_agent(&tab_key);
+                return true;
+            }
+        }
         // Tab in the box: the agent's next mode.
         if key.code == crate::key::KeyCode::Tab
             && !key.shift
@@ -2220,6 +2442,53 @@ impl Editor {
 }
 
 /// The + menu's items, one per agent.
+const MODE_ITEMS: &[&str] = &[
+    "agent.mode.0",
+    "agent.mode.1",
+    "agent.mode.2",
+    "agent.mode.3",
+    "agent.mode.4",
+    "agent.mode.5",
+    "agent.mode.6",
+    "agent.mode.7",
+];
+
+/// 950, 12k, 1M: a token count, short.
+fn short_tokens(n: u64) -> String {
+    match n {
+        0..1_000 => n.to_string(),
+        1_000..1_000_000 => format!("{:.0}k", n as f64 / 1_000.0),
+        _ => format!("{}M", (n as f64 / 1_000_000.0 * 10.0).round() / 10.0),
+    }
+}
+
+/// Whether a command line only reads: each part one of a few commands
+/// that don't change anything, and nothing written to a file.
+pub fn read_only_command(command: &str) -> bool {
+    let cleaned = command.replace("2>/dev/null", "").replace("2>&1", "");
+    if cleaned.contains('>') || cleaned.contains('`') || cleaned.contains("$(") {
+        return false;
+    }
+    cleaned
+        .split(['|', ';', '&'])
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .all(|part| {
+            let mut words = part.split_whitespace();
+            let first = words.next().unwrap_or_default();
+            match first {
+                "ls" | "cat" | "head" | "tail" | "grep" | "rg" | "wc" | "pwd" | "tree" | "file"
+                | "stat" | "du" | "which" => true,
+                "find" => !part.contains("-exec") && !part.contains("-delete"),
+                "git" => matches!(
+                    words.next(),
+                    Some("log" | "status" | "diff" | "show" | "branch" | "blame" | "ls-files")
+                ),
+                _ => false,
+            }
+        })
+}
+
 const AGENT_ITEMS: &[&str] = &[
     "agent.menu.0",
     "agent.menu.1",

@@ -185,6 +185,38 @@ impl Frame<'_> {
                 continue;
             }
             let r = Rect::new(area.x, top, area.w, rh);
+            // An agent's box: what's attached, the text, and the row under
+            // it, in one box tinted by the agent's mode.
+            let group = in_footer
+                .then(|| agent_box(&sv.nodes, i, footer_from))
+                .flatten();
+            if let Some((start, end)) = group
+                && start == i
+            {
+                let bottom = rows[end].0 + rows[end].1;
+                let b = Rect::new(r.x + 10.0, r.y + 4.0, r.w - 20.0, bottom - ry - 10.0);
+                let input = sv.nodes[start..=end]
+                    .iter()
+                    .position(|n| matches!(n, Node::Input { .. }))
+                    .map(|k| start + k);
+                let focused = input.is_some_and(|k| {
+                    sv.focused && sv.targets[k].is_some() && sv.targets[k] == Some(sv.selected)
+                });
+                let mode = match &sv.nodes[end] {
+                    Node::ComposeBar(c) => c.mode.as_ref().map(|(_, colour)| colour.clone()),
+                    _ => None,
+                };
+                let border = match mode {
+                    Some(colour) => mix(
+                        agent::mode_colour(&self.p, &colour),
+                        self.p.island,
+                        if focused { 0.75 } else { 0.5 },
+                    ),
+                    None if focused => mix(self.p.accent, self.p.island, 0.45),
+                    None => self.p.border,
+                };
+                self.canvas.outline(b, 10.0, 1.0, border, self.p.raised);
+            }
             // A chat's text box and the chips under it share one box.
             let compose = in_footer
                 && matches!(
@@ -207,7 +239,7 @@ impl Frame<'_> {
                 };
                 self.canvas.outline(b, 8.0, 1.0, border, self.p.raised);
             }
-            state.compose = compose;
+            state.compose = compose || group.is_some();
             let target = sv.targets[i];
             let selected = target.is_some() && target == Some(sv.selected);
             self.node(node, sv, side, r, target, selected, clip, state);
@@ -536,6 +568,7 @@ impl Frame<'_> {
             Node::Markdown(t) => self.md_layout(t, inner).1 + 8.0,
             Node::Message(m) => self.message_layout(m, inner).height,
             Node::Chips { .. } => 32.0,
+            Node::ComposeBar(_) => 38.0,
             Node::Bar { .. } => 38.0,
             Node::Menu { items, .. } => 12.0 + 26.0 + items.len() as f32 * 26.0 + 6.0,
             Node::Edit(_) => 50.0,
@@ -700,6 +733,7 @@ impl Frame<'_> {
             Node::Menu { title, items } => {
                 self.menu_card(title, items, sv, side, r, target, clip);
             }
+            Node::ComposeBar(c) => self.compose_bar(c, sv, side, r, target, clip),
             Node::Chips { chips, hint } | Node::Bar { chips, hint } => {
                 // An agent's header: under the tab row, a line below it.
                 let r = if matches!(node, Node::Bar { .. }) {
@@ -2116,4 +2150,28 @@ impl Frame<'_> {
             c += 10.0;
         }
     }
+}
+
+/// The nodes of an agent's box that `i` is in, first and last: an
+/// optional row of chips (what's attached), the text box, and its
+/// [`Node::ComposeBar`].
+fn agent_box(nodes: &[Node], i: usize, footer_from: usize) -> Option<(usize, usize)> {
+    let input = (i..=(i + 1).min(nodes.len().saturating_sub(1))).find(|&k| {
+        matches!(
+            nodes[k],
+            Node::Input {
+                multiline: true,
+                ..
+            }
+        )
+    })?;
+    if !matches!(nodes.get(input + 1), Some(Node::ComposeBar(_))) {
+        return None;
+    }
+    let start = if input > footer_from && matches!(nodes[input - 1], Node::Chips { .. }) {
+        input - 1
+    } else {
+        input
+    };
+    (start <= i && i <= input + 1).then_some((start, input + 1))
 }

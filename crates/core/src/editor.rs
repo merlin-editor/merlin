@@ -3,7 +3,7 @@ mod agents;
 pub use agents::{
     AgentAnswer, AgentAsks, AgentCall, AgentContext, AgentMode, AgentOutcome, AgentPart,
     AgentRequest, AgentSpec, AgentTool, AgentUpdate, MissingProgram, PlanStep, ToolKind,
-    line_counts,
+    line_counts, read_only_command,
 };
 mod blame;
 mod carets;

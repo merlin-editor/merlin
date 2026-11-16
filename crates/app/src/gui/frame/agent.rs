@@ -721,3 +721,210 @@ impl Frame<'_> {
         }
     }
 }
+
+/// A mode's colour: one of merlin's hues by name, `#rrggbb` softened to
+/// sit with the theme, or the accent. The hues are brighter than file
+/// icons', as badges: build blue, plan purple and so on.
+pub(super) fn mode_colour(p: &Palette, colour: &str) -> u32 {
+    let light = theme::is_light(p);
+    let named = |dark: u32, lightish: u32| if light { lightish } else { dark };
+    match colour.trim().to_ascii_lowercase().as_str() {
+        "blue" => named(0x5c9cf5, 0x2f6fd0),
+        "purple" => named(0x9d7cd8, 0x7650b8),
+        "green" => named(0x7fd88f, 0x2f8a4a),
+        "orange" => named(0xf5a742, 0xb86e10),
+        "red" => named(0xf0807a, 0xc0392b),
+        "yellow" => named(0xe6c35c, 0x9a7a10),
+        "cyan" => named(0x5cc8d8, 0x16808f),
+        "grey" | "gray" => named(0x8e9099, 0x6a6d76),
+        hex if hex.starts_with('#') && hex.len() == 7 => {
+            match u32::from_str_radix(&hex[1..], 16) {
+                // Softened toward the text, so a loud colour still reads.
+                Ok(c) if light => mix(c, 0x000000, 0.8),
+                Ok(c) => mix(c, p.bright, 0.85),
+                Err(_) => p.accent,
+            }
+        }
+        _ => p.accent,
+    }
+}
+
+impl Frame<'_> {
+    /// The row under an agent's text: the mode's badge, merlin's edit pill
+    /// and the plugin's chips at the left; how full the context is, and
+    /// Send or Stop, at the right.
+    pub(super) fn compose_bar(
+        &mut self,
+        c: &merlin_core::ComposeBar,
+        sv: &SideView,
+        side: Side,
+        r: Rect,
+        target: Option<usize>,
+        clip: Rect,
+    ) {
+        let p = self.p;
+        let colour = c
+            .mode
+            .as_ref()
+            .map_or(p.accent, |(_, colour)| mode_colour(&p, colour));
+        let on_colour = if theme::is_light(&p) {
+            0xffffff
+        } else {
+            0x0f1012
+        };
+        let mid = r.y + r.h / 2.0 - 3.0;
+        let mut k = 0usize;
+        let mut next = || {
+            let t = target.map(|t| t + k);
+            k += 1;
+            t
+        };
+        let focused_at = |t: Option<usize>| sv.focused && t.is_some() && t == Some(sv.selected);
+        // At the right first, so the pills know where to stop.
+        let send = Rect::new(r.right() - 18.0 - 26.0, mid - 13.0, 26.0, 26.0);
+        let mut right = send.x - 6.0;
+        let ring = c.ring.as_ref().map(|_| {
+            let rr = Rect::new(right - 22.0, mid - 11.0, 22.0, 22.0);
+            right = rr.x - 4.0;
+            rr
+        });
+        let mut x = r.x + 18.0;
+        if let Some((name, _)) = &c.mode {
+            let t = next();
+            let label = name.to_uppercase();
+            let face = Face::ui(10.5).bold();
+            let w = self.text.width(&label, face) + 16.0;
+            let b = Rect::new(x, mid - 10.0, w, 20.0);
+            let fill = if self.hovered(b) {
+                mix(colour, p.bright, 0.85)
+            } else {
+                colour
+            };
+            if focused_at(t) {
+                self.canvas
+                    .outline(b.inset(-2.0), 6.0, 1.5, p.accent, p.raised);
+            }
+            self.canvas.round(b, 4.0, fill);
+            self.text.draw_in_row(
+                &mut self.canvas,
+                &label,
+                face,
+                x + 8.0,
+                b.y,
+                20.0,
+                on_colour,
+                clip,
+            );
+            if let Some(t) = t {
+                self.hit(b, chat_pick(side, t));
+            }
+            x += w + 4.0;
+        }
+        // Short of room, merlin's edit pill shows just its icon (its
+        // name stays in its menu).
+        let face = Face::ui(11.5);
+        let wanted: f32 = c
+            .chips
+            .iter()
+            .filter(|c| !c.id.is_empty())
+            .map(|c| self.text.width(&c.label, face) + 16.0)
+            .sum();
+        let squeeze = x + wanted > right - 4.0;
+        for chip in &c.chips {
+            if chip.id.is_empty() {
+                continue;
+            }
+            let t = next();
+            let short;
+            let chip = if squeeze && chip.id == "agent:edit" {
+                short = merlin_core::Chip {
+                    label: chip.label.chars().take(1).collect::<String>() + " ▾",
+                    ..chip.clone()
+                };
+                &short
+            } else {
+                chip
+            };
+            let tw = self.text.width(&chip.label, face);
+            let room = right - x - 4.0;
+            if room < 40.0 {
+                continue;
+            }
+            let label = self.text.fit(&chip.label, face, (room - 14.0).max(0.0));
+            let w = self.text.width(&label, face) + 14.0;
+            let b = Rect::new(x, mid - 11.0, w.min(tw + 14.0), 22.0);
+            if focused_at(t) {
+                self.canvas
+                    .outline(b.inset(-2.0), 7.0, 1.5, p.accent, p.raised);
+            } else if self.hovered(b) {
+                self.canvas.round(b, 6.0, p.hover);
+            }
+            let fg = if self.hovered(b) { p.bright } else { p.text };
+            self.text
+                .draw_in_row(&mut self.canvas, &label, face, x + 7.0, b.y, 22.0, fg, clip);
+            if let Some(t) = t {
+                self.hit(b, chat_pick(side, t));
+            }
+            x += b.w + 2.0;
+        }
+        if let (Some(rr), Some((full, _))) = (ring, &c.ring) {
+            let t = next();
+            if self.hovered(rr) || focused_at(t) {
+                self.canvas.round(rr, 6.0, p.hover);
+            }
+            // A ring that fills clockwise from the top, amber when nearly
+            // full.
+            let (cx, cy, rad) = (rr.x + 11.0, rr.y + 11.0, 6.0);
+            let fill = if *full >= 75 {
+                mode_colour(&p, "orange")
+            } else {
+                colour
+            };
+            let steps = 48;
+            let point = |n: usize| {
+                let a =
+                    n as f32 / steps as f32 * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2;
+                (cx + rad * a.cos(), cy + rad * a.sin())
+            };
+            for n in 0..steps {
+                let done = (n as f32) < *full as f32 / 100.0 * steps as f32;
+                let c2 = if done { fill } else { p.border };
+                self.canvas.line(point(n), point(n + 1), 2.2, c2);
+            }
+            if let Some(t) = t {
+                self.hit(rr, chat_pick(side, t));
+            }
+        }
+        let t = next();
+        let hover = self.hovered(send);
+        if c.stop {
+            self.canvas
+                .round(send, 7.0, if hover { p.border } else { p.chip });
+            self.canvas.round(
+                Rect::new(send.x + 9.0, send.y + 9.0, 8.0, 8.0),
+                1.5,
+                p.bright,
+            );
+        } else {
+            let fill = if hover {
+                mix(colour, p.bright, 0.85)
+            } else {
+                colour
+            };
+            self.canvas.round(send, 7.0, fill);
+            let (ax, ay) = (send.x + 13.0, send.y + 8.0);
+            self.canvas.line((ax, ay), (ax, ay + 10.0), 1.8, on_colour);
+            self.canvas
+                .line((ax - 4.5, ay + 4.5), (ax, ay), 1.8, on_colour);
+            self.canvas
+                .line((ax + 4.5, ay + 4.5), (ax, ay), 1.8, on_colour);
+        }
+        if focused_at(t) {
+            self.canvas
+                .outline(send.inset(-2.0), 8.0, 1.5, p.accent, p.raised);
+        }
+        if let Some(t) = t {
+            self.hit(send, chat_pick(side, t));
+        }
+    }
+}

@@ -422,7 +422,10 @@ impl Editor {
             }
             KeyCode::Enter => match input {
                 Some(input_key) => {
-                    let should_submit = !is_multiline || key.ctrl;
+                    // An agent's box sends on Enter; Shift Enter starts a line.
+                    let agent_box = input_key.0.starts_with(super::agents::AGENT)
+                        && input_key.1 == "agent.prompt";
+                    let should_submit = !is_multiline || key.ctrl || (agent_box && !key.shift);
                     if !should_submit {
                         let text = self.inputs.entry(input_key.clone()).or_default();
                         let cur = self.input_cursors.entry(input_key).or_insert(text.len());

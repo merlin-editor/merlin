@@ -1116,6 +1116,7 @@ fn target_count(node: &Node) -> usize {
         Node::Changes(c) => 1 + 2 * c.files.len(),
         Node::Command { .. } => 1,
         Node::Bar { chips, .. } => chips.iter().filter(|c| !c.id.is_empty()).count(),
+        Node::ComposeBar(c) => c.ids().len(),
         Node::Menu { items, .. } => items.len(),
         _ => 0,
     }

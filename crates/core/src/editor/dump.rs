@@ -616,6 +616,20 @@ fn dump_side(o: &mut String, which: &str, side: &SideView) {
                 let chips: String = chips.iter().map(|c| format!("({}) ", c.label)).collect();
                 format!("bar: {chips}{hint}")
             }
+            Node::ComposeBar(c) => {
+                let mut text = String::from("box:");
+                if let Some((name, _)) = &c.mode {
+                    text += &format!(" [{}]", name.to_uppercase());
+                }
+                for chip in &c.chips {
+                    text += &format!(" ({})", chip.label);
+                }
+                if let Some((full, _)) = &c.ring {
+                    text += &format!(" ◔{full}%");
+                }
+                text += if c.stop { " [■]" } else { " [↑]" };
+                text
+            }
             Node::Menu { title, items } => {
                 let items: String = items
                     .iter()
