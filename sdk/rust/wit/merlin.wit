@@ -934,6 +934,10 @@ interface host {
   /// The project's files, relative to the workspace root, as the Explorer
   /// lists them: without what git ignores. Needs `workspace-read`.
   list-files: func() -> result<list<string>, string>;
+  /// What one folder in the workspace holds, ignored and hidden entries
+  /// too, sorted: names, folders' ending in `/`. For a build's own files,
+  /// which `list-files` leaves out. Needs `workspace-read`.
+  list-folder: func(path: string) -> result<list<string>, string>;
   /// A file's text as it is on disk. The path is relative to the
   /// workspace root, or absolute within it. Needs `workspace-read`.
   read-file: func(path: string) -> result<string, string>;

@@ -46,14 +46,49 @@ pub struct Presets {
 const PRESETS: &str = "CMakePresets.json";
 const USER_PRESETS: &str = "CMakeUserPresets.json";
 
-/// The configure command adds this, so every build has the file clangd
-/// reads.
-const EXPORT: &str = "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON";
+/// How to configure: the settings, for a project without presets, and
+/// the cache variables every configure adds.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Options {
+    /// The build folder without presets.
+    pub folder: String,
+    /// `Debug` and so on without presets, or empty for CMake's own.
+    pub build_type: String,
+    /// `Ninja` and so on without presets, or empty for CMake's own.
+    pub generator: String,
+    /// `NAME=VALUE`, or `NAME:TYPE=VALUE`, for every configure.
+    pub cache: Vec<String>,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            folder: "build".into(),
+            build_type: "Debug".into(),
+            generator: String::new(),
+            cache: Vec::new(),
+        }
+    }
+}
+
+/// What every configure adds: the file clangd reads, coloured compiler
+/// messages, and the user's cache variables.
+fn extras(options: &Options) -> String {
+    let mut extras =
+        String::from("-DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_COLOR_DIAGNOSTICS=ON");
+    for variable in &options.cache {
+        let variable = variable.trim().trim_start_matches("-D");
+        if !variable.is_empty() {
+            extras.push_str(&format!(" {}", quote(&format!("-D{variable}"))));
+        }
+    }
+    extras
+}
 
 fn quote(word: &str) -> String {
     if word
         .chars()
-        .all(|c| c.is_ascii_alphanumeric() || "-_./".contains(c))
+        .all(|c| c.is_ascii_alphanumeric() || "-_./=:".contains(c))
     {
         word.to_string()
     } else {
@@ -135,14 +170,26 @@ impl Presets {
 
     /// Configure tasks: one per visible configure preset whose build
     /// folder is known, or one into `build/` without presets.
-    pub fn configure_tasks(&self) -> Vec<ConfigureTask> {
+    pub fn configure_tasks(&self, options: &Options) -> Vec<ConfigureTask> {
+        let extras = extras(options);
         if self.configure.is_empty() {
+            let folder = options.folder.trim_end_matches('/');
+            let mut command = format!("cmake -S . -B {}", quote(folder));
+            if !options.generator.is_empty() {
+                command.push_str(&format!(" -G {}", quote(&options.generator)));
+            }
+            if !options.build_type.is_empty() {
+                command.push_str(&format!(
+                    " -DCMAKE_BUILD_TYPE={}",
+                    quote(&options.build_type)
+                ));
+            }
             return vec![ConfigureTask {
                 name: "CMake: Configure".into(),
-                command: format!("cmake -S . -B build {EXPORT}"),
-                dir: "build".into(),
-                from: "CMake · build".into(),
-                detail: "build/".into(),
+                command: format!("{command} {extras}"),
+                dir: folder.into(),
+                from: format!("CMake · {folder}"),
+                detail: format!("{folder}/"),
             }];
         }
         Self::visible(&self.configure)
@@ -150,7 +197,7 @@ impl Presets {
                 let dir = self.binary_dir(p)?;
                 Some(ConfigureTask {
                     name: format!("CMake: Configure {}", p.display),
-                    command: format!("cmake --preset {} {EXPORT}", quote(&p.name)),
+                    command: format!("cmake --preset {} {extras}", quote(&p.name)),
                     from: format!("CMake · {}", p.display),
                     detail: p.file.into(),
                     dir,
@@ -161,13 +208,20 @@ impl Presets {
 
     /// Build and test tasks: the build and test presets, else one of each
     /// per configure preset's folder, else `build/`'s.
-    pub fn build_and_test_tasks(&self) -> Vec<CommandTask> {
+    pub fn build_and_test_tasks(&self, options: &Options) -> Vec<CommandTask> {
         let mut tasks = Vec::new();
-        let folders: Vec<(String, String, &'static str)> = if self.configure.is_empty() {
-            vec![("build".into(), String::new(), "build/")]
+        let folder = options.folder.trim_end_matches('/');
+        let folders: Vec<(String, String, String)> = if self.configure.is_empty() {
+            vec![(folder.into(), String::new(), format!("{folder}/"))]
         } else {
             Self::visible(&self.configure)
-                .filter_map(|p| Some((self.binary_dir(p)?, format!(" {}", p.display), p.file)))
+                .filter_map(|p| {
+                    Some((
+                        self.binary_dir(p)?,
+                        format!(" {}", p.display),
+                        p.file.to_string(),
+                    ))
+                })
                 .collect()
         };
         let build: Vec<&Preset> = Self::visible(&self.build).collect();
@@ -213,8 +267,12 @@ impl Presets {
 
     /// The first build folder that's configured with compile commands on,
     /// as its `CMakeCache.txt` says, and what made it.
-    pub fn configured(&self, read: impl Fn(&str) -> Option<String>) -> Option<(String, String)> {
-        self.configure_tasks().into_iter().find_map(|t| {
+    pub fn configured(
+        &self,
+        options: &Options,
+        read: impl Fn(&str) -> Option<String>,
+    ) -> Option<(String, String)> {
+        self.configure_tasks(options).into_iter().find_map(|t| {
             let cache = read(&format!("{}/CMakeCache.txt", t.dir.trim_end_matches('/')))?;
             cache
                 .lines()
@@ -252,15 +310,16 @@ mod tests {
     #[test]
     fn without_presets_it_builds_in_build() {
         let presets = Presets::read(None, None);
-        let configure = presets.configure_tasks();
+        let configure = presets.configure_tasks(&Options::default());
         assert_eq!(configure.len(), 1);
         assert_eq!(
             configure[0].command,
-            "cmake -S . -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+            "cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug \
+             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_COLOR_DIAGNOSTICS=ON"
         );
         assert_eq!(configure[0].dir, "build");
         let others: Vec<(String, String)> = presets
-            .build_and_test_tasks()
+            .build_and_test_tasks(&Options::default())
             .into_iter()
             .map(|t| (t.name, t.command))
             .collect();
@@ -281,7 +340,7 @@ mod tests {
         let user = r#"{"configurePresets": [{"name": "mine", "inherits": "debug"}]}"#;
         let presets = Presets::read(Some(PROJECT.into()), Some(user.into()));
         let configure: Vec<(String, String, String)> = presets
-            .configure_tasks()
+            .configure_tasks(&Options::default())
             .into_iter()
             .map(|t| (t.name, t.command, t.dir))
             .collect();
@@ -290,24 +349,24 @@ mod tests {
             [
                 (
                     "CMake: Configure Debug".into(),
-                    "cmake --preset debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON".into(),
+                    "cmake --preset debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_COLOR_DIAGNOSTICS=ON".into(),
                     "out/debug".into()
                 ),
                 (
                     "CMake: Configure release".into(),
-                    "cmake --preset release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON".into(),
+                    "cmake --preset release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_COLOR_DIAGNOSTICS=ON".into(),
                     "rel".into()
                 ),
                 (
                     "CMake: Configure mine".into(),
-                    "cmake --preset mine -DCMAKE_EXPORT_COMPILE_COMMANDS=ON".into(),
+                    "cmake --preset mine -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_COLOR_DIAGNOSTICS=ON".into(),
                     // Inherited, named for the preset that uses it.
                     "out/mine".into()
                 ),
             ]
         );
         let names: Vec<String> = presets
-            .build_and_test_tasks()
+            .build_and_test_tasks(&Options::default())
             .into_iter()
             .map(|t| t.command)
             .collect();
@@ -331,9 +390,34 @@ mod tests {
             _ => None,
         };
         assert_eq!(
-            presets.configured(read),
+            presets.configured(&Options::default(), read),
             Some(("rel".into(), "CMake · release".into()))
         );
-        assert_eq!(presets.configured(|_| None), None);
+        assert_eq!(presets.configured(&Options::default(), |_| None), None);
+    }
+
+    #[test]
+    fn settings_shape_the_configure() {
+        let options = Options {
+            folder: "out/".into(),
+            build_type: "Release".into(),
+            generator: "Ninja Multi-Config".into(),
+            cache: vec!["BUILD_TESTING=OFF".into(), "-DNAME:STRING=a b".into()],
+        };
+        let configure = Presets::read(None, None).configure_tasks(&options);
+        assert_eq!(
+            configure[0].command,
+            "cmake -S . -B out -G \"Ninja Multi-Config\" -DCMAKE_BUILD_TYPE=Release \
+             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_COLOR_DIAGNOSTICS=ON \
+             -DBUILD_TESTING=OFF \"-DNAME:STRING=a b\""
+        );
+        assert_eq!(configure[0].dir, "out");
+        // With presets, only the cache variables come along.
+        let presets = Presets::read(Some(PROJECT.into()), None);
+        assert!(
+            presets.configure_tasks(&options)[0]
+                .command
+                .ends_with("-DBUILD_TESTING=OFF \"-DNAME:STRING=a b\"")
+        );
     }
 }

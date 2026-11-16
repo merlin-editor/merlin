@@ -1,6 +1,6 @@
 name = "cmake"
 title = "CMake"
-description = "CMake colours, completion and hover, Configure, Build and Test tasks from presets, and compile commands for clangd"
+description = "CMake colours, completion and hover, tasks and debugging for each target, and compile commands for clangd"
 badge = "CM"
 hue = "green"
 version = "0.1.0"
@@ -28,6 +28,48 @@ provides = ["compile-commands"]
 for = "Completion, hover, go to definition and formatting"
 install = "cargo install neocmakelsp"
 url = "https://github.com/neocmakelsp/neocmakelsp"
+
+[settings.configure-on-save]
+type = "flag"
+title = "Configure on save"
+default = true
+description = "Configure the build again when CMakeLists.txt, a .cmake file or the presets are saved, once it's been configured."
+
+[settings.cache-variables]
+type = "list"
+title = "Cache variables"
+description = "Added to every configure, presets or not, as NAME=VALUE or NAME:TYPE=VALUE, such as BUILD_TESTING=OFF."
+
+[settings.build-folder]
+type = "text"
+title = "Build folder"
+default = "build"
+description = "Where a project without presets builds, relative to the workspace."
+
+[settings.build-type]
+type = "choice"
+title = "Build type"
+default = "Debug"
+choices = [
+    { value = "Debug", label = "Debug" },
+    { value = "Release", label = "Release" },
+    { value = "RelWithDebInfo", label = "Release with debug info" },
+    { value = "MinSizeRel", label = "Smallest release" },
+    { value = "", label = "CMake's own" },
+]
+description = "The build type of a project without presets."
+
+[settings.generator]
+type = "choice"
+title = "Generator"
+default = ""
+choices = [
+    { value = "", label = "CMake's own" },
+    { value = "Ninja", label = "Ninja" },
+    { value = "Ninja Multi-Config", label = "Ninja Multi-Config" },
+    { value = "Unix Makefiles", label = "Unix Makefiles" },
+]
+description = "What builds a project without presets. Ninja is faster where it's installed."
 
 [[languages]]
 id = "cmake"

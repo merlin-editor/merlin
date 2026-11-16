@@ -155,6 +155,20 @@ impl wasmtime::ResourceLimiter for Limits {
 }
 
 impl State {
+    /// A path within the workspace, however it's written, made whole.
+    fn inside_workspace(&self, path: &str) -> Result<std::path::PathBuf, String> {
+        let root = &self.snapshot.root;
+        if root.as_os_str().is_empty() {
+            return Err("no workspace yet".into());
+        }
+        let full = root.join(path).canonicalize().map_err(|e| e.to_string())?;
+        let inside = root.canonicalize().is_ok_and(|r| full.starts_with(r));
+        if !inside {
+            return Err(format!("{path} is outside the workspace"));
+        }
+        Ok(full)
+    }
+
     /// A report on a run, for a plugin that drives debuggers.
     pub(super) fn debug(&mut self, update: merlin_core::DebugUpdate) -> Result<(), String> {
         self.need(self.permissions.debugger, "debugger")?;
@@ -531,6 +545,25 @@ impl host::Host for State {
             .collect();
         files.sort();
         Ok(files)
+    }
+
+    fn list_folder(&mut self, path: String) -> Result<Vec<String>, String> {
+        self.need(self.permissions.workspace_read, "workspace-read")?;
+        let full = self.inside_workspace(&path)?;
+        let mut names: Vec<String> = std::fs::read_dir(&full)
+            .map_err(|e| e.to_string())?
+            .flatten()
+            .take(10_000)
+            .map(|e| {
+                let name = e.file_name().to_string_lossy().into_owned();
+                match e.file_type().is_ok_and(|t| t.is_dir()) {
+                    true => format!("{name}/"),
+                    false => name,
+                }
+            })
+            .collect();
+        names.sort();
+        Ok(names)
     }
 
     fn read_file(&mut self, path: String) -> Result<String, String> {
