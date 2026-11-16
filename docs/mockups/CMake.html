@@ -80,6 +80,23 @@ body{margin:0;background:#08090a;padding:24px 0}
 .box{height:24px;border-radius:6px;background:#1c1d21;border:1px solid #2c2d33;display:flex;align-items:center;padding:0 8px;color:#7a7d86;font-size:12px;margin:4px 10px;box-sizing:border-box}
 .term{font-family:'JetBrains Mono',monospace;font-size:12px;line-height:19px;white-space:pre;padding:8px 12px;color:#b4b6bd}
 .err{color:#f0807a}.ok{color:#a6d189}.dim{color:#7a7d86}
+.cc{position:absolute;background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.45);overflow:hidden;font-family:'JetBrains Mono',monospace;font-size:12.5px}
+.ci{display:flex;align-items:center;gap:8px;height:24px;padding:0 8px 0 6px;color:#9a9ca4;white-space:nowrap}
+.ci.on{background:#262b3d;color:#d4d5da}
+.km{width:16px;height:16px;border-radius:4px;font:700 9.5px Inter,sans-serif;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.km.fn{background:#3a3320;color:#f0c674}.km.ty{background:#1f3236;color:#9ccfd8}.km.va{background:#2a2b31;color:#d4d5da}
+.km.kw{background:#2f2840;color:#c4a7e7}.km.co{background:#3a2a20;color:#f5a97f}.km.fi{background:#2a2b31;color:#b4b6bd}
+.km.mo{background:#1f3236;color:#9ccfd8}.km.ma{background:#1f3236;color:#9ccfd8}
+.nm{flex-shrink:0}
+.mt{font-weight:600;text-decoration:underline;text-decoration-color:#7c9cff;text-underline-offset:3px}
+.dt{margin-left:auto;padding-left:14px;font-size:11.5px;opacity:.55;overflow:hidden;text-overflow:ellipsis}
+.ci.on .dt{opacity:.9}
+.cdoc{border-top:1px solid #2c2d33;padding:8px 10px;font-size:12px;line-height:18px;color:#d4d5da;white-space:normal}
+.cdoc .p{font-family:Inter,sans-serif;color:#8e9099;font-size:12px;margin-top:4px}
+.ed{font-family:'JetBrains Mono',monospace;font-size:13px;line-height:22px;white-space:pre;color:#d4d5da}
+.cur{display:inline-block;width:2px;height:16px;background:#7c9cff;vertical-align:-3px}
+.old{position:absolute;background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;overflow:hidden;font-family:'JetBrains Mono',monospace;font-size:12.5px}
+.old .ci{color:#d4d5da}
 h2{font:600 12px Inter,sans-serif;letter-spacing:.04em;text-transform:uppercase;color:#7c9cff;margin:0 0 6px}
 </style>
 </head>
@@ -254,6 +271,64 @@ h2{font:600 12px Inter,sans-serif;letter-spacing:.04em;text-transform:uppercase;
   <div class="note" style="left:32px;top:540px;width:1216px">
     <b>What needs no mock-up and is built</b> (2026-11-17): Configure, Build and Test tasks from presets; a Build task per target and Run per program; programs in Run and Debug (F5) with the C/C++ plugin's debugger; CTest's tests in the Tests view at their <span class="mono">add_test</span> lines, run in parallel and debuggable; configure on save; settings for the build folder, type, generator and cache variables; neocmakelsp for completion and hover; and the build shared with clangd.<br><br>
     <b>What this mock-up adds</b>: the status bar's preset and target (a plugin status item that's a picker), the CMake view (targets by folder, the cache to edit), CMake's errors in Problems, and adding a new file to a target. For plugin authors, the view is an ordinary <span class="mono">[[views]]</span> view; the status bar chips would be a new <span class="mono">set-status-chips</span> call, which other build plugins can use too.
+  </div>
+</div>
+
+<!-- ARTBOARD 4: coloured completions -->
+<div class="w" style="padding:28px 32px;box-sizing:border-box;display:block">
+  <h2>4 · Completions, coloured: Rust, C++ and CMake side by side</h2>
+
+  <!-- Rust -->
+  <div class="panel" style="left:32px;top:62px;width:390px;height:430px">
+    <div style="padding:10px 12px 4px;font:600 11px Inter,sans-serif;letter-spacing:.04em;text-transform:uppercase;color:#8e9099">Rust · rust-analyzer</div>
+    <div class="ed" style="padding:2px 12px"><span style="color:#7a7d86">3</span>  <span style="color:#c4a7e7">use</span> std::collections::Ha<span class="cur"></span></div>
+    <div class="cc" style="left:150px;top:58px;width:228px">
+      <div class="ci on"><span class="km ty">T</span><span class="nm"><span style="color:#9ccfd8"><span class="mt">Ha</span>shMap</span></span><span class="dt"><span style="color:#c4a7e7">struct</span></span></div>
+      <div class="ci"><span class="km ty">T</span><span class="nm"><span style="color:#9ccfd8"><span class="mt">Ha</span>shSet</span></span><span class="dt"><span style="color:#c4a7e7">struct</span></span></div>
+      <div class="ci"><span class="km mo">M</span><span class="nm"><span class="mt">ha</span>sh_map</span><span class="dt"><span style="color:#c4a7e7">mod</span></span></div>
+      <div class="ci"><span class="km mo">M</span><span class="nm"><span class="mt">ha</span>sh_set</span><span class="dt"><span style="color:#c4a7e7">mod</span></span></div>
+      <div class="ci"><span class="km mo">M</span><span class="nm">binary_<span class="mt">h</span>e<span class="mt">a</span>p</span><span class="dt"><span style="color:#c4a7e7">mod</span></span></div>
+      <div class="cdoc"><span style="color:#c4a7e7">pub struct</span> <span style="color:#9ccfd8">HashMap</span>&lt;<span style="color:#9ccfd8">K</span>, <span style="color:#9ccfd8">V</span>, <span style="color:#9ccfd8">S</span> = <span style="color:#9ccfd8">RandomState</span>&gt;<div class="p">A hash map implemented with quadratic probing and SIMD lookup.</div></div>
+    </div>
+  </div>
+
+  <!-- C++ -->
+  <div class="panel" style="left:445px;top:62px;width:390px;height:430px">
+    <div style="padding:10px 12px 4px;font:600 11px Inter,sans-serif;letter-spacing:.04em;text-transform:uppercase;color:#8e9099">C++ · clangd</div>
+    <div class="ed" style="padding:2px 12px"><span style="color:#7a7d86">22</span>  shapes.p<span class="cur"></span></div>
+    <div class="cc" style="left:62px;top:58px;width:316px">
+      <div class="ci on"><span class="km fn">ƒ</span><span class="nm"><span style="color:#f0c674"><span class="mt">p</span>ush_back</span></span><span class="dt">(<span style="color:#c4a7e7">const</span> <span style="color:#9ccfd8">Shape</span> &amp;) -&gt; <span style="color:#c4a7e7">void</span></span></div>
+      <div class="ci"><span class="km fn">ƒ</span><span class="nm"><span style="color:#f0c674"><span class="mt">p</span>op_back</span></span><span class="dt">() -&gt; <span style="color:#c4a7e7">void</span></span></div>
+      <div class="ci"><span class="km fn">ƒ</span><span class="nm"><span style="color:#f0c674">em<span class="mt">p</span>lace_back</span></span><span class="dt">(Args &amp;&amp;...)</span></div>
+      <div class="ci"><span class="km ty">T</span><span class="nm"><span style="color:#9ccfd8"><span class="mt">p</span>ointer</span></span><span class="dt">type alias</span></div>
+      <div class="ci"><span class="km fi">◆</span><span class="nm">_M_im<span class="mt">p</span>l</span><span class="dt"><span style="color:#9ccfd8">_Vector_impl</span></span></div>
+      <div class="cdoc"><span style="color:#c4a7e7">void</span> <span style="color:#f0c674">push_back</span>(<span style="color:#c4a7e7">const</span> <span style="color:#9ccfd8">Shape</span> &amp;__x)<div class="p">Add data to the end of the vector. · from &lt;vector&gt;</div></div>
+    </div>
+  </div>
+
+  <!-- CMake -->
+  <div class="panel" style="left:858px;top:62px;width:390px;height:430px">
+    <div style="padding:10px 12px 4px;font:600 11px Inter,sans-serif;letter-spacing:.04em;text-transform:uppercase;color:#8e9099">CMake · neocmakelsp</div>
+    <div class="ed" style="padding:2px 12px"><span style="color:#7a7d86">13</span>  add_cu<span class="cur"></span></div>
+    <div class="cc" style="left:30px;top:58px;width:348px">
+      <div class="ci on"><span class="km fn">ƒ</span><span class="nm"><span style="color:#f0c674"><span class="mt">add_cu</span>stom_command</span></span><span class="dt">command</span></div>
+      <div class="ci"><span class="km fn">ƒ</span><span class="nm"><span style="color:#f0c674"><span class="mt">add_cu</span>stom_target</span></span><span class="dt">command</span></div>
+      <div class="ci"><span class="km fn">ƒ</span><span class="nm"><span style="color:#f0c674"><span class="mt">add_</span>exe<span class="mt">cu</span>table</span></span><span class="dt">command</span></div>
+      <div class="ci"><span class="km co">V</span><span class="nm"><span style="color:#f5a97f">CMAKE_<span class="mt">ADD_CU</span>STOM_COMMAND_DEPENDS_EXPLICIT_ONLY</span></span></div>
+      <div class="cdoc"><span style="color:#f0c674">add_custom_command</span>(<span style="color:#f5a97f">OUTPUT</span> output1 [...] <span style="color:#f5a97f">COMMAND</span> command1 [ARGS] ...)<div class="p">Add a custom build rule to the generated build system.</div></div>
+    </div>
+    <div class="note" style="left:14px;top:286px;width:362px">Today's list for comparison: one case per name (CMake's commands are case-blind, so <b>ADD_CUSTOM_COMMAND</b> and <b>add_custom_command</b> become one row, in the file's case), and the kind as a mark, not the word "Function" on the right.</div>
+    <div class="old" style="left:14px;top:362px;width:362px;opacity:.75">
+      <div class="ci"><span class="nm">ADD_CUSTOM_COMMAND</span><span class="dt" style="opacity:1;color:#8e9099;font-family:Inter,sans-serif">Function</span></div>
+      <div class="ci"><span class="nm">add_custom_command</span><span class="dt" style="opacity:1;color:#8e9099;font-family:Inter,sans-serif">Function</span></div>
+    </div>
+  </div>
+
+  <div class="note" style="left:32px;top:512px;width:1216px">
+    <b>The name</b> is in the colour of its kind, as the code shows it: functions in the function colour, types in the type colour, constants and CMake variables in the constant colour, fields and variables in the text colour. <b>The letters you typed</b> are underlined in the accent colour and slightly bolder, wherever they matched (fuzzy, as <b>em<u>p</u>lace_back</b>).<br><br>
+    <b>The kind mark</b> on the left (ƒ function, T type, ◆ field, V variable or constant, ! macro, K keyword, M module) is tinted to match, so the list scans by colour and shape, as in VS Code and JetBrains. <b>The detail</b> on the right, a signature or type, is coloured with the language's own colours at half strength, as Zed does, so the name still leads; the chosen row brings it to full strength.<br><br>
+    <b>The chosen row</b> also opens its documentation under the list: the full signature, coloured, and the first line of its docs, with Ctrl+Space to show more. Rows other than the chosen one stay muted, so the list never becomes a wall of colour.<br><br>
+    <b>For plugin authors</b> (plugin API 0.16, not released yet): a completion gains <span class="mono">kind</span> (the LSP's CompletionItemKind, which the LSP SDK passes on) and <span class="mono">documentation</span>. The editor colours the name by kind and marks the matched letters itself; the detail and the signature are coloured by the plugin's <span class="mono">colour-text</span>, which language plugins already have for diffs and Markdown. A plugin without it gets plain, dimmed details.
   </div>
 </div>
 
