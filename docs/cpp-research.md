@@ -205,8 +205,13 @@ printers are lldb-dap's and gdb's own, so they need checking there first.
    - Left: clang-tidy needs no switch, since clangd runs it when a
      `.clang-tidy` file asks; the `lldb-dap` hint on Ubuntu is still
      unchecked; the doubled install command and "outlines" stay.
-2. **clangd's commands** in the LSP SDK. The biggest gain for the least
-   work, and no UI: the code actions menu already exists.
+2. **clangd's commands** in the LSP SDK (built 2026-11-16). Code actions
+   that come as a command, or with one, now show; choosing one sends
+   `workspace/executeCommand`, and the edit the server sends back with
+   `workspace/applyEdit` is made. The code actions request sends the
+   selection, which extracting needs. Checked with clangd 21: "Replace
+   with deduced type" turns `auto` into `int`. Extract function and
+   define outline go the same way but weren't tried in the window.
 3. **The rest of the LSP SDK**: declaration, implementation, type
    definition, links, highlights, selection ranges, switch header/source,
    and inactive regions. Mostly commands and keys; inactive regions and

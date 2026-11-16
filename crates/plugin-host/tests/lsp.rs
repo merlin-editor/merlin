@@ -231,11 +231,13 @@ fn code_actions_come_with_their_edits_and_one_chosen_is_made() {
         listed,
         [
             ("Extract into a variable", ActionKind::Refactor, false),
+            ("Run a command", ActionKind::Other, false),
+            ("Inline it", ActionKind::Refactor, false),
             ("Rename to `_v`", ActionKind::QuickFix, true),
         ],
-        "a bare command and a disabled action are left out"
+        "a disabled action is left out"
     );
-    let events = host.pick("rust", "code-actions", &actions[1].id, snapshot());
+    let events = host.pick("rust", "code-actions", &actions[3].id, snapshot());
     let edits = events.into_iter().find_map(|e| match e {
         Event::ApplyEdits(edits) => Some(edits),
         _ => None,
@@ -247,6 +249,39 @@ fn code_actions_come_with_their_edits_and_one_chosen_is_made() {
             edits: vec![((1, 8), (1, 9), "_v".into())],
         }])
     );
+}
+
+#[test]
+fn code_actions_that_run_a_command_make_the_edit_the_server_sends_back() {
+    use merlin_core::lang::FileEdit;
+    let mut host = started();
+    host.run_command("rust", "code-actions", snapshot());
+    let Event::ShowCodeActions(actions) = wait_for(&mut host, "code actions", |e| {
+        matches!(e, Event::ShowCodeActions(_))
+    }) else {
+        unreachable!()
+    };
+    // A bare command, and an action with one.
+    for (title, text) in [("Run a command", "z"), ("Inline it", "y")] {
+        let action = actions.iter().find(|a| a.title == title).unwrap();
+        let events = host.pick("rust", "code-actions", &action.id, snapshot());
+        assert!(
+            !events.iter().any(|e| matches!(e, Event::ApplyEdits(_))),
+            "the edit comes from the server, not at once"
+        );
+        let Event::ApplyEdits(edits) = wait_for(&mut host, "the command's edit", |e| {
+            matches!(e, Event::ApplyEdits(_))
+        }) else {
+            unreachable!()
+        };
+        assert_eq!(
+            edits,
+            [FileEdit {
+                path: "src/main.rs".into(),
+                edits: vec![((1, 8), (1, 9), text.into())],
+            }]
+        );
+    }
 }
 
 /// The edits a format sent for the active file.

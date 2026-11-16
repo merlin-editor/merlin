@@ -58,7 +58,17 @@ impl Lsp {
                     .collect();
                 Value::Array(list)
             }
-            "workspace/applyEdit" => json!({"applied": false}),
+            // A command's edit, as a code action's command sends it.
+            "workspace/applyEdit" => {
+                let edits = file_edits(&params["edit"]);
+                match host::apply_edits(&edits) {
+                    Ok(()) => json!({"applied": true}),
+                    Err(err) => {
+                        host::notice(LogLevel::Error, &err, &[]);
+                        json!({"applied": false, "failureReason": err})
+                    }
+                }
+            }
             _ => Value::Null,
         };
         server.respond(id, result);
@@ -297,12 +307,15 @@ impl Lsp {
                 let list = result.as_array().cloned().unwrap_or_default();
                 let mut actions = Vec::new();
                 for item in list {
-                    // Only actions that say their edit: a bare command
-                    // would need the server to run it.
-                    let Some(edit) = item.get("edit").filter(|_| item.get("disabled").is_none())
-                    else {
+                    // An action with its edit, a command for the server to
+                    // run, or both; one the server says can't be used here
+                    // isn't shown.
+                    let runs = item
+                        .get("command")
+                        .is_some_and(|c| c.is_string() || c.is_object());
+                    if item.get("disabled").is_some() || (item.get("edit").is_none() && !runs) {
                         continue;
-                    };
+                    }
                     self.next_action += 1;
                     let id = self.next_action.to_string();
                     let kind = item["kind"].as_str().unwrap_or_default();
@@ -317,10 +330,12 @@ impl Lsp {
                         },
                         preferred: item["isPreferred"].as_bool().unwrap_or(false),
                     });
-                    self.actions.insert(id, edit.clone());
+                    self.actions.insert(id, (program.to_string(), item));
                 }
                 host::show_code_actions(&actions);
             }
+            // Its edit comes as `workspace/applyEdit`, before this.
+            Request::ExecuteCommand => {}
             Request::PrepareRename => {
                 // A range, a range with a placeholder, or "the word here".
                 let range = result.get("range").unwrap_or(result);

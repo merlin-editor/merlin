@@ -49,7 +49,10 @@ fn adds_c_and_cpp() {
     let names: Vec<&str> = languages.iter().map(|l| l.name.as_str()).collect();
     assert_eq!(names, ["C", "C++"]);
     assert!(languages[1].extensions.contains(&"hpp".to_string()));
-    assert!(languages[1].extensions.contains(&"h".to_string()), "a header is C++");
+    assert!(
+        languages[1].extensions.contains(&"h".to_string()),
+        "a header is C++"
+    );
     assert_eq!(languages[0].extensions, ["c"]);
 }
 
@@ -107,11 +110,25 @@ fn reads_gcc_clang_and_msvc_problems() {
     };
     assert_eq!(
         read("src/a.cpp:3:5: warning: unused variable 'x' [-Wunused-variable]").unwrap(),
-        ["src/a.cpp", "3", "5", "warning", "-Wunused-variable", "unused variable 'x'"]
+        [
+            "src/a.cpp",
+            "3",
+            "5",
+            "warning",
+            "-Wunused-variable",
+            "unused variable 'x'"
+        ]
     );
     assert_eq!(
         read("C:\\work\\a.cpp:10:2: fatal error: 'gone.h' file not found").unwrap(),
-        ["C:\\work\\a.cpp", "10", "2", "fatal error", "", "'gone.h' file not found"]
+        [
+            "C:\\work\\a.cpp",
+            "10",
+            "2",
+            "fatal error",
+            "",
+            "'gone.h' file not found"
+        ]
     );
     assert_eq!(
         read("a.c:7: error: expected ';'").unwrap(),
@@ -119,9 +136,96 @@ fn reads_gcc_clang_and_msvc_problems() {
     );
     assert_eq!(
         read("src\\a.cpp(3,5): error C2065: 'x': undeclared identifier").unwrap(),
-        ["src\\a.cpp", "3", "5", "error", "C2065", "'x': undeclared identifier"]
+        [
+            "src\\a.cpp",
+            "3",
+            "5",
+            "error",
+            "C2065",
+            "'x': undeclared identifier"
+        ]
     );
     // Notes say more about the problem above, and other lines aren't ones.
     assert!(read("src/a.cpp:4:1: note: declared here").is_none());
     assert!(read("[ 50%] Building CXX object a.cpp.o").is_none());
+}
+
+/// clangd's refactors come as commands that clangd runs, sending the edit
+/// back: "Replace with deduced type" on `auto` turns it into `int`. Only
+/// where clangd is installed.
+#[test]
+fn clangds_refactors_run_and_make_their_edit() {
+    use std::time::{Duration, Instant};
+    if std::process::Command::new("clangd")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        eprintln!("clangd isn't installed; skipping");
+        return;
+    }
+    let (mut host, _) = host();
+    let root = std::env::temp_dir().join(format!("merlin-cpp-clangd-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let text = "int g() {\n    auto x = 1;\n    return x;\n}\n";
+    std::fs::write(root.join("a.cpp"), text).unwrap();
+    let at = Snapshot {
+        root: root.clone(),
+        cursor: (1, 5),
+        ..snapshot("a.cpp", text)
+    };
+    host.buffer_event(&BufferEvent::Switched, &at);
+    let wait = |host: &mut PluginHost, what: &str, find: &dyn Fn(&Event) -> bool| {
+        let until = Instant::now() + Duration::from_secs(30);
+        loop {
+            let (events, _) = host.poll_processes(|| at.clone());
+            if let Some(e) = events.into_iter().find(|e| find(e)) {
+                return e;
+            }
+            assert!(Instant::now() < until, "no {what}");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    };
+    // Asked until clangd has read the file.
+    let mut actions = Vec::new();
+    for _ in 0..20 {
+        host.run_command("cpp", "code-actions", at.clone());
+        if let Event::ShowCodeActions(list) = wait(&mut host, "code actions", &|e| {
+            matches!(e, Event::ShowCodeActions(_))
+        }) && !list.is_empty()
+        {
+            actions = list;
+            break;
+        }
+    }
+    let action = actions
+        .iter()
+        .find(|a| a.title.contains("deduced type"))
+        .unwrap_or_else(|| panic!("{actions:?}"));
+    host.pick("cpp", "code-actions", &action.id, at.clone());
+    let Event::ApplyEdits(edits) = wait(&mut host, "the refactor's edit", &|e| {
+        matches!(e, Event::ApplyEdits(_))
+    }) else {
+        unreachable!()
+    };
+    assert_eq!(edits.len(), 1, "{edits:?}");
+    // clangd lays the lines out in its own style as it goes, so what's
+    // checked is the text after.
+    let mut lines: Vec<String> = text.lines().map(String::from).collect();
+    let mut changes = edits[0].edits.clone();
+    changes.sort_by_key(|c| std::cmp::Reverse(c.0));
+    for ((l0, c0), (l1, c1), new) in changes {
+        let (l0, c0, l1, c1) = (l0 as usize, c0 as usize, l1 as usize, c1 as usize);
+        let joined = format!("{}{new}{}", &lines[l0][..c0], &lines[l1][c1..]);
+        lines.splice(
+            l0..=l1,
+            joined.split('\n').map(String::from).collect::<Vec<_>>(),
+        );
+    }
+    let after = lines.join("\n");
+    assert!(
+        after.contains("int x = 1;") && !after.contains("auto"),
+        "{after}"
+    );
+    std::fs::remove_dir_all(root).ok();
 }

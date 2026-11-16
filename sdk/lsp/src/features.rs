@@ -117,6 +117,11 @@ impl Lsp {
                         "workspace": {
                             "configuration": true,
                             "workspaceFolders": true,
+                            // Code actions that run a command on the
+                            // server, which sends its edit back.
+                            "applyEdit": true,
+                            "executeCommand": {},
+                            "workspaceEdit": {"documentChanges": true},
                             "inlayHint": {"refreshSupport": true},
                             "semanticTokens": {"refreshSupport": true},
                             "diagnostics": {"refreshSupport": true},
@@ -250,9 +255,18 @@ impl Lsp {
                 .filter(on_line)
                 .cloned()
                 .collect();
+            // The selection, when there is one: extracting a function
+            // needs the statements it's made of.
+            let range = match host::active_selection().ok().flatten() {
+                Some(s) => json!({
+                    "start": {"line": s.start.line, "character": s.start.column},
+                    "end": {"line": s.end.line, "character": s.end.column},
+                }),
+                None => json!({"start": here, "end": here}),
+            };
             json!({
                 "textDocument": {"uri": uri(&path)},
-                "range": {"start": here, "end": here},
+                "range": range,
                 "context": {"diagnostics": diagnostics, "triggerKind": 1},
             })
         } else if matches!(request, Request::Peek) {

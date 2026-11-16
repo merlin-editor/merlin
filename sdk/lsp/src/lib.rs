@@ -37,7 +37,9 @@ pub struct Lsp {
     pub(crate) reported: String,
     /// Code actions most recently offered to the picker, by id, with the
     /// workspace edit each applies.
-    pub(crate) actions: BTreeMap<String, Value>,
+    /// The code actions last shown, by id: the server each came from,
+    /// and the action as it sent it.
+    pub(crate) actions: BTreeMap<String, (String, Value)>,
     pub(crate) next_action: u64,
     /// Multi-range format requests still waiting for all their ranges:
     /// batch id -> `(path, ranges left, edits so far)`.
@@ -201,19 +203,38 @@ impl Lsp {
         if picker != "code-actions" {
             return;
         }
-        let Some(edit) = self.actions.get(item) else {
+        let Some((program, action)) = self.actions.get(item).cloned() else {
             return host::notice(
                 LogLevel::Info,
                 "That code action is out of date: try again",
                 &[],
             );
         };
-        let edits = file_edits(edit);
-        if edits.is_empty() {
-            return host::notice(LogLevel::Info, "That code action changes nothing", &[]);
+        // An action says its edit, or a command the server runs, which
+        // sends its edit back; or both, the edit first. A bare command has
+        // the command's name as a string.
+        let command = match &action["command"] {
+            Value::String(_) => Some(action.clone()),
+            c if c.is_object() => Some(c.clone()),
+            _ => None,
+        };
+        if let Some(edit) = action.get("edit") {
+            let edits = file_edits(edit);
+            if edits.is_empty() && command.is_none() {
+                return host::notice(LogLevel::Info, "That code action changes nothing", &[]);
+            }
+            if let Err(err) = host::apply_edits(&edits) {
+                return host::notice(LogLevel::Error, &err, &[]);
+            }
         }
-        if let Err(err) = host::apply_edits(&edits) {
-            host::notice(LogLevel::Error, &err, &[]);
+        if let Some(command) = command
+            && let Some(server) = self.server(&program)
+        {
+            let mut params = json!({"command": command["command"]});
+            if let Some(arguments) = command.get("arguments") {
+                params["arguments"] = arguments.clone();
+            }
+            server.request("workspace/executeCommand", params, Request::ExecuteCommand);
         }
     }
 

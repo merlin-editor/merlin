@@ -107,7 +107,9 @@ while True:
             {"title": "Extract into a variable", "kind": "refactor.extract",
              "edit": {"documentChanges": [{"textDocument": {"uri": uri, "version": 1},
                                            "edits": [{"range": span, "newText": "x"}]}]}},
-            {"title": "Run a command", "command": "fake.command"},
+            {"title": "Run a command", "command": "fake.command", "arguments": [uri]},
+            {"title": "Inline it", "kind": "refactor.inline",
+             "command": {"title": "Inline it", "command": "fake.inline", "arguments": [uri]}},
             {"title": "Can't here", "kind": "refactor", "disabled": {"reason": "no"},
              "edit": {"changes": {}}},
             {"title": "Rename to `_v`", "kind": "quickfix", "isPreferred": True,
@@ -150,6 +152,15 @@ while True:
              "textEdit": {"newText": "pop()", "range": {}}},
         ]
         send({"id": message["id"], "result": {"isIncomplete": False, "items": items}})
+    elif method == "workspace/executeCommand":
+        # As clangd's tweaks do: the edit goes to the client first, then
+        # the command's answer.
+        uri = params["arguments"][0]
+        text = "y" if params["command"] == "fake.inline" else "z"
+        span = {"start": {"line": 1, "character": 8}, "end": {"line": 1, "character": 9}}
+        send({"id": 9000, "method": "workspace/applyEdit", "params": {"label": params["command"],
+              "edit": {"changes": {uri: [{"range": span, "newText": text}]}}}})
+        send({"id": message["id"], "result": None})
     elif "id" in message and method is None:
         pass  # a response to our request
     elif "id" in message:

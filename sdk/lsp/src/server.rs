@@ -30,6 +30,8 @@ pub(crate) enum Request {
     /// link: every place, without going there.
     DefinitionLink,
     CodeActions,
+    /// A code action's command, which the server runs.
+    ExecuteCommand,
     /// The whole file or the selection formatted: its edits, for `path`.
     Format {
         path: String,
