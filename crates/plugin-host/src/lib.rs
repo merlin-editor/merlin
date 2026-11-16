@@ -704,6 +704,7 @@ impl PluginHost {
             images: Default::default(),
             next_agent_id: 0,
             agent_runs: Default::default(),
+            programs: manifest.programs.clone(),
             shared_keys: manifest.shared.clone(),
             board: self.board.clone(),
         };

@@ -2,7 +2,7 @@
 //! the host functions in `sdk/rust/wit/merlin.wit`, turned into events.
 
 use super::*;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 pub(super) struct State {
     pub(super) wasi: WasiCtx,
@@ -29,6 +29,8 @@ pub(super) struct State {
     pub(super) next_agent_id: u32,
     /// Each run's chat, by run.
     pub(super) agent_runs: HashMap<u32, u32>,
+    /// The programs its manifest declares, for their install commands.
+    pub(super) programs: BTreeMap<String, crate::needs::ManifestProgram>,
     /// The keys it shares and watches, from its manifest.
     pub(super) shared_keys: ManifestShared,
     /// What every plugin shares.
@@ -550,6 +552,14 @@ impl host::Host for State {
             lines: items
                 .into_iter()
                 .map(|i| StatusLine {
+                    // The manifest's command for this system wins over
+                    // the plugin's own, which can't tell systems apart.
+                    hint: self
+                        .programs
+                        .get(&i.name)
+                        .and_then(|p| p.install.as_ref()?.here())
+                        .map(String::from)
+                        .or(i.hint),
                     name: i.name,
                     state: match i.state {
                         types::StatusState::Ready => StatusState::Ready,
@@ -559,7 +569,6 @@ impl host::Host for State {
                     },
                     detail: i.detail,
                     progress: i.progress,
-                    hint: i.hint,
                     action: i.action,
                     extensions: i.extensions,
                 })

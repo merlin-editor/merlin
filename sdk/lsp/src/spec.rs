@@ -20,7 +20,8 @@ pub struct Spec {
     /// after it joined by commas; a switch that's on adds the flag alone.
     /// A change to one restarts the server.
     pub flags: &'static [(&'static str, &'static str)],
-    /// How to install it, for the language card when it isn't.
+    /// How to install it, for the language card when it isn't. The
+    /// manifest's `[programs]` entry wins, as it can differ per system.
     pub install: Option<&'static str>,
     /// Keys of values other plugins share that the server is set up from:
     /// a change to one restarts it. They must be in the manifest's

@@ -1,6 +1,6 @@
 name = "cpp"
 title = "C/C++"
-description = "C & C++ syntax, outlines & clangd"
+description = "C & C++ colours, clangd, and debugging with gdb or lldb"
 badge = "C+"
 hue = "blue"
 version = "0.3.0"

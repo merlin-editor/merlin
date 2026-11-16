@@ -240,8 +240,20 @@ printers are lldb-dap's and gdb's own, so they need checking there first.
      saved. clangd re-checks the files that include a header only when it
      changes on disk; its `forceRebuild` would do it sooner, at the cost
      of a rebuild on each switch. VS Code with clangd does the same.
+   - Already done: inactive `#if` blocks are dimmed, as clangd marks
+     them in the colours it sends (seen in the window 2026-11-17).
    - Still to do, after a look in the mock-ups: highlighting the name's
-     other uses, and dimming inactive `#if` blocks.
+     other uses.
+   - Checked in the window 2026-11-17: Alt+O both ways, Go to
+     Implementations (in the peek view, after a fix: places a plugin's
+     own command sends opened nothing before), Type Definition,
+     Declaration, and Include folders with Defines in a project with no
+     compile commands.
+   - The smaller points are done: the language card's install hint comes
+     from the manifest's `[programs]`, per system, so the plugins' own
+     Linux-only ones are gone; the description no longer says
+     "outlines"; and recent Ubuntu's `lldb` package does have
+     `/usr/bin/lldb-dap` (older releases unchecked).
 4. **Needs a mock-up first**:
    - The CMake plugin's status bar, presets and build output.
    - A call and type hierarchy view.

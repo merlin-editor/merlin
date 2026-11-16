@@ -20,7 +20,8 @@ const JS_SERVER: Spec = Spec {
     ],
     settings: Some(r#"{"tsserver":{"maxTsServerMemory":512}}"#),
     options: &[],
-    install: Some("npm install -g typescript-language-server typescript"),
+    // The manifest's [programs] says how to install it, per system.
+    install: None,
     flags: &[],
     restarts: &[],
     shared: &[],

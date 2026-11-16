@@ -43,7 +43,8 @@ const CPP_SERVER: Spec = Spec {
         ("query-driver", "--query-driver="),
         ("fallback-style", "--fallback-style="),
     ],
-    install: Some("sudo apt install clangd"),
+    // The manifest's [programs] says how to install it, per system.
+    install: None,
     restarts: &["compile-commands", "include-folders", "defines"],
     shared: &[CompileCommands::KEY],
     adjust: Some(adjust),
