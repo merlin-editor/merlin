@@ -433,6 +433,25 @@ impl host::Host for State {
                     label: c.label,
                     detail: c.detail,
                     insert: c.insert,
+                    kind: {
+                        use merlin_core::lang::CompletionKind as K;
+                        use types::CompletionKind as T;
+                        match c.kind {
+                            T::Other => K::Other,
+                            T::Function => K::Function,
+                            T::Method => K::Method,
+                            T::Field => K::Field,
+                            T::Variable => K::Variable,
+                            T::Constant => K::Constant,
+                            T::Type => K::Type,
+                            T::EnumMember => K::EnumMember,
+                            T::Module => K::Module,
+                            T::Keyword => K::Keyword,
+                            T::Snippet => K::Snippet,
+                            T::File => K::File,
+                        }
+                    },
+                    documentation: c.documentation,
                 })
                 .collect(),
         ));

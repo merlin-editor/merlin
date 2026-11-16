@@ -870,6 +870,18 @@ impl PluginHost {
         }
     }
 
+    /// Whether a plugin's `activate-on` names a file this workspace has,
+    /// as `file:CMakeLists.txt`.
+    fn for_this_project(&self, index: usize, snapshot: &Snapshot) -> bool {
+        !snapshot.root.as_os_str().is_empty()
+            && self.plugins[index]
+                .manifest
+                .activate_on
+                .iter()
+                .filter_map(|t| t.strip_prefix("file:"))
+                .any(|f| snapshot.root.join(f).exists())
+    }
+
     /// Whether a waiting plugin's `activate-on` matches the open file or
     /// the workspace.
     fn wants_start(&self, index: usize, snapshot: &Snapshot) -> bool {
@@ -1189,13 +1201,21 @@ impl PluginHost {
             if self.plugins[i].dormant && !self.wants_start(i, snapshot) {
                 continue;
             }
-            if self.plugins[i].pure_language
+            // One for a kind of project, as CMake's for a CMakeLists.txt,
+            // hears every file switched to or saved while the project has
+            // that file, not only its own language's; typing, only in its
+            // own, so each key doesn't call every such plugin.
+            let project =
+                !matches!(event, types::BufferEvent::Changed) && self.for_this_project(i, snapshot);
+            if !project
+                && self.plugins[i].pure_language
                 && (matches!(event, types::BufferEvent::Saved(_))
                     || !self.plugins[i].handles_path(snapshot.path.as_deref()))
             {
                 continue;
             }
-            if !self.plugins[i].manifest.languages.is_empty()
+            if !project
+                && !self.plugins[i].manifest.languages.is_empty()
                 && snapshot.path.is_some()
                 && !self.plugins[i].handles_path(snapshot.path.as_deref())
             {

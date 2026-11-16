@@ -44,6 +44,7 @@ const CPP_SERVER: Spec = Spec {
         ("fallback-style", "--fallback-style="),
     ],
     snippets: false,
+    case_blind: false,
     // The manifest's [programs] says how to install it, per system.
     install: None,
     restarts: &["compile-commands", "include-folders", "defines"],

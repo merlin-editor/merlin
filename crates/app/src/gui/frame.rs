@@ -9,13 +9,13 @@ use merlin_core::editor::{
     BlameCardView, ChangeView, DiffBarView, MergeBarView, MergeRow, MergeSide, MergeView, PeekItem,
     PeekView, RenameView,
 };
-use merlin_core::lang::{ActionKind, CodeAction};
+use merlin_core::lang::{ActionKind, CodeAction, CompletionKind};
 use merlin_core::panel::{Check, Entry, Node, Swap, Tone};
 use merlin_core::{
-    ContextItem, ContextView, DialogView, FindAction, FindView, HoverButton, Key, KeyCode,
-    MenuView, PaletteIcon, PaletteView, PopupKind, PopupView, ProblemView, Severity, Side,
-    SideView, SignatureView, TabView, TerminalView, TextView, ToastView, UiEvent, WindowView,
-    editor::GroupView,
+    CompletionDoc, CompletionRow, ContextItem, ContextView, DialogView, FindAction, FindView,
+    HoverButton, Key, KeyCode, MenuView, PaletteIcon, PaletteView, PopupKind, PopupView,
+    ProblemView, Severity, Side, SideView, SignatureView, TabView, TerminalView, TextView,
+    ToastView, UiEvent, WindowView, editor::GroupView,
 };
 
 mod agent;

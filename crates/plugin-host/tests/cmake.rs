@@ -227,6 +227,27 @@ fn a_real_configure_gives_targets_tasks_and_debugging() {
     assert_eq!(targets[0].name, "app");
     assert_eq!(targets[0].program, "build/app");
     assert_eq!(targets[0].build, "CMake: Build app");
+
+    // Started again, it finds the build cmake configured, with its
+    // targets, and shares it, though the file opened is a C file: the
+    // project's CMakeLists.txt starts it.
+    let mut again = PluginHost::new(Config {
+        data_dir: root.join(".data-again"),
+        ask: false,
+        keyring: false,
+        background: false,
+    })
+    .unwrap();
+    again.load(&plugin("testbed")).unwrap();
+    again.load(&plugin("cmake")).unwrap();
+    let c_file = at(&root, "main.c", "int main(void) { return 0; }\n");
+    let mut events = again.buffer_event(&BufferEvent::Switched, &c_file);
+    events.extend(again.poll_processes(|| c_file.clone()).0);
+    assert!(
+        notices(&events).contains(&"compile-commands now [cmake: build]".to_string()),
+        "{:?}",
+        notices(&events)
+    );
     fs::remove_dir_all(root).ok();
 }
 

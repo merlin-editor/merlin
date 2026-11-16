@@ -389,10 +389,13 @@ impl Plugin for Testbed {
             return;
         }
         say(AgentPart::Thought("Looking at the file first.".into()));
-        let path = context.into_iter().map(|c| match c {
-            AgentContext::File(p) => p,
-            AgentContext::Lines((p, _, _)) => p,
-        }).next();
+        let path = context
+            .into_iter()
+            .map(|c| match c {
+                AgentContext::File(p) => p,
+                AgentContext::Lines((p, _, _)) => p,
+            })
+            .next();
         let Some(path) = path else {
             say(AgentPart::Text(
                 "Attach a file and I'll add a line to it.".into(),

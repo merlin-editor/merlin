@@ -630,12 +630,32 @@ interface types {
     link: string,
   }
 
+  /// What a completion is, for its colour and mark in the list.
+  enum completion-kind {
+    other,
+    function,
+    method,
+    field,
+    variable,
+    constant,
+    %type,
+    enum-member,
+    module,
+    keyword,
+    snippet,
+    file,
+  }
+
   record completion {
     label: string,
-    /// Shown dimmed after the label, such as a type.
+    /// Shown dimmed after the label, such as a type or signature, in the
+    /// language's colours.
     detail: string,
     /// What replaces the word at the cursor when it's chosen.
     insert: string,
+    kind: completion-kind,
+    /// Its docs, as Markdown, shown under the list while it's chosen.
+    documentation: string,
   }
 
   /// The signature of the call being typed. `active` is the parameter the

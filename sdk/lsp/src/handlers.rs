@@ -3,9 +3,9 @@
 use std::collections::BTreeSet;
 
 use merlin_plugin::{
-    ActionKind, CodeAction, Completion, DetailedDiagnostic, Diagnostic, FoldRange, InlayHint,
-    Location, LogLevel, Position, ProjectSymbol, RenameInfo, Severity, Task, TaskGroup, TokenLayer,
-    host,
+    ActionKind, CodeAction, Completion, CompletionKind, DetailedDiagnostic, Diagnostic, FoldRange,
+    InlayHint, Location, LogLevel, Position, ProjectSymbol, RenameInfo, Severity, Task, TaskGroup,
+    TokenLayer, host,
 };
 use serde_json::{Value, json};
 
@@ -574,6 +574,18 @@ impl Lsp {
                             .unwrap_or_default()
                             .trim()
                             .to_string();
+                        let kind = completion_kind(item["kind"].as_u64().unwrap_or(0));
+                        // A detail that only names the kind says what the
+                        // mark already does.
+                        let detail = if detail.eq_ignore_ascii_case(kind_word(kind)) {
+                            String::new()
+                        } else {
+                            detail
+                        };
+                        let documentation = match &item["documentation"] {
+                            Value::String(text) => text.clone(),
+                            docs => docs["value"].as_str().unwrap_or_default().to_string(),
+                        };
                         let sort = item["sortText"].as_str().unwrap_or(&label).to_string();
                         (
                             sort,
@@ -581,11 +593,22 @@ impl Lsp {
                                 label,
                                 detail,
                                 insert,
+                                kind,
+                                documentation,
                             },
                         )
                     })
                     .collect();
                 items.sort_by(|a, b| a.0.cmp(&b.0));
+                // A language that doesn't mind case, as CMake's commands
+                // don't, lists each name once, in lower case if offered.
+                let case_blind = self
+                    .specs
+                    .iter()
+                    .any(|s| s.program == program && s.case_blind);
+                if case_blind {
+                    items = case_blind_once(items);
+                }
                 if manual || !items.is_empty() {
                     let items: Vec<Completion> = items.into_iter().map(|(_, c)| c).collect();
                     host::show_completions(&items);
@@ -593,6 +616,68 @@ impl Lsp {
             }
         }
     }
+}
+
+/// LSP's CompletionItemKind as merlin's.
+fn completion_kind(kind: u64) -> CompletionKind {
+    match kind {
+        2 => CompletionKind::Method,
+        3 | 4 => CompletionKind::Function,
+        5 | 10 => CompletionKind::Field,
+        6 => CompletionKind::Variable,
+        7 | 8 | 13 | 22 | 25 => CompletionKind::Type,
+        9 => CompletionKind::Module,
+        12 | 21 => CompletionKind::Constant,
+        14 => CompletionKind::Keyword,
+        15 => CompletionKind::Snippet,
+        17 | 19 => CompletionKind::File,
+        20 => CompletionKind::EnumMember,
+        _ => CompletionKind::Other,
+    }
+}
+
+/// The word a server might put in a completion's detail for its kind.
+fn kind_word(kind: CompletionKind) -> &'static str {
+    match kind {
+        CompletionKind::Function => "function",
+        CompletionKind::Method => "method",
+        CompletionKind::Field => "field",
+        CompletionKind::Variable => "variable",
+        CompletionKind::Constant => "constant",
+        CompletionKind::Type => "type",
+        CompletionKind::EnumMember => "enum member",
+        CompletionKind::Module => "module",
+        CompletionKind::Keyword => "keyword",
+        CompletionKind::Snippet => "snippet",
+        CompletionKind::File => "file",
+        CompletionKind::Other => "",
+    }
+}
+
+/// Each name once, ignoring case, kept where it's first, in lower case
+/// when one of its spellings is.
+fn case_blind_once(items: Vec<(String, Completion)>) -> Vec<(String, Completion)> {
+    let mut out: Vec<(String, Completion)> = Vec::new();
+    for (sort, item) in items {
+        match out
+            .iter_mut()
+            .find(|(_, c)| c.label.eq_ignore_ascii_case(&item.label))
+        {
+            Some((_, kept)) => {
+                if item.label == item.label.to_lowercase()
+                    && kept.label != kept.label.to_lowercase()
+                {
+                    kept.label = item.label;
+                    kept.insert = item.insert;
+                }
+                if kept.documentation.is_empty() {
+                    kept.documentation = item.documentation;
+                }
+            }
+            None => out.push((sort, item)),
+        }
+    }
+    out
 }
 
 /// A snippet as the text it inserts: `${1:name}` as `name`, a choice
@@ -616,7 +701,10 @@ pub(crate) fn plain_snippet(snippet: &str) -> String {
                         *i += 1;
                         // A number or name, then `:` and a default, `|`
                         // and choices, or `}`.
-                        while chars.get(*i).is_some_and(|c| c.is_alphanumeric() || *c == '_') {
+                        while chars
+                            .get(*i)
+                            .is_some_and(|c| c.is_alphanumeric() || *c == '_')
+                        {
                             *i += 1;
                         }
                         match chars.get(*i) {
@@ -646,7 +734,10 @@ pub(crate) fn plain_snippet(snippet: &str) -> String {
                         *i += 1;
                     }
                     Some(c) if c.is_alphanumeric() || *c == '_' => {
-                        while chars.get(*i).is_some_and(|c| c.is_alphanumeric() || *c == '_') {
+                        while chars
+                            .get(*i)
+                            .is_some_and(|c| c.is_alphanumeric() || *c == '_')
+                        {
                             *i += 1;
                         }
                     }
@@ -687,9 +778,39 @@ mod tests {
     use super::plain_snippet;
 
     #[test]
+    fn a_case_blind_language_lists_each_name_once() {
+        use super::{Completion, case_blind_once};
+        let item = |label: &str| {
+            (
+                label.to_string(),
+                Completion {
+                    label: label.into(),
+                    detail: String::new(),
+                    insert: label.into(),
+                    kind: super::CompletionKind::Function,
+                    documentation: String::new(),
+                },
+            )
+        };
+        let once = case_blind_once(vec![
+            item("ADD_CUSTOM_COMMAND"),
+            item("add_custom_command"),
+            item("CMAKE_ROOT"),
+        ]);
+        let labels: Vec<&str> = once.iter().map(|(_, c)| c.label.as_str()).collect();
+        assert_eq!(labels, ["add_custom_command", "CMAKE_ROOT"]);
+    }
+
+    #[test]
     fn snippets_insert_as_plain_text() {
-        assert_eq!(plain_snippet("add_library(${1:name} $0)"), "add_library(name )");
-        assert_eq!(plain_snippet("if(${1:cond})\n\t$0\nendif()"), "if(cond)\n\t\nendif()");
+        assert_eq!(
+            plain_snippet("add_library(${1:name} $0)"),
+            "add_library(name )"
+        );
+        assert_eq!(
+            plain_snippet("if(${1:cond})\n\t$0\nendif()"),
+            "if(cond)\n\t\nendif()"
+        );
         assert_eq!(plain_snippet("${1|PUBLIC,PRIVATE|} x"), "PUBLIC x");
         assert_eq!(plain_snippet("${1:outer ${2:inner}}"), "outer inner");
         assert_eq!(plain_snippet("cost \\$5 ${TM_FILENAME}"), "cost $5 ");

@@ -59,7 +59,7 @@ pub(crate) fn semantic_tokens(data: &[Value], legend: &[String]) -> Vec<Token> {
     let n = |v: &Value| v.as_u64().unwrap_or(0) as u32;
     let (mut line, mut start) = (0, 0);
     let mut tokens = Vec::new();
-    for chunk in data.chunks_exact(5) {
+    for chunk in data.as_chunks::<5>().0 {
         let delta_line = n(&chunk[0]);
         if delta_line > 0 {
             line += delta_line;

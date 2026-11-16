@@ -276,10 +276,23 @@ impl Presets {
             let cache = read(&format!("{}/CMakeCache.txt", t.dir.trim_end_matches('/')))?;
             cache
                 .lines()
-                .any(|l| l.trim() == "CMAKE_EXPORT_COMPILE_COMMANDS:BOOL=ON")
+                .any(exports_compile_commands)
                 .then_some((t.dir, t.from))
         })
     }
+}
+
+/// Whether a `CMakeCache.txt` line turns compile commands on, of any type:
+/// a `-D` without one is stored as `UNINITIALIZED`.
+fn exports_compile_commands(line: &str) -> bool {
+    let Some(rest) = line.trim().strip_prefix("CMAKE_EXPORT_COMPILE_COMMANDS") else {
+        return false;
+    };
+    let value = rest.split_once('=').map_or("", |(_, v)| v.trim());
+    matches!(
+        value.to_ascii_uppercase().as_str(),
+        "ON" | "TRUE" | "YES" | "Y" | "1"
+    )
 }
 
 /// A preset's folder with its macros filled in, relative to the
@@ -386,7 +399,8 @@ mod tests {
         let presets = Presets::read(Some(PROJECT.into()), None);
         let read = |path: &str| match path {
             "out/debug/CMakeCache.txt" => Some("CMAKE_BUILD_TYPE:STRING=Debug\n".into()),
-            "rel/CMakeCache.txt" => Some("CMAKE_EXPORT_COMPILE_COMMANDS:BOOL=ON\n".into()),
+            // As CMake stores a -D given without a type.
+            "rel/CMakeCache.txt" => Some("CMAKE_EXPORT_COMPILE_COMMANDS:UNINITIALIZED=ON\n".into()),
             _ => None,
         };
         assert_eq!(

@@ -109,11 +109,13 @@ impl Editor {
                                 let _ = writeln!(o, " {mark} {:?} {}", a.kind, a.title);
                             }
                         }
-                        PopupKind::Completion { items, selected } => {
+                        PopupKind::Completion {
+                            items, selected, ..
+                        } => {
                             let _ = writeln!(o, "completions:");
-                            for (i, (label, detail)) in items.iter().enumerate() {
+                            for (i, item) in items.iter().enumerate() {
                                 let mark = if i == *selected { "›" } else { " " };
-                                let _ = writeln!(o, " {mark} {label}  {detail}");
+                                let _ = writeln!(o, " {mark} {}  {}", item.label, item.detail);
                             }
                         }
                         PopupKind::Definition {

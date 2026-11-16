@@ -26,6 +26,9 @@ pub struct Spec {
     /// inserts a snippet as plain text, its placeholders' words kept,
     /// without tab stops.
     pub snippets: bool,
+    /// Whether the language doesn't mind case, as CMake's commands don't:
+    /// a name offered in two cases is listed once.
+    pub case_blind: bool,
     /// How to install it, for the language card when it isn't. The
     /// manifest's `[programs]` entry wins, as it can differ per system.
     pub install: Option<&'static str>,

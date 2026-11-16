@@ -93,6 +93,7 @@ fn completions() -> Event {
         label: label.into(),
         detail: detail.into(),
         insert: label.into(),
+        ..Completion::default()
     };
     Event::ShowCompletions(vec![
         item("push", "fn(&mut self, T)"),
@@ -125,6 +126,48 @@ fn completion_closes_when_nothing_matches_or_on_escape() {
     s.send(completions());
     s.run("key esc; type x");
     assert_eq!(s.text(), "v.qx");
+}
+
+#[test]
+fn completions_carry_their_kind_matched_letters_and_docs() {
+    use merlin_core::PopupKind;
+    use merlin_core::lang::CompletionKind;
+    let mut s = rust("v.p");
+    s.run("key end");
+    s.send(Event::ShowCompletions(vec![
+        Completion {
+            label: "push".into(),
+            detail: "fn(&mut self, T)".into(),
+            insert: "push".into(),
+            kind: CompletionKind::Method,
+            documentation: "```rust\npub fn push(&mut self, value: T)\n```\n\nAppends an element.\n\n```rust\nv.push(1);\n```".into(),
+        },
+        Completion {
+            label: "split_off".into(),
+            insert: "split_off".into(),
+            kind: CompletionKind::Method,
+            ..Completion::default()
+        },
+    ]));
+    let popup = s.editor.window_view().popup.expect("the list");
+    let PopupKind::Completion { items, doc, .. } = popup.kind else {
+        panic!("not completions");
+    };
+    assert_eq!(items[0].kind, CompletionKind::Method);
+    assert_eq!(items[0].matched, [0], "p, at the start");
+    assert_eq!(items[1].matched, [1], "the p in split_off");
+    let doc = doc.expect("push has docs");
+    assert_eq!(
+        doc.signature, "pub fn push(&mut self, value: T)",
+        "from the leading block"
+    );
+    assert_eq!(doc.lines, ["Appends an element."], "the example left out");
+    s.run("key down");
+    let popup = s.editor.window_view().popup.expect("the list");
+    let PopupKind::Completion { doc, .. } = popup.kind else {
+        panic!("not completions");
+    };
+    assert!(doc.is_none(), "split_off has none");
 }
 
 #[test]

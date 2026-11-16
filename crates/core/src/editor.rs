@@ -103,7 +103,8 @@ pub use window::{
 
 pub use agent_review::{AgentBarView, AgentHunkView};
 pub use context::{
-    ContextItem, ContextView, HoverButton, PopupKind, PopupView, ProblemView, SignatureView,
+    CompletionDoc, CompletionRow, ContextItem, ContextView, HoverButton, PopupKind, PopupView,
+    ProblemView, SignatureView,
 };
 pub use dialog::DialogView;
 pub use files::{FileOp, FilePick};

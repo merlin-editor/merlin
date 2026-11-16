@@ -25,13 +25,34 @@ pub struct Diagnostic {
     pub link: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct Completion {
     pub label: String,
     /// Shown dimmed after the label, such as a type.
     pub detail: String,
     /// What replaces the word being typed.
     pub insert: String,
+    pub kind: CompletionKind,
+    /// Its docs, as Markdown, shown under the list while it's chosen.
+    pub documentation: String,
+}
+
+/// What a completion is, for its colour and mark in the list.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CompletionKind {
+    #[default]
+    Other,
+    Function,
+    Method,
+    Field,
+    Variable,
+    Constant,
+    Type,
+    EnumMember,
+    Module,
+    Keyword,
+    Snippet,
+    File,
 }
 
 /// What a code action does, for the group it's listed in.

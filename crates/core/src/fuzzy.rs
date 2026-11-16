@@ -24,6 +24,23 @@ pub fn score(query: &str, candidate: &str) -> Option<i64> {
     Some(best - chars.len() as i64 / 8)
 }
 
+/// Where a lowercase `query`'s characters matched in `candidate`, by
+/// character, as `score` matches them from the start; none if they don't.
+pub fn positions(query: &str, candidate: &str) -> Option<Vec<usize>> {
+    let lower: Vec<char> = candidate
+        .chars()
+        .map(|c| c.to_lowercase().next().unwrap_or(c))
+        .collect();
+    let mut at = Vec::new();
+    let mut next = 0;
+    for q in query.chars() {
+        let found = (next..lower.len()).find(|&j| lower[j] == q)?;
+        at.push(found);
+        next = found + 1;
+    }
+    Some(at)
+}
+
 fn greedy(query: &[char], chars: &[char], lower: &[char], from: usize, name: usize) -> Option<i64> {
     let mut score = 0;
     let mut prev: Option<usize> = None;

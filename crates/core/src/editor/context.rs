@@ -139,10 +139,12 @@ pub enum PopupKind {
         actions: Vec<crate::lang::CodeAction>,
         selected: usize,
     },
-    /// Labels and details, and the one Enter takes.
+    /// The completions that match what's typed, best first, the one Enter
+    /// takes, and that one's documentation.
     Completion {
-        items: Vec<(String, String)>,
+        items: Vec<CompletionRow>,
         selected: usize,
+        doc: Option<CompletionDoc>,
     },
     /// The definition of the name under Ctrl: its file's name, the line
     /// it's on and the first line shown (from 1), the lines, and their
@@ -154,6 +156,78 @@ pub enum PopupKind {
         lines: Vec<String>,
         colours: Vec<Vec<(usize, usize, Syntax)>>,
     },
+}
+
+/// A completion as the list shows it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CompletionRow {
+    pub label: String,
+    pub detail: String,
+    pub kind: crate::lang::CompletionKind,
+    /// The label's characters the typed word matched, for marking.
+    pub matched: Vec<usize>,
+    /// The detail's colours in the file's language; empty until its
+    /// plugin answers, or off screen.
+    pub colours: Vec<(usize, usize, Syntax)>,
+}
+
+/// The chosen completion's signature and docs, under the list.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CompletionDoc {
+    pub signature: String,
+    pub colours: Vec<(usize, usize, Syntax)>,
+    /// Its docs' first lines, as plain text.
+    pub lines: Vec<String>,
+}
+
+/// Markdown docs as the panel shows them: a code block they start with,
+/// such as rust-analyzer's signature, as its first line, then the prose
+/// up to the next code block, without headings' marks, at most four lines.
+fn doc_parts(markdown: &str) -> (Option<String>, Vec<String>) {
+    let mut lines = markdown.lines().map(str::trim).peekable();
+    while lines.peek().is_some_and(|l| l.is_empty()) {
+        lines.next();
+    }
+    let mut signature = None;
+    if lines.peek().is_some_and(|l| l.starts_with("```")) {
+        lines.next();
+        let code: Vec<&str> = lines
+            .by_ref()
+            .take_while(|l| !l.starts_with("```"))
+            .collect();
+        signature = code.iter().find(|l| !l.is_empty()).map(|l| l.to_string());
+    }
+    let prose = lines
+        .take_while(|l| !l.starts_with("```"))
+        .filter(|l| !l.is_empty())
+        // A heading's underline, as reStructuredText docs have them.
+        .filter(|l| !l.chars().all(|c| "=-^~*#+`".contains(c)))
+        .map(|l| unlink(l.trim_start_matches('#').trim()).replace('`', ""))
+        .collect();
+    (signature, prose)
+}
+
+/// Markdown links as their text: `[hash map](url)` and `[Vec]` as
+/// `hash map` and `Vec`.
+fn unlink(line: &str) -> String {
+    let mut out = String::new();
+    let mut chars = line.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '[' | ']' => {
+                // A link's target after its text goes.
+                if c == ']' && chars.peek() == Some(&'(') {
+                    for c in chars.by_ref() {
+                        if c == ')' {
+                            break;
+                        }
+                    }
+                }
+            }
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 impl Editor {
@@ -806,14 +880,72 @@ impl Editor {
                 actions: actions.clone(),
                 selected: *selected,
             },
-            Popup::Completion { selected, .. } => PopupKind::Completion {
-                items: self
-                    .completions()
+            Popup::Completion {
+                selected, start, ..
+            } => {
+                let doc = self.doc();
+                let word = if doc.cursor >= *start {
+                    doc.slice(*start, doc.cursor).to_lowercase()
+                } else {
+                    String::new()
+                };
+                // Coloured as the file's language, by its id where a plugin
+                // adds it, so CMakeLists.txt is CMake's, not text's.
+                let language = self
+                    .plugin_language()
+                    .map(|l| l.id.clone())
+                    .or_else(|| {
+                        doc.buffer
+                            .path
+                            .as_ref()
+                            .and_then(|p| p.extension())
+                            .map(|e| e.to_string_lossy().into_owned())
+                    })
+                    .unwrap_or_default();
+                // Only the rows on screen are coloured: a long list would
+                // ask for hundreds.
+                let shown = selected.saturating_sub(7)..selected.saturating_sub(7) + 8;
+                let colour = |text: &str| -> Vec<(usize, usize, Syntax)> {
+                    if text.is_empty() {
+                        return Vec::new();
+                    }
+                    self.colours.get(&language, text).unwrap_or_default()
+                };
+                let found = self.completions();
+                let items = found
                     .iter()
-                    .map(|c| (c.label.clone(), c.detail.clone()))
-                    .collect(),
-                selected: *selected,
-            },
+                    .enumerate()
+                    .map(|(i, c)| CompletionRow {
+                        label: c.label.clone(),
+                        detail: c.detail.clone(),
+                        kind: c.kind,
+                        matched: crate::fuzzy::positions(&word, &c.label).unwrap_or_default(),
+                        colours: if shown.contains(&i) {
+                            colour(&c.detail)
+                        } else {
+                            Vec::new()
+                        },
+                    })
+                    .collect();
+                let chosen = found.get(*selected);
+                let doc = chosen
+                    // Only with docs: the detail alone is on its row already.
+                    .filter(|c| !c.documentation.trim().is_empty())
+                    .map(|c| {
+                        let (code, lines) = doc_parts(&c.documentation);
+                        let signature = code.unwrap_or_else(|| c.detail.clone());
+                        CompletionDoc {
+                            colours: colour(&signature),
+                            signature,
+                            lines,
+                        }
+                    });
+                PopupKind::Completion {
+                    items,
+                    selected: *selected,
+                    doc,
+                }
+            }
             // It shows once its file is read.
             Popup::Definition { card, .. } => {
                 let (first, lines) = card.lines.as_ref()?;

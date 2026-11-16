@@ -36,6 +36,7 @@ const CMAKE_SERVER: Spec = Spec {
     shared: &[],
     adjust: None,
     snippets: true,
+    case_blind: true,
     // The manifest's [programs] says how to install it, per system.
     install: None,
 };

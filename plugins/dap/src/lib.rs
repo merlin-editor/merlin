@@ -114,10 +114,8 @@ impl Run {
             }
         }
         for path in sent {
-            let here: Vec<&Breakpoint> = all
-                .iter()
-                .filter(|b| b.path == path && b.enabled)
-                .collect();
+            let here: Vec<&Breakpoint> =
+                all.iter().filter(|b| b.path == path && b.enabled).collect();
             let list: Vec<Value> = here
                 .iter()
                 .map(|b| {
@@ -220,7 +218,9 @@ fn breakpoint_state(id: u32, b: &Value) -> BreakpointState {
     BreakpointState {
         id,
         set: b["verified"].as_bool().unwrap_or(false) || pending,
-        line: b["line"].as_u64().map_or(u32::MAX, |l| l.saturating_sub(1) as u32),
+        line: b["line"]
+            .as_u64()
+            .map_or(u32::MAX, |l| l.saturating_sub(1) as u32),
         message: b["message"].as_str().unwrap_or_default().to_string(),
     }
 }
@@ -230,11 +230,10 @@ fn breakpoint_state(id: u32, b: &Value) -> BreakpointState {
 fn is_library(frame: &Value, root: &str) -> bool {
     let path = frame["source"]["path"].as_str().unwrap_or_default();
     let hint = frame["presentationHint"].as_str().unwrap_or_default();
-    let source_hint = frame["source"]["presentationHint"].as_str().unwrap_or_default();
-    path.is_empty()
-        || !path.starts_with(root)
-        || hint == "subtle"
-        || source_hint == "deemphasize"
+    let source_hint = frame["source"]["presentationHint"]
+        .as_str()
+        .unwrap_or_default();
+    path.is_empty() || !path.starts_with(root) || hint == "subtle" || source_hint == "deemphasize"
 }
 
 impl Debugger {
@@ -248,7 +247,10 @@ impl Debugger {
             host::kill(old.process);
         }
         let Some((program, args)) = start.command.split_first() else {
-            let _ = host::debug_output(OutputKind::Stderr, "This debugger has no command to start it.\n");
+            let _ = host::debug_output(
+                OutputKind::Stderr,
+                "This debugger has no command to start it.\n",
+            );
             let _ = host::set_debug_state(&DebugState::Ended(None));
             return;
         };
@@ -373,7 +375,11 @@ impl Debugger {
                         OutputKind::Stderr,
                         &format!("The program didn't start: {}\n", error()),
                     );
-                    run.send("disconnect", json!({ "terminateDebuggee": true }), Asked::Disconnect);
+                    run.send(
+                        "disconnect",
+                        json!({ "terminateDebuggee": true }),
+                        Asked::Disconnect,
+                    );
                     return run.end();
                 }
                 let _ = host::set_debug_state(&DebugState::Running);
@@ -416,7 +422,11 @@ impl Debugger {
                 let _ = host::set_threads(&threads);
             }
             Asked::Stack { thread } => {
-                let root = run.start.as_ref().map(|s| s.cwd.clone()).unwrap_or_default();
+                let root = run
+                    .start
+                    .as_ref()
+                    .map(|s| s.cwd.clone())
+                    .unwrap_or_default();
                 let list = body["stackFrames"].as_array().cloned().unwrap_or_default();
                 let frames: Vec<StackFrame> = list
                     .iter()
@@ -433,7 +443,11 @@ impl Debugger {
                     .collect();
                 // The frame shown is the first in the project, as the
                 // editor shows it.
-                let shown = frames.iter().find(|f| !f.library).or(frames.first()).map(|f| f.id);
+                let shown = frames
+                    .iter()
+                    .find(|f| !f.library)
+                    .or(frames.first())
+                    .map(|f| f.id);
                 if let Some(pause) = run.stepped.take() {
                     let in_library = frames.first().is_some_and(|f| f.library);
                     let project_below = frames.iter().any(|f| !f.library);
@@ -442,7 +456,10 @@ impl Debugger {
                         run.send("stepOut", json!({ "threadId": thread }), Asked::Other);
                         return;
                     }
-                    let here = frames.iter().find(|f| !f.library).map(|f| (f.name.clone(), f.line));
+                    let here = frames
+                        .iter()
+                        .find(|f| !f.library)
+                        .map(|f| (f.name.clone(), f.line));
                     if run.skips > 0 && here.is_some() && here == run.step_from && run.skips < 30 {
                         run.skips += 1;
                         run.stepped = None;
@@ -453,7 +470,10 @@ impl Debugger {
                     let _ = host::set_debug_state(&DebugState::Paused(pause));
                 }
                 if run.stopped == Some(thread) {
-                    run.shown = frames.iter().find(|f| !f.library).map(|f| (f.name.clone(), f.line));
+                    run.shown = frames
+                        .iter()
+                        .find(|f| !f.library)
+                        .map(|f| (f.name.clone(), f.line));
                 }
                 let _ = host::set_stack(thread, &frames);
                 if run.stopped == Some(thread)
@@ -514,7 +534,11 @@ impl Debugger {
                 } else {
                     error()
                 };
-                let kind = if ok { OutputKind::Stdout } else { OutputKind::Stderr };
+                let kind = if ok {
+                    OutputKind::Stdout
+                } else {
+                    OutputKind::Stderr
+                };
                 let _ = host::debug_output(kind, &format!("{text}\n"));
             }
             Asked::Watch { index, expression } => {
@@ -703,13 +727,19 @@ impl Plugin for Debugger {
             }
             "debug.breakpoints" => run.send_breakpoints(),
             _ => {
-                if let Some(r) = id.strip_prefix("debug.expand:").and_then(|r| r.parse::<u32>().ok()) {
+                if let Some(r) = id
+                    .strip_prefix("debug.expand:")
+                    .and_then(|r| r.parse::<u32>().ok())
+                {
                     run.send(
                         "variables",
                         json!({ "variablesReference": r }),
                         Asked::Variables { parent: r },
                     );
-                } else if let Some(f) = id.strip_prefix("debug.frame:").and_then(|f| f.parse::<u32>().ok()) {
+                } else if let Some(f) = id
+                    .strip_prefix("debug.frame:")
+                    .and_then(|f| f.parse::<u32>().ok())
+                {
                     run.frame = Some(f);
                     run.send("scopes", json!({ "frameId": f }), Asked::Scopes);
                 } else if let Some(f) = id.strip_prefix("debug.stop-on:") {
@@ -720,7 +750,10 @@ impl Plugin for Debugger {
                         stop.3 = !stop.3;
                     }
                     run.send_filters();
-                } else if let Some(t) = id.strip_prefix("debug.pause-thread:").and_then(|t| t.parse::<u32>().ok()) {
+                } else if let Some(t) = id
+                    .strip_prefix("debug.pause-thread:")
+                    .and_then(|t| t.parse::<u32>().ok())
+                {
                     run.send("pause", json!({ "threadId": t }), Asked::Other);
                 }
             }
@@ -731,7 +764,10 @@ impl Plugin for Debugger {
         let Some(run) = &mut self.run else {
             return;
         };
-        if let Some(index) = input.strip_prefix("debug-watch:").and_then(|i| i.parse::<u32>().ok()) {
+        if let Some(index) = input
+            .strip_prefix("debug-watch:")
+            .and_then(|i| i.parse::<u32>().ok())
+        {
             let mut args = json!({ "expression": text, "context": "watch" });
             if let Some(frame) = run.frame {
                 args["frameId"] = json!(frame);

@@ -38,9 +38,11 @@ impl Frame<'_> {
             PopupKind::Actions { actions, selected } => {
                 self.actions_card(actions, *selected, anchor, a, ch)
             }
-            PopupKind::Completion { items, selected } => {
-                self.completions(items, *selected, anchor, a, ch)
-            }
+            PopupKind::Completion {
+                items,
+                selected,
+                doc,
+            } => self.completions(items, *selected, doc.as_ref(), anchor, a, ch),
             PopupKind::Definition {
                 file,
                 line,
@@ -374,69 +376,228 @@ impl Frame<'_> {
 
     pub(super) fn completions(
         &mut self,
-        items: &[(String, String)],
+        items: &[CompletionRow],
         selected: usize,
+        doc: Option<&CompletionDoc>,
         anchor: (f32, f32),
         a: &Areas,
         ch: f32,
     ) {
         let p = self.p;
         let mono = Face::mono(12.5);
-        let ui = Face::ui(13.0);
+        let small = Face::mono(11.5);
+        let ui = Face::ui(12.0);
         let first = selected.saturating_sub(7);
-        let rows: Vec<&(String, String)> = items.iter().skip(first).take(8).collect();
+        let rows: Vec<(usize, &CompletionRow)> =
+            items.iter().enumerate().skip(first).take(8).collect();
         if rows.is_empty() {
             return;
         }
-        let row_h = 21.0;
+        let row_h = 24.0;
+        let mark_w = 24.0;
         let widest = rows
             .iter()
-            .map(|(t, d)| {
-                self.text.width(t, mono)
-                    + if d.is_empty() {
+            .map(|(_, c)| {
+                self.text.width(&c.label, mono)
+                    + if c.detail.is_empty() {
                         0.0
                     } else {
-                        self.text.width(d, ui) + 24.0
+                        self.text.width(&c.detail, small).min(260.0) + 24.0
                     }
             })
             .fold(0.0, f32::max);
-        let pw = (widest + 24.0).clamp(160.0, 560.0);
-        let ph = rows.len() as f32 * row_h + 14.0;
+        let mut pw = (widest + mark_w + 24.0).clamp(200.0, 600.0);
+        // The chosen one's signature and docs, under the list, the docs
+        // wrapped to four lines.
+        let mut prose: Vec<String> = Vec::new();
+        if let Some(d) = doc {
+            pw = pw.max(360.0);
+            let words = d.lines.join(" ");
+            let mut line = String::new();
+            for word in words.split_whitespace() {
+                let next = if line.is_empty() {
+                    word.to_string()
+                } else {
+                    format!("{line} {word}")
+                };
+                if self.text.width(&next, ui) > pw - 20.0 && !line.is_empty() {
+                    prose.push(std::mem::replace(&mut line, word.to_string()));
+                } else {
+                    line = next;
+                }
+            }
+            if !line.is_empty() {
+                prose.push(line);
+            }
+            if prose.len() > 4 {
+                prose.truncate(4);
+                if let Some(last) = prose.last_mut() {
+                    last.push('…');
+                }
+            }
+        }
+        let doc_h = doc.map_or(0.0, |d| {
+            let sig = if d.signature.is_empty() { 0.0 } else { 20.0 };
+            12.0 + sig + prose.len() as f32 * 17.0
+        });
+        let list_h = rows.len() as f32 * row_h + 8.0;
+        let ph = list_h + doc_h;
         let r = self.card_place(anchor, pw, ph, a, ch);
         self.canvas.shadow(r, 8.0, theme::is_light(&p));
         self.canvas.outline(r, 8.0, 1.0, p.border, p.widget);
         self.hit(r, Hit::Block);
-        for (k, (text, detail)) in rows.iter().enumerate() {
-            let ry = r.y + 7.0 + k as f32 * row_h;
+        for (k, (i, item)) in rows.iter().enumerate() {
+            let chosen = *i == selected;
+            let ry = r.y + 4.0 + k as f32 * row_h;
             let row = Rect::new(r.x + 4.0, ry, r.w - 8.0, row_h);
-            if selected - first == k {
+            if chosen {
                 self.canvas.round(row, 4.0, p.focus_row);
             }
-            let shown = self.text.fit(text, mono, row.w - 16.0);
+            let colour = completion_colour(&p, item.kind);
+            // The kind's mark, tinted to match.
+            let mark = Rect::new(row.x + 4.0, ry + (row_h - 16.0) / 2.0, 16.0, 16.0);
+            self.canvas.round(mark, 4.0, mix(colour, p.widget, 0.18));
+            let sign = completion_mark(item.kind);
+            let sw = self.text.width(sign, Face::ui(9.5).bold());
+            self.text.draw_in_row(
+                &mut self.canvas,
+                sign,
+                Face::ui(9.5).bold(),
+                mark.x + (16.0 - sw) / 2.0,
+                ry,
+                row_h,
+                colour,
+                row,
+            );
+            // The detail first, on the right, so the label knows its room:
+            // the language's colours, at half strength unless chosen.
+            let mut right = row.right() - 8.0;
+            if !item.detail.is_empty() {
+                let dw = self.text.width(&item.detail, small).min(row.w * 0.45);
+                let strength = if chosen { 0.9 } else { 0.5 };
+                self.coloured_text(
+                    &item.detail,
+                    &item.colours,
+                    (right - dw, ry, row_h),
+                    dw,
+                    small,
+                    strength,
+                    p.muted,
+                );
+                right -= dw + 14.0;
+            }
+            // The label in its kind's colour, the typed letters bolder and
+            // underlined in the accent colour.
+            let mut x = mark.right() + 8.0;
+            let chars: Vec<char> = item.label.chars().collect();
+            let mut at = 0;
+            while at < chars.len() && x < right {
+                let hit = item.matched.contains(&at);
+                let mut end = at + 1;
+                while end < chars.len() && item.matched.contains(&end) == hit {
+                    end += 1;
+                }
+                let run: String = chars[at..end].iter().collect();
+                let face = if hit { mono.bold() } else { mono };
+                let shown = self.text.fit(&run, face, right - x);
+                let w = self.text.width(&shown, face);
+                let tone = if chosen || hit {
+                    colour
+                } else {
+                    mix(colour, p.widget, 0.8)
+                };
+                self.text
+                    .draw_in_row(&mut self.canvas, &shown, face, x, ry, row_h, tone, row);
+                if hit {
+                    let base = ry + row_h / 2.0 + 8.0;
+                    self.canvas.line((x, base), (x + w, base), 1.0, p.accent);
+                }
+                x += w;
+                at = end;
+            }
+        }
+        let Some(doc) = doc else {
+            return;
+        };
+        let top = r.y + list_h;
+        self.canvas
+            .line((r.x + 1.0, top), (r.right() - 1.0, top), 1.0, p.border);
+        let mut y = top + 6.0;
+        let inner = Rect::new(r.x + 10.0, top, r.w - 20.0, doc_h);
+        if !doc.signature.is_empty() {
+            self.coloured_text(
+                &doc.signature,
+                &doc.colours,
+                (inner.x, y, 20.0),
+                inner.w,
+                Face::mono(12.0),
+                1.0,
+                p.text,
+            );
+            y += 20.0;
+        }
+        for line in &prose {
+            let shown = self.text.fit(line, ui, inner.w);
             self.text.draw_in_row(
                 &mut self.canvas,
                 &shown,
-                mono,
-                row.x + 8.0,
-                ry,
-                row_h,
-                p.bright,
-                row,
+                ui,
+                inner.x,
+                y,
+                17.0,
+                p.muted,
+                inner,
             );
-            if !detail.is_empty() {
-                let dw = self.text.width(detail, ui).min(row.w * 0.5);
-                let shown = self.text.fit(detail, ui, dw);
-                self.text.draw_in_row(
-                    &mut self.canvas,
-                    &shown,
-                    ui,
-                    row.right() - 8.0 - dw,
-                    ry,
-                    row_h,
-                    p.muted,
-                    row,
-                );
+            y += 17.0;
+        }
+    }
+
+    /// `text` in `face` from `x`, at most `w` wide, in the colours `spans`
+    /// give by character, mixed to `strength` against the card; `plain`
+    /// for what they leave.
+    #[allow(clippy::too_many_arguments)]
+    fn coloured_text(
+        &mut self,
+        text: &str,
+        spans: &[(usize, usize, merlin_core::Syntax)],
+        (mut x, y, h): (f32, f32, f32),
+        w: f32,
+        face: Face,
+        strength: f32,
+        plain: u32,
+    ) {
+        let p = self.p;
+        let clip = Rect::new(x, y, w, h);
+        let chars: Vec<char> = text.chars().collect();
+        let mut runs: Vec<(String, u32)> = Vec::new();
+        let mut at = 0;
+        for &(start, end, syntax) in spans {
+            let (start, end) = (start.min(chars.len()), end.min(chars.len()));
+            if start < at || start >= end {
+                continue;
             }
+            if start > at {
+                runs.push((chars[at..start].iter().collect(), plain));
+            }
+            runs.push((
+                chars[start..end].iter().collect(),
+                theme::code(&p, syntax).unwrap_or(plain),
+            ));
+            at = end;
+        }
+        if at < chars.len() {
+            runs.push((chars[at..].iter().collect(), plain));
+        }
+        for (run, colour) in runs {
+            let room = clip.right() - x;
+            if room <= 0.0 {
+                break;
+            }
+            let shown = self.text.fit(&run, face, room);
+            let tone = mix(colour, p.widget, strength);
+            self.text
+                .draw_in_row(&mut self.canvas, &shown, face, x, y, h, tone, clip);
+            x += self.text.width(&shown, face);
         }
     }
 
@@ -1099,5 +1260,36 @@ impl Frame<'_> {
             );
             bx += bw + 8.0;
         }
+    }
+}
+
+/// The colour a completion's name takes, as its kind's names take in code.
+fn completion_colour(p: &Palette, kind: CompletionKind) -> u32 {
+    match kind {
+        CompletionKind::Function | CompletionKind::Method => p.function,
+        CompletionKind::Type | CompletionKind::Module => p.type_,
+        CompletionKind::Constant | CompletionKind::EnumMember => p.constant,
+        CompletionKind::Keyword | CompletionKind::Snippet => p.keyword,
+        CompletionKind::Field
+        | CompletionKind::Variable
+        | CompletionKind::File
+        | CompletionKind::Other => p.text,
+    }
+}
+
+/// A completion's kind as the letter in its mark.
+fn completion_mark(kind: CompletionKind) -> &'static str {
+    match kind {
+        CompletionKind::Function | CompletionKind::Method => "ƒ",
+        CompletionKind::Type => "T",
+        CompletionKind::Module => "M",
+        CompletionKind::Constant => "V",
+        CompletionKind::EnumMember => "E",
+        CompletionKind::Keyword => "K",
+        CompletionKind::Snippet => "S",
+        CompletionKind::Field => "◆",
+        CompletionKind::Variable => "v",
+        CompletionKind::File => "F",
+        CompletionKind::Other => "·",
     }
 }

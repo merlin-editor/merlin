@@ -164,6 +164,7 @@ fn completions_come_sorted_with_their_insert_text() {
         label: "pop".into(),
         detail: "() -> Option<T>".into(),
         insert: "pop()".into(),
+        ..Completion::default()
     };
     assert_eq!(items[0], pop);
     assert_eq!(items[1].insert, "push");

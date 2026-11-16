@@ -41,15 +41,16 @@ pub use bindings::merlin::plugin::host;
 pub use bindings::merlin::plugin::types::{
     ActionKind, AgentAnswer, AgentAsks, AgentCommand, AgentContext, AgentMode, AgentOutcome,
     AgentPart, AgentRequest, AgentTool, Breakpoint, BreakpointState, BufferEvent, Button, Chip,
-    ChipRow, CodeAction, Colour, Command, Completion, DebugLaunch, DebugPause, DebugState,
-    DebugTarget, DebugThread, DebugVariable, DetailedDiagnostic, Diagnostic, DocSymbol, DrawCurve,
-    DrawImage, DrawItem, DrawLine, DrawPoint, DrawRect, DrawText, Drawing, EditCard, EmptyState,
-    FetchRequest, FetchResponse, FileEdit, FoldRange, Framing, FunctionStop, Image, Indent, InlayHint,
-    InlayKind, InlineValue, Input, Item, LineRange, Location, LogLevel, Message, Node, OutputKind,
-    PageSize, Panel, PickItem, Picture, PlanStep, Position, ProcessEvent, Progress, ProjectSymbol,
-    RenameInfo, RgbaPicture, Row, Selection, Setting, Severity, Shape, Signature, StackFrame,
-    StatusItem, StatusState, StepState, StopFilter, Styled, Task, TaskGroup, TestItem, TestOutcome,
-    TestResult, TextBox, TextChange, Tile, Token, TokenKind, TokenLayer, Tone, ToolKind,
+    ChipRow, CodeAction, Colour, Command, Completion, CompletionKind, DebugLaunch, DebugPause,
+    DebugState, DebugTarget, DebugThread, DebugVariable, DetailedDiagnostic, Diagnostic, DocSymbol,
+    DrawCurve, DrawImage, DrawItem, DrawLine, DrawPoint, DrawRect, DrawText, Drawing, EditCard,
+    EmptyState, FetchRequest, FetchResponse, FileEdit, FoldRange, Framing, FunctionStop, Image,
+    Indent, InlayHint, InlayKind, InlineValue, Input, Item, LineRange, Location, LogLevel, Message,
+    Node, OutputKind, PageSize, Panel, PickItem, Picture, PlanStep, Position, ProcessEvent,
+    Progress, ProjectSymbol, RenameInfo, RgbaPicture, Row, Selection, Setting, Severity, Shape,
+    Signature, StackFrame, StatusItem, StatusState, StepState, StopFilter, Styled, Task, TaskGroup,
+    TestItem, TestOutcome, TestResult, TextBox, TextChange, Tile, Token, TokenKind, TokenLayer,
+    Tone, ToolKind,
 };
 
 /// UTF-16 columns, which positions count, as LSP does.
@@ -195,14 +196,14 @@ impl Picture {
 pub mod prelude {
     pub use crate::{
         ActionKind, Breakpoint, BreakpointState, BufferEvent, Button, Chip, CodeAction, Command,
-        Completion, DebugLaunch, DebugPause, DebugState, DebugTarget, DebugThread, DebugVariable,
-        DetailedDiagnostic, Diagnostic, DocSymbol, EditCard, FileEdit, FoldRange, Framing,
-        FunctionStop, Indent, InlayHint, InlayKind, InlineValue, LineRange, Location, LogLevel, Message,
-        Node, OutputKind, PageSize, Panel, PickItem, Picture, Plugin, Position, ProcessEvent,
-        Progress, ProjectSymbol, RenameInfo, RgbaPicture, Row, Selection, Severity, Signature,
-        StackFrame, StatusItem, StatusState, StopFilter, Task, TaskGroup, TestItem, TestOutcome,
-        TestResult, TextBox, TextChange, Tile, Token, TokenKind, TokenLayer, Tone, host, settings,
-        shared,
+        Completion, CompletionKind, DebugLaunch, DebugPause, DebugState, DebugTarget, DebugThread,
+        DebugVariable, DetailedDiagnostic, Diagnostic, DocSymbol, EditCard, FileEdit, FoldRange,
+        Framing, FunctionStop, Indent, InlayHint, InlayKind, InlineValue, LineRange, Location,
+        LogLevel, Message, Node, OutputKind, PageSize, Panel, PickItem, Picture, Plugin, Position,
+        ProcessEvent, Progress, ProjectSymbol, RenameInfo, RgbaPicture, Row, Selection, Severity,
+        Signature, StackFrame, StatusItem, StatusState, StopFilter, Task, TaskGroup, TestItem,
+        TestOutcome, TestResult, TextBox, TextChange, Tile, Token, TokenKind, TokenLayer, Tone,
+        host, settings, shared,
     };
 }
 
