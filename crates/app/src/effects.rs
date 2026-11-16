@@ -463,7 +463,7 @@ impl App {
 fn copy_image(image: &merlin_core::PluginImage) -> Result<(), String> {
     // Plain RGBA, as a PNG keeps it.
     let mut rgba = image.pixels.clone();
-    for px in rgba.chunks_exact_mut(4) {
+    for px in rgba.as_chunks_mut::<4>().0 {
         let a = px[3] as u32;
         if a > 0 && a < 255 {
             for c in &mut px[..3] {

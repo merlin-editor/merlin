@@ -389,10 +389,10 @@ impl Plugin for Testbed {
             return;
         }
         say(AgentPart::Thought("Looking at the file first.".into()));
-        let path = context.into_iter().find_map(|c| match c {
-            AgentContext::File(p) => Some(p),
-            AgentContext::Lines((p, _, _)) => Some(p),
-        });
+        let path = context.into_iter().map(|c| match c {
+            AgentContext::File(p) => p,
+            AgentContext::Lines((p, _, _)) => p,
+        }).next();
         let Some(path) = path else {
             say(AgentPart::Text(
                 "Attach a file and I'll add a line to it.".into(),
@@ -458,7 +458,7 @@ impl Plugin for Testbed {
                 turn.path,
                 text.lines().count()
             )));
-            let diff = format!("+// Checked by Echo.");
+            let diff = "+// Checked by Echo.".to_string();
             turn.text = format!(
                 "{text}{}// Checked by Echo.\n",
                 if text.ends_with('\n') || text.is_empty() {

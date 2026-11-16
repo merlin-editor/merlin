@@ -582,8 +582,8 @@ fn revert_patch(doc: &crate::doc::Doc, runs: &[Range<usize>]) -> String {
             n(LineKind::Added),
             n(LineKind::Removed)
         ));
-        for i in start..end {
-            let sign = match review.lines[i].0 {
+        for (i, line) in review.lines.iter().enumerate().take(end).skip(start) {
+            let sign = match line.0 {
                 LineKind::Added => '+',
                 LineKind::Removed => '-',
                 _ => ' ',

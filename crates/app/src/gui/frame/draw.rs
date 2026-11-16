@@ -65,7 +65,7 @@ impl Frame<'_> {
                     let mut flat = Vec::new();
                     if let Some(&first) = points.first() {
                         flat.push(at(first));
-                        for seg in points[1..].chunks_exact(3) {
+                        for seg in points[1..].as_chunks::<3>().0 {
                             let p0 = *flat.last().unwrap();
                             let (p1, p2, p3) = (at(seg[0]), at(seg[1]), at(seg[2]));
                             for i in 1..=CURVE_STEPS {
