@@ -4,6 +4,7 @@
 //! plugin, so clangd finds it wherever the build is. neocmakelsp, when
 //! it's installed, completes, explains and finds what's in them.
 
+pub mod cache;
 pub mod ctest;
 pub mod fileapi;
 pub mod lex;
@@ -15,7 +16,7 @@ use merlin_lsp::{Spec, WithLsp};
 use merlin_plugin::prelude::*;
 use merlin_plugin::shared::{self, CompileCommands};
 use merlin_plugin::text::utf16_column;
-use merlin_plugin::{StatusChip, Tone};
+use merlin_plugin::{Button, Chip, Row, StatusChip, Tone};
 
 use ctest::CTest;
 use fileapi::Target;
@@ -79,6 +80,19 @@ struct Cmake {
     state: State,
     /// The target the status bar's Build, Run and Debug are for.
     target: Option<String>,
+    /// The CMake view: targets and folders opened, or folded.
+    opened: std::collections::BTreeSet<String>,
+    folded: std::collections::BTreeSet<String>,
+    /// The cache's filter, and whether advanced variables show.
+    filter: String,
+    advanced: bool,
+    /// Cache changes waiting for Configure, and the variable being edited.
+    pending: BTreeMap<String, String>,
+    editing: Option<String>,
+    /// When the build in use was configured, if this run did it.
+    configured_at: Option<std::time::Instant>,
+    /// How the last test run went: passed and failed.
+    test_counts: (usize, usize),
 }
 
 /// How the build is, for the status bar.
@@ -568,6 +582,12 @@ impl Cmake {
             _ => None,
         });
         if let Some((command, from)) = action {
+            // Cache changes from the view go along as -D.
+            let mut command = command;
+            for (name, value) in &self.pending {
+                command.push_str(&format!(" {}", quote(&format!("-D{name}={value}"))));
+            }
+            self.editing = None;
             self.configure(&command, &dir, &from);
         }
     }
@@ -580,6 +600,418 @@ impl Cmake {
         if let Err(err) = shared::provide(&value) {
             host::log(LogLevel::Warn, &format!("Couldn't share the build: {err}"));
         }
+    }
+}
+
+impl Cmake {
+    /// The CMake view: the build, its targets by folder, its tests, and
+    /// its cache.
+    fn panel(&self) -> Panel {
+        let mut panel = Panel::new("");
+        let cache_text = self
+            .build
+            .as_ref()
+            .and_then(|(dir, _)| read(&format!("{dir}/CMakeCache.txt")));
+        // The build: what it is, and how it is.
+        let generator = cache_text
+            .as_deref()
+            .and_then(|c| {
+                c.lines()
+                    .find_map(|l| l.strip_prefix("CMAKE_GENERATOR:INTERNAL="))
+            })
+            .unwrap_or_default();
+        let (label, detail, action) = match (&self.state, &self.build) {
+            (State::Configuring(from), _) => {
+                (format!("Configuring {}…", short(from)), String::new(), None)
+            }
+            (State::Failed(from), _) => (
+                format!("{} failed to configure", short(from)),
+                "Its errors are in Problems".into(),
+                Some(("Configure", Tone::Error)),
+            ),
+            (State::Ready, Some((dir, from))) => {
+                let when = match self.configured_at.map(|t| t.elapsed().as_secs() / 60) {
+                    Some(0) => "Configured just now".to_string(),
+                    Some(1) => "Configured 1 min ago".into(),
+                    Some(m) => format!("Configured {m} min ago"),
+                    None => "Configured".into(),
+                };
+                let what = if generator.is_empty() {
+                    short(from).to_string()
+                } else {
+                    format!("{} · {generator}", short(from))
+                };
+                (
+                    what,
+                    format!("{when} · {dir}"),
+                    Some(("Configure", Tone::Strong)),
+                )
+            }
+            _ => (
+                "Not configured".into(),
+                "Configure to build, run and test".into(),
+                Some(("Configure", Tone::Strong)),
+            ),
+        };
+        let menu = [
+            ("configure-fresh", "Configure from Scratch"),
+            ("clean", "Clean"),
+            ("install", "Install"),
+            ("open-cache", "Open CMakeCache.txt"),
+            (
+                "advanced",
+                if self.advanced {
+                    "Hide Advanced Variables"
+                } else {
+                    "Show Advanced Variables"
+                },
+            ),
+        ]
+        .map(|(id, label)| Button::new(id, label))
+        .to_vec();
+        panel = panel.row(Row {
+            id: "build".into(),
+            label,
+            detail,
+            depth: 0,
+            expanded: None,
+            icon: match self.state {
+                State::Ready => "●".into(),
+                State::Failed(_) => "✕".into(),
+                State::Configuring(_) => "⟳".into(),
+                State::NotConfigured => "○".into(),
+            },
+            chips: action
+                .map(|(label, tone)| Chip {
+                    id: "configure".into(),
+                    label: label.into(),
+                    tone,
+                })
+                .into_iter()
+                .collect(),
+            count: String::new(),
+            menu,
+        });
+        panel = panel.divider();
+        // Targets, by their FOLDER property, else their directory.
+        let open = !self.folded.contains("targets");
+        panel = panel.row(section(
+            "targets",
+            "Targets",
+            open,
+            self.targets.len().to_string(),
+        ));
+        if open {
+            let mut folders: Vec<String> = self
+                .targets
+                .iter()
+                .map(|t| t.folder.clone().unwrap_or_else(|| t.dir.clone()))
+                .collect();
+            folders.sort();
+            folders.dedup();
+            for folder in folders {
+                let in_it: Vec<&Target> = self
+                    .targets
+                    .iter()
+                    .filter(|t| t.folder.as_ref().unwrap_or(&t.dir) == &folder)
+                    .collect();
+                // The top folder's targets sit at the top, with no row of
+                // their own.
+                let depth = if folder == "." {
+                    1
+                } else {
+                    let open = !self.folded.contains(&format!("folder:{folder}"));
+                    panel = panel.row(Row {
+                        id: format!("folder:{folder}"),
+                        label: folder.clone(),
+                        detail: String::new(),
+                        depth: 1,
+                        expanded: Some(open),
+                        icon: "▸".into(),
+                        chips: Vec::new(),
+                        count: String::new(),
+                        menu: Vec::new(),
+                    });
+                    if !open {
+                        continue;
+                    }
+                    2
+                };
+                for t in in_it {
+                    let opened = self.opened.contains(&t.name);
+                    let mut chips = vec![chip(&format!("build:{}", t.name), "⚒")];
+                    if t.is_program() {
+                        chips.push(chip(&format!("run:{}", t.name), "▶"));
+                        chips.push(chip(&format!("debug:{}", t.name), "⏵"));
+                    }
+                    panel = panel.row(Row {
+                        id: format!("target:{}", t.name),
+                        label: t.name.clone(),
+                        detail: t.kind.to_ascii_lowercase().replace('_', " "),
+                        depth,
+                        expanded: (!t.sources.is_empty()).then_some(opened),
+                        icon: if t.is_program() {
+                            "▶".into()
+                        } else {
+                            "▤".into()
+                        },
+                        chips,
+                        count: if self.target.as_ref() == Some(&t.name) {
+                            "◎".into()
+                        } else {
+                            String::new()
+                        },
+                        menu: Vec::new(),
+                    });
+                    if opened {
+                        for source in &t.sources {
+                            let name = source.rsplit('/').next().unwrap_or(source);
+                            panel = panel.row(Row {
+                                id: format!("source:{source}"),
+                                label: name.to_string(),
+                                detail: String::new(),
+                                depth: depth + 1,
+                                expanded: None,
+                                icon: "·".into(),
+                                chips: Vec::new(),
+                                count: String::new(),
+                                menu: Vec::new(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        // CTest's tests, folded to their count.
+        let (passed, failed) = self.test_counts;
+        let count = if failed > 0 {
+            format!("{failed} failed")
+        } else if passed > 0 {
+            format!("{passed} passed")
+        } else {
+            self.tests.len().to_string()
+        };
+        panel = panel.row(Row {
+            id: "tests".into(),
+            label: "Tests".into(),
+            detail: String::new(),
+            depth: 0,
+            expanded: Some(false),
+            icon: String::new(),
+            chips: vec![chip("run-tests", "▶ Run All")],
+            count,
+            menu: Vec::new(),
+        });
+        panel = panel.divider();
+        // The cache, to filter and change.
+        let variables = cache_text
+            .as_deref()
+            .map(cache::variables)
+            .unwrap_or_default();
+        let shown: Vec<&cache::Variable> = variables
+            .iter()
+            .filter(|v| self.advanced || !v.advanced)
+            .filter(|v| {
+                self.filter.is_empty()
+                    || v.name.to_lowercase().contains(&self.filter.to_lowercase())
+            })
+            .collect();
+        let open = !self.folded.contains("cache");
+        panel = panel.row(section("cache", "Cache", open, shown.len().to_string()));
+        if open && !variables.is_empty() {
+            panel = panel.input("cache-filter", "Filter variables");
+            for v in shown.iter().take(200) {
+                let pending = self.pending.get(&v.name);
+                let value = pending.unwrap_or(&v.value);
+                let mut chips = Vec::new();
+                if v.is_bool() {
+                    let on = matches!(
+                        value.to_ascii_uppercase().as_str(),
+                        "ON" | "TRUE" | "1" | "YES"
+                    );
+                    for (label, is_on) in [("ON", true), ("OFF", false)] {
+                        chips.push(Chip {
+                            id: format!("set:{}={label}", v.name),
+                            label: label.into(),
+                            tone: if on == is_on {
+                                Tone::Strong
+                            } else {
+                                Tone::Muted
+                            },
+                        });
+                    }
+                } else if !v.choices.is_empty() && v.choices.len() <= 6 {
+                    for choice in &v.choices {
+                        chips.push(Chip {
+                            id: format!("set:{}={choice}", v.name),
+                            label: choice.clone(),
+                            tone: if choice == value {
+                                Tone::Strong
+                            } else {
+                                Tone::Muted
+                            },
+                        });
+                    }
+                } else {
+                    chips.push(chip(&format!("edit:{}", v.name), "Edit"));
+                }
+                panel = panel.row(Row {
+                    id: format!("var:{}", v.name),
+                    label: v.name.clone(),
+                    detail: if v.is_bool() || (!v.choices.is_empty() && v.choices.len() <= 6) {
+                        String::new()
+                    } else {
+                        value.clone()
+                    },
+                    depth: 1,
+                    expanded: None,
+                    icon: String::new(),
+                    chips,
+                    count: if pending.is_some() {
+                        "changed".into()
+                    } else {
+                        String::new()
+                    },
+                    menu: Vec::new(),
+                });
+                if self.editing.as_ref() == Some(&v.name) {
+                    panel = panel.input(format!("value:{}", v.name), value.clone());
+                }
+            }
+        }
+        // Changes wait until Configure passes them as -D.
+        if !self.pending.is_empty() {
+            let n = self.pending.len();
+            panel = panel
+                .footer()
+                .text(format!(
+                    "{n} change{} to the cache",
+                    if n == 1 { "" } else { "s" }
+                ))
+                .node(Node::Buttons(vec![
+                    Button::new("apply", "Configure"),
+                    Button::new("undo", "Undo"),
+                ]));
+        }
+        panel
+    }
+
+    /// A click in the view or on a chip.
+    fn clicked(&mut self, id: &str) {
+        if let Some(name) = id.strip_prefix("target:") {
+            if !self.opened.remove(name) {
+                self.opened.insert(name.to_string());
+            }
+            self.target = Some(name.to_string());
+            self.chips();
+            return;
+        }
+        if let Some(path) = id.strip_prefix("source:") {
+            host::open_at(path, Position { line: 0, column: 0 });
+            return;
+        }
+        for (prefix, then) in [("build:", "build"), ("run:", "run"), ("debug:", "debug")] {
+            if let Some(name) = id.strip_prefix(prefix) {
+                self.target = Some(name.to_string());
+                self.chips();
+                self.build_target(then);
+                return;
+            }
+        }
+        if let Some(rest) = id.strip_prefix("set:")
+            && let Some((name, value)) = rest.split_once('=')
+        {
+            self.pending.insert(name.to_string(), value.to_string());
+            return;
+        }
+        // A click on a variable's row edits it, as its Edit does.
+        if let Some(name) = id.strip_prefix("edit:").or_else(|| id.strip_prefix("var:")) {
+            self.editing = Some(name.to_string());
+            return;
+        }
+        match id {
+            "targets" | "cache" => {
+                if !self.folded.remove(id) {
+                    self.folded.insert(id.to_string());
+                }
+            }
+            id if id.starts_with("folder:") => {
+                if !self.folded.remove(id) {
+                    self.folded.insert(id.to_string());
+                }
+            }
+            "configure" => {
+                if self.build.is_some() {
+                    self.reconfigure();
+                } else {
+                    self.pick_preset();
+                }
+            }
+            "configure-fresh" => {
+                if let Some((dir, _)) = &self.build {
+                    let fresh = self.actions.iter().find_map(|(name, a)| {
+                        let Action::Configure { dir: d, .. } = a;
+                        (d == dir && name.ends_with("from Scratch")).then(|| a.clone())
+                    });
+                    if let Some(Action::Configure { command, dir, from }) = fresh {
+                        self.configure(&command, &dir, &from);
+                    }
+                }
+            }
+            "clean" | "install" => {
+                if let Some((dir, _)) = &self.build {
+                    let command = if id == "clean" {
+                        format!("cmake --build {} --target clean", quote(dir))
+                    } else {
+                        format!("cmake --install {}", quote(dir))
+                    };
+                    let _ = host::run_in_terminal(
+                        &format!("cmake-{id}"),
+                        &format!("CMake: {}", if id == "clean" { "Clean" } else { "Install" }),
+                        &command,
+                    );
+                }
+            }
+            "open-cache" => {
+                if let Some((dir, _)) = &self.build {
+                    host::open_at(
+                        &format!("{dir}/CMakeCache.txt"),
+                        Position { line: 0, column: 0 },
+                    );
+                }
+            }
+            "advanced" => self.advanced = !self.advanced,
+            "run-tests" => self.run_tests(None, false),
+            "apply" => self.reconfigure(),
+            "undo" => {
+                self.pending.clear();
+                self.editing = None;
+            }
+            _ => {}
+        }
+    }
+}
+
+/// A section's row, open or folded, with its count.
+fn section(id: &str, label: &str, open: bool, count: String) -> Row {
+    Row {
+        id: id.into(),
+        label: label.into(),
+        detail: String::new(),
+        depth: 0,
+        expanded: Some(open),
+        icon: String::new(),
+        chips: Vec::new(),
+        count,
+        menu: Vec::new(),
+    }
+}
+
+fn chip(id: &str, label: &str) -> Chip {
+    Chip {
+        id: id.into(),
+        label: label.into(),
+        tone: Tone::Normal,
     }
 }
 
@@ -652,6 +1084,9 @@ impl Plugin for Cmake {
             // changed.
             self.find_tasks();
             return;
+        }
+        if id == "configure" || id == "configure-fresh" {
+            return self.clicked(id);
         }
         match id {
             "find-tests" => return self.find_tests(),
@@ -745,6 +1180,16 @@ impl Plugin for Cmake {
                     });
                 }
             }
+            self.test_counts = (
+                results
+                    .iter()
+                    .filter(|r| r.outcome == TestOutcome::Passed)
+                    .count(),
+                results
+                    .iter()
+                    .filter(|r| r.outcome == TestOutcome::Failed)
+                    .count(),
+            );
             host::set_test_results(&results);
             host::set_test_run("ctest", false, None);
             return;
@@ -753,6 +1198,8 @@ impl Plugin for Cmake {
             return;
         };
         if code == Some(0) {
+            self.configured_at = Some(std::time::Instant::now());
+            self.pending.clear();
             self.configured(dir, from);
             self.find_tasks();
         } else {
@@ -765,14 +1212,36 @@ impl Plugin for Cmake {
         self.find_tasks();
     }
 
-    /// The status bar's items.
+    fn commands(&self) -> Vec<Command> {
+        vec![
+            Command::new("configure", "CMake: Configure"),
+            Command::new("configure-fresh", "CMake: Configure from Scratch"),
+        ]
+    }
+
+    fn view(&mut self, id: &str) -> Option<Panel> {
+        self.start();
+        (id == "cmake").then(|| self.panel())
+    }
+
+    /// The status bar's items, and the view's.
     fn click(&mut self, button: &str) {
         self.start();
         match button {
             "preset" => self.pick_preset(),
             "target" => self.pick_target(),
             "build" | "run" | "debug" => self.build_target(button),
-            _ => {}
+            other => self.clicked(other),
+        }
+    }
+
+    fn submit(&mut self, input: &str, text: &str) {
+        if input == "cache-filter" {
+            self.filter = text.trim().to_string();
+        } else if let Some(name) = input.strip_prefix("value:") {
+            self.pending
+                .insert(name.to_string(), text.trim().to_string());
+            self.editing = None;
         }
     }
 

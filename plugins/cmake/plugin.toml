@@ -79,6 +79,18 @@ lines = [
     { regex = '^\s+(\S.*)$', message = 1 },
 ]
 
+# The build, its targets by folder, its tests and its cache.
+[[views]]
+id = "cmake"
+title = "CMake"
+icon = "icons/cmake.svg"
+where = "left"
+empty = "No CMakeLists.txt here."
+
+[[views.toolbar]]
+command = "configure"
+icon = "↻"
+
 [[languages]]
 id = "cmake"
 name = "CMake"

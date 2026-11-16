@@ -17,6 +17,16 @@ pub struct Target {
     /// What it builds, relative to the workspace or absolute: a program
     /// for an executable.
     pub artifact: Option<String>,
+    /// Its sources, relative to the workspace.
+    pub sources: Vec<String>,
+    /// Its `FOLDER` property, for grouping.
+    pub folder: Option<String>,
+    /// The folder of the CMakeLists.txt that adds it, relative to the
+    /// workspace, `.` at the top.
+    pub dir: String,
+    /// The file and line, from 1, of the command that adds it, as
+    /// `add_executable`.
+    pub defined: Option<(String, u32)>,
 }
 
 impl Target {
@@ -98,10 +108,31 @@ pub fn targets(
                 join(dir, p)
             }
         });
+        let sources = target["sources"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            // Generated files, as CMake's own, aren't the project's.
+            .filter(|s| s["isGenerated"].as_bool() != Some(true))
+            .filter_map(|s| s["path"].as_str().map(String::from))
+            .collect();
+        let graph = &target["backtraceGraph"];
+        let defined = target["backtrace"].as_u64().and_then(|i| {
+            let node = &graph["nodes"][i as usize];
+            let file = graph["files"][node["file"].as_u64()? as usize].as_str()?;
+            Some((file.to_string(), node["line"].as_u64()? as u32))
+        });
         targets.push(Target {
             name: target["name"].as_str().unwrap_or_default().to_string(),
             kind,
             artifact,
+            sources,
+            folder: target["folder"]["name"].as_str().map(String::from),
+            dir: target["paths"]["source"]
+                .as_str()
+                .unwrap_or(".")
+                .to_string(),
+            defined,
         });
     }
     targets.sort_by(|a, b| a.name.cmp(&b.name));
@@ -142,7 +173,13 @@ mod tests {
             ),
             (
                 "target-app.json",
-                r#"{"name": "app", "type": "EXECUTABLE", "artifacts": [{"path": "app"}]}"#,
+                r#"{"name": "app", "type": "EXECUTABLE", "artifacts": [{"path": "app"}],
+                    "paths": {"build": "apps", "source": "apps"},
+                    "folder": {"name": "Programs"},
+                    "sources": [{"path": "apps/main.cpp"}, {"path": "build/gen.cpp", "isGenerated": true}],
+                    "backtrace": 1,
+                    "backtraceGraph": {"commands": ["add_executable"], "files": ["apps/CMakeLists.txt"],
+                        "nodes": [{"file": 0}, {"command": 0, "file": 0, "line": 3, "parent": 0}]}}"#,
             ),
             (
                 "target-shapes.json",
@@ -169,12 +206,20 @@ mod tests {
                 Target {
                     name: "app".into(),
                     kind: "EXECUTABLE".into(),
-                    artifact: Some("build/app".into())
+                    artifact: Some("build/app".into()),
+                    sources: vec!["apps/main.cpp".into()],
+                    folder: Some("Programs".into()),
+                    dir: "apps".into(),
+                    defined: Some(("apps/CMakeLists.txt".into(), 3)),
                 },
                 Target {
                     name: "shapes".into(),
                     kind: "STATIC_LIBRARY".into(),
-                    artifact: Some("build/libshapes.a".into())
+                    artifact: Some("build/libshapes.a".into()),
+                    sources: Vec::new(),
+                    folder: None,
+                    dir: ".".into(),
+                    defined: None,
                 },
             ]
         );
