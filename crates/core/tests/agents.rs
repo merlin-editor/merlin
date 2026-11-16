@@ -938,3 +938,33 @@ fn at_lists_files_and_what_is_picked_goes_with_the_message() {
         "{c:?}"
     );
 }
+
+#[test]
+fn a_finished_chat_is_kept_and_listed_under_chats() {
+    let mut s = session();
+    send(&mut s, "Fix the flicker");
+    s.effects.clear();
+    say(
+        &mut s,
+        AgentUpdate::Done {
+            outcome: AgentOutcome::Finished,
+            message: None,
+        },
+    );
+    let kept = s.effects.iter().find_map(|e| match e {
+        Effect::SaveAgentChats(c) => Some(c.clone()),
+        _ => None,
+    });
+    let kept = kept.expect("the chat is kept");
+    assert_eq!(kept[0].title, "Fix the flicker");
+    // Loaded in another window, it's listed, and opens again.
+    let mut other = session();
+    other.send(Event::AgentChats(kept));
+    other.run("cmd agent.open; cmd agent.history");
+    let dump = other.editor.dump();
+    assert!(dump.contains("Fix the flicker"), "{dump}");
+    other.run("key down; key enter");
+    let shown = chat(&other);
+    assert!(shown.contains("Fix the flicker"), "{shown}");
+    assert!(shown.contains("doesn't see what's above"), "{shown}");
+}

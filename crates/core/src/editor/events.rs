@@ -94,6 +94,8 @@ pub enum Event {
     },
     /// What's always allowed for agents in this workspace.
     AgentAllowed(Vec<String>),
+    /// The agents' past chats in this workspace, newest first.
+    AgentChats(Vec<super::agents::PastChat>),
     /// A line in the status bar for a few seconds, as "✓ Updated Rust and
     /// Go"; none takes it away.
     StatusNote(Option<String>),
@@ -789,6 +791,8 @@ pub enum Effect {
     },
     /// Keep what's always allowed for agents in this workspace.
     SaveAgentAllowed(Vec<String>),
+    /// Keep the agents' past chats in this workspace.
+    SaveAgentChats(Vec<super::agents::PastChat>),
     /// Show Settings › Plugins: a plugin's page, or Browse.
     OpenPluginPage(Option<String>),
     ReadClipboard,

@@ -1812,7 +1812,98 @@ fn agent_allowed_file(data_dir: &std::path::Path, root: &std::path::Path) -> Pat
     ))
 }
 
+/// Where the agents' past chats in a workspace are kept.
+fn agent_chats_file(data_dir: &std::path::Path, root: &std::path::Path) -> PathBuf {
+    data_dir.join("agents").join(format!(
+        "{}.chats.toml",
+        crate::safe_name(&root.display().to_string())
+    ))
+}
+
 impl App {
+    /// The agents' past chats in this workspace, newest first.
+    pub(crate) fn agent_chats(&self) -> Vec<merlin_core::editor::PastChat> {
+        let Some(table) = fs::read_to_string(agent_chats_file(&self.browse.data_dir, &self.root))
+            .ok()
+            .and_then(|s| s.parse::<toml::Table>().ok())
+        else {
+            return Vec::new();
+        };
+        let chats = table
+            .get("chats")
+            .and_then(|c| c.as_array())
+            .cloned()
+            .unwrap_or_default();
+        chats
+            .iter()
+            .filter_map(|c| {
+                let c = c.as_table()?;
+                let text = |k: &str| c.get(k).and_then(|v| v.as_str()).map(str::to_string);
+                let num = |k: &str| {
+                    c.get(k)
+                        .and_then(|v| v.as_integer())
+                        .map(|n| n.max(0) as u64)
+                };
+                Some(merlin_core::editor::PastChat {
+                    key: text("key")?,
+                    title: text("title")?,
+                    started: num("started")?,
+                    at: num("at")?,
+                    messages: c
+                        .get("messages")?
+                        .as_array()?
+                        .iter()
+                        .filter_map(|m| {
+                            let m = m.as_table()?;
+                            Some((
+                                m.get("mine")?.as_bool()?,
+                                m.get("text")?.as_str()?.to_string(),
+                            ))
+                        })
+                        .collect(),
+                })
+            })
+            .collect()
+    }
+
+    pub(crate) fn save_agent_chats(&self, chats: &[merlin_core::editor::PastChat]) {
+        if self.scripted {
+            return;
+        }
+        let path = agent_chats_file(&self.browse.data_dir, &self.root);
+        let list: Vec<toml::Value> = chats
+            .iter()
+            .map(|c| {
+                let mut t = toml::Table::new();
+                t.insert("key".into(), c.key.clone().into());
+                t.insert("title".into(), c.title.clone().into());
+                t.insert("started".into(), (c.started as i64).into());
+                t.insert("at".into(), (c.at as i64).into());
+                t.insert(
+                    "messages".into(),
+                    toml::Value::Array(
+                        c.messages
+                            .iter()
+                            .map(|(mine, text)| {
+                                let mut m = toml::Table::new();
+                                m.insert("mine".into(), (*mine).into());
+                                m.insert("text".into(), text.clone().into());
+                                toml::Value::Table(m)
+                            })
+                            .collect(),
+                    ),
+                );
+                toml::Value::Table(t)
+            })
+            .collect();
+        let mut table = toml::Table::new();
+        table.insert("chats".into(), toml::Value::Array(list));
+        if let (Some(dir), Ok(text)) = (path.parent(), toml::to_string(&table)) {
+            let _ = fs::create_dir_all(dir);
+            let _ = fs::write(&path, text);
+        }
+    }
+
     /// What's always allowed for agents in this workspace, as last saved.
     pub(crate) fn agent_allowed(&self) -> Vec<String> {
         fs::read_to_string(agent_allowed_file(&self.browse.data_dir, &self.root))

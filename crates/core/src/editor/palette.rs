@@ -189,6 +189,7 @@ impl Editor {
                         fx.push(Effect::SetTheme(kind, theme));
                     }
                     (Some((id, _)), Source::Choices) => self.search_pick(&id, false, fx),
+                    (Some((id, _)), Source::AgentChats) => self.agent_chat_picked(&id, fx),
                     // The search's keys handle it.
                     (Some(_), Source::Search { .. }) | (None, _) => {}
                 }

@@ -625,6 +625,11 @@ impl Editor {
         let toolbar = if name.starts_with(super::agents::AGENT) {
             vec![
                 ToolView {
+                    command: "agent.history".into(),
+                    icon: Some(super::ViewIcon::Glyph("⟲".into())),
+                    title: "Chats".into(),
+                },
+                ToolView {
                     command: "agent.add".into(),
                     icon: Some(super::ViewIcon::Glyph("+".into())),
                     title: "Add an Agent".into(),
@@ -755,6 +760,7 @@ impl Editor {
                 Source::MacroName => "Macro",
                 Source::Search { scope, .. } => scope.label(),
                 Source::Choices => "Choices",
+                Source::AgentChats => "Chats",
             },
             items: shown
                 .into_iter()

@@ -229,6 +229,17 @@ pub enum AgentCall {
     },
 }
 
+/// A chat kept for later: its agent, its first words, when it last
+/// changed (ms), and what was said, yours (`true`) and the agent's.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PastChat {
+    pub key: String,
+    pub title: String,
+    pub started: u64,
+    pub at: u64,
+    pub messages: Vec<(bool, String)>,
+}
+
 /// What the agents' chats hold.
 #[derive(Default)]
 pub(crate) struct Agents {
@@ -249,6 +260,10 @@ pub(crate) struct Agents {
     rewind: Option<(String, usize)>,
     /// The project's files were asked for, for `@`.
     pub want_files: bool,
+    /// Past chats in this workspace, newest first.
+    pub past: Vec<PastChat>,
+    /// The latest time heard, in ms, for "2 hours ago".
+    now: u64,
 }
 
 pub(crate) struct Tab {
@@ -297,6 +312,8 @@ pub(crate) struct Tab {
     history: Vec<(usize, PathBuf, String)>,
     /// Turns from a chat before this one, which the agent doesn't see.
     forked: usize,
+    /// When the chat's first turn ended, in ms: who it is among past chats.
+    started: Option<u64>,
 }
 
 #[derive(Clone)]
@@ -462,6 +479,7 @@ impl Editor {
             open_folds: HashSet::new(),
             history: Vec::new(),
             forked: 0,
+            started: None,
             queued: Vec::new(),
             plan_open: false,
             changes_open: false,
@@ -540,6 +558,7 @@ impl Editor {
                 open_folds: HashSet::new(),
                 history: Vec::new(),
                 forked: 0,
+                started: None,
                 queued: Vec::new(),
                 plan_open: false,
                 changes_open: false,
@@ -653,6 +672,9 @@ impl Editor {
                 }
             }
             AgentUpdate::Done { outcome, message } => {
+                self.agents.now = self.agents.now.max(at);
+                let tab = &mut self.agents.tabs[i];
+                tab.started.get_or_insert(at);
                 let tab = &mut self.agents.tabs[i];
                 tab.busy = false;
                 if let Some(Turn::Agent(reply)) = tab.turns.last_mut() {
@@ -665,6 +687,7 @@ impl Editor {
                 tab.allowed_paths.clear();
                 tab.allowed_runs.clear();
                 self.end_thought(i, at);
+                self.keep_chat(i, at, fx);
                 // The next message waiting goes now, unless it failed.
                 let tab = &mut self.agents.tabs[i];
                 if outcome != AgentOutcome::Failed && !tab.queued.is_empty() {
@@ -1937,6 +1960,178 @@ impl Editor {
         self.draw_agent(key);
     }
 
+    /// Keeps a chat among the past ones, as it is now.
+    fn keep_chat(&mut self, i: usize, at: u64, fx: &mut Vec<Effect>) {
+        let tab = &self.agents.tabs[i];
+        let Some(started) = tab.started else {
+            return;
+        };
+        let messages: Vec<(bool, String)> = tab
+            .turns
+            .iter()
+            .filter_map(|t| match t {
+                Turn::You { text, .. } => Some((true, text.clone())),
+                Turn::Agent(reply) => {
+                    let text: Vec<&str> = reply
+                        .iter()
+                        .filter_map(|i| match i {
+                            Item::Text(t) => Some(t.as_str()),
+                            _ => None,
+                        })
+                        .collect();
+                    (!text.is_empty()).then(|| (false, text.join("\n\n")))
+                }
+            })
+            .collect();
+        let Some(first) = messages.iter().find(|m| m.0).map(|m| m.1.clone()) else {
+            return;
+        };
+        let title: String = first
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .chars()
+            .take(60)
+            .collect();
+        let key = tab.key.clone();
+        self.agents
+            .past
+            .retain(|p| !(p.key == key && p.started == started));
+        self.agents.past.insert(
+            0,
+            PastChat {
+                key,
+                title,
+                started,
+                at,
+                messages,
+            },
+        );
+        self.agents.past.truncate(30);
+        fx.push(Effect::SaveAgentChats(self.agents.past.clone()));
+    }
+
+    /// ⟲: the chats, those open first, then past ones, to search.
+    pub(crate) fn agent_history(&mut self) {
+        let mut items: Vec<(String, String)> = Vec::new();
+        let shown = self.shown_agent();
+        for tab in &self.agents.tabs {
+            let title = tab
+                .turns
+                .iter()
+                .find_map(|t| match t {
+                    Turn::You { text, .. } => {
+                        Some(text.lines().next().unwrap_or_default().to_string())
+                    }
+                    _ => None,
+                })
+                .unwrap_or_else(|| "New chat".into());
+            let state = if !tab.asks.is_empty() {
+                "needs you"
+            } else if tab.busy {
+                "working"
+            } else if shown.as_deref() == Some(tab.key.as_str()) {
+                "this tab"
+            } else {
+                "open"
+            };
+            let icon = self.spec(&tab.key).map_or("◆".into(), |s| s.icon.clone());
+            items.push((
+                format!("open:{}", tab.key),
+                format!("{icon} {title}   {state}"),
+            ));
+        }
+        let now = (self.agents.now / 1000) as i64;
+        for (n, past) in self.agents.past.iter().enumerate() {
+            let open = self
+                .agents
+                .tabs
+                .iter()
+                .any(|t| t.key == past.key && t.started == Some(past.started));
+            if open {
+                continue;
+            }
+            let icon = self.spec(&past.key).map_or("◆".into(), |s| s.icon.clone());
+            let ago = crate::git::ago((past.at / 1000) as i64, now.max((past.at / 1000) as i64));
+            items.push((
+                format!("past:{n}"),
+                format!("{icon} {}   {ago}", past.title),
+            ));
+        }
+        self.popup = None;
+        self.context = None;
+        self.palette = Some(super::Palette::new(
+            super::Source::AgentChats,
+            Some("Chats".into()),
+            items,
+        ));
+        self.focus = super::Focus::Palette;
+    }
+
+    /// A chat picked from ⟲: an open one shows; a past one opens again, in
+    /// a new chat the agent starts afresh, what was said above it.
+    pub(crate) fn agent_chat_picked(&mut self, id: &str, fx: &mut Vec<Effect>) {
+        if let Some(key) = id.strip_prefix("open:") {
+            self.open_agent(key, true);
+            return;
+        }
+        let Some(past) = id
+            .strip_prefix("past:")
+            .and_then(|n| n.parse::<usize>().ok())
+            .and_then(|n| self.agents.past.get(n).cloned())
+        else {
+            return;
+        };
+        if self.spec(&past.key).is_none() {
+            return;
+        }
+        self.open_agent(&past.key, true);
+        let Some(i) = self.agents.tabs.iter().position(|t| t.key == past.key) else {
+            return;
+        };
+        if !self.agents.tabs[i].turns.is_empty() {
+            self.keep_chat(i, self.agents.now, fx);
+            if let Some(spec) = self.spec(&past.key).cloned() {
+                fx.push(Effect::Agent {
+                    plugin: spec.plugin,
+                    call: AgentCall::Close {
+                        chat: self.agents.tabs[i].chat,
+                    },
+                });
+            }
+            self.agents.next_chat += 1;
+            self.agents.tabs[i].chat = self.agents.next_chat;
+        }
+        let tab = &mut self.agents.tabs[i];
+        tab.turns = past
+            .messages
+            .iter()
+            .map(|(mine, text)| {
+                if *mine {
+                    Turn::You {
+                        text: text.clone(),
+                        chips: Vec::new(),
+                    }
+                } else {
+                    Turn::Agent(Reply {
+                        items: vec![Item::Text(text.clone())],
+                        mode: None,
+                        started: 0,
+                        ended: None,
+                    })
+                }
+            })
+            .collect();
+        tab.forked = tab.turns.len();
+        tab.started = Some(past.started);
+        tab.busy = false;
+        tab.asks.clear();
+        tab.ended = None;
+        tab.history.clear();
+        let key = past.key.clone();
+        self.draw_agent(&key);
+    }
+
     /// Back to turn `n`: the files the agent changed from there on put
     /// back as they were (`undo`), and/or a new chat from there, its
     /// message back in the box (`new`).
@@ -2385,6 +2580,13 @@ impl Editor {
                     self.agent_turn_nodes(&mut nodes, &title, n, reply, streaming, tab);
                 }
             }
+        }
+        // A chat opened again: what's above is from before.
+        if tab.forked > 0 && tab.forked == tab.turns.len() {
+            nodes.push(Node::Styled(
+                format!("A new chat from here: {agent} doesn't see what's above."),
+                Tone::Muted,
+            ));
         }
         if let Some(ask) = tab.asks.first() {
             nodes.push(Node::Ask(Box::new(self.ask_card(&agent, ask, tab))));

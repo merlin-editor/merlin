@@ -487,6 +487,7 @@ impl Editor {
             "settings.open" => self.open_settings(None, fx),
             "agent.add" => self.agent_menu(fx),
             "agent.more" => self.agent_more_menu(),
+            "agent.history" => self.agent_history(),
             "agent.open" => self.open_first_agent(fx),
             "plugins.manage" => {
                 self.open_page(SETTINGS_PAGE, "Settings");

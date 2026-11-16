@@ -295,6 +295,7 @@ impl Session {
                 | Effect::Agent { .. }
                 | Effect::AgentDisk { .. }
                 | Effect::SaveAgentAllowed(_)
+                | Effect::SaveAgentChats(_)
                 | Effect::OpenPluginPage(_)
                 | Effect::Terminal(_)
                 | Effect::PluginCommand { .. }

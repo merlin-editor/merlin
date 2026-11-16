@@ -241,6 +241,7 @@ impl App {
                 });
             }
             Effect::SaveAgentAllowed(rules) => self.save_agent_allowed(&rules),
+            Effect::SaveAgentChats(chats) => self.save_agent_chats(&chats),
             Effect::OpenPluginPage(plugin) => {
                 let browse = plugin.is_none();
                 self.open_settings(plugin, true);

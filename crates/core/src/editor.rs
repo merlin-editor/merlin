@@ -3,7 +3,7 @@ mod agent_review;
 mod agents;
 pub use agents::{
     AgentAnswer, AgentAsks, AgentCall, AgentContext, AgentMode, AgentOutcome, AgentPart,
-    AgentRequest, AgentSpec, AgentTool, AgentUpdate, MissingProgram, PlanStep, ToolKind,
+    AgentRequest, AgentSpec, AgentTool, AgentUpdate, MissingProgram, PastChat, PlanStep, ToolKind,
     line_counts, read_only_command,
 };
 mod blame;
@@ -216,6 +216,8 @@ enum Source {
     MacroName,
     /// What a command's › offers, such as Fold's levels: search rows' ids.
     Choices,
+    /// The agents' chats: those open, then past ones.
+    AgentChats,
     /// Everything at once, or one scope of it.
     Search {
         scope: search_all::Scope,
