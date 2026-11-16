@@ -496,6 +496,10 @@ impl Session {
                         .map(|c| c.label.clone())
                         .collect(),
                     crate::panel::Node::Fold { label, .. } => vec![label.clone()],
+                    crate::panel::Node::YouSaid { message, .. } => ["Edit", "Copy", "Rewind"]
+                        .iter()
+                        .map(|w| format!("{} {w}", message.markdown))
+                        .collect(),
                     crate::panel::Node::PlanDock { .. } => vec!["Plan".into()],
                     crate::panel::Node::Queued { text, .. } => {
                         vec![

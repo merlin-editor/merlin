@@ -1493,3 +1493,54 @@ impl Frame<'_> {
         }
     }
 }
+
+impl Frame<'_> {
+    /// Over your message, while it's hovered or one of them has the keys:
+    /// Edit, Copy and Rewind.
+    pub(super) fn you_said_tools(
+        &mut self,
+        sv: &SideView,
+        side: Side,
+        r: Rect,
+        target: Option<usize>,
+        clip: Rect,
+    ) {
+        let p = self.p;
+        let focus = |k: usize| sv.focused && target.is_some_and(|t| sv.selected == t + k);
+        if !self.hovered(r) && !(0..3).any(focus) {
+            return;
+        }
+        let face = Face::ui(11.0);
+        let labels = ["✎ Edit", "⧉ Copy", "↶ Rewind"];
+        let widths: Vec<f32> = labels
+            .iter()
+            .map(|l| self.text.width(l, face) + 12.0)
+            .collect();
+        let w: f32 = widths.iter().sum::<f32>() + 4.0;
+        let bar = Rect::new(r.right() - 14.0 - w, r.y, w, 24.0);
+        self.canvas.shadow(bar, 6.0, theme::is_light(&p));
+        self.canvas.outline(bar, 6.0, 1.0, p.border, p.raised);
+        let mut x = bar.x + 2.0;
+        for (k, (label, bw)) in labels.iter().zip(&widths).enumerate() {
+            let b = Rect::new(x, bar.y + 2.0, *bw, 20.0);
+            let hot = self.hovered(b) || focus(k);
+            if hot {
+                self.canvas.round(b, 4.0, p.hover);
+            }
+            self.text.draw_in_row(
+                &mut self.canvas,
+                label,
+                face,
+                x + 6.0,
+                b.y,
+                20.0,
+                if hot { p.bright } else { p.text },
+                clip,
+            );
+            if let Some(t) = target {
+                self.hit(b, chat_pick(side, t + k));
+            }
+            x += bw;
+        }
+    }
+}

@@ -579,6 +579,7 @@ impl Frame<'_> {
             }
             Node::Markdown(t) => self.md_layout(t, inner).1 + 8.0,
             Node::Message(m) => self.message_layout(m, inner).height,
+            Node::YouSaid { message, .. } => self.message_layout(message, inner).height + 10.0,
             Node::Chips { .. } => 32.0,
             Node::ComposeBar(_) => 38.0,
             Node::Reply { .. } => 26.0,
@@ -767,6 +768,12 @@ impl Frame<'_> {
             Node::ComposeBar(c) => self.compose_bar(c, sv, side, r, target, clip),
             Node::Reply { author, mode } => self.reply_head(author, mode.as_ref(), r, clip),
             Node::ReplyEnd => {}
+            Node::YouSaid { message, .. } => {
+                let colours = node_colours(sv, node);
+                let below = Rect::new(r.x, r.y + 10.0, r.w, r.h - 10.0);
+                self.message(message, colours, sv, side, below, None, clip);
+                self.you_said_tools(sv, side, r, target, clip);
+            }
             Node::PlanDock { steps, open } => {
                 self.plan_dock(steps, *open, sv, side, r, target, clip)
             }

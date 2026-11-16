@@ -517,7 +517,7 @@ fn dump_side(o: &mut String, which: &str, side: &SideView) {
                     .trim_end()
                     .to_string()
             }
-            Node::Message(m) => {
+            Node::YouSaid { message: m, .. } | Node::Message(m) => {
                 let who = if m.mine { "You" } else { m.author.as_str() };
                 let chips: String = m.chips.iter().map(|c| format!(" ({})", c.label)).collect();
                 let caret = if m.streaming { "▌" } else { "" };

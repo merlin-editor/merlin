@@ -243,6 +243,13 @@ pub enum Node {
         chips: Vec<Chip>,
         hint: String,
     },
+    /// Your message in an agent's chat, by its turn: a bubble that shows
+    /// Edit, Copy and Rewind when hovered (`agent:turn-edit:n`,
+    /// `agent:turn-copy:n`, `agent:rewind:n`).
+    YouSaid {
+        turn: usize,
+        message: Box<Message>,
+    },
     /// The start of an agent's reply: who (its mark and name) and the mode
     /// it wrote in, a badge whose colour runs down the reply's side until
     /// [`Node::ReplyEnd`].
@@ -632,6 +639,10 @@ impl Panel {
                 Node::Bar { chips, .. } => chip_targets(chips),
                 Node::ComposeBar(c) => c.ids().into_iter().map(Target::Button).collect(),
                 Node::Fold { id, .. } => vec![Target::Button(id.clone())],
+                Node::YouSaid { turn, .. } => ["turn-edit", "turn-copy", "rewind"]
+                    .iter()
+                    .map(|w| Target::Button(format!("agent:{w}:{turn}")))
+                    .collect(),
                 Node::PlanDock { .. } => vec![Target::Button("agent:plan".into())],
                 Node::Queued { index, .. } => ["queue-edit", "queue-drop", "queue-now"]
                     .iter()

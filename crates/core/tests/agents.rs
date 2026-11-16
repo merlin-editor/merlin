@@ -894,3 +894,26 @@ fn each_change_in_the_editor_has_undo_and_keep() {
     assert!(!chat(&s).contains("file changed"), "{}", chat(&s));
     assert!(s.editor.text_views()[0].agent_bar.is_none());
 }
+
+#[test]
+fn editing_a_message_rewinds_the_files_and_starts_again_from_it() {
+    let mut s = session();
+    two_changes(&mut s);
+    assert_ne!(s.text(), TEXT);
+    calls(&mut s);
+    s.click_entry("go Edit", 1);
+    // The files are as they were before it, and the chat starts again.
+    assert_eq!(s.text(), TEXT);
+    let c = calls(&mut s);
+    assert!(matches!(&c[..], [AgentCall::Close { chat: 1 }]), "{c:?}");
+    let shown = chat(&s);
+    assert!(!shown.contains("file changed"), "{shown}");
+    assert!(shown.contains("[go]") || shown.contains("go"), "{shown}");
+    // Sent again, it goes to a new chat.
+    s.run("key enter");
+    let c = calls(&mut s);
+    assert!(
+        matches!(&c[..], [AgentCall::Prompt { chat: 2, text, .. }] if text == "go"),
+        "{c:?}"
+    );
+}

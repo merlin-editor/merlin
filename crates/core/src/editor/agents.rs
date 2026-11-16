@@ -245,6 +245,8 @@ pub(crate) struct Agents {
     /// Writes waiting for their file's tab to open: plugin, chat, request,
     /// path and text.
     pending_writes: Vec<(String, u32, u32, PathBuf, String)>,
+    /// The chat and turn whose Rewind menu shows.
+    rewind: Option<(String, usize)>,
 }
 
 pub(crate) struct Tab {
@@ -288,8 +290,14 @@ pub(crate) struct Tab {
     /// Whether the plan above the box, and the changed files, are open.
     plan_open: bool,
     changes_open: bool,
+    /// Each file as it was before the turn that first changed it, by your
+    /// message's turn: what Rewind puts back.
+    history: Vec<(usize, PathBuf, String)>,
+    /// Turns from a chat before this one, which the agent doesn't see.
+    forked: usize,
 }
 
+#[derive(Clone)]
 pub(crate) enum Turn {
     You { text: String, chips: Vec<String> },
     Agent(Reply),
@@ -297,6 +305,7 @@ pub(crate) enum Turn {
 
 /// An agent's reply: what it said and did, the mode it was in (name and
 /// colour), and when it started and ended, in ms.
+#[derive(Clone)]
 pub(crate) struct Reply {
     items: Vec<Item>,
     mode: Option<(String, String)>,
@@ -317,6 +326,7 @@ impl std::ops::DerefMut for Reply {
     }
 }
 
+#[derive(Clone)]
 pub(crate) enum Item {
     Text(String),
     /// Thinking, and how long it took in seconds once it's over.
@@ -448,6 +458,8 @@ impl Editor {
             auto: false,
             tool_times: Default::default(),
             open_folds: HashSet::new(),
+            history: Vec::new(),
+            forked: 0,
             queued: Vec::new(),
             plan_open: false,
             changes_open: false,
@@ -524,6 +536,8 @@ impl Editor {
                 auto: false,
                 tool_times: Default::default(),
                 open_folds: HashSet::new(),
+                history: Vec::new(),
+                forked: 0,
                 queued: Vec::new(),
                 plan_open: false,
                 changes_open: false,
@@ -1238,6 +1252,14 @@ impl Editor {
             return;
         };
         let tab = &mut self.agents.tabs[i];
+        let turn = tab
+            .turns
+            .iter()
+            .rposition(|t| matches!(t, Turn::You { .. }))
+            .unwrap_or(0);
+        if !tab.history.iter().any(|(t, p, _)| *t == turn && p == path) {
+            tab.history.push((turn, path.to_path_buf(), before.clone()));
+        }
         match tab.changes.iter_mut().find(|c| c.path == path) {
             Some(c) => {
                 (c.added, c.removed) = line_counts(&c.before, after);
@@ -1652,6 +1674,41 @@ impl Editor {
                 }
                 self.draw_agent(&key);
             }
+            "turn-copy" | "turn-edit" | "rewind" => {
+                let n: usize = arg.parse().unwrap_or(usize::MAX);
+                let text = self
+                    .agents
+                    .tabs
+                    .iter()
+                    .find(|t| t.key == key)
+                    .and_then(|t| match t.turns.get(n) {
+                        Some(Turn::You { text, .. }) => Some(text.clone()),
+                        _ => None,
+                    });
+                let Some(text) = text else {
+                    return true;
+                };
+                match what {
+                    "turn-copy" => fx.push(Effect::Copy(text)),
+                    // Edit: back to there, and the message in the box to
+                    // send again.
+                    "turn-edit" => self.agent_rewind(&key, n, true, true, fx),
+                    _ => {
+                        self.agents.rewind = Some((key.clone(), n));
+                        self.popup = None;
+                        self.context = Some(super::context::ContextMenu {
+                            items: vec![
+                                "agent.rewind.undo",
+                                "agent.rewind.new",
+                                "agent.rewind.both",
+                            ],
+                            selected: None,
+                            title: None,
+                        });
+                        self.focus = super::Focus::Menu;
+                    }
+                }
+            }
             "fold" => {
                 let mut parts = arg.split(':').filter_map(|p| p.parse::<usize>().ok());
                 if let (Some(turn), Some(first)) = (parts.next(), parts.next())
@@ -1748,6 +1805,113 @@ impl Editor {
             }
         }
         self.draw_agent(key);
+    }
+
+    /// Back to turn `n`: the files the agent changed from there on put
+    /// back as they were (`undo`), and/or a new chat from there, its
+    /// message back in the box (`new`).
+    pub(crate) fn agent_rewind(
+        &mut self,
+        key: &str,
+        n: usize,
+        undo: bool,
+        new: bool,
+        fx: &mut Vec<Effect>,
+    ) {
+        let Some(i) = self.agents.tabs.iter().position(|t| t.key == key) else {
+            return;
+        };
+        if undo {
+            // Each file as it was before the first turn from here on.
+            let tab = &mut self.agents.tabs[i];
+            let mut back: Vec<(PathBuf, String)> = Vec::new();
+            for (t, path, before) in &tab.history {
+                if *t >= n && !back.iter().any(|(p, _)| p == path) {
+                    back.push((path.clone(), before.clone()));
+                }
+            }
+            tab.history.retain(|(t, ..)| *t < n);
+            let (plugin, chat) = (
+                self.spec(key).map(|s| s.plugin.clone()).unwrap_or_default(),
+                self.agents.tabs[i].chat,
+            );
+            for (path, text) in back {
+                self.put_back(&plugin, chat, &path, &text, fx);
+                let tab = &mut self.agents.tabs[i];
+                if let Some(k) = tab.changes.iter().position(|c| c.path == path) {
+                    if tab.changes[k].before == text {
+                        tab.changes.remove(k);
+                    } else {
+                        let c = &mut tab.changes[k];
+                        (c.added, c.removed) = line_counts(&c.before, &text);
+                    }
+                }
+            }
+        }
+        if new {
+            let text = match self.agents.tabs[i].turns.get(n) {
+                Some(Turn::You { text, .. }) => text.clone(),
+                _ => String::new(),
+            };
+            if let Some(spec) = self.spec(key).cloned() {
+                fx.push(Effect::Agent {
+                    plugin: spec.plugin,
+                    call: AgentCall::Close {
+                        chat: self.agents.tabs[i].chat,
+                    },
+                });
+            }
+            self.agents.next_chat += 1;
+            let chat = self.agents.next_chat;
+            let tab = &mut self.agents.tabs[i];
+            tab.chat = chat;
+            tab.turns.truncate(n);
+            tab.forked = n;
+            tab.busy = false;
+            tab.asks.clear();
+            tab.queued.clear();
+            tab.ended = None;
+            tab.history.retain(|(t, ..)| *t < n);
+            let input = (format!("{AGENT}{key}"), PROMPT.to_string());
+            self.input_cursors.insert(input.clone(), text.len());
+            self.inputs.insert(input, text);
+        }
+        self.draw_agent(key);
+    }
+
+    /// A file put back as `text`: through its tab as one edit if it's open,
+    /// else on disk.
+    fn put_back(&mut self, plugin: &str, chat: u32, path: &Path, text: &str, fx: &mut Vec<Effect>) {
+        match self.doc_at(path) {
+            Some(doc) => {
+                let now = doc.buffer.text();
+                if now == text {
+                    return;
+                }
+                doc.buffer.begin(doc.cursor, crate::history::Kind::Other);
+                doc.buffer.apply(crate::edit::Edit {
+                    at: 0,
+                    removed: now,
+                    inserted: text.to_string(),
+                });
+                doc.cursor = doc.cursor.min(doc.buffer.len());
+                doc.anchor = None;
+                doc.buffer.commit(doc.cursor);
+                fx.push(Effect::Save {
+                    doc: doc.id,
+                    path: path.to_path_buf(),
+                    text: text.to_string(),
+                    revision: doc.buffer.revision(),
+                });
+            }
+            None => fx.push(Effect::AgentDisk {
+                plugin: plugin.to_string(),
+                chat,
+                request: 0,
+                path: path.to_path_buf(),
+                write: Some(text.to_string()),
+            }),
+        }
     }
 
     /// The agent waiting for an answer, if one is.
@@ -1894,6 +2058,33 @@ impl Editor {
                 return Some((label, Some(note).filter(|n| !n.is_empty()), false));
             }
             "agent.compact" => return Some(("Compact Now".into(), Some("/compact".into()), false)),
+            "agent.rewind.undo" | "agent.rewind.new" | "agent.rewind.both" => {
+                let (k, n) = self.agents.rewind.clone()?;
+                let tab = self.agents.tabs.iter().find(|t| t.key == k)?;
+                let files: HashSet<&PathBuf> = tab
+                    .history
+                    .iter()
+                    .filter(|(t, ..)| *t >= n)
+                    .map(|(_, p, _)| p)
+                    .collect();
+                let count = files.len();
+                return Some(match id {
+                    "agent.rewind.undo" => (
+                        "Undo the changes from here".into(),
+                        Some(format!(
+                            "{count} {}",
+                            if count == 1 { "file" } else { "files" }
+                        )),
+                        false,
+                    ),
+                    "agent.rewind.new" => (
+                        "New chat from here".into(),
+                        Some("keeps the files".into()),
+                        false,
+                    ),
+                    _ => ("Both".into(), None, false),
+                });
+            }
             _ => {}
         }
         let label = match id {
@@ -1947,6 +2138,13 @@ impl Editor {
                 self.draw_agent(&key);
             }
             "agent.usage" => {}
+            "agent.rewind.undo" | "agent.rewind.new" | "agent.rewind.both" => {
+                if let Some((k, n)) = self.agents.rewind.take() {
+                    let undo = id != "agent.rewind.new";
+                    let new = id != "agent.rewind.undo";
+                    self.agent_rewind(&k, n, undo, new, fx);
+                }
+            }
             "agent.compact" => {
                 if !key.is_empty() {
                     self.agent_send(&key, "/compact", fx);
@@ -2028,21 +2226,30 @@ impl Editor {
         }
         let last = tab.turns.len().saturating_sub(1);
         for (n, turn) in tab.turns.iter().enumerate() {
+            if n == tab.forked && n > 0 {
+                nodes.push(Node::Styled(
+                    format!("A new chat from here: {agent} doesn't see what's above."),
+                    Tone::Muted,
+                ));
+            }
             match turn {
-                Turn::You { text, chips } => nodes.push(Node::Message(Box::new(Message {
-                    author: String::new(),
-                    mine: true,
-                    markdown: text.clone(),
-                    chips: chips
-                        .iter()
-                        .map(|c| Chip {
-                            id: String::new(),
-                            label: c.clone(),
-                            tone: Tone::Normal,
-                        })
-                        .collect(),
-                    streaming: false,
-                }))),
+                Turn::You { text, chips } => nodes.push(Node::YouSaid {
+                    turn: n,
+                    message: Box::new(Message {
+                        author: String::new(),
+                        mine: true,
+                        markdown: text.clone(),
+                        chips: chips
+                            .iter()
+                            .map(|c| Chip {
+                                id: String::new(),
+                                label: c.clone(),
+                                tone: Tone::Normal,
+                            })
+                            .collect(),
+                        streaming: false,
+                    }),
+                }),
                 Turn::Agent(reply) => {
                     let streaming = tab.busy && n == last;
                     self.agent_turn_nodes(&mut nodes, &title, n, reply, streaming, tab);
