@@ -26,6 +26,9 @@ pub(crate) struct Peek {
     pub(crate) name: String,
     pub(crate) rows: usize,
     pub(crate) files: Vec<PeekFile>,
+    /// What the places are, for the summary: references, or places a
+    /// language plugin's own command sent, such as implementations.
+    pub(crate) noun: &'static str,
     /// The chosen row of the list, and the first one shown.
     pub(crate) row: usize,
     pub(crate) top: usize,
@@ -170,9 +173,18 @@ impl Editor {
 
     /// The server's answer: the peek opens once the files are read.
     pub(crate) fn show_references(&mut self, places: Vec<Location>, fx: &mut Vec<Effect>) {
-        let Some((doc, line, name)) = self.peek_asked.take() else {
-            return;
+        // Shift+F12 asked for references; anything else, such as a
+        // plugin's Go to Implementations, opens under the cursor.
+        let (asked, noun) = match self.peek_asked.take() {
+            Some(asked) => (asked, "reference"),
+            None => {
+                let doc = self.doc();
+                let at = doc.cursor;
+                let name = doc.slice(doc.word_start_at(at), doc.word_end_at(at));
+                ((doc.id, doc.line_col(at).0, name), "place")
+            }
         };
+        let (doc, line, name) = asked;
         if self.doc().id != doc || self.focus != Focus::Editor {
             return;
         }
@@ -210,6 +222,7 @@ impl Editor {
             name,
             rows,
             files,
+            noun,
             row: 1,
             top: 0,
             reading: unread.len(),
@@ -284,7 +297,8 @@ impl Editor {
         let files = peek.files.len();
         let places = peek.places();
         let summary = format!(
-            "{places} reference{} in {files} file{}",
+            "{places} {}{} in {files} file{}",
+            peek.noun,
             if places == 1 { "" } else { "s" },
             if files == 1 { "" } else { "s" }
         );

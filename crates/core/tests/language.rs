@@ -1243,6 +1243,15 @@ fn shift_f12_peeks_at_the_references_between_the_lines() {
 }
 
 #[test]
+fn places_a_plugin_sends_unasked_peek_under_the_cursor() {
+    // As Go to Implementations from the palette does: no Shift+F12 first.
+    let mut s = peeking();
+    s.send(references());
+    let dump = s.editor.dump();
+    assert!(dump.contains("┌ shade · 3 places in 2 files"), "{dump}");
+}
+
+#[test]
 fn escape_closes_the_peek_and_the_lines_close_up() {
     let mut s = peeking();
     s.run("key shift+f12");
