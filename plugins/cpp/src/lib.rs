@@ -24,7 +24,7 @@ const CPP_SERVER: Spec = Spec {
     ],
     files: &[
         ("c", "c"),
-        ("h", "c"),
+        ("h", "cpp"),
         ("cc", "cpp"),
         ("cpp", "cpp"),
         ("cxx", "cpp"),
@@ -39,6 +39,7 @@ const CPP_SERVER: Spec = Spec {
     ],
     settings: None,
     options: &[],
+    flags: &[("query-driver", "--query-driver=")],
     install: Some("sudo apt install clangd"),
     shared: &[CompileCommands::KEY],
     adjust: Some(compile_commands),

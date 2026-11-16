@@ -49,6 +49,8 @@ fn adds_c_and_cpp() {
     let names: Vec<&str> = languages.iter().map(|l| l.name.as_str()).collect();
     assert_eq!(names, ["C", "C++"]);
     assert!(languages[1].extensions.contains(&"hpp".to_string()));
+    assert!(languages[1].extensions.contains(&"h".to_string()), "a header is C++");
+    assert_eq!(languages[0].extensions, ["c"]);
 }
 
 #[test]
@@ -77,4 +79,49 @@ fn colours_cpp_files_and_leaves_others() {
     );
     let events = host.buffer_event(&BufferEvent::Switched, &snapshot("a.rs", "fn main() {}"));
     assert!(!events.iter().any(|e| matches!(e, Event::SetTokens { .. })));
+}
+
+#[test]
+fn reads_gcc_clang_and_msvc_problems() {
+    let (_host, events) = host();
+    let matchers = events
+        .into_iter()
+        .find_map(|e| match e {
+            Event::RegisterProblemMatchers { matchers, .. } => Some(matchers),
+            _ => None,
+        })
+        .expect("the plugin brings problem matchers");
+    // Each line, and the groups the matcher that reads it finds: file,
+    // line, column, severity, code and message.
+    let read = |text: &str| {
+        matchers.iter().find_map(|m| {
+            let l = &m.lines[0];
+            let caps = l.regex.captures(text)?;
+            let group = |i: Option<usize>| {
+                i.and_then(|i| caps.get(i))
+                    .map_or("", |m| m.as_str())
+                    .to_string()
+            };
+            Some([l.file, l.line, l.column, l.severity, l.code, l.message].map(group))
+        })
+    };
+    assert_eq!(
+        read("src/a.cpp:3:5: warning: unused variable 'x' [-Wunused-variable]").unwrap(),
+        ["src/a.cpp", "3", "5", "warning", "-Wunused-variable", "unused variable 'x'"]
+    );
+    assert_eq!(
+        read("C:\\work\\a.cpp:10:2: fatal error: 'gone.h' file not found").unwrap(),
+        ["C:\\work\\a.cpp", "10", "2", "fatal error", "", "'gone.h' file not found"]
+    );
+    assert_eq!(
+        read("a.c:7: error: expected ';'").unwrap(),
+        ["a.c", "7", "", "error", "", "expected ';'"]
+    );
+    assert_eq!(
+        read("src\\a.cpp(3,5): error C2065: 'x': undeclared identifier").unwrap(),
+        ["src\\a.cpp", "3", "5", "error", "C2065", "'x': undeclared identifier"]
+    );
+    // Notes say more about the problem above, and other lines aren't ones.
+    assert!(read("src/a.cpp:4:1: note: declared here").is_none());
+    assert!(read("[ 50%] Building CXX object a.cpp.o").is_none());
 }

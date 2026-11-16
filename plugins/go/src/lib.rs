@@ -10,6 +10,7 @@ const GO_SERVER: Spec = Spec {
     settings: None,
     options: &[],
     install: Some("go install golang.org/x/tools/gopls@latest"),
+    flags: &[],
     shared: &[],
     adjust: None,
 };

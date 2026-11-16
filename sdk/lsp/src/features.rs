@@ -64,7 +64,7 @@ impl Lsp {
         let index = match self.servers.iter().position(|s| s.program == spec.program) {
             Some(i) if self.servers[i].process.is_some() => i,
             found => {
-                let args: Vec<String> = spec.args.iter().map(|a| a.to_string()).collect();
+                let args = server_args(spec);
                 let process = host::spawn(spec.program, &args, &[], Framing::ContentLength);
                 let settings = server_settings(spec);
                 let server = Server {
@@ -534,6 +534,40 @@ impl Lsp {
             self.ask("textDocument/signatureHelp", Request::Signature);
         }
     }
+}
+
+/// The command line a server starts with: its spec's arguments, then the
+/// flags its settings give.
+pub(crate) fn server_args(spec: &Spec) -> Vec<String> {
+    let mut args: Vec<String> = spec.args.iter().map(|a| a.to_string()).collect();
+    for (key, flag) in spec.flags {
+        let value = match merlin_plugin::host::get_setting(key) {
+            Some(merlin_plugin::Setting::Flag(true)) => {
+                args.push(flag.to_string());
+                continue;
+            }
+            Some(merlin_plugin::Setting::Text(s)) => s.trim().to_string(),
+            Some(merlin_plugin::Setting::Integer(i)) => i.to_string(),
+            Some(merlin_plugin::Setting::Float(f)) => f.to_string(),
+            // A list comes as TOML, which reads as JSON.
+            Some(merlin_plugin::Setting::Other(text)) => {
+                match serde_json::from_str::<Vec<String>>(&text) {
+                    Ok(items) => items
+                        .iter()
+                        .map(|i| i.trim())
+                        .filter(|i| !i.is_empty())
+                        .collect::<Vec<_>>()
+                        .join(","),
+                    Err(_) => continue,
+                }
+            }
+            _ => continue,
+        };
+        if !value.is_empty() {
+            args.push(format!("{flag}{value}"));
+        }
+    }
+    args
 }
 
 /// The JSON settings a server gets: its spec's, with the plugin's own

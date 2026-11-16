@@ -3,7 +3,7 @@ title = "C/C++"
 description = "C & C++ syntax, outlines & clangd"
 badge = "C+"
 hue = "blue"
-version = "0.2.0"
+version = "0.3.0"
 api = "0.16"
 component = "target/wasm32-wasip2/release/cpp.wasm"
 # Starts when one of its files opens, or the project has one.
@@ -25,19 +25,40 @@ type = "text"
 title = "Compile commands folder"
 description = "The folder compile_commands.json is in, relative to the workspace or absolute. Empty to use the one a build plugin shares, or let clangd look for it."
 
+[settings.query-driver]
+type = "list"
+title = "Compilers to ask"
+description = "Compilers clangd may run to learn their include folders and target, as globs such as /usr/bin/arm-none-eabi-*. Needed for gcc and cross-compilers; clang's own clangd already knows."
+
 [[languages]]
 id = "c"
 name = "C"
-extensions = ["c", "h"]
+# .h is C++, as in VS Code: C++ projects have far more headers, and C
+# reads the same.
+extensions = ["c"]
 line-comment = "//"
 block-comment = ["/*", "*/"]
 
 [[languages]]
 id = "cpp"
 name = "C++"
-extensions = ["cpp", "cc", "cxx", "c++", "hpp", "hh", "hxx", "h++", "ipp", "inl", "tpp"]
+extensions = ["cpp", "cc", "cxx", "c++", "h", "hpp", "hh", "hxx", "h++", "ipp", "inl", "tpp"]
 line-comment = "//"
 block-comment = ["/*", "*/"]
+
+# Compilers' problems in a task's output. gcc and clang print
+# `src/a.cpp:3:5: warning: unused variable 'x' [-Wunused-variable]`; the
+# flag is the problem's code. The path may start with a drive, as `C:\`.
+[[problem-matchers]]
+lines = [
+    { regex = '^((?:[A-Za-z]:)?[^:]+):(\d+):(?:(\d+):)? (fatal error|error|warning): (.+?)(?: \[([^\]]+)\])?$', file = 1, line = 2, column = 3, severity = 4, message = 5, code = 6 },
+]
+
+# MSVC prints `src\a.cpp(3,5): error C2065: 'x': undeclared identifier`.
+[[problem-matchers]]
+lines = [
+    { regex = '^\s*(.+?)\((\d+)(?:,(\d+))?\)\s*: (fatal error|error|warning) ([A-Z]+\d+): (.+)$', file = 1, line = 2, column = 3, severity = 4, code = 5, message = 6 },
+]
 
 [[debuggers]]
 id = "lldb-dap"

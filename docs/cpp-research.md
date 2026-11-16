@@ -193,8 +193,18 @@ printers are lldb-dap's and gdb's own, so they need checking there first.
 
 ## Order
 
-1. **The C++ plugin's quick fixes**: the lexer bugs, the problem matchers,
-   the settings and the smaller points. No UI.
+1. **The C++ plugin's quick fixes** (built 2026-11-16, plugin 0.3.0):
+   - The three lexer bugs, with tests.
+   - Problem matchers for gcc and clang (the warning flag as the code, and
+     Windows paths) and for MSVC. The editor's own `path:line:col:` reader
+     already caught most gcc and clang errors, so "no problem matchers"
+     above overstated it.
+   - A `query-driver` setting, "Compilers to ask", through the LSP SDK's
+     new `Spec.flags`, which turns settings into command-line flags.
+   - `.h` is C++, as in VS Code.
+   - Left: clang-tidy needs no switch, since clangd runs it when a
+     `.clang-tidy` file asks; the `lldb-dap` hint on Ubuntu is still
+     unchecked; the doubled install command and "outlines" stay.
 2. **clangd's commands** in the LSP SDK. The biggest gain for the least
    work, and no UI: the code actions menu already exists.
 3. **The rest of the LSP SDK**: declaration, implementation, type

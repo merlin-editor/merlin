@@ -14,6 +14,12 @@ pub struct Spec {
     /// where it goes in the JSON settings, dotted, as `check.command`. A
     /// change to one restarts the server.
     pub options: &'static [(&'static str, &'static str)],
+    /// The plugin's settings that become command-line flags: each
+    /// setting's key, and the flag. Text and numbers go after the flag, as
+    /// `--query-driver=` gives `--query-driver=/usr/bin/gcc`; a list goes
+    /// after it joined by commas; a switch that's on adds the flag alone.
+    /// A change to one restarts the server.
+    pub flags: &'static [(&'static str, &'static str)],
     /// How to install it, for the language card when it isn't.
     pub install: Option<&'static str>,
     /// Keys of values other plugins share that the server is set up from:

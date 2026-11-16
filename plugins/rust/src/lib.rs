@@ -26,6 +26,7 @@ const RUST_SERVER: Spec = Spec {
         ("features", "cargo.features"),
     ],
     install: Some("rustup component add rust-analyzer"),
+    flags: &[],
     shared: &[],
     adjust: None,
 };

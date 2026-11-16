@@ -152,6 +152,11 @@ fn is_ident(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
 }
 
+/// Space within a line.
+fn is_blank(c: char) -> bool {
+    c == ' ' || c == '\t'
+}
+
 struct Lexer {
     chars: Vec<char>,
     i: usize,
@@ -207,10 +212,11 @@ impl Lexer {
         self.i += 1;
     }
 
-    /// The previous word on this line before `at`, skipping spaces.
+    /// The previous word on this line before `at`, skipping spaces and
+    /// tabs.
     fn word_before(&self, at: usize) -> String {
         let mut j = at;
-        while j > self.line_start && self.chars[j - 1] == ' ' {
+        while j > self.line_start && is_blank(self.chars[j - 1]) {
             j -= 1;
         }
         let end = j;
@@ -232,10 +238,15 @@ impl Lexer {
                 self.run_between(start, self.i, Kind::String);
                 let at = self.i;
                 self.bump();
-                if self.peek(0).is_some_and(|c| c != '\n') {
+                let carries_on = self.line_ends_here();
+                if self.peek(0).is_some_and(|c| c != '\n') && !carries_on {
                     self.bump();
                 }
                 self.run_between(at, self.i, Kind::Escape);
+                if carries_on {
+                    // A `\` at the end of the line carries the string on.
+                    self.skip_line_end();
+                }
                 start = self.i;
                 continue;
             }
@@ -245,6 +256,23 @@ impl Lexer {
             }
         }
         self.run_between(start, self.i, Kind::String);
+    }
+
+    /// Whether only the line's end, `\n` or `\r\n`, comes next.
+    fn line_ends_here(&self) -> bool {
+        match self.peek(0) {
+            Some('\n') => true,
+            Some('\r') => self.peek(1) == Some('\n'),
+            _ => false,
+        }
+    }
+
+    /// Moves past the line's end, to the start of the next line.
+    fn skip_line_end(&mut self) {
+        if self.peek(0) == Some('\r') {
+            self.bump();
+        }
+        self.bump();
     }
 
     /// A run between two positions on the current line.
@@ -296,8 +324,18 @@ impl Lexer {
                 .all(|c| c.is_whitespace());
             match c {
                 '/' if self.peek(1) == Some('/') => {
-                    while self.peek(0).is_some_and(|c| c != '\n') {
-                        self.bump();
+                    loop {
+                        while self.peek(0).is_some_and(|c| c != '\n') {
+                            self.bump();
+                        }
+                        // A `\` at the end of the line carries the comment
+                        // on to the next.
+                        let before = self.chars[..self.i].iter().rev().find(|&&c| c != '\r');
+                        if self.peek(0) == Some('\n') && before == Some(&'\\') {
+                            self.bump();
+                            continue;
+                        }
+                        break;
                     }
                     self.run(from, Kind::Comment);
                 }
@@ -358,7 +396,7 @@ impl Lexer {
                     }
                     let before = self.word_before(from);
                     let mut j = self.i;
-                    while self.chars.get(j) == Some(&' ') {
+                    while self.chars.get(j).copied().is_some_and(is_blank) {
                         j += 1;
                     }
                     if DECLARES.contains(&before.as_str()) {
@@ -498,6 +536,33 @@ mod tests {
             found.contains(&("u8\"é\"".into(), Kind::String)),
             "{found:?}"
         );
+    }
+
+    #[test]
+    fn tabs_count_as_space() {
+        let found = runs("class\tFoo {};\nfoo\t(1);");
+        assert!(found.contains(&("Foo".into(), Kind::Type)), "{found:?}");
+        assert!(found.contains(&("foo".into(), Kind::Function)), "{found:?}");
+    }
+
+    #[test]
+    fn strings_and_comments_carry_on_past_a_backslash() {
+        let found = runs("auto p = \"abc\\\ndef\";\n// one \\\ntwo\nint x;");
+        assert_eq!(
+            found,
+            [
+                ("auto".into(), Kind::Keyword),
+                ("\"abc".into(), Kind::String),
+                ("\\".into(), Kind::Escape),
+                ("def\"".into(), Kind::String),
+                ("// one \\".into(), Kind::Comment),
+                ("two".into(), Kind::Comment),
+                ("int".into(), Kind::Keyword),
+            ]
+        );
+        // With Windows line ends too.
+        let found = runs("s = \"a\\\r\nb\";");
+        assert_eq!(found.last(), Some(&("b\"".into(), Kind::String)));
     }
 
     #[test]

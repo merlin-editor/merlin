@@ -130,7 +130,9 @@ impl Lsp {
 
     /// A setting a server gets changed: those servers start again with it.
     pub fn setting_changed(&mut self, key: &str) {
-        self.restart_where(key, |s| s.options.iter().any(|(k, _)| *k == key));
+        self.restart_where(key, |s| {
+            s.options.iter().chain(s.flags).any(|(k, _)| *k == key)
+        });
     }
 
     /// A shared value a server is set up from changed: those servers start
