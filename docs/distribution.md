@@ -8,34 +8,36 @@ This document tracks the design and implementation for distributing **Merlin Edi
 
 | Component | Target Location | Packaging | Release Trigger |
 |---|---|---|---|
-| **Plugin SDK** (`merlin-plugin`, `merlin-lsp`, `merlin-grammar`) | [crates.io](https://crates.io) | Cargo crates for `wasm32-wasip2` | Git tag `sdk-v*` |
+| **Plugin SDK** (`merlin-plugin`, `merlin-lsp`, `merlin-grammar`, `merlin-acp`) | [crates.io](https://crates.io) | Cargo crates for `wasm32-wasip2` | Git tag `sdk-v*` |
 | **Editor Binary** (`merlin`) | [GitHub Releases](https://github.com/merlin-editor/merlin/releases) | Multi-platform archives (`.tar.gz`, `.zip`) + `.sha256` | Git tag `v*` (e.g., `v0.1.0`) |
 | **Installer & Updater** | GitHub raw / repository script | POSIX shell script (`scripts/install.sh`) | Main branch updates |
 | **Plugin Registry** | [merlin-editor/plugins](https://github.com/merlin-editor/plugins) | Deterministic `.merlin` archives + signed `index.json` | PRs to plugins repo |
 
 ---
 
-## 2. Plugin SDK on crates.io (Completed, 0.14.0)
+## 2. Plugin SDK on crates.io (Completed, 0.15.0)
 
-0.14.0 was published by `sdk-release.yml` on 2026-11-09, its first run, from the `sdk-v0.14.0` tag. `merlin plugin new` writes `merlin-plugin = "<API_VERSION>"`, from crates.io; `MERLIN_SDK_PATH=<checkout>/sdk/rust` makes it a path instead, to change the SDK and a plugin together. The SDK crates are published to crates.io, all three at the same version (the `version` in `sdk/*/Cargo.toml`, which moves with the plugin API's `API_VERSION`):
+0.14.0 was published by `sdk-release.yml` on 2026-11-09, its first run, from the `sdk-v0.14.0` tag; 0.15.0 on 2026-11-16, from `sdk-v0.15.0`. `merlin plugin new` writes `merlin-plugin = "<API_VERSION>"`, from crates.io; `MERLIN_SDK_PATH=<checkout>/sdk/rust` makes it a path instead, to change the SDK and a plugin together. The SDK crates are published to crates.io, all four at the same version (the `version` in `sdk/*/Cargo.toml`, which moves with the plugin API's `API_VERSION`):
 - `merlin-plugin` (Core WebAssembly guest bindings and runtime macro)
 - `merlin-lsp` (Language Server Protocol client helper)
 - `merlin-grammar` (Tree-sitter syntax highlighter with bundled wasm C headers)
+- `merlin-acp` (Agent Client Protocol client for agent plugins; since 0.15.0)
 
 ### Automated Publishing via GitHub Actions (Trusted Publishing)
 - **Workflow**: `.github/workflows/sdk-release.yml`
 - **Authentication**: OpenID Connect (OIDC) through `rust-lang/crates-io-auth-action`—no permanent secrets or API tokens stored in GitHub.
 - **Trigger**:
   ```bash
-  git tag sdk-v0.13.0
-  git push origin sdk-v0.13.0
+  git tag sdk-v0.15.0
+  git push origin sdk-v0.15.0
   ```
-- **Order**: `merlin-plugin` first, then a 25-second wait for the crates.io index, then `merlin-lsp` and `merlin-grammar`, which depend on it. `scripts/publish-sdk.sh` does the same by hand.
+- **Order**: `merlin-plugin` first, then a 25-second wait for the crates.io index, then `merlin-lsp`, `merlin-grammar` and `merlin-acp`, which depend on it. `scripts/publish-sdk.sh` does the same by hand.
 - **Environment**: Protected `release` environment in GitHub: only `sdk-v*` tags deploy to it, and a run waits until a required reviewer (marc-cr1810) approves it under Review deployments.
+- **A new crate**: crates.io trusted publishing can't create a crate ("Trusted Publishing tokens do not support creating new crates"), and a trusted publisher can only be added to a crate that exists. So a crate's first version is published by hand, with a `publish-new` token: let the workflow publish the others (it fails on the new one), then `cd sdk/<crate> && cargo publish --target wasm32-wasip2`. Then, in the crate's settings on crates.io, add the GitHub trusted publisher `merlin-editor/merlin`, workflow `sdk-release.yml`, environment `release`, and revoke the token. `merlin-acp` 0.15.0 went out this way.
 
 ---
 
-## 3. Editor Releases & Multi-Platform CI (Built; v0.1.1 Released 2026-11-15)
+## 3. Editor Releases & Multi-Platform CI (Built; v0.2.0 Released 2026-11-16)
 
 - **Workflow**: `.github/workflows/ci.yml`
 - **Testing**: On every push to `main` and every pull request to `main`, `cargo test --workspace` runs on Ubuntu, macOS, and Windows.
@@ -146,13 +148,13 @@ When a feature touches both the Editor host and the SDK (e.g., expanding the WIT
 
 ```bash
 # Tag the SDK
-git tag sdk-v0.14.0
+git tag sdk-v0.15.0
 
 # Tag the Editor
-git tag v0.1.0
+git tag v0.2.0
 
 # Push both tags simultaneously
-git push origin sdk-v0.14.0 v0.1.0
+git push origin sdk-v0.15.0 v0.2.0
 ```
 
 GitHub Actions triggers both workflows independently:
@@ -365,12 +367,28 @@ nothing changed); and `MERLIN_NO_SELF_UPDATE` (the command with Copy). Not
 tried: macOS, Windows, and a real published release, which needs one signed
 by the `sign` job.
 
-### Milestone C: plugin API 0.15 and merlin v0.2.0 (built 2026-11-16)
+### Milestone C: plugin API 0.15 and merlin v0.2.0 (released 2026-11-16)
 
 Built as plugin-registry.md section 12 lays out, after the approved
-mock-ups `PluginNeeds.html`, `Agents.html` and `PluginUpkeep.html`. Left:
-publishing SDK 0.15.0, the registry PR with 0.15 versions of merlin's
-plugins, and tagging v0.2.0, in that order. In short:
+mock-ups `PluginNeeds.html`, `Agents.html`, `PluginUpkeep.html`,
+`AgentUi.html` and `AgentChat.html`. Released 2026-11-16, in this order, all
+from c87b253:
+
+1. `sdk-v0.15.0` published `merlin-plugin`, `merlin-lsp` and
+   `merlin-grammar` 0.15.0. `merlin-acp`, new, was published by hand (see
+   section 2, A new crate), and now has its trusted publisher.
+2. merlin-editor/plugins#4 added 0.2.0 of each of merlin's plugins and the
+   `antigravity` and `opencode` agents at 0.1.0; its Publish run signed
+   index serial 3. The registry has to be published before the editor tag,
+   because the `bundle` job fetches its plugins from the index.
+3. `v0.2.0`: tests, bundle and the five builds, then the `sign` job on
+   approval. By hand, `SHA256SUMS.minisig` verified against
+   `keys/release.pub` (trusted comment `merlin v0.2.0`), and the Linux
+   x86_64 archive matched it, ran as `merlin v0.2.0` and held 13 packages
+   at 0.2.0, no agents. Not tried by hand: the other four archives, and
+   updating to it from 0.1.1.
+
+In short:
 
 - **C1. How to install a program.** `[programs.<name>]` in the manifest,
   with `install` as one command or one per system, a `url`, and what's
@@ -387,7 +405,8 @@ plugins, and tagging v0.2.0, in that order. In short:
 - **C6. Agents:** `[[agents]]`, the chat panel, permission cards and
   reviewing changes, owned by merlin; a plugin translates for each agent.
   Agents can read and write files through the editor and run commands in
-  its terminal tabs. The `acp` plugin, then `claude`, follow v0.2.0.
+  its terminal tabs. ACP is the `merlin-acp` crate, which the `antigravity`
+  and `opencode` plugins use; a `claude` plugin comes next.
 - **C7. Without an API change:** automatic plugin updates, Keep at this
   version, removing settings on uninstall, Replaced by.
 

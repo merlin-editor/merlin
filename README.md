@@ -28,6 +28,7 @@ looking at [ttt](https://github.com/eugenioenko/ttt), and merlin keeps both:
 | `sdk/rust` | `merlin-plugin`, the Rust SDK for writing plugins. |
 | `sdk/grammar` | `merlin-grammar`: colour a language in a plugin with a tree-sitter grammar. |
 | `sdk/lsp` | `merlin-lsp`: a language server client a language plugin embeds with its own servers. |
+| `sdk/acp` | `merlin-acp`: an Agent Client Protocol client, for plugins that bring an agent to the chat. |
 | `plugins/rust`, `python`, `javascript`, `go`, `cpp` | Those languages: colours, language servers, and their tests, tasks and debuggers. |
 | `plugins/json`, `toml` | Those languages and their tree-sitter colours. |
 | `plugins/catch2` | Catch2 tests for C++ projects, beside the `cpp` plugin. |
