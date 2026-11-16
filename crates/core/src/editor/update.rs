@@ -120,6 +120,11 @@ impl Editor {
                 tokens,
             } => self.text_coloured(language, text, tokens),
             Event::Files(files) if self.search_open() => self.search_files_came(files),
+            Event::Files(files) if self.agents.want_files => {
+                self.agents.want_files = false;
+                self.palette_files = files;
+                self.redraw_agents();
+            }
             Event::Files(files) => self.files_came(files),
             Event::Clipboard(text) => self.clipboard_came(text, &mut fx),
             Event::Error(text) => self.error(text),

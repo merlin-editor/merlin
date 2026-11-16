@@ -247,6 +247,8 @@ pub(crate) struct Agents {
     pending_writes: Vec<(String, u32, u32, PathBuf, String)>,
     /// The chat and turn whose Rewind menu shows.
     rewind: Option<(String, usize)>,
+    /// The project's files were asked for, for `@`.
+    pub want_files: bool,
 }
 
 pub(crate) struct Tab {
@@ -1392,7 +1394,8 @@ impl Editor {
             self.draw_agent(key);
             return;
         }
-        let (context, chips) = self.agent_context(i);
+        let (mut context, mut chips) = self.agent_context(i);
+        let sent = self.with_mentions(text, &mut context, &mut chips);
         let tab = &mut self.agents.tabs[i];
         tab.turns.push(Turn::You {
             text: text.trim().to_string(),
@@ -1405,13 +1408,81 @@ impl Editor {
             call: AgentCall::Prompt {
                 chat: tab.chat,
                 agent: spec.id.clone(),
-                text: text.trim().to_string(),
+                text: sent.trim().to_string(),
                 context,
             },
         });
         self.inputs.remove(&(name.clone(), PROMPT.to_string()));
         self.input_cursors.remove(&(name, PROMPT.to_string()));
         self.draw_agent(key);
+    }
+
+    /// What `@` offers for `word`: matching files, the selection, and the
+    /// open file's problems.
+    fn at_items(&self, word: &str) -> Vec<(String, String, String)> {
+        let mut items = Vec::new();
+        let lower = word.to_lowercase();
+        let doc = self.doc();
+        if let Some(path) = doc.buffer.path.as_deref()
+            && let Some(anchor) = doc.anchor.filter(|a| *a != doc.cursor)
+            && "selection".starts_with(&lower)
+        {
+            let a = doc.line_col(anchor).0 + 1;
+            let b = doc.line_col(doc.cursor).0 + 1;
+            let name = path
+                .file_name()
+                .map_or(String::new(), |n| n.to_string_lossy().into_owned());
+            items.push((
+                "agent:at:selection".into(),
+                "▭ Selection".into(),
+                format!("{name} {}–{}", a.min(b), a.max(b)),
+            ));
+        }
+        let problems = self.open_problems();
+        if !problems.is_empty() && "problems".starts_with(&lower) {
+            let n = problems.len();
+            items.push((
+                "agent:at:problems".into(),
+                "⚠ Problems".into(),
+                format!("{n} {}", if n == 1 { "problem" } else { "problems" }),
+            ));
+        }
+        let mut files: Vec<(i64, &String)> = self
+            .search_files_list()
+            .iter()
+            .filter(|f| !f.ends_with('/'))
+            .filter_map(|f| Some((crate::fuzzy::score(word, f)?, f)))
+            .collect();
+        files.sort_by_key(|(score, f)| (-*score, f.len()));
+        for (_, f) in files.into_iter().take(6 - items.len().min(2)) {
+            let (dir, name) = f.rsplit_once('/').unwrap_or(("", f));
+            items.insert(
+                items.len().min(items.len()),
+                (
+                    format!("agent:at:file:{f}"),
+                    format!("📄 {name}"),
+                    dir.to_string(),
+                ),
+            );
+        }
+        items
+    }
+
+    /// The open file's problems: line and message.
+    fn open_problems(&self) -> Vec<(u32, String)> {
+        let Some(path) = self.doc().buffer.path.as_deref() else {
+            return Vec::new();
+        };
+        let full = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            self.root.join(path)
+        };
+        self.diagnostics
+            .iter()
+            .filter(|((_, p), _)| *p == full || p == path)
+            .flat_map(|(_, d)| d.iter().map(|d| (d.start.0 + 1, d.message.clone())))
+            .collect()
     }
 
     /// What goes with a message: the open file, or its selected lines.
@@ -1441,9 +1512,68 @@ impl Editor {
         }
     }
 
+    /// The `@` mentions in a message: files go with it, the selection as
+    /// its lines, and the problems written out after it.
+    fn with_mentions(
+        &self,
+        text: &str,
+        context: &mut Vec<AgentContext>,
+        chips: &mut Vec<String>,
+    ) -> String {
+        let mut out = text.to_string();
+        let files = self.search_files_list();
+        for word in text.split_whitespace().filter_map(|w| w.strip_prefix('@')) {
+            let word = word.trim_end_matches([',', '.', ';', ':', '?', '!']);
+            if files.iter().any(|f| f == word) {
+                if !context
+                    .iter()
+                    .any(|c| matches!(c, AgentContext::File(p) if p == word))
+                {
+                    context.push(AgentContext::File(word.to_string()));
+                    chips.push(word.rsplit('/').next().unwrap_or(word).to_string());
+                }
+            } else if word == "selection" {
+                let doc = self.doc();
+                if let (Some(path), Some(anchor)) = (
+                    doc.buffer.path.as_deref(),
+                    doc.anchor.filter(|a| *a != doc.cursor),
+                ) {
+                    let a = doc.line_col(anchor).0 as u32 + 1;
+                    let b = doc.line_col(doc.cursor).0 as u32 + 1;
+                    context.retain(|c| !matches!(c, AgentContext::File(_)));
+                    context.push(AgentContext::Lines(
+                        self.shown_path(path),
+                        a.min(b),
+                        a.max(b),
+                    ));
+                }
+            } else if word == "problems" {
+                let problems = self.open_problems();
+                if !problems.is_empty() {
+                    out.push_str("\n\nProblems in the open file:");
+                    for (line, message) in problems {
+                        out.push_str(&format!("\n- line {line}: {message}"));
+                    }
+                }
+            }
+        }
+        out
+    }
+
     /// A click in an agent's tab.
     pub(crate) fn agent_click(&mut self, id: &str, fx: &mut Vec<Effect>) -> bool {
         let key = self.shown_agent().unwrap_or_default();
+        // Something to add, picked from @'s menu: it goes in the box.
+        if let Some(what) = id.strip_prefix("agent:at:") {
+            let token = what.strip_prefix("file:").unwrap_or(what).to_string();
+            let input = (format!("{AGENT}{key}"), PROMPT.to_string());
+            let typed = self.inputs.get(&input).cloned().unwrap_or_default();
+            let start = typed.rfind('@').unwrap_or(typed.len());
+            let text = format!("{}@{token} ", &typed[..start]);
+            self.input_cursors.insert(input.clone(), text.len());
+            self.inputs.insert(input, text);
+            return true;
+        }
         // A slash command picked: it goes in the box.
         if let Some(name) = id.strip_prefix("agent:cmd:") {
             let input = (format!("{AGENT}{key}"), PROMPT.to_string());
@@ -2835,36 +2965,38 @@ impl Editor {
                 .get(&(name.to_string(), PROMPT.to_string()))
                 .map(String::as_str)
                 .unwrap_or_default();
-            let Some(word) = typed
+            let agent = self.agent_name(key);
+            let (title, items) = if let Some(word) = typed
                 .strip_prefix('/')
                 .filter(|w| !w.contains(char::is_whitespace))
-            else {
+            {
+                let items: Vec<(String, String, String)> = tab
+                    .commands
+                    .iter()
+                    .filter(|(n, _)| n.starts_with(word))
+                    // A few at a time: typing more narrows them.
+                    .take(8)
+                    .map(|(n, d)| (format!("agent:cmd:{n}"), format!("/{n}"), d.clone()))
+                    .collect();
+                (format!("{agent}'s commands"), items)
+            } else if let Some(word) = at_word(typed) {
+                ("Add to the message".to_string(), self.at_items(word))
+            } else {
                 return panel;
             };
-            let items: Vec<(String, String, String)> = tab
-                .commands
-                .iter()
-                .filter(|(n, _)| n.starts_with(word))
-                // A few at a time: typing more narrows them.
-                .take(8)
-                .map(|(n, d)| (format!("agent:cmd:{n}"), format!("/{n}"), d.clone()))
-                .collect();
             if items.is_empty() {
                 return panel;
             }
-            if let Some(at) = panel
+            // Over the box: before what's attached, which is in the box.
+            if let Some(mut at) = panel
                 .nodes
                 .iter()
-                .position(|n| matches!(n, Node::Input { .. }))
+                .position(|n| matches!(n, Node::Input { id, .. } if id == PROMPT))
             {
-                let agent = self.agent_name(key);
-                panel.nodes.insert(
-                    at,
-                    Node::Menu {
-                        title: format!("{agent}'s commands"),
-                        items,
-                    },
-                );
+                if at > 0 && matches!(panel.nodes[at - 1], Node::Chips { .. }) {
+                    at -= 1;
+                }
+                panel.nodes.insert(at, Node::Menu { title, items });
             }
             return panel;
         }
@@ -2901,6 +3033,16 @@ impl Editor {
             return false;
         };
         let key = key.to_string();
+        // Something half typed after @: Enter takes the first offered.
+        if let Some(word) = at_word(text)
+            && !word.is_empty()
+            && let Some((id, ..)) = self.at_items(word).into_iter().next()
+        {
+            let input = (panel.to_string(), PROMPT.to_string());
+            self.inputs.insert(input, text.to_string());
+            self.agent_click(&id, fx);
+            return true;
+        }
         // A slash command half typed: Enter finishes it, as the menu shows.
         if let Some(word) = text
             .strip_prefix('/')
@@ -2957,6 +3099,14 @@ impl Editor {
                 self.draw_agent(&tab_key);
                 return true;
             }
+        }
+        // @ in the box: the project's files, to offer.
+        if key.code == crate::key::KeyCode::Char('@')
+            && self.search_files_list().is_empty()
+            && !self.agents.want_files
+        {
+            self.agents.want_files = true;
+            fx.push(Effect::ListFiles);
         }
         // Tab in the box: the agent's next mode.
         if key.code == crate::key::KeyCode::Tab
@@ -3024,6 +3174,14 @@ impl Editor {
         }
     }
 
+    /// Every agent's tab drawn again.
+    pub(crate) fn redraw_agents(&mut self) {
+        let keys: Vec<String> = self.agents.tabs.iter().map(|t| t.key.clone()).collect();
+        for key in keys {
+            self.draw_agent(&key);
+        }
+    }
+
     /// The rules loaded for this workspace.
     pub(crate) fn set_agent_allowed(&mut self, rules: Vec<String>) {
         self.agents.allowed = rules;
@@ -3050,6 +3208,14 @@ const MODE_ITEMS: &[&str] = &[
     "agent.mode.6",
     "agent.mode.7",
 ];
+
+/// The word being typed after an `@` at the end of the text, if one is.
+fn at_word(text: &str) -> Option<&str> {
+    let at = text.rfind('@')?;
+    let before_ok = at == 0 || text[..at].ends_with(char::is_whitespace);
+    let word = &text[at + 1..];
+    (before_ok && !word.contains(char::is_whitespace)).then_some(word)
+}
 
 /// What a step that's running is doing, as "Reading".
 fn running_verb(kind: ToolKind) -> &'static str {

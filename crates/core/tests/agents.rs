@@ -917,3 +917,24 @@ fn editing_a_message_rewinds_the_files_and_starts_again_from_it() {
         "{c:?}"
     );
 }
+
+#[test]
+fn at_lists_files_and_what_is_picked_goes_with_the_message() {
+    let mut s = session();
+    // @ asks for the project's files, which the session answers.
+    s.run("cmd agent.open; paste look at; key space; key @; paste mai");
+    let shown = chat(&s);
+    assert!(
+        shown.contains("menu: Add to the message | 📄 main.rs — src"),
+        "{shown}"
+    );
+    s.run("key enter");
+    s.run("paste please; key enter");
+    let c = calls(&mut s);
+    assert!(
+        matches!(&c[..], [AgentCall::Prompt { text, context, .. }]
+            if text == "look at @src/main.rs please"
+                && context.contains(&AgentContext::File("src/main.rs".into()))),
+        "{c:?}"
+    );
+}

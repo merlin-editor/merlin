@@ -379,6 +379,10 @@ impl Editor {
 
     /// The project's files, as the Explorer lists them or as they were
     /// asked for.
+    pub(crate) fn search_files_list(&self) -> &[String] {
+        self.search_files()
+    }
+
     fn search_files(&self) -> &[String] {
         match &self.tree {
             Some(t) if !t.files.is_empty() => &t.files,
