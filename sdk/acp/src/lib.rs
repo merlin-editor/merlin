@@ -17,9 +17,9 @@
 use std::collections::BTreeMap;
 
 use merlin_plugin::{
-    AgentAnswer, AgentCommand, AgentContext, AgentOutcome, AgentPart, AgentRequest, AgentTool,
-    Chip, Framing, LogLevel, PickItem, PlanStep, Plugin, ProcessEvent, StepState, Tone,
-    ToolKind, host,
+    AgentAnswer, AgentAsks, AgentCommand, AgentContext, AgentMode, AgentOutcome, AgentPart,
+    AgentRequest, AgentTool, Chip, Framing, LogLevel, PickItem, PlanStep, Plugin, ProcessEvent,
+    StepState, Tone, ToolKind, host,
 };
 use serde_json::{Value, json};
 
@@ -33,6 +33,41 @@ pub struct Agent {
     pub id: &'static str,
     pub program: &'static str,
     pub args: &'static [&'static str],
+    /// How its modes look, by mode id. A mode left out gets a colour and
+    /// a way of asking guessed from its id (see [`ModeLook::guess`]).
+    pub modes: &'static [ModeLook],
+}
+
+/// How one of an agent's modes looks in the chat: its colour (a merlin hue
+/// such as `"purple"`, or `#rrggbb`) and how it asks before it acts.
+#[derive(Clone, Copy, Debug)]
+pub struct ModeLook {
+    pub id: &'static str,
+    pub colour: &'static str,
+    pub asks: AgentAsks,
+}
+
+impl ModeLook {
+    /// merlin's suggested colours, from what a mode's id says it does:
+    /// purple reads only, blue asks first, green edits on its own, orange
+    /// also runs safe commands, red never asks.
+    pub fn guess(id: &str) -> (&'static str, AgentAsks) {
+        let id = id.to_ascii_lowercase();
+        let has = |w: &[&str]| w.iter().any(|w| id.contains(w));
+        if has(&["plan", "read", "ask-only", "chat"]) {
+            ("purple", AgentAsks::ReadsOnly)
+        } else if has(&["bypass", "yolo", "full", "dontask", "dont-ask", "never"]) {
+            ("red", AgentAsks::Never)
+        } else if has(&["auto"]) {
+            ("orange", AgentAsks::EditsAndSafeCommands)
+        } else if has(&["accept", "edit"]) {
+            ("green", AgentAsks::Edits)
+        } else if has(&["default", "agent", "normal", "manual"]) {
+            ("blue", AgentAsks::AsksFirst)
+        } else {
+            ("blue", AgentAsks::Unsaid)
+        }
+    }
 }
 
 /// The plugin: every chat's agent, by chat.
@@ -66,8 +101,10 @@ struct Chat {
     /// What it lets you choose in the chat's header: chips that open
     /// their pickers.
     settings: Vec<Setting>,
-    /// What the chat has used, as the header's note says it.
-    usage: String,
+    /// Context used of its size, and cost, as `usage_update` says.
+    used: (u64, u64, Option<String>),
+    /// How its modes look, from the plugin's [`Agent`].
+    looks: &'static [ModeLook],
 }
 
 /// A choice in a chat's header: one of the session's config options
@@ -79,6 +116,8 @@ struct Setting {
     value: String,
     /// Its options, by value and name.
     options: Vec<(String, String)>,
+    /// The agent's mode, shown as its badge rather than a chip.
+    mode: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -111,12 +150,17 @@ fn config_settings(options: Option<&Value>) -> Vec<Setting> {
             let mut options = Vec::new();
             flat(o.get("options")?.as_array()?, &mut options);
             Some(Setting {
-                title: o.get("name").and_then(Value::as_str).unwrap_or(&id).to_string(),
+                title: o
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or(&id)
+                    .to_string(),
                 value: o
                     .get("currentValue")
                     .and_then(Value::as_str)
                     .unwrap_or_default()
                     .to_string(),
+                mode: o.get("category").and_then(Value::as_str) == Some("mode"),
                 id,
                 kind: SetKind::Config,
                 options,
@@ -133,15 +177,33 @@ fn model_and_mode(result: &Value) -> Vec<Setting> {
             .flatten()
             .filter_map(|m| {
                 let id = m.get(id)?.as_str()?.to_string();
-                let name = m.get("name").and_then(Value::as_str).unwrap_or(&id).to_string();
+                let name = m
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or(&id)
+                    .to_string();
                 Some((id, name))
             })
             .collect()
     };
     let mut out = Vec::new();
     for (key, kind, title, all, id, current) in [
-        ("models", SetKind::Model, "Model", "availableModels", "modelId", "currentModelId"),
-        ("modes", SetKind::Mode, "Mode", "availableModes", "id", "currentModeId"),
+        (
+            "models",
+            SetKind::Model,
+            "Model",
+            "availableModels",
+            "modelId",
+            "currentModelId",
+        ),
+        (
+            "modes",
+            SetKind::Mode,
+            "Mode",
+            "availableModes",
+            "id",
+            "currentModeId",
+        ),
     ] {
         let Some(v) = result.get(key) else { continue };
         out.push(Setting {
@@ -154,6 +216,7 @@ fn model_and_mode(result: &Value) -> Vec<Setting> {
                 .unwrap_or_default()
                 .to_string(),
             options: list(v.get(all), id),
+            mode: kind == SetKind::Mode,
         });
     }
     out
@@ -254,7 +317,8 @@ impl Acp {
                 stderr: Vec::new(),
                 busy: false,
                 settings: Vec::new(),
-                usage: String::new(),
+                used: (0, 0, None),
+                looks: spec.modes,
             },
         );
         self.request(
@@ -480,7 +544,7 @@ impl Acp {
                     mode,
                     self.chats
                         .get_mut(&chat)
-                        .and_then(|c| c.settings.iter_mut().find(|s| s.kind == SetKind::Mode)),
+                        .and_then(|c| c.settings.iter_mut().find(|s| s.mode)),
                 ) {
                     set.value = mode.to_string();
                 }
@@ -508,7 +572,7 @@ impl Acp {
             .settings
             .iter()
             .enumerate()
-            .filter(|(_, s)| s.options.len() > 1)
+            .filter(|(_, s)| s.options.len() > 1 && !s.mode)
             .map(|(n, s)| {
                 let name = s
                     .options
@@ -522,7 +586,37 @@ impl Acp {
                 }
             })
             .collect();
-        let _ = host::agent_header(chat, &chips, &c.usage);
+        let _ = host::agent_header(chat, &chips, "");
+        let modes: Vec<AgentMode> = c
+            .settings
+            .iter()
+            .find(|s| s.mode)
+            .map(|s| {
+                s.options
+                    .iter()
+                    .map(|(id, name)| {
+                        let (colour, asks) = c
+                            .looks
+                            .iter()
+                            .find(|l| l.id == id)
+                            .map_or_else(|| ModeLook::guess(id), |l| (l.colour, l.asks));
+                        AgentMode {
+                            id: id.clone(),
+                            name: name.clone(),
+                            colour: colour.into(),
+                            asks,
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let current = c
+            .settings
+            .iter()
+            .find(|s| s.mode)
+            .map(|s| s.value.clone())
+            .unwrap_or_default();
+        let _ = host::agent_modes(chat, &modes, &current);
     }
 
     /// What the chat has used, from a `usage_update` or a turn's `usage`:
@@ -531,6 +625,7 @@ impl Acp {
         let tokens = ["used", "totalTokens", "total_tokens"]
             .iter()
             .find_map(|k| usage.get(*k).and_then(Value::as_u64));
+        let size = usage.get("size").and_then(Value::as_u64);
         let cost = usage.get("cost").and_then(|c| {
             let amount = c.get("amount").and_then(Value::as_f64)?;
             let currency = c.get("currency").and_then(Value::as_str).unwrap_or("USD");
@@ -539,18 +634,25 @@ impl Acp {
                 other => format!("{amount:.2} {other}"),
             })
         });
+        let Some(c) = self.chats.get_mut(&chat) else {
+            return;
+        };
+        if let Some(t) = tokens {
+            c.used.0 = t;
+        }
+        if let Some(s) = size {
+            c.used.1 = s;
+        }
+        if cost.is_some() {
+            c.used.2 = cost;
+        }
+        let (used, size, cost) = c.used.clone();
         let mut parts = Vec::new();
-        if let Some(t) = tokens.filter(|t| *t > 0) {
-            parts.push(format!("{} tokens", short_count(t)));
+        if used > 0 {
+            parts.push(format!("{} tokens", short_count(used)));
         }
         parts.extend(cost);
-        if parts.is_empty() {
-            return;
-        }
-        if let Some(c) = self.chats.get_mut(&chat) {
-            c.usage = parts.join(" · ");
-        }
-        self.header(chat);
+        let _ = host::agent_usage(chat, used, size, &parts.join(" · "));
     }
 
     /// A step, as it stands after `update`.
@@ -626,7 +728,13 @@ impl Acp {
 
     /// A request from the agent: permission, a file, or a terminal.
     fn agent_request(&mut self, chat: u32, method: &str, id: Value, params: &Value) {
-        let text = |k: &str| params.get(k).and_then(Value::as_str).unwrap_or_default().to_string();
+        let text = |k: &str| {
+            params
+                .get(k)
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string()
+        };
         match method {
             "session/request_permission" => self.permission(chat, id, params),
             "fs/read_text_file" => {
@@ -691,7 +799,9 @@ impl Acp {
                     .and_then(|t| t.strip_prefix('t'))
                     .and_then(|n| n.parse().ok());
                 let Some(run) = run.filter(|r| {
-                    self.chats.get(&chat).is_some_and(|c| c.runs.contains_key(r))
+                    self.chats
+                        .get(&chat)
+                        .is_some_and(|c| c.runs.contains_key(r))
                 }) else {
                     return self.reply_error(chat, id, "no such terminal");
                 };
@@ -802,6 +912,44 @@ impl Acp {
                 ),
                 _ => None,
             });
+        let options: Vec<(String, String)> = params
+            .get("options")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|o| {
+                Some((
+                    o.get("optionId")?.as_str()?.to_string(),
+                    o.get("kind")?.as_str()?.to_string(),
+                ))
+            })
+            .collect();
+        // Leaving a mode, as a plan's end: the modes its options name.
+        let modes: Vec<String> = self
+            .chats
+            .get(&chat)
+            .and_then(|c| c.settings.iter().find(|s| s.mode))
+            .map(|s| {
+                options
+                    .iter()
+                    .filter(|(id, k)| {
+                        k.starts_with("allow") && s.options.iter().any(|(m, _)| m == id)
+                    })
+                    .map(|(id, _)| id.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        if kind == "switch_mode" && !modes.is_empty() {
+            match host::agent_ask(chat, &AgentRequest::Mode(modes)) {
+                Ok(ask) => {
+                    if let Some(c) = self.chats.get_mut(&chat) {
+                        c.asks.insert(ask, (id, options));
+                    }
+                }
+                Err(e) => self.reply_error(chat, id, &e),
+            }
+            return;
+        }
         let request = match (kind.as_str(), path, command) {
             ("edit" | "delete" | "move", Some(path), _) => {
                 let text = diff.map(|d| {
@@ -818,18 +966,6 @@ impl Acp {
             ("read", Some(path), _) => AgentRequest::Read(path),
             _ => AgentRequest::Other(lower_first(&title)),
         };
-        let options: Vec<(String, String)> = params
-            .get("options")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(|o| {
-                Some((
-                    o.get("optionId")?.as_str()?.to_string(),
-                    o.get("kind")?.as_str()?.to_string(),
-                ))
-            })
-            .collect();
         match host::agent_ask(chat, &request) {
             Ok(ask) => {
                 if let Some(c) = self.chats.get_mut(&chat) {
@@ -859,9 +995,13 @@ impl Plugin for Acp {
             let full = absolute(&root, &path);
             let name = path.rsplit('/').next().unwrap_or(&path).to_string();
             if let Some((a, b)) = lines {
-                prompt.push(json!({"type": "text", "text": format!("(About lines {a} to {b} of {path}.)")}));
+                prompt.push(
+                    json!({"type": "text", "text": format!("(About lines {a} to {b} of {path}.)")}),
+                );
             }
-            prompt.push(json!({"type": "resource_link", "name": name, "uri": format!("file://{full}")}));
+            prompt.push(
+                json!({"type": "resource_link", "name": name, "uri": format!("file://{full}")}),
+            );
         }
         if let Some(c) = self.chats.get_mut(&chat) {
             c.busy = true;
@@ -876,7 +1016,10 @@ impl Plugin for Acp {
         };
         let session = c.session.clone();
         // Every card still open is answered: cancelled.
-        let asks: Vec<Value> = std::mem::take(&mut c.asks).into_values().map(|(id, _)| id).collect();
+        let asks: Vec<Value> = std::mem::take(&mut c.asks)
+            .into_values()
+            .map(|(id, _)| id)
+            .collect();
         for id in asks {
             self.reply(chat, id, json!({"outcome": {"outcome": "cancelled"}}));
         }
@@ -943,6 +1086,17 @@ impl Plugin for Acp {
         self.header(chat);
     }
 
+    fn agent_mode(&mut self, chat: u32, mode: &str) {
+        let Some(n) = self
+            .chats
+            .get(&chat)
+            .and_then(|c| c.settings.iter().position(|s| s.mode))
+        else {
+            return;
+        };
+        self.pick(&format!("acp:set:{chat}:{n}"), mode);
+    }
+
     fn agent_close(&mut self, chat: u32) {
         if let Some(c) = self.chats.remove(&chat) {
             host::kill(c.process);
@@ -950,19 +1104,30 @@ impl Plugin for Acp {
     }
 
     fn agent_answer(&mut self, chat: u32, request: u32, answer: AgentAnswer) {
-        let Some((id, options)) = self.chats.get_mut(&chat).and_then(|c| c.asks.remove(&request))
+        let Some((id, options)) = self
+            .chats
+            .get_mut(&chat)
+            .and_then(|c| c.asks.remove(&request))
         else {
             return;
         };
-        let wanted: &[&str] = match answer {
+        let wanted: &[&str] = match &answer {
             AgentAnswer::AllowOnce => &["allow_once", "allow_always"],
             AgentAnswer::AlwaysAllow => &["allow_always", "allow_once"],
-            AgentAnswer::Deny => &["reject_once", "reject_always"],
+            AgentAnswer::Deny | AgentAnswer::Mode(_) => &["reject_once", "reject_always"],
         };
-        let picked = wanted
-            .iter()
-            .find_map(|k| options.iter().find(|(_, kind)| kind == k))
-            .map(|(id, _)| id.clone());
+        // Leaving a mode: the option named for the mode picked.
+        let picked = match &answer {
+            AgentAnswer::Mode(mode) => options
+                .iter()
+                .find(|(id, _)| id == mode)
+                .or_else(|| options.iter().find(|(_, k)| k.starts_with("allow")))
+                .map(|(id, _)| id.clone()),
+            _ => wanted
+                .iter()
+                .find_map(|k| options.iter().find(|(_, kind)| kind == k))
+                .map(|(id, _)| id.clone()),
+        };
         let outcome = match picked {
             Some(option) => json!({"outcome": {"outcome": "selected", "optionId": option}}),
             None => json!({"outcome": {"outcome": "cancelled"}}),
@@ -971,7 +1136,10 @@ impl Plugin for Acp {
     }
 
     fn agent_file(&mut self, chat: u32, request: u32, got: Result<String, String>) {
-        let Some((id, op)) = self.chats.get_mut(&chat).and_then(|c| c.files.remove(&request))
+        let Some((id, op)) = self
+            .chats
+            .get_mut(&chat)
+            .and_then(|c| c.files.remove(&request))
         else {
             return;
         };

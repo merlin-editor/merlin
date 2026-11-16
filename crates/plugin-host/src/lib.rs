@@ -1259,8 +1259,9 @@ impl PluginHost {
                     merlin_core::AgentAnswer::AllowOnce => types::AgentAnswer::AllowOnce,
                     merlin_core::AgentAnswer::AlwaysAllow => types::AgentAnswer::AlwaysAllow,
                     merlin_core::AgentAnswer::Deny => types::AgentAnswer::Deny,
+                    merlin_core::AgentAnswer::Mode(m) => types::AgentAnswer::Mode(m.clone()),
                 };
-                b.call_on_agent_answer(s, *chat, *request, answer)
+                b.call_on_agent_answer(s, *chat, *request, &answer)
             }
             AgentCall::File {
                 chat,
@@ -1279,6 +1280,7 @@ impl PluginHost {
                     .map_err(String::as_str);
                 b.call_on_agent_run(s, *chat, *run, result)
             }
+            AgentCall::Mode { chat, mode } => b.call_on_agent_mode(s, *chat, mode),
         })
     }
 

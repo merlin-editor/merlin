@@ -6,9 +6,9 @@ use std::path::PathBuf;
 
 use merlin_core::script::Session;
 use merlin_core::{
-    AgentAnswer, AgentCall, AgentContext, AgentOutcome, AgentPart, AgentRequest, AgentSpec,
-    AgentTool, AgentUpdate, Button, Chip, Effect, Event, Node, Place, PlanStep, StepState, Tone,
-    ToolKind, ViewSpec,
+    AgentAnswer, AgentAsks, AgentCall, AgentContext, AgentMode, AgentOutcome, AgentPart,
+    AgentRequest, AgentSpec, AgentTool, AgentUpdate, Button, Chip, Effect, Event, Node, Place,
+    PlanStep, StepState, Tone, ToolKind, ViewSpec,
 };
 
 const TEXT: &str = "fn main() {\n    println!(\"hi\");\n}\n";
@@ -567,6 +567,97 @@ fn an_agent_with_its_own_view_still_gets_merlins_cards() {
                 ..
             }]
         ),
+        "{c:?}"
+    );
+}
+
+fn mode(id: &str, asks: AgentAsks) -> AgentMode {
+    AgentMode {
+        id: id.into(),
+        name: id[..1].to_uppercase() + &id[1..],
+        colour: String::new(),
+        asks,
+    }
+}
+
+fn with_modes(s: &mut Session) {
+    say(
+        s,
+        AgentUpdate::Modes {
+            modes: vec![
+                mode("build", AgentAsks::Unsaid),
+                mode("plan", AgentAsks::ReadsOnly),
+                mode("yolo", AgentAsks::Never),
+            ],
+            current: "build".into(),
+        },
+    );
+}
+
+#[test]
+fn tab_in_the_box_moves_through_the_agents_modes() {
+    let mut s = session();
+    send(&mut s, "go");
+    with_modes(&mut s);
+    say(
+        &mut s,
+        AgentUpdate::Done {
+            outcome: AgentOutcome::Finished,
+            message: None,
+        },
+    );
+    calls(&mut s);
+    s.run("key tab");
+    let c = calls(&mut s);
+    assert!(
+        matches!(&c[..], [AgentCall::Mode { chat: 1, mode }] if mode == "plan"),
+        "{c:?}"
+    );
+    // The next never asks: merlin asks first, once.
+    s.run("key tab");
+    assert!(calls(&mut s).is_empty());
+    let shown = chat(&s);
+    assert!(shown.contains("to switch to Yolo"), "{shown}");
+    s.click_entry("Allow Once", 1);
+    let c = calls(&mut s);
+    assert!(
+        matches!(&c[..], [AgentCall::Mode { mode, .. }] if mode == "yolo"),
+        "{c:?}"
+    );
+}
+
+#[test]
+fn leaving_plan_asks_with_the_modes_to_go_on_in() {
+    let mut s = session();
+    send(&mut s, "plan it");
+    with_modes(&mut s);
+    say(
+        &mut s,
+        AgentUpdate::Modes {
+            modes: vec![
+                mode("build", AgentAsks::Unsaid),
+                mode("plan", AgentAsks::ReadsOnly),
+            ],
+            current: "plan".into(),
+        },
+    );
+    calls(&mut s);
+    say(
+        &mut s,
+        AgentUpdate::Ask {
+            request: 4,
+            what: AgentRequest::Mode(vec!["build".into()]),
+        },
+    );
+    let shown = chat(&s);
+    assert!(
+        shown.contains("ask: Gemini's plan is ready. Go on? [Switch to Build] [Keep Plan]"),
+        "{shown}"
+    );
+    s.click_entry("Switch to Build", 1);
+    let c = calls(&mut s);
+    assert!(
+        matches!(&c[..], [AgentCall::Answer { request: 4, answer: AgentAnswer::Mode(m), .. }] if m == "build"),
         "{c:?}"
     );
 }

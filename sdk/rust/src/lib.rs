@@ -49,7 +49,7 @@ pub use bindings::merlin::plugin::types::{
     Setting, Severity, Signature, StackFrame, StatusItem, StatusState, StopFilter, Styled, Task,
     TaskGroup, TestItem, TestOutcome, TestResult, TextChange, Token, TokenKind, TokenLayer, Tone,
     FetchRequest, FetchResponse, ToolKind, StepState, PlanStep, AgentTool, AgentPart, AgentRequest,
-    AgentAnswer, AgentOutcome, AgentContext, AgentCommand,
+    AgentAnswer, AgentOutcome, AgentContext, AgentCommand, AgentMode, AgentAsks,
 };
 
 /// UTF-16 columns, which positions count, as LSP does.
@@ -220,6 +220,8 @@ pub trait Plugin: 'static {
     fn agent_file(&mut self, _chat: u32, _request: u32, _result: Result<String, String>) {}
     /// A run from `host::agent_run` ended: its output and exit code.
     fn agent_run(&mut self, _chat: u32, _run: u32, _result: Result<(String, Option<i32>), String>) {}
+    /// The user picked one of the modes from `host::agent_modes`.
+    fn agent_mode(&mut self, _chat: u32, _mode: &str) {}
 
     /// State to keep across a hot reload. Returning some also keeps the
     /// plugin's processes running.
@@ -710,6 +712,12 @@ macro_rules! export {
             fn on_agent_run(chat: u32, run: u32, ended: Result<(String, Option<i32>), String>) {
                 $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
                     $crate::Plugin::agent_run(p, chat, run, ended)
+                })
+            }
+
+            fn on_agent_mode(chat: u32, mode: String) {
+                $crate::runtime::with(__merlin_init, |p: &mut $plugin| {
+                    $crate::Plugin::agent_mode(p, chat, &mode)
                 })
             }
 

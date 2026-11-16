@@ -24,8 +24,9 @@ pub mod style;
 pub mod symbols;
 
 pub use editor::{
-    AgentAnswer, AgentCall, AgentContext, AgentOutcome, AgentPart, AgentRequest, AgentSpec,
-    AgentTool, AgentUpdate, MissingProgram, PlanStep, ToolKind, line_counts,
+    AgentAnswer, AgentAsks, AgentCall, AgentContext, AgentMode, AgentOutcome, AgentPart,
+    AgentRequest, AgentSpec, AgentTool, AgentUpdate, MissingProgram, PlanStep, ToolKind,
+    line_counts,
 };
 pub use editor::{
     AutoSave, AutoSaveWhy, Command, ContextItem, ContextView, DialogView, Editor, Effect, Event,

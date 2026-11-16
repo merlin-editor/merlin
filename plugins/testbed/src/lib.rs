@@ -457,7 +457,7 @@ impl Plugin for Testbed {
         let say = |part| {
             let _ = host::agent_say(chat, &part);
         };
-        if answer == AgentAnswer::Deny {
+        if matches!(answer, AgentAnswer::Deny) {
             say(AgentPart::Text("Okay, I'll leave it.".into()));
             host::agent_done(chat, AgentOutcome::Finished, None);
             return;

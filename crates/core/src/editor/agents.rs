@@ -85,17 +85,47 @@ pub enum AgentPart {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AgentRequest {
-    Edit { path: String, diff: Option<String> },
+    Edit {
+        path: String,
+        diff: Option<String>,
+    },
     Run(String),
     Read(String),
     Other(String),
+    /// To leave its mode: the modes it can go on in, by id.
+    Mode(Vec<String>),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AgentAnswer {
     AllowOnce,
     AlwaysAllow,
     Deny,
+    /// For a mode request: the mode picked.
+    Mode(String),
+}
+
+/// How a mode of an agent goes about asking before it acts.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum AgentAsks {
+    /// The mode doesn't say: merlin's own edit pill decides.
+    #[default]
+    Unsaid,
+    ReadsOnly,
+    AsksFirst,
+    Edits,
+    EditsAndSafeCommands,
+    Never,
+}
+
+/// A mode of an agent, such as opencode's build and plan.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AgentMode {
+    pub id: String,
+    pub name: String,
+    /// A hue's name, `#rrggbb`, or empty for the accent.
+    pub colour: String,
+    pub asks: AgentAsks,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -147,6 +177,17 @@ pub enum AgentUpdate {
     },
     /// The slash commands the agent offers: name and what it does.
     Commands(Vec<(String, String)>),
+    /// The agent's modes, and the one it's in.
+    Modes {
+        modes: Vec<AgentMode>,
+        current: String,
+    },
+    /// How full the context is (tokens used of its size), and a note.
+    Usage {
+        used: u64,
+        size: u64,
+        note: String,
+    },
 }
 
 /// A call into the plugin behind a chat.
@@ -178,6 +219,11 @@ pub enum AgentCall {
         chat: u32,
         run: u32,
         result: Result<(String, Option<i32>), String>,
+    },
+    /// The user picked one of the agent's modes.
+    Mode {
+        chat: u32,
+        mode: String,
     },
 }
 
@@ -221,6 +267,13 @@ pub(crate) struct Tab {
     /// The plugin's header, and the agent's slash commands.
     pub header: Option<(Vec<Chip>, String)>,
     pub commands: Vec<(String, String)>,
+    /// The agent's modes, and the one it's in.
+    pub modes: Vec<AgentMode>,
+    pub mode: Option<String>,
+    /// Tokens used of the context's size, and the plugin's note.
+    pub usage: Option<(u64, u64, String)>,
+    /// Whether the user let a mode that never asks run, in this chat.
+    never_ok: bool,
 }
 
 pub(crate) enum Turn {
@@ -246,6 +299,8 @@ pub(crate) struct Ask {
 }
 
 enum Held {
+    /// Switching to a mode that never asks: once per chat.
+    Mode(String),
     Read {
         request: u32,
         path: PathBuf,
@@ -350,6 +405,10 @@ impl Editor {
             thought: None,
             header: None,
             commands: Vec::new(),
+            modes: Vec::new(),
+            mode: None,
+            usage: None,
+            never_ok: false,
         });
         Some(self.agents.tabs.len() - 1)
     }
@@ -416,6 +475,10 @@ impl Editor {
                 thought: None,
                 header: None,
                 commands: Vec::new(),
+                modes: Vec::new(),
+                mode: None,
+                usage: None,
+                never_ok: false,
             });
             // An agent with a view of its own shows that, not merlin's chat.
             if self.spec(key).and_then(|s| s.view.clone()).is_none() {
@@ -604,6 +667,14 @@ impl Editor {
                     (!chips.is_empty() || !note.is_empty()).then_some((chips, note));
             }
             AgentUpdate::Commands(commands) => self.agents.tabs[i].commands = commands,
+            AgentUpdate::Modes { modes, current } => {
+                let tab = &mut self.agents.tabs[i];
+                tab.mode = modes.iter().any(|m| m.id == current).then_some(current);
+                tab.modes = modes;
+            }
+            AgentUpdate::Usage { used, size, note } => {
+                self.agents.tabs[i].usage = Some((used, size, note));
+            }
             AgentUpdate::Stop { run } => {
                 if let Some(r) = self.agents.tabs[i].runs.iter().find(|r| r.run == run) {
                     let term = r.term;
@@ -691,6 +762,65 @@ impl Editor {
         bar.active = Some(name);
     }
 
+    /// Switches a chat's agent to one of its modes, as Tab or the badge's
+    /// menu does. A mode that never asks asks the user first, once a chat.
+    pub(crate) fn set_agent_mode(&mut self, key: &str, mode: &str, fx: &mut Vec<Effect>) {
+        let Some(i) = self.agents.tabs.iter().position(|t| t.key == key) else {
+            return;
+        };
+        let Some(spec) = self.spec(key).cloned() else {
+            return;
+        };
+        let tab = &self.agents.tabs[i];
+        let Some(m) = tab.modes.iter().find(|m| m.id == mode).cloned() else {
+            return;
+        };
+        if tab.mode.as_deref() == Some(mode) {
+            return;
+        }
+        if m.asks == AgentAsks::Never && !tab.never_ok {
+            self.push_ask(
+                i,
+                None,
+                AgentRequest::Other(format!(
+                    "to switch to {}, where it acts without asking",
+                    m.name
+                )),
+                Some(Held::Mode(m.id)),
+            );
+            self.draw_agent(key);
+            return;
+        }
+        let tab = &mut self.agents.tabs[i];
+        tab.mode = Some(m.id.clone());
+        fx.push(Effect::Agent {
+            plugin: spec.plugin,
+            call: AgentCall::Mode {
+                chat: tab.chat,
+                mode: m.id,
+            },
+        });
+        self.draw_agent(key);
+    }
+
+    /// Tab: the chat's agent goes to its next mode.
+    pub(crate) fn next_agent_mode(&mut self, key: &str, fx: &mut Vec<Effect>) -> bool {
+        let Some(tab) = self.agents.tabs.iter().find(|t| t.key == key) else {
+            return false;
+        };
+        if tab.modes.len() < 2 {
+            return false;
+        }
+        let at = tab
+            .mode
+            .as_ref()
+            .and_then(|m| tab.modes.iter().position(|x| &x.id == m))
+            .unwrap_or(0);
+        let next = tab.modes[(at + 1) % tab.modes.len()].id.clone();
+        self.set_agent_mode(key, &next, fx);
+        true
+    }
+
     /// What an answer allows for the rest of the turn.
     fn allow_for_turn(&mut self, i: usize, what: &AgentRequest) {
         let shown = match what {
@@ -738,6 +868,9 @@ impl Editor {
                 fx.push(Effect::SaveAgentAllowed(self.agents.allowed.clone()));
             }
         }
+        if let AgentAnswer::Mode(mode) = &answer {
+            self.agents.tabs[i].mode = Some(mode.clone());
+        }
         let plugin = spec.plugin.clone();
         match (ask.request, ask.held) {
             (Some(request), _) => fx.push(Effect::Agent {
@@ -767,6 +900,11 @@ impl Editor {
                             result: denied("the edit"),
                         },
                     }),
+                    (Held::Mode(_), AgentAnswer::Deny) => {}
+                    (Held::Mode(mode), _) => {
+                        self.agents.tabs[i].never_ok = true;
+                        self.set_agent_mode(key, &mode, fx);
+                    }
                     (Held::Run { run, .. }, AgentAnswer::Deny) => fx.push(Effect::Agent {
                         plugin,
                         call: AgentCall::Ran {
@@ -1183,6 +1321,20 @@ impl Editor {
             "allow" => self.agent_answer(&key, AgentAnswer::AllowOnce, fx),
             "always" => self.agent_answer(&key, AgentAnswer::AlwaysAllow, fx),
             "deny" => self.agent_answer(&key, AgentAnswer::Deny, fx),
+            "mode" => {
+                let leaving = self
+                    .agents
+                    .tabs
+                    .iter()
+                    .find(|t| t.key == key)
+                    .and_then(|t| t.asks.first())
+                    .is_some_and(|a| matches!(a.what, AgentRequest::Mode(_)));
+                if leaving {
+                    self.agent_answer(&key, AgentAnswer::Mode(arg.to_string()), fx);
+                } else {
+                    self.set_agent_mode(&key, arg, fx);
+                }
+            }
             "stop" => {
                 if let Some(spec) = self.spec(&key).cloned()
                     && let Some(tab) = self.agents.tabs.iter().find(|t| t.key == key)
@@ -1531,7 +1683,7 @@ impl Editor {
             }
         }
         if let Some(ask) = tab.asks.first() {
-            nodes.push(Node::Ask(Box::new(self.ask_card(&agent, ask))));
+            nodes.push(Node::Ask(Box::new(self.ask_card(&agent, ask, tab))));
         }
         match &tab.ended {
             Some((AgentOutcome::Cancelled, _)) => {
@@ -1704,10 +1856,55 @@ impl Editor {
         }
     }
 
-    fn ask_card(&self, agent: &str, ask: &Ask) -> AskCard {
+    fn ask_card(&self, agent: &str, ask: &Ask, tab: &Tab) -> AskCard {
         let deny = Some(button("agent:deny", "Deny"));
         let unasked = ask.held.is_some();
+        let mode_name = |id: &str| {
+            tab.modes
+                .iter()
+                .find(|m| m.id == id)
+                .map_or_else(|| id.to_string(), |m| m.name.clone())
+        };
         match &ask.what {
+            AgentRequest::Mode(to) => {
+                let now = tab.mode.as_deref().unwrap_or_default();
+                let planning = tab
+                    .modes
+                    .iter()
+                    .any(|m| m.id == now && m.asks == AgentAsks::ReadsOnly);
+                AskCard {
+                    title: vec![(
+                        if planning {
+                            format!("{agent}'s plan is ready. Go on?")
+                        } else {
+                            format!("{agent} wants to switch modes")
+                        },
+                        false,
+                    )],
+                    warn: false,
+                    code: None,
+                    diff: Vec::new(),
+                    note: String::new(),
+                    buttons: to
+                        .iter()
+                        .map(|id| {
+                            button(
+                                &format!("agent:mode:{id}"),
+                                &format!("Switch to {}", mode_name(id)),
+                            )
+                        })
+                        .collect(),
+                    quiet: Some(button(
+                        "agent:deny",
+                        &if now.is_empty() {
+                            "Keep Going as It Is".to_string()
+                        } else {
+                            format!("Keep {}", mode_name(now))
+                        },
+                    )),
+                    hint: String::new(),
+                }
+            }
             AgentRequest::Run(command) => AskCard {
                 title: vec![(format!("{agent} wants to run a command"), false)],
                 warn: false,
@@ -1934,7 +2131,7 @@ impl Editor {
         };
         let mut extra = Vec::new();
         if let Some(ask) = tab.asks.first() {
-            extra.push(Node::Ask(Box::new(self.ask_card(&spec.name, ask))));
+            extra.push(Node::Ask(Box::new(self.ask_card(&spec.name, ask, tab))));
         }
         if !tab.busy && !tab.changes.is_empty() {
             extra.push(Node::Changes(Box::new(self.changes_card(tab))));
@@ -1975,6 +2172,17 @@ impl Editor {
         let Some(tab_key) = self.shown_agent() else {
             return false;
         };
+        // Tab in the box: the agent's next mode.
+        if key.code == crate::key::KeyCode::Tab
+            && !key.shift
+            && !key.ctrl
+            && self
+                .focused_input(Side::Right)
+                .is_some_and(|(_, id)| id == PROMPT)
+            && self.next_agent_mode(&tab_key, fx)
+        {
+            return true;
+        }
         let asking = self
             .agents
             .tabs

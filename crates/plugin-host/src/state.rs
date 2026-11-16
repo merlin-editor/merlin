@@ -1073,6 +1073,41 @@ impl host::Host for State {
         Ok(())
     }
 
+    fn agent_modes(
+        &mut self,
+        chat: u32,
+        modes: Vec<types::AgentMode>,
+        current: String,
+    ) -> Result<(), String> {
+        self.need(self.permissions.agent, "agent")?;
+        let modes = modes
+            .into_iter()
+            .map(|m| merlin_core::AgentMode {
+                id: m.id,
+                name: m.name,
+                colour: m.colour,
+                asks: match m.asks {
+                    types::AgentAsks::Unsaid => merlin_core::AgentAsks::Unsaid,
+                    types::AgentAsks::ReadsOnly => merlin_core::AgentAsks::ReadsOnly,
+                    types::AgentAsks::AsksFirst => merlin_core::AgentAsks::AsksFirst,
+                    types::AgentAsks::Edits => merlin_core::AgentAsks::Edits,
+                    types::AgentAsks::EditsAndSafeCommands => {
+                        merlin_core::AgentAsks::EditsAndSafeCommands
+                    }
+                    types::AgentAsks::Never => merlin_core::AgentAsks::Never,
+                },
+            })
+            .collect();
+        self.agent(chat, merlin_core::AgentUpdate::Modes { modes, current });
+        Ok(())
+    }
+
+    fn agent_usage(&mut self, chat: u32, used: u64, size: u64, note: String) -> Result<(), String> {
+        self.need(self.permissions.agent, "agent")?;
+        self.agent(chat, merlin_core::AgentUpdate::Usage { used, size, note });
+        Ok(())
+    }
+
     fn agent_ask(&mut self, chat: u32, request: types::AgentRequest) -> Result<u32, String> {
         self.need(self.permissions.agent, "agent")?;
         let id = self.agent_id();
@@ -1083,6 +1118,7 @@ impl host::Host for State {
             types::AgentRequest::Run(c) => merlin_core::AgentRequest::Run(c),
             types::AgentRequest::Read(p) => merlin_core::AgentRequest::Read(p),
             types::AgentRequest::Other(w) => merlin_core::AgentRequest::Other(w),
+            types::AgentRequest::Mode(m) => merlin_core::AgentRequest::Mode(m),
         };
         self.agent(chat, merlin_core::AgentUpdate::Ask { request: id, what });
         Ok(id)

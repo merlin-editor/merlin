@@ -1,8 +1,9 @@
 mod actions;
 mod agents;
 pub use agents::{
-    AgentAnswer, AgentCall, AgentContext, AgentOutcome, AgentPart, AgentRequest, AgentSpec,
-    AgentTool, AgentUpdate, MissingProgram, PlanStep, ToolKind, line_counts,
+    AgentAnswer, AgentAsks, AgentCall, AgentContext, AgentMode, AgentOutcome, AgentPart,
+    AgentRequest, AgentSpec, AgentTool, AgentUpdate, MissingProgram, PlanStep, ToolKind,
+    line_counts,
 };
 mod blame;
 mod carets;

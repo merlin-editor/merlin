@@ -467,6 +467,36 @@ interface types {
     description: string,
   }
 
+  /// How a mode of an agent goes about asking before it acts. merlin
+  /// shows its own "Ask before edits" pill only for `unsaid`, and for the
+  /// others shows its cards for what the mode asks about.
+  enum agent-asks {
+    /// The mode doesn't say: merlin's own pill decides.
+    unsaid,
+    /// It only reads and plans: it can't edit.
+    reads-only,
+    /// It asks before edits and commands.
+    asks-first,
+    /// It edits files without asking; commands still ask.
+    edits,
+    /// It edits, and runs commands it thinks are safe, without asking.
+    edits-and-safe-commands,
+    /// It never asks. Switching to it asks the user once per chat.
+    never,
+  }
+
+  /// A mode of an agent, such as opencode's build and plan: a coloured
+  /// badge in the chat's box, which Tab moves through.
+  record agent-mode {
+    id: string,
+    name: string,
+    /// One of merlin's hues (blue, green, yellow, orange, red, purple,
+    /// cyan, grey), or `#rrggbb`, softened to fit the theme. Empty for
+    /// merlin's accent.
+    colour: string,
+    asks: agent-asks,
+  }
+
   /// What an agent asks to do, for the permission card.
   variant agent-request {
     /// Edit a file, by its path: the change as a unified diff, if known.
@@ -477,12 +507,17 @@ interface types {
     read(string),
     /// Anything else, said in words.
     other(string),
+    /// To leave its mode, as when a plan is ready: the modes it can go on
+    /// in, by id, first the likeliest. "Keep" is always offered too.
+    mode(list<string>),
   }
 
-  enum agent-answer {
+  variant agent-answer {
     allow-once,
     always-allow,
     deny,
+    /// For a `mode` request: the mode picked, by id.
+    mode(string),
   }
 
   enum agent-outcome {
@@ -845,7 +880,7 @@ interface types {
 /// What the editor offers a plugin. Calls that need a permission check the
 /// plugin's manifest and return an error naming the permission if denied.
 interface host {
-  use types.{status-item, framing, pick-item, position, selection, text-change, diagnostic, detailed-diagnostic, code-action, file-edit, rename-info, location, project-symbol, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint, signature, task, test-item, test-result, debug-target, debug-launch, function-stop, breakpoint, debug-state, debug-thread, stack-frame, debug-variable, breakpoint-state, stop-filter, inline-value, output-kind, log-level, button, picture, fetch-request, agent-part, agent-request, agent-outcome, chip, agent-command};
+  use types.{status-item, framing, pick-item, position, selection, text-change, diagnostic, detailed-diagnostic, code-action, file-edit, rename-info, location, project-symbol, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint, signature, task, test-item, test-result, debug-target, debug-launch, function-stop, breakpoint, debug-state, debug-thread, stack-frame, debug-variable, breakpoint-state, stop-filter, inline-value, output-kind, log-level, button, picture, fetch-request, agent-part, agent-request, agent-outcome, chip, agent-command, agent-mode};
 
   /// Text of the active buffer. Needs `editor-read`.
   active-text: func() -> result<string, string>;
@@ -1157,6 +1192,13 @@ interface host {
   /// The slash commands the agent offers, which the chat lists when `/`
   /// is typed. A message that starts with one is sent as it's typed.
   agent-commands: func(chat: u32, commands: list<agent-command>) -> result<_, string>;
+  /// The agent's modes, and the one it's in. The user's pick arrives at
+  /// `on-agent-mode`. No modes takes the badge away.
+  agent-modes: func(chat: u32, modes: list<agent-mode>, current: string) -> result<_, string>;
+  /// How full the chat's context is, in tokens used of its size (0 when
+  /// unknown), and a note such as "12.4k tokens · $0.03", shown on the
+  /// ring and under the turn's reply.
+  agent-usage: func(chat: u32, used: u64, size: u64, note: string) -> result<_, string>;
 }
 
 world plugin {
@@ -1225,4 +1267,6 @@ world plugin {
   /// A run from `agent-run` ended: what it printed, and its exit code if
   /// it had one. A run the user didn't allow ends with an error.
   export on-agent-run: func(chat: u32, run: u32, ended: result<tuple<string, option<s32>>, string>);
+  /// The user picked one of the agent's modes, by id.
+  export on-agent-mode: func(chat: u32, mode: string);
 }
