@@ -54,6 +54,8 @@ pub struct Layers {
     pub folds: Option<Vec<(usize, usize)>>,
     /// Goes up each time the colours change, for what's kept of them.
     pub colours: u64,
+    /// Goes up each time a plugin sends symbols.
+    pub symbols_sent: u64,
 }
 
 impl Layers {

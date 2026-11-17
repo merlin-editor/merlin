@@ -21,7 +21,21 @@ impl Editor {
     pub(crate) fn symbol_path(&self) -> Vec<Symbol> {
         let doc = self.doc();
         let line = doc.line_col(self.view().cursor).0;
-        symbols::path_to(&symbols::symbols(doc), doc, line)
+        if !symbols::needs_all(doc) {
+            return symbols::path_at(doc, line);
+        }
+        // Worked out once for each text and each list a plugin sends.
+        let key = (doc.id, doc.buffer.version(), doc.layers.symbols_sent);
+        let mut cache = self.symbols_cache.borrow_mut();
+        let all = match cache.as_ref() {
+            Some((k, all)) if *k == key => all.clone(),
+            _ => {
+                let all = std::rc::Rc::new(symbols::symbols(doc));
+                *cache = Some((key, all.clone()));
+                all
+            }
+        };
+        symbols::path_to(&all, doc, line)
     }
 
     /// The breadcrumbs: each part's text, and the line it goes to, if any.

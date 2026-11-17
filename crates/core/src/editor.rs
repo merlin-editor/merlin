@@ -525,6 +525,12 @@ pub struct Editor {
     /// The lines folded away, for a document, version and set of folds.
     #[allow(clippy::type_complexity)]
     fold_cache: std::cell::RefCell<Option<((u64, u64, Vec<usize>), Vec<std::ops::Range<usize>>)>>,
+    /// Every symbol of a document whose breadcrumbs need them all (a
+    /// plugin's, or Markdown's), by document, version and what the plugin
+    /// last sent.
+    #[allow(clippy::type_complexity)]
+    symbols_cache:
+        std::cell::RefCell<Option<((u64, u64, u64), std::rc::Rc<Vec<crate::symbols::Symbol>>)>>,
     /// The minimap's lines, by document, version and colours.
     #[allow(clippy::type_complexity)]
     minimap_cache:
@@ -765,6 +771,7 @@ impl Editor {
             bracket_cache: Default::default(),
             fold_cache: Default::default(),
             row_cache: Default::default(),
+            symbols_cache: Default::default(),
             minimap_cache: Default::default(),
             hover: None,
             nerd: false,

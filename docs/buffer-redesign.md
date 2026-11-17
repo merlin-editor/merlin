@@ -118,28 +118,65 @@ already running" though no copy runs, and I left it there.
 Merlin uses an eighth to a fourteenth of VS Code's memory on the code and
 JSON files, and a third of it on the 342 MB log. It uses less CPU opening
 files up to 19 MB. It uses more on the made-up 20 MB Rust file, and far
-more idle on the two large text files. Two things to fix before the redesign, both found here:
+more idle on the two large text files.
 
-- **Idle, merlin uses a whole core on the 85 MB and 342 MB files.**
-  - I sampled the running app 12 times. In 11, the window's thread was
-    building a frame: in `Editor::crumbs`, which runs `symbols::symbols`
-    over every line of the file, with window events (`resized`,
-    `fit_text`) above it.
-  - The caret stops blinking 10 s after input and the window then sleeps,
-    so something keeps asking for frames. Each frame, going through the
-    file, takes long enough that the window never gets to sleep.
-  - What asks for the frames is still to find. Either way, a frame must
-    never go through the file.
-  - The outline doesn't do this: it works symbols out only when the text
-    changes, and only while it shows. That still goes through the whole
-    file on the window's thread after each edit.
-- **Opening the 2 MB and 20 MB Rust files costs 8.5 s and 27 s of CPU**,
-  though merlin is idle at the end. Not yet sampled. The same per-frame
-  symbol pass, for the 10 s the caret blinks, would explain it.
+### Step 1: idle and per-frame costs, done
+
+Merlin used a whole core while idle on the large text files, and
+seconds of CPU opening the large code files. I found why by sampling the
+app and timing the frame the window draws (`window_view`) in
+`large_probe`, with the app's default settings on.
+
+**The cause.** With the defaults on, every frame on the 85 MB file took
+5.4 s. The breadcrumbs, drawn twice a frame, ran the symbol finder over
+every line of the file. The window spent all its time in such frames,
+which is the whole core. The probe had missed this because its sessions
+ran without the app's defaults. It now starts with them.
+
+**What changed:**
+- The breadcrumbs find their symbols from the lines around the cursor
+  only: back to the last line with no indent, at most 10 000 lines. The
+  finder starts afresh at such a line, so the result is the same. A test
+  checks every line of several files against the whole-file answer.
+- Whether a symbol's block reaches the cursor is checked up to the first
+  line with text at or past the cursor, not to the block's end.
+- A plugin's symbols, and Markdown's, which do need the whole file, are
+  worked out once per text version and plugin update, not per frame.
+- The finder reads only the first 1 024 characters of a line, so a
+  minified file's one line isn't copied.
+- The scrollbar's git marks come from a list of the marked lines, not
+  from every line's entry.
+- A long line keeps checkpoints of its columns. They're built as far
+  along as asked, and kept through edits before them. Finding a column
+  far along a 20 MB line starts near it.
+- `large_probe` times frames as the window draws them, and fails if one
+  takes over 2 ms. Find, the minimap and word wrap are the later steps,
+  and are noted as such.
+
+**The effect, in the app** (same harness, 45 s):
+
+| File | CPU before → after | Idle before → after |
+|---|---|---|
+| 85 MB text | 44.6 s → 1.2 s | 100% → 0% of a core |
+| 342 MB log, every line different | 49.7 s → 2.3 s | 100% → 0% |
+| 20 MB Rust | 26.9 s → 1.0 s, 141 → 107 MB | 0% → 0.1% |
+| 3.9 MB real Rust | 7.2 s → 0.9 s | 0% |
+| 19 MB JSON on one line | 11.4 s → 5.0 s | 0% |
+
+VS Code used 19–41 s of CPU on the same files, and idled at 2–9% of a
+core.
+
+**In `large_probe`**, a frame is now 0.1–0.6 ms on every file, whatever
+its size: 0.3 ms on the 342 MB log, against 3.7 ms before the git marks
+and 5.4 s before the breadcrumbs.
+
+**Still to do from it:** the outline works symbols out on the window's
+thread after every edit while it shows. That waits for the background
+jobs of step 7.
 
 ### Fixed on this branch so far
 
-Fixed in the working tree, not yet committed, and covered by tests:
+Committed (8181070) and covered by tests:
 
 - The widest line is measured once and then kept up to date.
 - Scroll rows aren't counted when every line is one row.
@@ -167,7 +204,7 @@ On the 85 MB / 342 MB files:
 | Find next; Ctrl+D | 3.2 s / 12 s; 5 s / 17 s for three | All matches found to pick one |
 | A frame with the minimap on | 2.3 s / 7.7 s | Built for every line; it shows a few hundred |
 | A frame with word wrap on | 2.6 s / 8.7 s | Every line wrapped again after any change |
-| Idle | a whole core | Symbols for the breadcrumbs, each frame |
+| Idle | ~~a whole core~~ fixed in step 1 | Symbols for the breadcrumbs, each frame |
 | Opening | 3.2× the file at its peak | Read as a String, made a rope, git's copy kept beside it |
 | Git gutter after many edits | wrong | The diff gives up after 100 ms and marks 4.3 million lines (prototype 9) |
 | Backups of unsaved files | the whole file copied twice on the window's thread, then written, after each pause | `Backups::plan` asks `text_of` for each file |
@@ -443,13 +480,15 @@ Each step ships on its own. Each keeps the 459 tests in
 `crates/core/tests` passing, and is checked with `large_probe` and the
 comparison with VS Code.
 
-1. **Fix the idle and per-frame costs.**
-   - Symbols worked out once per version, not per frame.
-   - A blink doesn't rebuild the view.
+1. **Fix the idle and per-frame costs.** Done; see "Step 1" above.
+   - The breadcrumbs' symbols come from the lines around the cursor.
+   - The whole-file lists are kept once per version.
+   - Long lines keep column checkpoints.
+   - The scrollbar's git marks are a short list.
    - Limits added to `large_probe`.
 
-   This fixes merlin's whole core in use while idle, and most of the CPU
-   used when opening.
+   Stopping a blink from rebuilding the view wasn't needed: a whole frame
+   now costs under a millisecond.
 2. **Search without lists.**
    - Search the rope's bytes.
    - Counts per block.

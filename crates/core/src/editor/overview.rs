@@ -56,12 +56,11 @@ impl Editor {
     fn line_marks(&self) -> Vec<(usize, Style)> {
         let doc = self.doc();
         let mut marks = Vec::new();
-        for (line, sign) in doc.git_signs.iter().enumerate() {
+        for &(line, sign) in &doc.git_marks {
             let style = match sign {
-                Some(Sign::Added) => Style::GitAdded,
-                Some(Sign::Changed) => Style::GitChanged,
-                Some(Sign::Removed) => Style::GitRemoved,
-                None => continue,
+                Sign::Added => Style::GitAdded,
+                Sign::Changed => Style::GitChanged,
+                Sign::Removed => Style::GitRemoved,
             };
             marks.push((line, style));
         }

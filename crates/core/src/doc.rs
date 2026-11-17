@@ -94,6 +94,9 @@ pub struct Doc {
     pub git_base: Option<String>,
     /// A sign for each line, from comparing the text with `git_base`.
     pub git_signs: Vec<Option<Sign>>,
+    /// The lines with a sign, in order, for what draws all of them, such
+    /// as the scrollbar, every frame.
+    pub git_marks: Vec<(usize, Sign)>,
     /// More cursors, for editing in several places at once.
     pub extra: Vec<Caret>,
     /// The text version `extra` was last placed for. Edits after it, such
@@ -112,6 +115,22 @@ pub struct Doc {
     pub config: crate::editor::FileConfig,
     /// The widest line, measured once and kept up to date with edits.
     widest: std::cell::Cell<Option<Widest>>,
+    /// The last long line's checkpoints, for finding its columns.
+    checkpoints: std::cell::RefCell<Option<Checkpoints>>,
+}
+
+/// A long line's checkpoints: a character every few thousand, on a tab
+/// stop, with its display column, worked out as far along as asked.
+#[derive(Debug)]
+struct Checkpoints {
+    /// The text's version and the line they're for.
+    version: u64,
+    line: usize,
+    /// Each one's character, byte and column in the line, in order; the
+    /// first is its start.
+    points: Vec<(usize, usize, usize)>,
+    /// Worked out to the line's end.
+    whole: bool,
 }
 
 /// The widest line's columns, without inlay hints.
@@ -124,6 +143,12 @@ struct Widest {
     /// The buffer's version it's for.
     version: u64,
 }
+
+/// Lines this long keep checkpoints of their columns, so a column far
+/// along one is found from near it.
+const CHECKPOINT_LINE: usize = 16_384;
+/// Characters at least between checkpoints.
+const CHECKPOINT: usize = 4096;
 
 /// Files up to this many bytes are measured again when their widest line
 /// gets narrower; larger ones keep the old width until a wider line.
@@ -147,6 +172,7 @@ impl Doc {
             review: None,
             git_base: None,
             git_signs: Vec::new(),
+            git_marks: Vec::new(),
             extra: Vec::new(),
             extra_version: 0,
             folds: Vec::new(),
@@ -155,6 +181,7 @@ impl Doc {
             indent,
             config: Default::default(),
             widest: Default::default(),
+            checkpoints: Default::default(),
         }
     }
 
@@ -220,6 +247,12 @@ impl Doc {
             Some(base) => diff::signs_rope(base, self.buffer.rope()),
             None => Vec::new(),
         };
+        self.git_marks = self
+            .git_signs
+            .iter()
+            .enumerate()
+            .filter_map(|(line, sign)| sign.map(|s| (line, s)))
+            .collect();
     }
 
     /// Brings marks and the syntax tree up to date with the text, and
@@ -251,6 +284,7 @@ impl Doc {
         }
         self.extra_version = self.buffer.version();
         self.update_widest(&changes);
+        self.update_checkpoints(&changes);
         self.layers.tidy();
         // A fold whose first line was joined to another goes.
         self.folds
@@ -459,11 +493,9 @@ impl Doc {
         let inlays = self.line_inlays(line);
         if inlays.is_empty() {
             let col = col.min(self.buffer.line_len(line));
-            return walk(
-                self.buffer.rope().line(line).slice(..col).chunks(),
-                |_, _| true,
-            )
-            .1;
+            let from = self.checkpoint(line, |(i, _)| i <= col);
+            let text = self.buffer.rope().line(line).slice(from.0..col);
+            return walk(text.chunks(), from, |_, _| true).1;
         }
         let mut d = 0;
         let chars = self.buffer.rope().line(line).chars();
@@ -478,8 +510,23 @@ impl Doc {
     /// an inlay hint lands before the character it's before.
     pub fn col_at_display(&self, line: usize, target: usize) -> usize {
         let inlays = self.line_inlays(line);
-        let mut d = 0;
         let len = self.buffer.line_len(line);
+        if inlays.is_empty() {
+            // The character that covers `target`: the last to start at or
+            // before it, unless the line ends first.
+            let from = self.checkpoint(line, |(_, d)| d <= target);
+            let mut last = from.0;
+            let text = self.buffer.rope().line(line).slice(from.0..len);
+            let (i, d) = walk(text.chunks(), from, |i, d| {
+                if d > target {
+                    return false;
+                }
+                last = i;
+                true
+            });
+            return if i == len && d <= target { len } else { last };
+        }
+        let mut d = 0;
         for (i, c) in self.buffer.rope().line(line).chars().take(len).enumerate() {
             d += inlay_cols(&inlays, i);
             if d > target {
@@ -494,6 +541,83 @@ impl Doc {
         len
     }
 
+    /// The last of a long line's checkpoints that `before` takes, as a
+    /// character and its display column; the line's start for a short one.
+    /// A line with inlay hints has none: they move its columns.
+    fn checkpoint(&self, line: usize, before: impl Fn((usize, usize)) -> bool) -> (usize, usize) {
+        let len = self.buffer.line_len(line);
+        // Edits not yet synced would move them wrongly: from the start.
+        if len < CHECKPOINT_LINE || self.buffer.has_changes() {
+            return (0, 0);
+        }
+        let version = self.buffer.version();
+        let mut cache = self.checkpoints.borrow_mut();
+        if !cache
+            .as_ref()
+            .is_some_and(|c| c.version == version && c.line == line)
+        {
+            *cache = Some(Checkpoints {
+                version,
+                line,
+                points: vec![(0, 0, 0)],
+                whole: false,
+            });
+        }
+        let cp = cache.as_mut().expect("just set");
+        // Worked out further, as far as `before` takes them: at the first
+        // character past every CHECKPOINT-th whose column is on a tab stop,
+        // so drawing from one lines tabs up.
+        let &(i0, _, d0) = cp.points.last().expect("the line's start");
+        if !cp.whole && before((i0, d0)) {
+            let text = self.buffer.rope().line(line);
+            let mut last = i0;
+            let mut stopped = false;
+            walk(text.slice(i0..len).chunks(), (i0, d0), |i, d| {
+                if i >= last + CHECKPOINT && d.is_multiple_of(TAB_WIDTH) {
+                    cp.points.push((i, text.char_to_byte(i), d));
+                    last = i;
+                    if !before((i, d)) {
+                        stopped = true;
+                        return false;
+                    }
+                }
+                true
+            });
+            cp.whole = !stopped;
+        }
+        let k = cp.points.partition_point(|&(i, _, d)| before((i, d)));
+        let (i, _, d) = cp.points[k.saturating_sub(1)];
+        (i, d)
+    }
+
+    /// Keeps a long line's checkpoints through `changes`: those before an
+    /// edit in the line stay, and an edit above it moves the line.
+    fn update_checkpoints(&mut self, changes: &[Change]) {
+        let cache = self.checkpoints.get_mut();
+        let Some(cp) = cache.as_mut() else {
+            return;
+        };
+        for change in changes {
+            let e = &change.edit;
+            if e.start.0 > cp.line {
+                continue;
+            }
+            if e.old_end.0 < cp.line {
+                cp.line = cp.line - e.old_end.0 + e.new_end.0;
+                continue;
+            }
+            if e.start.0 == cp.line && e.old_end.0 == cp.line && e.new_end.0 == cp.line {
+                // Columns before the edit are as they were.
+                cp.points.retain(|&(_, byte, _)| byte <= e.start.1);
+                cp.whole = false;
+                continue;
+            }
+            *cache = None;
+            return;
+        }
+        cp.version = self.buffer.version();
+    }
+
     /// Where to start drawing a long `line` to show display column
     /// `target`: the last character at or before it on a tab stop, so tabs
     /// after it line up, and its display column.
@@ -502,8 +626,10 @@ impl Doc {
         let len = self.buffer.line_len(line);
         let mut best = (0, 0);
         if inlays.is_empty() {
-            let text = self.buffer.rope().line(line).slice(..len);
-            walk(text.chunks(), |i, d| {
+            let from = self.checkpoint(line, |(_, d)| d <= target);
+            best = from;
+            let text = self.buffer.rope().line(line).slice(from.0..len);
+            walk(text.chunks(), from, |i, d| {
                 if d.is_multiple_of(TAB_WIDTH) && d <= target {
                     best = (i, d);
                 }
@@ -675,14 +801,15 @@ fn widest_of<'a>(chunks: impl Iterator<Item = &'a str>) -> (usize, usize) {
     (best, best_line)
 }
 
-/// Goes through the characters of `chunks`, calling `f` with each one's
-/// index and display column until it says to stop; then how many it went
-/// past and the column reached. ASCII a byte at a time, for long lines.
+/// Goes through the characters of `chunks`, from character `i` at display
+/// column `d`, calling `f` with each one's index and column until it says
+/// to stop; then the index and column reached. ASCII a byte at a time, for
+/// long lines.
 fn walk<'a>(
     chunks: impl Iterator<Item = &'a str>,
+    (mut i, mut d): (usize, usize),
     mut f: impl FnMut(usize, usize) -> bool,
 ) -> (usize, usize) {
-    let (mut i, mut d) = (0, 0);
     for chunk in chunks {
         let bytes = chunk.as_bytes();
         let mut at = 0;
@@ -739,5 +866,98 @@ fn class_of(c: char) -> Class {
         Class::Space
     } else {
         Class::Punct
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::edit::Edit;
+    use crate::history::Kind;
+
+    /// Columns walked from the line's start, one character at a time.
+    fn plain_cols(chars: &[char]) -> Vec<usize> {
+        let mut cols = vec![0];
+        let mut d = 0;
+        for &c in chars {
+            d += advance(c, d);
+            cols.push(d);
+        }
+        cols
+    }
+
+    fn check(doc: &Doc, line: usize) {
+        let chars: Vec<char> = doc.line_chars(line);
+        let cols = plain_cols(&chars);
+        for col in (0..=chars.len()).step_by(61) {
+            assert_eq!(doc.display_col(line, col), cols[col], "display_col({col})");
+        }
+        let last = *cols.last().unwrap();
+        for target in (0..=last + 3).step_by(43) {
+            // The character covering `target`, or the line's end.
+            let want = if target >= last {
+                chars.len()
+            } else {
+                cols[..chars.len()].partition_point(|&c| c <= target) - 1
+            };
+            assert_eq!(
+                doc.col_at_display(line, target),
+                want,
+                "col_at_display({target})"
+            );
+            // The last tab stop at or before `target`.
+            let (i, d) = doc.draw_from(line, target);
+            assert_eq!(cols[i], d, "draw_from({target}) gives a true column");
+            assert!(
+                d <= target && d.is_multiple_of(TAB_WIDTH),
+                "draw_from({target}) = {d}"
+            );
+            assert!(
+                target - d < 4 * TAB_WIDTH + 8,
+                "draw_from({target}) is near: {d}"
+            );
+        }
+    }
+
+    /// A long line's checkpoints give the columns walking from its start
+    /// gives, with tabs and wide characters along it, and after an edit.
+    #[test]
+    fn checkpoints_give_the_columns_of_a_walk_from_the_start() {
+        let mut line = String::new();
+        for i in 0..40_000 {
+            line.push(match i % 97 {
+                0 => '\t',
+                13 => '漢',
+                50 => 'é',
+                _ => char::from(b'a' + (i % 26) as u8),
+            });
+        }
+        let mut doc = Doc::new(1, &line, None);
+        assert!(doc.buffer.line_len(0) >= CHECKPOINT_LINE);
+        check(&doc, 0);
+        let edit = |doc: &mut Doc, at: usize, removed: &str, inserted: &str| {
+            doc.buffer.begin(at, Kind::Other);
+            doc.buffer.apply(Edit {
+                at,
+                removed: removed.into(),
+                inserted: inserted.into(),
+            });
+            doc.buffer.commit(at);
+            doc.sync();
+        };
+        // A tab moves every column after it: in the middle, keeping the
+        // checkpoints before it, and early on.
+        edit(&mut doc, 25_000, "", "\t漢");
+        check(&doc, 0);
+        edit(&mut doc, 10, "", "\tx");
+        check(&doc, 0);
+        // A line above moves the long line down.
+        edit(&mut doc, 0, "", "top\n");
+        check(&doc, 1);
+        // Taking some of the line away.
+        let at = doc.line_start(1) + 30_000;
+        let gone: String = doc.buffer.rope().slice(at..at + 3).to_string();
+        edit(&mut doc, at, &gone, "");
+        check(&doc, 1);
     }
 }

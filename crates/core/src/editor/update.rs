@@ -688,6 +688,7 @@ impl Editor {
                 })
                 .collect();
             doc.layers.symbols = Some(symbols);
+            doc.layers.symbols_sent += 1;
             self.outline_for = None;
         }
     }

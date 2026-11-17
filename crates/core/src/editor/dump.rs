@@ -353,7 +353,11 @@ fn rows_of(view: &TextView) -> Vec<(i32, String)> {
                 .rows
                 .get(r + 1)
                 .map_or(line.chars.len(), |next| next.start);
-            let mut text = " ".repeat(row.indent);
+            // Spaces before the row, less the ones scrolled off: a long
+            // line's row can start millions of columns in.
+            let scrolled = if view.wrapping { 0 } else { view.hscroll };
+            let pad = row.indent.min(scrolled);
+            let mut text = " ".repeat(row.indent - pad);
             let mut d = row.col;
             for &c in line.chars[row.start..end]
                 .iter()
@@ -368,7 +372,7 @@ fn rows_of(view: &TextView) -> Vec<(i32, String)> {
                 d += w;
             }
             if !view.wrapping {
-                text = text.chars().skip(view.hscroll).collect();
+                text = text.chars().skip(view.hscroll - pad).collect();
             }
             text = text.chars().take(view.columns).collect();
             let arrow = match line.fold_arrow {

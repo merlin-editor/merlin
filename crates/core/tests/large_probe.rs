@@ -13,6 +13,22 @@ fn time<T>(what: &str, f: impl FnOnce() -> T) -> T {
     out
 }
 
+/// The most a frame may take, in milliseconds, once the file is open: it
+/// must cost what the screen shows, whatever the file's size.
+const FRAME_LIMIT: f64 = 2.0;
+
+/// A frame as the window draws one, the window's view and the text's, timed
+/// and held to [`FRAME_LIMIT`] unless `over` says why it can't be yet.
+fn frame(s: &Session, what: &str, over: Option<&str>, slow: &mut Vec<String>) {
+    let t = Instant::now();
+    std::hint::black_box((s.editor.window_view(), s.editor.text_views()));
+    let ms = t.elapsed().as_secs_f64() * 1e3;
+    eprintln!("  {what:<22} {ms:>9.1} ms");
+    if ms > FRAME_LIMIT && over.is_none() {
+        slow.push(format!("{what}: {ms:.1} ms"));
+    }
+}
+
 fn probe(name: &str, path: &str, text: String) {
     if std::env::var("PROBE").is_ok_and(|p| !name.starts_with(&p)) {
         return;
@@ -24,6 +40,8 @@ fn probe(name: &str, path: &str, text: String) {
     );
     let mut s = time("open", || {
         let mut s = Session::new("", Some("blank.txt"), 120, 40);
+        // As the app starts: its default settings, breadcrumbs and all.
+        s.send(Event::Settings(merlin_core::Settings::default()));
         s.send(Event::Opened {
             path: path.into(),
             text: text.clone(),
@@ -34,47 +52,82 @@ fn probe(name: &str, path: &str, text: String) {
         });
         s
     });
+    let mut slow = Vec::new();
     time("first frame", || s.screen());
-    time("second frame", || s.screen());
+    frame(&s, "second frame", None, &mut slow);
     time("type a char", || s.run("type x"));
-    time("frame after typing", || s.screen());
+    frame(&s, "frame after typing", None, &mut slow);
     time("type 10 chars", || s.run("type abcdefghij"));
     time("go to end", || s.run("key ctrl+end"));
-    time("frame at end", || s.screen());
+    frame(&s, "frame at end", None, &mut slow);
     time("undo", || s.run("key ctrl+z"));
     time("select all + copy", || s.run("key ctrl+a ctrl+c"));
     time("save", || s.run("key ctrl+s"));
     time("page down x5", || {
         s.run("key ctrl+home pagedown pagedown pagedown pagedown pagedown")
     });
-    time("frame", || s.screen());
+    frame(&s, "frame", None, &mut slow);
     time("ctrl+d x3", || {
         s.run("key ctrl+home ctrl+right ctrl+d ctrl+d ctrl+d")
     });
-    time("frame", || s.screen());
+    frame(&s, "frame", None, &mut slow);
     time("type over 4 carets", || s.run("type Z"));
     time("escape + undo", || s.run("key esc ctrl+z"));
     time("find open + type", || s.run("key ctrl+f; type quick"));
-    time("frame with find", || s.screen());
+    frame(
+        &s,
+        "frame with find",
+        Some("step 2: search keeps lists"),
+        &mut slow,
+    );
     time("find next", || s.run("key enter"));
     time("close find", || s.run("key esc"));
     time("paste 1MB", || {
         s.send(Event::Paste("pasted text\n".repeat(1 << 16)))
     });
-    time("frame", || s.screen());
+    frame(&s, "frame", None, &mut slow);
     time("delete line", || s.run("key ctrl+shift+k"));
     time("minimap on", || s.run("cmd view.minimap"));
-    time("frame with minimap", || s.screen());
+    frame(
+        &s,
+        "frame with minimap",
+        Some("step 4: the minimap builds every line"),
+        &mut slow,
+    );
     time("type with minimap", || s.run("type m"));
-    time("frame with minimap", || s.screen());
+    frame(
+        &s,
+        "frame with minimap",
+        Some("step 4: the minimap builds every line"),
+        &mut slow,
+    );
     time("minimap off", || s.run("cmd view.minimap"));
     time("wrap on", || s.run("cmd view.wrap"));
-    time("frame wrapped", || s.screen());
+    frame(
+        &s,
+        "frame wrapped",
+        Some("step 3: the wrap is worked out again"),
+        &mut slow,
+    );
     time("type wrapped", || s.run("type w"));
-    time("frame wrapped", || s.screen());
+    frame(
+        &s,
+        "frame wrapped",
+        Some("step 3: the wrap is worked out again"),
+        &mut slow,
+    );
     time("go to end wrapped", || s.run("key ctrl+end"));
-    time("frame wrapped", || s.screen());
+    frame(
+        &s,
+        "frame wrapped",
+        Some("step 3: the wrap is worked out again"),
+        &mut slow,
+    );
     time("wrap off", || s.run("cmd view.wrap"));
+    assert!(
+        slow.is_empty(),
+        "{name}: frames over {FRAME_LIMIT} ms: {slow:?}"
+    );
 }
 
 #[test]
