@@ -8,8 +8,8 @@
 //! is covered by the testbed's tests in `api.rs`.
 #![cfg(not(windows))]
 
-use std::path::{Path, PathBuf};
 use std::ops::{Deref, DerefMut};
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, Once};
 use std::time::{Duration, Instant};
 

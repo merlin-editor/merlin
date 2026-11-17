@@ -7,6 +7,39 @@ use std::path::{Path, PathBuf};
 use merlin_core::{Event, Syntax};
 use merlin_plugins::{BufferEvent, Config, PluginHost, Snapshot};
 
+mod common;
+use common::Folder;
+
+/// The project's folder, removed once neocmakelsp's `cmake
+/// --system-information`, which it runs in the project when it starts, has
+/// finished and cleaned up after itself, or it would put back what was
+/// removed under it.
+struct Project(Option<Folder>);
+
+impl std::ops::Deref for Project {
+    type Target = Path;
+    fn deref(&self) -> &Path {
+        self.0.as_ref().unwrap()
+    }
+}
+
+impl AsRef<Path> for Project {
+    fn as_ref(&self) -> &Path {
+        self
+    }
+}
+
+impl Drop for Project {
+    fn drop(&mut self) {
+        let folder = self.0.take().unwrap();
+        let info = folder.join("__cmake_systeminformation");
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while info.exists() && std::time::Instant::now() < until {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    }
+}
+
 fn plugin(name: &str) -> PathBuf {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../plugins")
@@ -19,9 +52,8 @@ fn plugin(name: &str) -> PathBuf {
 }
 
 /// A project with a CMakeLists.txt, and a host with both plugins.
-fn setup(name: &str, configured: bool) -> (PluginHost, PathBuf, Vec<Event>) {
-    let root = std::env::temp_dir().join(format!("merlin-cmake-{name}-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&root);
+fn setup(name: &str, configured: bool) -> (PluginHost, Project, Vec<Event>) {
+    let root = Folder::new(&format!("merlin-cmake-{name}-"));
     fs::create_dir_all(root.join("build")).unwrap();
     fs::write(root.join("CMakeLists.txt"), "project(demo CXX)\n").unwrap();
     if configured {
@@ -40,7 +72,7 @@ fn setup(name: &str, configured: bool) -> (PluginHost, PathBuf, Vec<Event>) {
     .unwrap();
     let mut events = host.load(&plugin("testbed")).unwrap();
     events.extend(host.load(&plugin("cmake")).unwrap());
-    (host, root, events)
+    (host, Project(Some(root)), events)
 }
 
 fn at(root: &Path, path: &str, text: &str) -> Snapshot {
@@ -106,7 +138,6 @@ fn a_configured_build_is_shared_when_it_starts_and_cmake_lists_are_coloured() {
             "CMake: Install"
         ]
     );
-    fs::remove_dir_all(root).ok();
 }
 
 #[test]
@@ -146,7 +177,6 @@ fn configuring_shares_the_build_once_it_works() {
     let mut events = host.terminal("cmake", &id, "done", Some(0), snapshot.clone());
     events.extend(host.poll_processes(|| snapshot.clone()).0);
     assert_eq!(notices(&events), ["compile-commands now [cmake: build]"]);
-    fs::remove_dir_all(root).ok();
 }
 
 /// With the real cmake: a configure's targets become Build and Run tasks,
@@ -248,7 +278,6 @@ fn a_real_configure_gives_targets_tasks_and_debugging() {
         "{:?}",
         notices(&events)
     );
-    fs::remove_dir_all(root).ok();
 }
 
 /// With the real cmake and ctest: the tests show under the `add_test`
@@ -358,12 +387,11 @@ fn ctest_tests_are_listed_and_run() {
         .map(|r| r.id.as_str())
         .collect();
     assert_eq!(passed, ["unit"]);
-    fs::remove_dir_all(root).ok();
 }
 
 #[test]
 fn cmakes_own_errors_are_read_from_a_configure() {
-    let (_host, root, events) = setup("matcher", false);
+    let (_host, _root, events) = setup("matcher", false);
     let matchers = events
         .into_iter()
         .find_map(|e| match e {
@@ -397,5 +425,4 @@ fn cmakes_own_errors_are_read_from_a_configure() {
         .captures("  By not providing \"Findfmt.cmake\" in CMAKE_MODULE_PATH")
         .expect("the message");
     assert!(second[1].starts_with("By not providing"));
-    fs::remove_dir_all(root).ok();
 }

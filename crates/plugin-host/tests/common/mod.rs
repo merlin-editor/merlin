@@ -27,7 +27,10 @@ impl Folder {
     /// inside it.
     pub fn sub(self, name: &str) -> Self {
         let path = self.temp.path().join(name);
-        Self { temp: self.temp, path }
+        Self {
+            temp: self.temp,
+            path,
+        }
     }
 
     /// The temp folder itself, whatever [`Folder::sub`] points at.

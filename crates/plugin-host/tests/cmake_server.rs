@@ -9,6 +9,9 @@ use std::time::{Duration, Instant};
 use merlin_core::Event;
 use merlin_plugins::{BufferEvent, Config, PluginHost, Snapshot};
 
+mod common;
+use common::Folder;
+
 /// Puts ~/.cargo/bin on PATH, and says whether neocmakelsp runs.
 fn server_here() -> bool {
     if let Some(home) = std::env::var_os("HOME") {
@@ -43,8 +46,7 @@ fn neocmakelsp_completes_and_explains_cmake() {
         eprintln!("neocmakelsp isn't installed; skipping");
         return;
     }
-    let root = std::env::temp_dir().join(format!("merlin-cmake-server-{}", std::process::id()));
-    std::fs::create_dir_all(&root).unwrap();
+    let root = Folder::new("merlin-cmake-server-");
     let text = "cmake_minimum_required(VERSION 3.20)\nproject(demo CXX)\nadd_exec\n";
     std::fs::write(root.join("CMakeLists.txt"), text).unwrap();
     let mut host = PluginHost::new(Config {
@@ -59,7 +61,7 @@ fn neocmakelsp_completes_and_explains_cmake() {
     let at = |cursor: (u32, u32)| Snapshot {
         path: Some("CMakeLists.txt".into()),
         text: text.into(),
-        root: root.clone(),
+        root: root.to_path_buf(),
         cursor,
         ..Snapshot::default()
     };
@@ -94,5 +96,4 @@ fn neocmakelsp_completes_and_explains_cmake() {
         unreachable!()
     };
     assert!(hover.to_lowercase().contains("project"), "{hover}");
-    std::fs::remove_dir_all(root).ok();
 }

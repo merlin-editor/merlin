@@ -5,10 +5,10 @@ use std::path::{Path, PathBuf};
 
 use merlin_core::layers::Layer;
 use merlin_core::{Event, Syntax};
-use merlin_plugins::{BufferEvent, Snapshot};
+use merlin_plugins::{BufferEvent, PluginHost, Snapshot};
 
 mod common;
-use common::Host;
+use common::{Folder, Host};
 
 fn plugin_dir() -> PathBuf {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/cpp");
@@ -162,12 +162,11 @@ fn clangds_refactors_run_and_make_their_edit() {
         return;
     }
     let (mut host, _) = host();
-    let root = std::env::temp_dir().join(format!("merlin-cpp-clangd-{}", std::process::id()));
-    std::fs::create_dir_all(&root).unwrap();
+    let root = Folder::new("merlin-cpp-clangd-");
     let text = "int g() {\n    auto x = 1;\n    return x;\n}\n";
     std::fs::write(root.join("a.cpp"), text).unwrap();
     let at = Snapshot {
-        root: root.clone(),
+        root: root.to_path_buf(),
         cursor: (1, 5),
         ..snapshot("a.cpp", text)
     };
@@ -224,7 +223,6 @@ fn clangds_refactors_run_and_make_their_edit() {
         after.contains("int x = 1;") && !after.contains("auto"),
         "{after}"
     );
-    std::fs::remove_dir_all(root).ok();
 }
 
 /// Alt+O goes between a source file and its header, as clangd finds them.
@@ -249,13 +247,12 @@ fn switches_between_header_and_source() {
         _ => None,
     });
     assert_eq!(key, Some(Some("alt+o".to_string())));
-    let root = std::env::temp_dir().join(format!("merlin-cpp-switch-{}", std::process::id()));
-    std::fs::create_dir_all(&root).unwrap();
+    let root = Folder::new("merlin-cpp-switch-");
     std::fs::write(root.join("shape.h"), "int area();\n").unwrap();
     let text = "#include \"shape.h\"\nint area() { return 1; }\n";
     std::fs::write(root.join("shape.cpp"), text).unwrap();
     let at = Snapshot {
-        root: root.clone(),
+        root: root.to_path_buf(),
         ..snapshot("shape.cpp", text)
     };
     host.buffer_event(&BufferEvent::Switched, &at);
@@ -273,5 +270,4 @@ fn switches_between_header_and_source() {
         std::thread::sleep(Duration::from_millis(20));
     };
     assert_eq!(path, Path::new("shape.h"));
-    std::fs::remove_dir_all(root).ok();
 }

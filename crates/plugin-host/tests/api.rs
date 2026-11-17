@@ -3,7 +3,7 @@
 //! `cargo build --release --manifest-path plugins/testbed/Cargo.toml`
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use merlin_core::{Event, Node};

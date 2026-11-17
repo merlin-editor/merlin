@@ -9,12 +9,14 @@ use std::time::{Duration, Instant};
 use merlin_core::Event;
 use merlin_plugins::{BufferEvent, Config, PluginHost, Snapshot};
 
+mod common;
+use common::Folder;
+
 #[test]
 fn a_missing_server_hints_the_manifests_install_command() {
-    let empty = std::env::temp_dir().join(format!("merlin-missing-path-{}", std::process::id()));
-    std::fs::create_dir_all(&empty).unwrap();
+    let empty = Folder::new("merlin-missing-path-");
     // Safe: the only test in this process, before anything is spawned.
-    unsafe { std::env::set_var("PATH", &empty) };
+    unsafe { std::env::set_var("PATH", &*empty) };
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/cpp");
     let mut host = PluginHost::new(Config {
         data_dir: empty.join("data"),
@@ -27,7 +29,7 @@ fn a_missing_server_hints_the_manifests_install_command() {
     let at = Snapshot {
         path: Some("a.cpp".into()),
         text: "int main() {}\n".into(),
-        root: empty.clone(),
+        root: empty.to_path_buf(),
         ..Snapshot::default()
     };
     let mut events = host.buffer_event(&BufferEvent::Switched, &at);
@@ -53,5 +55,4 @@ fn a_missing_server_hints_the_manifests_install_command() {
         _ => "winget install LLVM.LLVM",
     };
     assert_eq!(hint, expected);
-    std::fs::remove_dir_all(empty).ok();
 }
