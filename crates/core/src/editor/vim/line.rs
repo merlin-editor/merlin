@@ -510,18 +510,29 @@ impl Editor {
     /// there are.
     fn vim_match_count(&self, re: &regex::Regex) -> (usize, usize) {
         let doc = self.doc();
-        let text = doc.buffer.text();
         let rope = doc.buffer.rope();
         let at = self.vim_visual_cursor().unwrap_or(doc.cursor);
-        let mut n = 0;
-        let mut here = 0;
-        for m in re.find_iter(&text).take(100_000) {
-            n += 1;
-            if rope.byte_to_char(m.start()) <= at {
-                here = n;
+        if spans_lines(re) {
+            let text = doc.buffer.text();
+            let mut n = 0;
+            let mut here = 0;
+            for m in re.find_iter(&text).take(100_000) {
+                n += 1;
+                if rope.byte_to_char(m.start()) <= at {
+                    here = n;
+                }
+            }
+            return (here.max(1), n);
+        }
+        // From the counts kept for the search, not a copy of the text.
+        let matcher = crate::search::Matcher::regex(re.clone());
+        match doc.found(&matcher) {
+            Some(found) => (found.through(rope, at).0.max(1), found.total()),
+            None => {
+                let all = matcher.all(rope, None);
+                (all.iter().filter(|m| m.0 <= at).count().max(1), all.len())
             }
         }
-        (here.max(1), n)
     }
 
     /// The right of the line while typing a command.
@@ -1200,8 +1211,23 @@ pub(super) fn search_regex(
     forward: bool,
     n: usize,
 ) -> Option<usize> {
-    let text = doc.buffer.text();
     let rope = doc.buffer.rope();
+    if !spans_lines(re) {
+        // Searched from `p` in place, stopping at each match.
+        let matcher = crate::search::Matcher::regex(re.clone());
+        let found = doc.found(&matcher);
+        let mut at = p;
+        for _ in 0..n {
+            let hit = if forward {
+                matcher.next(rope, at + 1, found.as_deref(), |_| true)
+            } else {
+                matcher.previous(rope, at, found.as_deref())
+            };
+            at = hit?.0;
+        }
+        return Some(at);
+    }
+    let text = doc.buffer.text();
     let hits: Vec<usize> = re
         .find_iter(&text)
         .take(100_000)
@@ -1223,6 +1249,12 @@ pub(super) fn search_regex(
         };
     }
     Some(at)
+}
+
+/// Whether a search can match across lines: it names a line break, so it's
+/// searched over the whole text instead of a line at a time.
+fn spans_lines(re: &regex::Regex) -> bool {
+    re.as_str().contains(r"\n")
 }
 
 #[cfg(test)]

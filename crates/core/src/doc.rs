@@ -426,7 +426,17 @@ impl Doc {
             .as_ref()
             .is_some_and(|f| f.is_for(matcher, version));
         if !kept {
-            let found = crate::search::Found::new(matcher, self.buffer.rope(), version);
+            let rope = self.buffer.rope();
+            // A query grown as it's typed searches only where the last
+            // one matched.
+            let narrowed = self
+                .found
+                .borrow()
+                .as_ref()
+                .filter(|f| f.is_at(version))
+                .and_then(|f| f.narrow(matcher, rope));
+            let found =
+                narrowed.unwrap_or_else(|| crate::search::Found::new(matcher, rope, version));
             self.found.replace(Some(found));
         }
         std::cell::Ref::filter_map(self.found.borrow(), Option::as_ref).ok()

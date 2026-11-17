@@ -202,28 +202,33 @@ whole list to pick one match from it.
   and stop at the first match, skipping blocks with none.
 - Select All Occurrences, Replace All and a plugin's surface still need
   every match, and make the list then, from the same search.
+- A query grown as it's typed searches only the bands of lines the last
+  one matched in, as each of its matches is inside one of those. A rare
+  word costs 0.3 ms a key once it's a few letters long.
+- Vim's `n`, `N` and match count use the same search and counts, read in
+  place. A pattern that names a line break (`\n`) is still searched over
+  a copy of the whole text, as it can match across lines.
 
 **The effect, in `large_probe`** (85 MB text / 342 MB log):
 
 | | Before | After |
 |---|---|---|
-| Open Find and type a 5-letter word | 20 s / 70 s | 0.46 s / 1.3 s |
-| A key typed in Find, a rare word | | 30 ms / 170 ms |
+| Open Find and type a 5-letter word | 20 s / 70 s | 0.34 s / 0.56 s |
+| A key typed in Find, a rare word | | 0.3 ms once a few letters long |
 | A frame with Find open | 6.4 s / 23 s | 0.8 ms / 0.6 ms |
 | Find next; Find previous | 3.2 s / 12 s | 0.2 ms; 0.3 ms |
 | Ctrl+D three times | 5 s / 17 s | 0.1 ms |
 
-On the 20 MB Rust file a key in Find takes 9–14 ms. The `regex` crate's
+On the 20 MB Rust file the 5-letter word takes 36 ms. The `regex` crate's
 literal optimisations made no difference: they were already on through
 another crate.
 
 **Still to do from it:**
-- A key in Find still counts the whole file on the window's thread:
-  about 120 ms for exact text on the 342 MB log, close to the 77–160 ms
-  the prototype found for one thread. Counting on four threads in the
-  background, with a count that fills in, is step 7.
-- Vim's match count copies the whole text into a String for each search
-  (`vim_match_count`). It should use the counts too.
+- The first letter in Find, a Backspace, or a toggle still counts the
+  whole file on the window's thread: about 120 ms for exact text on the
+  342 MB log, close to the 77–160 ms the prototype found for one thread.
+  Counting on four threads in the background, with a count that fills in,
+  is step 7.
 
 ### Fixed on this branch so far
 
@@ -250,7 +255,7 @@ On the 85 MB / 342 MB files:
 
 | | Today | Why |
 |---|---|---|
-| Open Find and type a word | ~~20 s / 70 s~~ 0.46 s / 1.3 s since step 2 | Every line copied into a `Vec<char>`, several times a keystroke |
+| Open Find and type a word | ~~20 s / 70 s~~ 0.34 s / 0.56 s since step 2 | Every line copied into a `Vec<char>`, several times a keystroke |
 | A frame with Find open | ~~6.4 s / 23 s~~ fixed in step 2 | The scrollbar finds every match again each frame |
 | Find next; Ctrl+D | ~~3.2 s / 12 s; 5 s / 17 s for three~~ fixed in step 2 | All matches found to pick one |
 | A frame with the minimap on | 2.3 s / 7.7 s | Built for every line; it shows a few hundred |

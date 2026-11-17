@@ -36,6 +36,9 @@ pub struct Matcher {
     /// Its matches never reach past a line's end, so many lines can be
     /// searched at once: a query typed as it is, not a regular expression.
     plain: bool,
+    /// The query as typed and whether case is ignored, when it isn't a
+    /// regular expression.
+    typed: Option<(String, bool)>,
 }
 
 #[derive(Clone)]
@@ -53,6 +56,7 @@ impl Matcher {
             whole_word: false,
             scope: None,
             plain: false,
+            typed: None,
         }
     }
 
@@ -78,6 +82,7 @@ impl Matcher {
             whole_word,
             scope,
             plain: !query.chars().any(ends_line),
+            typed: Some((query.to_string(), fold)),
         }
     }
 
@@ -85,6 +90,23 @@ impl Matcher {
     pub fn with_scope(mut self, scope: Option<(usize, usize)>) -> Self {
         self.scope = scope;
         self
+    }
+
+    /// Whether every match of this one is inside a match of `old`, so only
+    /// the lines `old` found need searching: the query grew as it's typed.
+    fn narrows(&self, old: &Matcher) -> bool {
+        let (Some((new, new_fold)), Some((was, was_fold))) = (&self.typed, &old.typed) else {
+            return false;
+        };
+        if old.whole_word || old.scope != self.scope {
+            return false;
+        }
+        match was_fold {
+            // Folded as the regex crate does it, which plain lower case
+            // matches only for ASCII.
+            true => was.is_ascii() && new.to_lowercase().contains(&was.to_ascii_lowercase()),
+            false => !new_fold && new.contains(was.as_str()),
+        }
     }
 
     /// Whether case is ignored.
@@ -491,7 +513,7 @@ pub struct Found {
     /// The scrollbar's marks, made when first asked for.
     marks: RefCell<Option<Rc<Vec<usize>>>>,
     /// The last match asked about and which it is, from 1.
-    current: Cell<Option<(usize, Option<usize>)>>,
+    current: Cell<Option<(usize, usize, bool)>>,
 }
 
 impl Found {
@@ -514,6 +536,58 @@ impl Found {
         };
         found.recount(rope);
         found
+    }
+
+    /// The counts for `matcher`, a query grown from this one's, from the
+    /// bands of lines this one found matches in; `None` if it isn't one.
+    pub fn narrowed(&self, matcher: &Matcher) -> Option<Self> {
+        (matcher.narrows(&self.matcher) && self.scope.is_none()).then_some(())?;
+        Some(Self {
+            key: matcher.key(),
+            matcher: matcher.clone(),
+            scope: matcher.scope,
+            version: self.version,
+            blocks: self.blocks.clone(),
+            total: self.total,
+            marks: RefCell::new(None),
+            current: Cell::new(None),
+        })
+    }
+
+    /// As [`Found::narrowed`], searching `rope` again in the bands that
+    /// had a match.
+    pub fn narrow(&self, matcher: &Matcher, rope: &Rope) -> Option<Self> {
+        let mut found = self.narrowed(matcher)?;
+        let mut start = 0;
+        for b in &mut found.blocks {
+            let block = start;
+            start += b.lines as usize;
+            if b.count == 0 {
+                continue;
+            }
+            let mut bands = b.bands;
+            (b.count, b.bands) = (0, 0);
+            // Each run of bands with matches, searched at once.
+            while bands != 0 {
+                let first = bands.trailing_zeros() as usize;
+                let run = (bands >> first).trailing_ones() as usize;
+                bands &= !(u64::MAX >> (64 - run) << first);
+                let from = block + first * BAND;
+                let to = (block + (first + run) * BAND).min(start);
+                let _ = found.matcher.matches_in(rope, from..to, |line, _, _| {
+                    b.count += 1;
+                    b.bands |= 1 << ((line - block) / BAND).min(63);
+                    ControlFlow::Continue(())
+                });
+            }
+        }
+        found.total = found.blocks.iter().map(|b| b.count as usize).sum();
+        Some(found)
+    }
+
+    /// Whether these are counts for text version `version`.
+    pub fn is_at(&self, version: u64) -> bool {
+        self.version == version
     }
 
     /// Whether these are the counts for `matcher` at text version `version`.
@@ -600,35 +674,39 @@ impl Found {
 
     /// Which match starts at `at`, from 1, if one does.
     pub fn index_of(&self, rope: &Rope, at: usize) -> Option<usize> {
-        if let Some((pos, index)) = self.current.get()
+        let (count, on) = self.through(rope, at);
+        on.then_some(count)
+    }
+
+    /// How many matches start at or before `at`, and whether one starts
+    /// there. The blocks before it are counted from what's kept; only its
+    /// own block is searched.
+    pub fn through(&self, rope: &Rope, at: usize) -> (usize, bool) {
+        if let Some((pos, count, on)) = self.current.get()
             && pos == at
         {
-            return index;
+            return (count, on);
         }
         let line = rope.char_to_line(at.min(rope.len_chars()));
-        let mut before = 0;
-        let mut index = None;
-        for (span, count) in spans(rope, 0..line + 1, Some(self)) {
-            let count = count.unwrap_or(0);
-            if span.end <= line || count == 0 {
-                before += count;
+        let mut count = 0;
+        let mut on = false;
+        for (span, n) in spans(rope, 0..line + 1, Some(self)) {
+            let n = n.unwrap_or(0);
+            if span.end <= line || n == 0 {
+                count += n;
                 continue;
             }
             let _ = self.matcher.matches_in(rope, span, |_, pos, _| {
                 if pos > at {
                     return ControlFlow::Break(());
                 }
-                before += 1;
-                if pos == at {
-                    index = Some(before);
-                    return ControlFlow::Break(());
-                }
+                count += 1;
+                on = pos == at;
                 ControlFlow::Continue(())
             });
-            break;
         }
-        self.current.set(Some((at, index)));
-        index
+        self.current.set(Some((at, count, on)));
+        (count, on)
     }
 
     /// The lines the scrollbar marks: each line with a match in a file of
@@ -817,6 +895,43 @@ mod tests {
         });
         assert_eq!(hits.len(), 20_000);
         assert_eq!(hits, by_line.all(&rope, None));
+    }
+
+    #[test]
+    fn a_growing_query_counts_from_the_last_ones_bands() {
+        let rope = Rope::from_str(&sample());
+        let steps = [
+            ("m", true),
+            ("ma", true),
+            ("mai", true),
+            ("Main", false),
+            ("Main l", false),
+        ];
+        let mut found = Found::new(&Matcher::plain("m", true, false, None), &rope, 0);
+        for (query, fold) in steps.into_iter().skip(1) {
+            let m = Matcher::plain(query, fold, false, None);
+            found = found.narrow(&m, &rope).expect(query);
+            let fresh = Found::new(&m, &rope, 0);
+            assert_eq!(found.total(), fresh.total(), "{query}");
+            assert_eq!(found.blocks, fresh.blocks, "{query}");
+        }
+        let exact = Matcher::plain("Main", false, false, None);
+        let found = Found::new(&exact, &rope, 0);
+        assert!(
+            found
+                .narrow(&Matcher::plain("main x", true, false, None), &rope)
+                .is_none()
+        );
+        assert!(
+            found
+                .narrow(&Matcher::plain("Mai", false, false, None), &rope)
+                .is_none()
+        );
+        let word = Found::new(&Matcher::plain("Main", false, true, None), &rope, 0);
+        assert!(
+            word.narrow(&Matcher::plain("Mainx", false, false, None), &rope)
+                .is_none()
+        );
     }
 
     #[test]
