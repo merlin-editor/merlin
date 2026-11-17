@@ -72,7 +72,7 @@ impl Editor {
     /// it, or without `scroll_beyond_last_line`, a view's height above the
     /// end.
     fn max_top_row(&self) -> f64 {
-        let total = *self.row_index().last().unwrap_or(&0);
+        let total = self.row_index().total();
         if self.scroll_beyond_last_line {
             total.saturating_sub(1) as f64
         } else {
@@ -83,8 +83,12 @@ impl Editor {
     /// The rows before each line of the document drawn, and in all, with
     /// wrapped lines counted by their rows and folded ones not at all:
     /// cached until the text, the width or the folds change.
-    pub(crate) fn row_index(&self) -> std::rc::Rc<Vec<usize>> {
+    pub(crate) fn row_index(&self) -> RowIndex {
         let doc = self.doc();
+        // A row a line, as for most files: nothing to count.
+        if !self.row_based() && self.merging().is_none() && self.agent_change_here().is_none() {
+            return RowIndex::Lines(doc.last_line() + 1);
+        }
         let key = (
             doc.id,
             doc.buffer.version(),
@@ -102,7 +106,7 @@ impl Editor {
         if let Some((k, index)) = cache.as_ref()
             && *k == key
         {
-            return index.clone();
+            return RowIndex::Rows(index.clone());
         }
         let lines = doc.last_line() + 1;
         let mut before = Vec::with_capacity(lines + 1);
@@ -114,13 +118,13 @@ impl Editor {
         before.push(rows);
         let index = std::rc::Rc::new(before);
         *cache = Some((key, index.clone()));
-        index
+        RowIndex::Rows(index)
     }
 
     /// Where the view's top is, in rows from the top of the document.
     pub(crate) fn top_row(&self) -> f64 {
         let (row, frac) = self.top_sub();
-        let before = self.row_index()[self.view().scroll.min(self.doc().last_line())];
+        let before = self.row_index().before(self.view().scroll);
         before as f64 + row as f64 + frac as f64
     }
 
@@ -129,15 +133,12 @@ impl Editor {
         let index = self.row_index();
         let at = at.clamp(0.0, self.max_top_row());
         let whole = at.floor() as usize;
-        // The line whose rows hold it: the last that starts at or before.
-        let line = index[..index.len() - 1]
-            .partition_point(|&r| r <= whole)
-            .saturating_sub(1);
+        let line = index.line_at(whole);
         let doc = self.doc_mut();
         doc.scroll = line;
         doc.scroll_sub = Sub {
             line,
-            row: whole - index[line],
+            row: whole - index.before(line),
             frac: (at - whole as f64) as f32,
         };
     }
@@ -159,5 +160,41 @@ impl Editor {
             row,
             frac: 0.0,
         };
+    }
+}
+
+/// The rows before each line drawn, and in all.
+#[derive(Clone)]
+pub(crate) enum RowIndex {
+    /// This many lines, a row each.
+    Lines(usize),
+    /// The rows before each line, then the total.
+    Rows(std::rc::Rc<Vec<usize>>),
+}
+
+impl RowIndex {
+    /// The rows before `line`; past the last line, before the last.
+    pub(crate) fn before(&self, line: usize) -> usize {
+        match self {
+            Self::Lines(n) => line.min(n.saturating_sub(1)),
+            Self::Rows(index) => index[line.min(index.len().saturating_sub(2))],
+        }
+    }
+
+    pub(crate) fn total(&self) -> usize {
+        match self {
+            Self::Lines(n) => *n,
+            Self::Rows(index) => *index.last().unwrap_or(&0),
+        }
+    }
+
+    /// The line whose rows hold `row`: the last that starts at or before.
+    pub(crate) fn line_at(&self, row: usize) -> usize {
+        match self {
+            Self::Lines(n) => row.min(n.saturating_sub(1)),
+            Self::Rows(index) => index[..index.len() - 1]
+                .partition_point(|&r| r <= row)
+                .saturating_sub(1),
+        }
     }
 }

@@ -110,7 +110,24 @@ pub struct Doc {
     pub indent: Option<Indent>,
     /// What `.editorconfig` files say about it.
     pub config: crate::editor::FileConfig,
+    /// The widest line, measured once and kept up to date with edits.
+    widest: std::cell::Cell<Option<Widest>>,
 }
+
+/// The widest line's columns, without inlay hints.
+#[derive(Clone, Copy, Debug)]
+struct Widest {
+    cols: usize,
+    /// The line's characters, until an edit to it in a file too large to
+    /// measure again; `cols` is then at most what it is.
+    span: Option<(usize, usize)>,
+    /// The buffer's version it's for.
+    version: u64,
+}
+
+/// Files up to this many bytes are measured again when their widest line
+/// gets narrower; larger ones keep the old width until a wider line.
+const REMEASURE_BYTES: usize = 4 << 20;
 
 impl Doc {
     pub fn new(id: u64, text: &str, path: Option<PathBuf>) -> Self {
@@ -137,6 +154,7 @@ impl Doc {
             page: None,
             indent,
             config: Default::default(),
+            widest: Default::default(),
         }
     }
 
@@ -199,7 +217,7 @@ impl Doc {
 
     fn update_signs(&mut self) {
         self.git_signs = match &self.git_base {
-            Some(base) => diff::signs(base, &self.buffer.text()),
+            Some(base) => diff::signs_rope(base, self.buffer.rope()),
             None => Vec::new(),
         };
     }
@@ -232,6 +250,7 @@ impl Doc {
             }
         }
         self.extra_version = self.buffer.version();
+        self.update_widest(&changes);
         self.layers.tidy();
         // A fold whose first line was joined to another goes.
         self.folds
@@ -351,13 +370,104 @@ impl Doc {
         self.buffer.rope().len_lines() - 1
     }
 
+    /// The widest line's columns, not counting inlay hints: measured once,
+    /// then only the lines edits touch.
+    pub fn widest(&self) -> usize {
+        let version = self.buffer.version();
+        match self.widest.get() {
+            Some(w) if w.version == version => return w.cols,
+            _ => {}
+        }
+        let (cols, line) = widest_in(self.buffer.rope());
+        let start = self.line_start(line);
+        // Edits still to sync would be counted twice.
+        if !self.buffer.has_changes() {
+            self.widest.set(Some(Widest {
+                cols,
+                span: Some((start, start + self.buffer.line_len(line))),
+                version,
+            }));
+        }
+        cols
+    }
+
+    /// Measures the lines `changes` touched, and drops the width if they
+    /// made the widest line narrower in a file small enough to measure again.
+    fn update_widest(&mut self, changes: &[Change]) {
+        let Some(mut w) = self.widest.get() else {
+            return;
+        };
+        // From another buffer.
+        if w.version >> 32 != self.buffer.version() >> 32 {
+            self.widest.set(None);
+            return;
+        }
+        let mut lost = false;
+        for change in changes {
+            if let Some((a, b)) = w.span {
+                if change.at <= b && change.at + change.removed >= a {
+                    lost = true;
+                    w.span = None;
+                } else {
+                    w.span = Some((change.map(a), change.map(b)));
+                }
+            }
+        }
+        // Where each change's text ended up, after the ones after it.
+        let rope = self.buffer.rope();
+        let mut best: Option<(usize, usize)> = None;
+        for (i, change) in changes.iter().enumerate() {
+            let (mut a, mut b) = (change.at, change.at + change.inserted);
+            for later in &changes[i + 1..] {
+                a = later.map(a);
+                b = later.map(b).max(a);
+            }
+            let a = a.min(rope.len_chars());
+            let b = b.min(rope.len_chars());
+            for line in rope.char_to_line(a)..=rope.char_to_line(b) {
+                let cols = self.text_cols(line);
+                if best.is_none_or(|(c, _)| cols > c) {
+                    best = Some((cols, line));
+                }
+            }
+        }
+        if let Some((cols, line)) = best
+            && cols >= w.cols
+        {
+            let start = self.line_start(line);
+            w.cols = cols;
+            w.span = Some((start, start + self.buffer.line_len(line)));
+            lost = false;
+        }
+        if lost && rope.len_bytes() <= REMEASURE_BYTES {
+            self.widest.set(None);
+            return;
+        }
+        w.version = self.buffer.version();
+        self.widest.set(Some(w));
+    }
+
+    /// A line's columns, not counting inlay hints.
+    fn text_cols(&self, line: usize) -> usize {
+        widest_of(self.buffer.rope().line(line).chunks()).0
+    }
+
     /// Where `col` on `line` is drawn, counting tabs, wide characters and
     /// the inlay hints before it. A hint at `col` itself comes after: the
     /// cursor there stays by the text before.
     pub fn display_col(&self, line: usize, col: usize) -> usize {
         let inlays = self.line_inlays(line);
+        if inlays.is_empty() {
+            let col = col.min(self.buffer.line_len(line));
+            return walk(
+                self.buffer.rope().line(line).slice(..col).chunks(),
+                |_, _| true,
+            )
+            .1;
+        }
         let mut d = 0;
-        for (i, c) in self.line_chars(line).into_iter().take(col).enumerate() {
+        let chars = self.buffer.rope().line(line).chars();
+        for (i, c) in chars.take(col.min(self.buffer.line_len(line))).enumerate() {
             d += inlay_cols(&inlays, i);
             d += advance(c, d);
         }
@@ -369,19 +479,75 @@ impl Doc {
     pub fn col_at_display(&self, line: usize, target: usize) -> usize {
         let inlays = self.line_inlays(line);
         let mut d = 0;
-        let chars = self.line_chars(line);
-        for (i, c) in chars.iter().enumerate() {
+        let len = self.buffer.line_len(line);
+        for (i, c) in self.buffer.rope().line(line).chars().take(len).enumerate() {
             d += inlay_cols(&inlays, i);
             if d > target {
                 return i;
             }
-            let w = advance(*c, d);
+            let w = advance(c, d);
             if d + w > target {
                 return i;
             }
             d += w;
         }
-        chars.len()
+        len
+    }
+
+    /// Where to start drawing a long `line` to show display column
+    /// `target`: the last character at or before it on a tab stop, so tabs
+    /// after it line up, and its display column.
+    pub fn draw_from(&self, line: usize, target: usize) -> (usize, usize) {
+        let inlays = self.line_inlays(line);
+        let len = self.buffer.line_len(line);
+        let mut best = (0, 0);
+        if inlays.is_empty() {
+            let text = self.buffer.rope().line(line).slice(..len);
+            walk(text.chunks(), |i, d| {
+                if d.is_multiple_of(TAB_WIDTH) && d <= target {
+                    best = (i, d);
+                }
+                d <= target
+            });
+            return best;
+        }
+        let mut d = 0;
+        for (i, c) in self.buffer.rope().line(line).chars().take(len).enumerate() {
+            if d > target {
+                break;
+            }
+            if d.is_multiple_of(TAB_WIDTH) {
+                best = (i, d);
+            }
+            d += inlay_cols(&inlays, i);
+            d += advance(c, d);
+        }
+        best
+    }
+
+    /// The word of characters `is_word` takes that `pos` is in or just
+    /// after, as a char range: found from `pos` out, whatever the line's
+    /// length.
+    pub fn word_around(
+        &self,
+        pos: usize,
+        is_word: impl Fn(char) -> bool,
+    ) -> Option<(usize, usize)> {
+        let rope = self.buffer.rope();
+        let at = |i: usize| i < rope.len_chars() && is_word(rope.char(i));
+        let mut a = pos.min(rope.len_chars());
+        if !at(a) && a > 0 && at(a - 1) {
+            a -= 1;
+        }
+        if !at(a) {
+            return None;
+        }
+        let mut before = rope.chars_at(a);
+        while before.prev().is_some_and(&is_word) {
+            a -= 1;
+        }
+        let b = a + rope.chars_at(a).take_while(|&c| is_word(c)).count();
+        Some((a, b))
     }
 
     /// The inlay hints on a line, as the column of the character each is
@@ -463,6 +629,86 @@ impl Doc {
 
 /// Cells `c` takes when drawn at display column `at`.
 /// The columns the inlay hints before character `i` take.
+/// The widest line in `rope`, in columns without inlay hints, and which
+/// line it is: one pass over the text, ASCII a byte at a time.
+fn widest_in(rope: &ropey::Rope) -> (usize, usize) {
+    widest_of(rope.chunks())
+}
+
+/// [`widest_in`] for text in pieces.
+fn widest_of<'a>(chunks: impl Iterator<Item = &'a str>) -> (usize, usize) {
+    let (mut best, mut best_line) = (0, 0);
+    let (mut col, mut line, mut cr) = (0, 0, false);
+    for chunk in chunks {
+        let bytes = chunk.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            let b = bytes[i];
+            if b == b'\n' {
+                let cols = col - usize::from(cr);
+                if cols > best {
+                    (best, best_line) = (cols, line);
+                }
+                (col, cr) = (0, false);
+                line += 1;
+                i += 1;
+                continue;
+            }
+            cr = b == b'\r';
+            if b < 0x80 {
+                col += if b == b'\t' {
+                    TAB_WIDTH - col % TAB_WIDTH
+                } else {
+                    char_width(b as char)
+                };
+                i += 1;
+            } else {
+                let c = chunk[i..].chars().next().unwrap_or(' ');
+                col += advance(c, col);
+                i += c.len_utf8();
+            }
+        }
+    }
+    if col > best {
+        (best, best_line) = (col, line);
+    }
+    (best, best_line)
+}
+
+/// Goes through the characters of `chunks`, calling `f` with each one's
+/// index and display column until it says to stop; then how many it went
+/// past and the column reached. ASCII a byte at a time, for long lines.
+fn walk<'a>(
+    chunks: impl Iterator<Item = &'a str>,
+    mut f: impl FnMut(usize, usize) -> bool,
+) -> (usize, usize) {
+    let (mut i, mut d) = (0, 0);
+    for chunk in chunks {
+        let bytes = chunk.as_bytes();
+        let mut at = 0;
+        while at < bytes.len() {
+            if !f(i, d) {
+                return (i, d);
+            }
+            let b = bytes[at];
+            if b < 0x80 {
+                d += if b == b'\t' {
+                    TAB_WIDTH - d % TAB_WIDTH
+                } else {
+                    char_width(b as char)
+                };
+                at += 1;
+            } else {
+                let c = chunk[at..].chars().next().unwrap_or(' ');
+                d += advance(c, d);
+                at += c.len_utf8();
+            }
+            i += 1;
+        }
+    }
+    (i, d)
+}
+
 pub fn inlay_cols(inlays: &[(usize, usize)], i: usize) -> usize {
     inlays
         .iter()

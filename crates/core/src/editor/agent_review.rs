@@ -64,7 +64,7 @@ impl Editor {
 
     /// The agent tab and change for the file open now, if an agent changed
     /// it and it's waiting to be kept.
-    fn agent_change_here(&self) -> Option<(usize, usize)> {
+    pub(crate) fn agent_change_here(&self) -> Option<(usize, usize)> {
         let here = self.whole(self.doc().buffer.path.as_deref()?);
         self.agents.tabs.iter().enumerate().find_map(|(i, t)| {
             t.changes

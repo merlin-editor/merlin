@@ -1091,7 +1091,7 @@ fn the_cursors_line_says_who_last_changed_it() {
         text: Some(HEAD_PALETTE.into()),
     });
     let asked = s.effects.iter().find_map(|e| match e {
-        Effect::Blame { version, text, .. } => Some((*version, text.clone())),
+        Effect::Blame { version, text, .. } => Some((*version, text.to_string())),
         _ => None,
     });
     let (version, text) = asked.expect("blame asked for");

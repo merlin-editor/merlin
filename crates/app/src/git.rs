@@ -13,7 +13,7 @@ pub(super) const BLAME_PAUSE: Duration = Duration::from_millis(400);
 pub(super) struct Blame {
     pub(super) path: PathBuf,
     pub(super) version: u64,
-    pub(super) text: String,
+    pub(super) text: merlin_core::buffer::TextSnapshot,
     pub(super) ignore: Vec<String>,
 }
 
@@ -617,7 +617,11 @@ impl Git {
             .spawn();
         let text = child.ok().and_then(|mut child| {
             if let Some(mut stdin) = child.stdin.take() {
-                let _ = stdin.write_all(ask.text.as_bytes());
+                for chunk in ask.text.rope().chunks() {
+                    if stdin.write_all(chunk.as_bytes()).is_err() {
+                        break;
+                    }
+                }
             }
             let o = child.wait_with_output().ok()?;
             o.status

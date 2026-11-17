@@ -1,0 +1,24 @@
+[package]
+name = "buffer-prototypes"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ropey = "1.6"
+memchr = "2"
+crop = { version = "0.4", features = ["utf16-metric"] }
+regex = "1"
+memmap2 = "0.9"
+unicode-width = "0.2"
+similar = "2"
+tree-sitter = "0.27"
+tree-sitter-rust = "0.24"
+streaming-iterator = "0.1"
+merlin-core = { path = "../../crates/core" }
+merlin-syntax = { path = "../../crates/syntax" }
+
+# Not part of the workspace: built on its own.
+[workspace]
+
+[profile.release]
+debug = 1

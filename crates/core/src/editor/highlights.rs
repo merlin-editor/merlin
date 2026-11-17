@@ -28,25 +28,7 @@ impl Editor {
         if self.focus != Focus::Editor || v.selection().is_some() || doc.review.is_some() {
             return None;
         }
-        let (line, col) = doc.line_col(v.cursor);
-        let chars = doc.line_chars(line);
-        let at = |i: usize| chars.get(i).copied().is_some_and(super::guides::is_word);
-        let mut a = col;
-        if !at(a) && a > 0 && at(a - 1) {
-            a -= 1;
-        }
-        if !at(a) {
-            return None;
-        }
-        while a > 0 && at(a - 1) {
-            a -= 1;
-        }
-        let mut b = a;
-        while at(b) {
-            b += 1;
-        }
-        let start = doc.line_start(line);
-        Some((start + a, start + b))
+        doc.word_around(v.cursor, super::guides::is_word)
     }
 
     /// Asks the language server for the uses of the name the cursor came

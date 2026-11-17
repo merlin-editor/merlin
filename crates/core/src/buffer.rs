@@ -85,6 +85,15 @@ impl TextSnapshot {
     }
 }
 
+/// The same text, at the same version if from a buffer.
+impl PartialEq for TextSnapshot {
+    fn eq(&self, other: &Self) -> bool {
+        self.version() == other.version() && self.rope == other.rope
+    }
+}
+
+impl Eq for TextSnapshot {}
+
 impl std::fmt::Display for TextSnapshot {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         for chunk in self.rope.chunks() {
@@ -261,6 +270,11 @@ impl Buffer {
     /// Makes the undo steps from `from` on one.
     pub fn join_undo(&mut self, from: usize) {
         self.history.join_from(from, self.saved);
+    }
+
+    /// Whether there are changes [`Buffer::take_changes`] hasn't taken.
+    pub fn has_changes(&self) -> bool {
+        !self.changes.is_empty()
     }
 
     pub fn take_changes(&mut self) -> Vec<Change> {

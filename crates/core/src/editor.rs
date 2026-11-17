@@ -496,8 +496,6 @@ pub struct Editor {
     /// The name under the cursor's uses, from its language server, and the
     /// name last asked about.
     highlights: Option<highlights::Highlights>,
-    /// The widest line, by document and version.
-    widest_cache: std::cell::Cell<Option<((u64, u64), usize)>>,
     highlight_asked: Option<(u64, u64, usize)>,
     /// The Hierarchy view's calls or types, once one's been asked for.
     hierarchy: Option<hierarchy::Hierarchy>,
@@ -731,7 +729,6 @@ impl Editor {
             format_on_save: Default::default(),
             waiting_format: None,
             rename_box: None,
-            widest_cache: Default::default(),
             renaming: None,
             rename_review: None,
             peek: None,

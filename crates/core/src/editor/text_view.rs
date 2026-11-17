@@ -401,8 +401,6 @@ impl Editor {
         } else {
             v.scroll + area.h as usize + overscan as usize
         };
-        let visible = first..last_shown.max(v.scroll + 1);
-        let spans = doc.spans(visible);
         let focused = self.focus == Focus::Editor && !self.drawing_other();
         // Visual mode's cursor, which isn't the selection's end.
         let vim_at = self.vim_visual_cursor().filter(|_| focused);
@@ -416,6 +414,7 @@ impl Editor {
         let number_line = vim_at.map_or(cur_line, |p| doc.line_col(p.min(doc.buffer.len())).0);
         let highlight_line = focused && selection.is_none();
         let guides = self.guides(visible_lines(first, last_shown - first, lines));
+        let columns = self.text_columns();
         let uses: Option<Vec<(usize, usize, bool)>> = self.current_highlights().map(<[_]>::to_vec);
         // Fold arrows show for folded blocks, and for the others while the
         // mouse is over the gutter.
@@ -428,7 +427,7 @@ impl Editor {
         let mut view = TextView {
             group: self.pane(),
             top_row: self.top_row(),
-            total_rows: *self.row_index().last().unwrap_or(&0),
+            total_rows: self.row_index().total(),
             area,
             gutter,
             columns: self.text_columns(),
@@ -471,9 +470,27 @@ impl Editor {
                 }
                 continue;
             }
-            let start = doc.line_start(line);
-            let chars = doc.line_chars(line);
+            // A long line that doesn't wrap is drawn from near the left of
+            // the view to past its right: the characters taken, from where
+            // and at what column, and whether the line goes on after them.
+            let len = doc.buffer.line_len(line);
+            let (from, from_col, cut) = if !wrapping && len > LONG_LINE {
+                let (from, col) = doc.draw_from(line, v.hscroll.saturating_sub(LINE_MARGIN));
+                let take = (v.hscroll + columns + LINE_MARGIN).saturating_sub(col);
+                (from, col, from + take < len)
+            } else {
+                (0, 0, false)
+            };
+            let start = doc.line_start(line) + from;
+            let chars: Vec<char> = if from_col > 0 || cut {
+                let take = (v.hscroll + columns + LINE_MARGIN).saturating_sub(from_col);
+                let rope = doc.buffer.rope();
+                rope.chars_at(start).take(take.min(len - from)).collect()
+            } else {
+                doc.line_chars(line)
+            };
             let end = start + chars.len();
+            let windowed = from > 0 || cut;
             // The screen rows the line takes, more than one if it wraps.
             let rows = if wrapping {
                 wrap::wrap(&chars, &doc.line_inlays(line), self.text_columns())
@@ -481,13 +498,13 @@ impl Editor {
                 vec![Row {
                     start: 0,
                     col: 0,
-                    indent: 0,
+                    indent: from_col,
                 }]
             };
             let folded = hidden.iter().any(|r| r.start == line + 1);
             let shown = rows.len().min((bottom - row) as usize) as u16;
 
-            let syntax = line_syntax(&spans, start, end);
+            let syntax = line_syntax(&doc.layers.spans(&(start..end)), start, end);
             let LineMarks {
                 marks,
                 worst,
@@ -589,18 +606,28 @@ impl Editor {
                     }
                 }
             }
+            // The depth past part of a line isn't known: no colours from it
+            // on, this time.
+            if windowed {
+                depth = None;
+            }
             let brackets = line_brackets(&chars, &syntax, &mut depth, link, start);
-            let line_guides = indent_guides(&chars, &rows, &guides, line, first);
-            let eol_selected = selections.iter().any(|&(a, b)| (a..b).contains(&end));
+            let line_guides = if from > 0 {
+                vec![None; chars.len()]
+            } else {
+                indent_guides(&chars, &rows, &guides, line, first)
+            };
+            let eol_selected = !cut && selections.iter().any(|&(a, b)| (a..b).contains(&end));
             let inlays = line_inlays(doc, &preview, start, end, &mut styles);
-            let note = note.filter(|_| self.inline_notes).map(|m| {
+            // What follows the line's end shows only with its end.
+            let note = note.filter(|_| self.inline_notes && !cut).map(|m| {
                 let text = note_text(&m.message);
                 match notable.len().saturating_sub(1) {
                     0 => (m.severity, text),
                     more => (m.severity, format!("{text}  (+{more} more)")),
                 }
             });
-            let blame = if line == cur_line && note.is_none() && selection.is_none() {
+            let blame = if line == cur_line && note.is_none() && selection.is_none() && !cut {
                 self.line_blame(line)
             } else {
                 None
@@ -764,6 +791,13 @@ pub(super) fn visible_lines(scroll: usize, rows: usize, lines: usize) -> std::op
 
 /// Columns between the halves of a changes tab side by side.
 const GAP: u16 = 7;
+
+/// Lines longer than this many characters that don't wrap are drawn only
+/// around the view, so a minified file's one line costs what the screen
+/// shows.
+const LONG_LINE: usize = 2000;
+/// Characters drawn past each edge of the view on such a line.
+const LINE_MARGIN: usize = 256;
 
 /// A line's syntax colours, from the document's `spans`, for its
 /// characters from `start` to `end`.

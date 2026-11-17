@@ -46,9 +46,8 @@ impl Guides {
 
 /// A line's indent in display columns, or `None` if it's blank.
 pub(crate) fn indent(doc: &Doc, line: usize) -> Option<usize> {
-    let chars = doc.line_chars(line);
     let mut d = 0;
-    for &c in &chars {
+    for c in doc.buffer.rope().line(line).chars() {
         match c {
             ' ' | '\t' => d += advance(c, d),
             '\n' | '\r' => return None,
@@ -173,24 +172,8 @@ impl Editor {
         if self.focus != super::Focus::Editor || v.selection().is_some() || doc.review.is_some() {
             return None;
         }
-        let (line, col) = doc.line_col(v.cursor);
-        let chars = doc.line_chars(line);
-        let at = |i: usize| chars.get(i).copied().is_some_and(is_word);
-        let mut a = col;
-        if !at(a) && a > 0 && at(a - 1) {
-            a -= 1;
-        }
-        if !at(a) {
-            return None;
-        }
-        while a > 0 && at(a - 1) {
-            a -= 1;
-        }
-        let mut b = a;
-        while at(b) {
-            b += 1;
-        }
-        Some(chars[a..b].to_vec())
+        let (a, b) = doc.word_around(v.cursor, is_word)?;
+        Some(doc.buffer.rope().slice(a..b).chars().collect())
     }
 }
 

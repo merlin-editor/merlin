@@ -20,7 +20,7 @@ impl Editor {
         if known || self.blame_asked.as_ref() == Some(&key) {
             return;
         }
-        let text = doc.buffer.text();
+        let text = doc.buffer.snapshot();
         let ignore = self.blame_ignore.get(&path).cloned().unwrap_or_default();
         self.blame_asked = Some(key);
         fx.push(Effect::Blame {

@@ -100,11 +100,11 @@ impl Editor {
 
     pub(crate) fn scrollbar_view(&self) -> ScrollbarView {
         let index = self.row_index();
-        let total = (*index.last().unwrap_or(&1)).max(1) as f32;
+        let total = index.total().max(1) as f32;
         let marks = self
             .line_marks()
             .into_iter()
-            .map(|(line, style)| (index[line.min(index.len() - 1)] as f32 / total, style))
+            .map(|(line, style)| (index.before(line) as f32 / total, style))
             .collect();
         ScrollbarView {
             marks,
@@ -112,21 +112,21 @@ impl Editor {
         }
     }
 
-    /// The widest line's columns, kept until the text changes.
+    /// The widest line's columns, with the most inlay hints a line has.
     fn widest_line(&self) -> usize {
         let doc = self.doc();
-        let key = (doc.id, doc.buffer.version());
-        if let Some((k, widest)) = self.widest_cache.get()
-            && k == key
-        {
-            return widest;
+        let rope = doc.buffer.rope();
+        let mut hints = 0;
+        let mut line_hints = (usize::MAX, 0);
+        for inlay in &doc.inlays {
+            let line = rope.char_to_line(inlay.pos.min(rope.len_chars()));
+            if line != line_hints.0 {
+                line_hints = (line, 0);
+            }
+            line_hints.1 += inlay.cols;
+            hints = hints.max(line_hints.1);
         }
-        let widest = (0..=doc.last_line())
-            .map(|l| doc.display_col(l, doc.buffer.line_len(l)))
-            .max()
-            .unwrap_or(0);
-        self.widest_cache.set(Some((key, widest)));
-        widest
+        doc.widest() + hints
     }
 
     /// The minimap, when it's on: not for reviews and pages.

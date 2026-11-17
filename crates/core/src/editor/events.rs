@@ -993,7 +993,8 @@ pub enum Effect {
     Blame {
         path: PathBuf,
         version: u64,
-        text: String,
+        /// Shared with the buffer, so asking costs the same for any size.
+        text: crate::buffer::TextSnapshot,
         ignore: Vec<String>,
     },
 }

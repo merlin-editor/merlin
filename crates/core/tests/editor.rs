@@ -630,3 +630,33 @@ fn a_notice_with_a_choice_reports_the_pick_and_keeps_its_buttons() {
     assert_eq!(buttons.last().map(String::as_str), Some("Add"));
 }
 
+#[test]
+fn a_long_line_scrolled_right_shows_its_own_text() {
+    // Drawn only around the view: what shows must be where it would be
+    // if the whole line were drawn, tabs and all.
+    let mut line: String = (0..6000)
+        .map(|i| char::from(b'a' + (i % 26) as u8))
+        .collect();
+    line.insert(4100, '\t');
+    line.insert_str(5000, "MARK");
+    let mut expanded = String::new();
+    for c in line.chars() {
+        if c == '\t' {
+            let w = 4 - expanded.chars().count() % 4;
+            expanded.extend(std::iter::repeat_n(' ', w));
+        } else {
+            expanded.push(c);
+        }
+    }
+    let mut s = Session::new(&format!("{line}\nshort"), Some("notes.txt"), 60, 6);
+    let mut at = 0;
+    for col in [4105, 5002, 6004] {
+        s.run(&format!("key {}", "right ".repeat(col - at)));
+        at = col;
+        let rows = s.editor.text_rows();
+        let shown = rows[0].split_once("1 ").unwrap().1.to_string();
+        assert!(shown.len() > 40, "{shown:?}");
+        assert!(expanded.contains(&shown), "at {col}: {shown:?}");
+        assert_eq!(rows[1].trim_end(), "  2", "the short line's scrolled off");
+    }
+}

@@ -89,6 +89,112 @@ pub enum Sign {
 }
 
 /// A sign for each line of `new`, by line number.
+/// [`signs`] for the text in a rope, diffing only the lines between those
+/// it starts and ends with in common: an edit to a large file costs a pass
+/// over its bytes, not a diff of all its lines.
+pub fn signs_rope(old: &str, new: &ropey::Rope) -> Vec<Option<Sign>> {
+    let (o, n) = (old.as_bytes(), new.len_bytes());
+    // The bytes both start with, back to a line's start.
+    let mut prefix = 0;
+    for chunk in new.chunks() {
+        let theirs = &o[prefix.min(o.len())..];
+        let same = common_prefix(chunk.as_bytes(), theirs);
+        prefix += same;
+        if same < chunk.len() {
+            break;
+        }
+    }
+    if prefix == o.len() && prefix == n {
+        return vec![None; new.len_lines()];
+    }
+    prefix = o[..prefix]
+        .iter()
+        .rposition(|&b| b == b'\n')
+        .map_or(0, |i| i + 1);
+    // The bytes both end with, after the prefix in each.
+    let most = o.len().min(n) - prefix;
+    let mut suffix = 0;
+    let (mut chunks, ..) = new.chunks_at_byte(n);
+    while suffix < most
+        && let Some(chunk) = chunks.prev()
+    {
+        let theirs = &o[..o.len() - suffix];
+        let same = common_suffix(chunk.as_bytes(), theirs).min(most - suffix);
+        suffix += same;
+        if same < chunk.len() {
+            break;
+        }
+    }
+    // On to a line's start, in both.
+    let starts_line = |s: usize| {
+        (s == n || new.byte(n - s - 1) == b'\n') && (s == o.len() || o[o.len() - s - 1] == b'\n')
+    };
+    if suffix > 0 && !starts_line(suffix) {
+        let tail = &o[o.len() - suffix..];
+        suffix = tail
+            .iter()
+            .position(|&b| b == b'\n')
+            .map_or(0, |i| suffix - i - 1);
+    }
+    let lines = new.len_lines();
+    let mut out = vec![None; lines];
+    let at = new.byte_to_line(prefix);
+    let old_middle = &old[prefix..o.len() - suffix];
+    // One line for one, as typing on a minified file's: no diff needed.
+    let old_one = match old_middle.bytes().position(|b| b == b'\n') {
+        Some(i) => i + 1 == old_middle.len(),
+        None => !old_middle.is_empty(),
+    };
+    let breaks = new.byte_to_line(n - suffix) - at;
+    let new_one = match breaks {
+        0 => n - suffix > prefix,
+        1 => new.byte(n - suffix - 1) == b'\n',
+        _ => false,
+    };
+    if old_one && new_one {
+        out[at] = Some(Sign::Changed);
+        return out;
+    }
+    let middle = new.byte_slice(prefix..n - suffix).to_string();
+    for (i, sign) in signs(old_middle, &middle).into_iter().enumerate() {
+        if let (Some(sign), Some(slot)) = (sign, out.get_mut(at + i)) {
+            *slot = Some(sign);
+        }
+    }
+    out
+}
+
+/// How many bytes `a` and `b` start with in common: compared a block at a
+/// time, which the compiler makes a memcmp.
+fn common_prefix(a: &[u8], b: &[u8]) -> usize {
+    let n = a.len().min(b.len());
+    let mut i = 0;
+    while i + 64 <= n && a[i..i + 64] == b[i..i + 64] {
+        i += 64;
+    }
+    i + a[i..n]
+        .iter()
+        .zip(&b[i..n])
+        .take_while(|(x, y)| x == y)
+        .count()
+}
+
+/// How many bytes `a` and `b` end with in common.
+fn common_suffix(a: &[u8], b: &[u8]) -> usize {
+    let n = a.len().min(b.len());
+    let (a, b) = (&a[a.len() - n..], &b[b.len() - n..]);
+    let mut i = 0;
+    while i + 64 <= n && a[n - i - 64..n - i] == b[n - i - 64..n - i] {
+        i += 64;
+    }
+    i + a[..n - i]
+        .iter()
+        .rev()
+        .zip(b[..n - i].iter().rev())
+        .take_while(|(x, y)| x == y)
+        .count()
+}
+
 pub fn signs(old: &str, new: &str) -> Vec<Option<Sign>> {
     let diff = ops(old, new);
     let count = new.split('\n').count();
@@ -176,6 +282,37 @@ pub fn line_map(old: &str, new: &str) -> Vec<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn signs_from_a_rope_match_a_whole_diff() {
+        let base = "one\ntwo\nthree\nfour\nfive\n";
+        for new in [
+            base,
+            "one\ntwo\nTHREE\nfour\nfive\n",
+            "one\ntwo\nthree\nnew\nfour\nfive\n",
+            "one\ntwo\nfour\nfive\n",
+            "ONE\ntwo\nthree\nfour\nfive\n",
+            "one\ntwo\nthree\nfour\nfive",
+            "one\ntwo\nthree\nfour\nfive\nsix",
+            "one\ntwo\nthree\nfour\nfive\nsix\n",
+            "zero\none\ntwo\nthree\nfour\nfive\n",
+            "",
+            "two\nthree\n",
+            "one\ntwo\nthree\nfour\nfivex\n",
+            "one\r\ntwo\nthree\nfour\nfive\n",
+            "one\ntwo\nthree\nthree\nfour\nfive\n",
+        ] {
+            let rope = ropey::Rope::from_str(new);
+            assert_eq!(signs_rope(base, &rope), signs(base, new), "{new:?}");
+        }
+        // One chunk of a rope at most is a few kilobytes: changes past it.
+        let big: String = (0..5000).map(|i| format!("line {i}\n")).collect();
+        let changed = big
+            .replace("line 2500\n", "changed\n")
+            .replace("line 4999\n", "");
+        let rope = ropey::Rope::from_str(&changed);
+        assert_eq!(signs_rope(&big, &rope), signs(&big, &changed));
+    }
 
     fn kinds(lines: &[DiffLine]) -> String {
         lines
