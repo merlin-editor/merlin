@@ -166,7 +166,10 @@ mod tests {
 
     #[test]
     fn nearer_files_win_up_to_a_root() {
-        let temp = tempfile::Builder::new().prefix("merlin-ec-").tempdir().unwrap();
+        let temp = tempfile::Builder::new()
+            .prefix("merlin-ec-")
+            .tempdir()
+            .unwrap();
         let dir = temp.path();
         fs::create_dir_all(dir.join("a/b")).unwrap();
         fs::write(dir.join(".editorconfig"), "[*]\ntab_width = 3\n").unwrap();

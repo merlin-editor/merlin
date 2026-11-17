@@ -1383,7 +1383,10 @@ NameError: name 'nme' is not defined\n";
 
     #[test]
     fn a_bad_pattern_stops_the_plugin_loading() {
-        let temp = tempfile::Builder::new().prefix("merlin-matcher-").tempdir().unwrap();
+        let temp = tempfile::Builder::new()
+            .prefix("merlin-matcher-")
+            .tempdir()
+            .unwrap();
         let dir = temp.path();
         fs::write(
             dir.join("plugin.toml"),
@@ -1391,7 +1394,7 @@ NameError: name 'nme' is not defined\n";
              [[problem-matchers]]\nlines = [{ regex = '(', file = 1 }]\n",
         )
         .unwrap();
-        let err = format!("{:#}", super::manifest(&dir).unwrap_err());
+        let err = format!("{:#}", super::manifest(dir).unwrap_err());
         assert!(err.contains("problem matcher pattern"), "{err}");
     }
 
