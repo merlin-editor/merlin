@@ -44,7 +44,7 @@ pub struct ChangeView {
 impl ChangePeek {
     /// The line it opens after: the change's last line, or the line above
     /// a deletion.
-    fn line(&self) -> Option<usize> {
+    pub(crate) fn line(&self) -> Option<usize> {
         let (_, new) = self.changes.get(self.index)?;
         Some(if new.is_empty() {
             new.start.saturating_sub(1)

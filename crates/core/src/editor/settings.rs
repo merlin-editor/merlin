@@ -119,6 +119,7 @@ impl Editor {
         if self.inlay_hints && !settings.inlay_hints {
             for doc in &mut self.docs {
                 doc.inlays.clear();
+                doc.inlays_version += 1;
             }
         }
         self.inlay_hints = settings.inlay_hints;

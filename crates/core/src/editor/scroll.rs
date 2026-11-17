@@ -81,44 +81,47 @@ impl Editor {
     }
 
     /// The rows before each line of the document drawn, and in all, with
-    /// wrapped lines counted by their rows and folded ones not at all:
-    /// cached until the text, the width or the folds change.
+    /// wrapped lines counted by their rows and folded ones not at all. The
+    /// rows of wrapped lines are kept by the document, up to date with
+    /// edits; folds and the rows views open between lines go on top.
     pub(crate) fn row_index(&self) -> RowIndex {
         let doc = self.doc();
+        let lines = doc.last_line() + 1;
+        let mut index = RowIndex {
+            lines,
+            wrap: None,
+            hidden: Vec::new(),
+            steps: Vec::new(),
+        };
         // A row a line, as for most files: nothing to count.
         if !self.row_based() && self.merging().is_none() && self.agent_change_here().is_none() {
-            return RowIndex::Lines(doc.last_line() + 1);
+            return index;
         }
-        let key = (
-            doc.id,
-            doc.buffer.version(),
-            self.wrapping().then(|| self.text_columns()),
-            self.view().folds,
-            self.peek.as_ref().map(|p| (p.line, self.peek_gap(p.line))),
-            self.change_peek
-                .as_ref()
-                .map(|p| (p.index, p.version, self.change_peeking())),
-            self.merging()
-                .map(|m| (m.version, m.left(), self.merge_inline())),
-            self.tests.version,
-        );
-        let mut cache = self.row_cache.borrow_mut();
-        if let Some((k, index)) = cache.as_ref()
-            && *k == key
-        {
-            return RowIndex::Rows(index.clone());
+        if self.wrapping() {
+            index.wrap = Some(doc.wrap_rows(self.text_columns()));
         }
-        let lines = doc.last_line() + 1;
-        let mut before = Vec::with_capacity(lines + 1);
-        let mut rows = 0;
-        for line in 0..lines {
-            before.push(rows);
-            rows += self.line_rows(line).len();
+        index.hidden = self.hidden_lines();
+        let mut steps: Vec<(usize, i64)> = Vec::new();
+        for r in &index.hidden {
+            let rows = index.base(r.end) - index.base(r.start);
+            steps.push((r.end, -(rows as i64)));
         }
-        before.push(rows);
-        let index = std::rc::Rc::new(before);
-        *cache = Some((key, index.clone()));
-        RowIndex::Rows(index)
+        for line in self.gap_lines() {
+            if line < lines && !index.hidden.iter().any(|r| r.contains(&line)) {
+                let gap = self.peek_gap(line);
+                if gap > 0 {
+                    steps.push((line + 1, gap as i64));
+                }
+            }
+        }
+        steps.sort_unstable_by_key(|s| s.0);
+        let mut sum = 0;
+        for s in &mut steps {
+            sum += s.1;
+            s.1 = sum;
+        }
+        index.steps = steps;
+        index
     }
 
     /// Where the view's top is, in rows from the top of the document.
@@ -165,36 +168,60 @@ impl Editor {
 
 /// The rows before each line drawn, and in all.
 #[derive(Clone)]
-pub(crate) enum RowIndex {
-    /// This many lines, a row each.
-    Lines(usize),
-    /// The rows before each line, then the total.
-    Rows(std::rc::Rc<Vec<usize>>),
+pub(crate) struct RowIndex {
+    lines: usize,
+    /// Each line's rows when wrapped; one each without.
+    wrap: Option<std::rc::Rc<crate::rows::WrapRows>>,
+    /// The lines folded away, which take no rows.
+    hidden: Vec<std::ops::Range<usize>>,
+    /// From each line on, the rows folds took away and views opened, in
+    /// all: by line.
+    steps: Vec<(usize, i64)>,
 }
 
 impl RowIndex {
-    /// The rows before `line`; past the last line, before the last.
-    pub(crate) fn before(&self, line: usize) -> usize {
-        match self {
-            Self::Lines(n) => line.min(n.saturating_sub(1)),
-            Self::Rows(index) => index[line.min(index.len().saturating_sub(2))],
+    /// The rows before `line`, as wrapped, before folds and views.
+    fn base(&self, line: usize) -> usize {
+        match &self.wrap {
+            Some(w) => w.before(line),
+            None => line.min(self.lines),
         }
     }
 
+    /// The rows before `line`; past the last line, before the last.
+    pub(crate) fn before(&self, line: usize) -> usize {
+        let line = line.min(self.lines.saturating_sub(1));
+        // A folded line's rows are none: those before it are its fold's.
+        let line = self
+            .hidden
+            .iter()
+            .find(|r| r.contains(&line))
+            .map_or(line, |r| r.start);
+        let k = self.steps.partition_point(|s| s.0 <= line);
+        let moved = k.checked_sub(1).map_or(0, |k| self.steps[k].1);
+        (self.base(line) as i64 + moved).max(0) as usize
+    }
+
     pub(crate) fn total(&self) -> usize {
-        match self {
-            Self::Lines(n) => *n,
-            Self::Rows(index) => *index.last().unwrap_or(&0),
-        }
+        let moved = self.steps.last().map_or(0, |s| s.1);
+        (self.base(self.lines) as i64 + moved).max(0) as usize
     }
 
     /// The line whose rows hold `row`: the last that starts at or before.
     pub(crate) fn line_at(&self, row: usize) -> usize {
-        match self {
-            Self::Lines(n) => row.min(n.saturating_sub(1)),
-            Self::Rows(index) => index[..index.len() - 1]
-                .partition_point(|&r| r <= row)
-                .saturating_sub(1),
+        if self.wrap.is_none() && self.steps.is_empty() && self.hidden.is_empty() {
+            return row.min(self.lines.saturating_sub(1));
         }
+        // The last line whose rows before it are at most `row`.
+        let (mut lo, mut hi) = (0, self.lines);
+        while hi - lo > 1 {
+            let mid = lo + (hi - lo) / 2;
+            if self.before(mid) <= row {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        lo
     }
 }

@@ -50,6 +50,9 @@ impl PartialEq for MinimapView {
     }
 }
 
+/// About the most places the scrollbar can mark apart.
+const SCROLLBAR_PLACES: usize = 4096;
+
 impl Editor {
     /// Lines with something to mark, and what: changes, matches,
     /// selections and problems, in the order they're drawn.
@@ -102,9 +105,29 @@ impl Editor {
     pub(crate) fn scrollbar_view(&self) -> ScrollbarView {
         let index = self.row_index();
         let total = index.total().max(1) as f32;
+        // A mark close to the last of its kind can't be told apart from it:
+        // the bar has a few thousand places at most.
+        let gap = (self.doc().last_line() + 1) / SCROLLBAR_PLACES;
+        let mut last: Vec<(Style, usize)> = Vec::new();
         let marks = self
             .line_marks()
             .into_iter()
+            .filter(|&(line, style)| {
+                if gap == 0 {
+                    return true;
+                }
+                match last.iter_mut().find(|(s, _)| *s == style) {
+                    Some((_, at)) if (*at..*at + gap).contains(&line) => false,
+                    Some((_, at)) => {
+                        *at = line;
+                        true
+                    }
+                    None => {
+                        last.push((style, line));
+                        true
+                    }
+                }
+            })
             .map(|(line, style)| (index.before(line) as f32 / total, style))
             .collect();
         ScrollbarView {

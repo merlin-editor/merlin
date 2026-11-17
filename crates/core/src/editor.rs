@@ -98,7 +98,7 @@ pub use vim::{
 };
 mod window;
 mod workspace;
-mod wrap;
+pub(crate) mod wrap;
 
 pub use bars::FileBarView;
 pub use hierarchy::{HierarchyItem, HierarchyMode};
@@ -535,24 +535,6 @@ pub struct Editor {
     #[allow(clippy::type_complexity)]
     minimap_cache:
         std::cell::RefCell<Option<((u64, u64, u64), std::rc::Rc<Vec<overview::MinimapLine>>)>>,
-    /// The rows before each line, by document, version, width, folds and
-    /// the peek views' gaps.
-    #[allow(clippy::type_complexity)]
-    row_cache: std::cell::RefCell<
-        Option<(
-            (
-                u64,
-                u64,
-                Option<usize>,
-                Vec<usize>,
-                Option<(usize, usize)>,
-                Option<(usize, u64, bool)>,
-                Option<(u64, usize, bool)>,
-                u64,
-            ),
-            std::rc::Rc<Vec<usize>>,
-        )>,
-    >,
     /// Where the mouse is, for lighting up what's under it.
     hover: Option<(u16, u16)>,
     /// Whether to draw Nerd Font icons.
@@ -770,7 +752,6 @@ impl Editor {
             jumps: Vec::new(),
             bracket_cache: Default::default(),
             fold_cache: Default::default(),
-            row_cache: Default::default(),
             symbols_cache: Default::default(),
             minimap_cache: Default::default(),
             hover: None,

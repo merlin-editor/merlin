@@ -734,6 +734,7 @@ impl Editor {
                 .collect();
             inlays.sort_by_key(|i| i.pos);
             doc.inlays = inlays;
+            doc.inlays_version += 1;
         }
     }
 

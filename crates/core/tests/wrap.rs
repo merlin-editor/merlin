@@ -75,3 +75,30 @@ fn wrap_toggles_off_again() {
     let rows = text_rows(&s);
     assert!(rows[2].contains("  3 last"), "{rows:#?}");
 }
+
+#[test]
+fn the_end_of_a_long_wrapped_file_is_one_jump_away() {
+    // Far more rows than a scroll a row at a time would go.
+    let long = "word ".repeat(30);
+    let text = format!("{long}\n").repeat(30_000) + "the very end";
+    let mut s = Session::new(&text, Some("notes.txt"), 60, 12);
+    s.run("cmd view.wrap; key ctrl+end");
+    assert!(s.screen().contains("the very end"), "{}", s.screen());
+    s.run("type !");
+    assert!(s.screen().contains("the very end!"), "{}", s.screen());
+}
+
+#[test]
+fn wrapped_rows_follow_edits_that_change_how_lines_wrap() {
+    let mut s = session();
+    // Line 2 joined to line 1, then split again further along.
+    s.run("key ctrl+home end delete");
+    let rows = text_rows(&s);
+    assert!(rows[0].contains("  1 shortword word"), "{rows:#?}");
+    assert!(rows.iter().any(|r| r.contains("  2 last")), "{rows:#?}");
+    s.run("key ctrl+z");
+    let rows = text_rows(&s);
+    assert!(rows[1].contains("  2 word word"), "{rows:#?}");
+    let line_3 = rows.iter().position(|r| r.contains("  3 last")).unwrap();
+    assert!(line_3 >= 4, "{rows:#?}");
+}

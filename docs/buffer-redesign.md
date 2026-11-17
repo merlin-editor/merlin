@@ -230,6 +230,58 @@ another crate.
   Counting on four threads in the background, with a count that fills in,
   is step 7.
 
+### Step 3: wrapped rows kept by edits, done
+
+With word wrap on, the rows before each line were a list made again
+after any edit, by copying every line into characters and wrapping it.
+On the 342 MB log that took 8.2 s, for every frame after an edit. Moving
+to the end took 0.7 s more, scrolling a row at a time to get there.
+
+**What changed:**
+- `rows.rs` keeps each line's rows when wrapped as a byte. A line of 255
+  rows or more keeps its count in a map. There are sums for each 64
+  lines and the rows before each block of 1 024. That's 1 byte a line,
+  4.9 MB for the log, kept for at most two widths, as two groups side by
+  side may differ.
+  - An edit wraps again only the lines it touched.
+  - The rows before a line take a few dozen additions, and the line at a
+    row a binary search of the blocks.
+  - A line that can't be wider than its row is counted without wrapping:
+    no wider in bytes than the row, with no tab and no inlay hint.
+  - New inlay hints wrap again only the lines with hints, before and
+    after. Each document counts the times its hints were set.
+  - Edits not yet synced are followed as they're asked about, so the
+    rows are right within the event that made the edit.
+- The row index keeps the wrapped rows, and puts folds and the rows views
+  open between lines (peeks, conflicts, an agent's changes, test results)
+  on top, as a short list. The lines that may have such rows are asked
+  for, not every line.
+- Which screen row a line is on comes from the row index, not from
+  wrapping each line from the top of the view. A line the kept rows say
+  takes one row isn't wrapped to draw it.
+- Moving the cursor far down scrolls straight there.
+- The scrollbar drops a mark close to the last of its kind, closer than
+  its few thousand places can show. A 1 MB paste had left 65 000 git
+  marks, each looked up a frame.
+
+**The effect, in `large_probe`** (85 MB text / 342 MB log):
+
+| | Before | After |
+|---|---|---|
+| A frame wrapped, after an edit | 2.6 s / 8.2 s | 0.7 ms / 0.9 ms |
+| Turning wrap on | 2.6 s / 8.2 s at its first frame | 0.15 s / 0.5 s, once |
+| Ctrl+End wrapped | 0.64 s / 0.73 s | 14 ms / 15 ms |
+
+Wrapped frames are now held to the 2 ms limit.
+
+**Still to do from it:**
+- Turning wrap on, or a new width, wraps every line on the window's
+  thread, at 0.5 s for the log. Resizing the window with wrap on does it
+  for each width. That moves to the background in step 7.
+- A key typed takes 110–190 ms on the large files, wrapped or not. That
+  isn't the wrap. The git gutter diffs on each key, which step 5 changes.
+- The widest line stays the cache step 1 made, which edits already keep.
+
 ### Fixed on this branch so far
 
 Committed (8181070) and covered by tests:
@@ -259,7 +311,7 @@ On the 85 MB / 342 MB files:
 | A frame with Find open | ~~6.4 s / 23 s~~ fixed in step 2 | The scrollbar finds every match again each frame |
 | Find next; Ctrl+D | ~~3.2 s / 12 s; 5 s / 17 s for three~~ fixed in step 2 | All matches found to pick one |
 | A frame with the minimap on | 2.3 s / 7.7 s | Built for every line; it shows a few hundred |
-| A frame with word wrap on | 2.6 s / 8.7 s | Every line wrapped again after any change |
+| A frame with word wrap on | ~~2.6 s / 8.7 s~~ fixed in step 3 | Every line wrapped again after any change |
 | Idle | ~~a whole core~~ fixed in step 1 | Symbols for the breadcrumbs, each frame |
 | Opening | 3.2× the file at its peak | Read as a String, made a rope, git's copy kept beside it |
 | Git gutter after many edits | wrong | The diff gives up after 100 ms and marks 4.3 million lines (prototype 9) |
@@ -553,8 +605,8 @@ comparison with VS Code.
 
    This fixes Find, Find next and Ctrl+D (seconds to milliseconds) with no
    UI change.
-3. **`LineIndex`.** Rows, widest line and wrap kept by edits. This fixes
-   word wrap (2.6–8.7 s a frame) and replaces three caches.
+3. **`LineIndex`.** Done as `WrapRows`; see "Step 3" above. Rows and wrap
+   kept by edits. This fixes word wrap (2.6–8.7 s a frame).
 4. **The minimap from its window only.** This fixes the minimap (2.3–7.7 s
    a frame).
 5. **One copy of the file.**

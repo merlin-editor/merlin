@@ -119,7 +119,23 @@ pub struct Doc {
     checkpoints: std::cell::RefCell<Option<Checkpoints>>,
     /// The last search's counts, kept up to date with edits.
     found: std::cell::RefCell<Option<crate::search::Found>>,
+    /// Bumped whenever `inlays` is set, as hints change how lines wrap.
+    pub inlays_version: u64,
+    /// Each line's rows when wrapped, for the widths last drawn.
+    wrapped: std::cell::RefCell<Wrapped>,
 }
+
+/// The rows lines take when wrapped, for a width or two: two groups side
+/// by side may show a document at different widths.
+#[derive(Default)]
+struct Wrapped {
+    rows: Vec<std::rc::Rc<crate::rows::WrapRows>>,
+    /// How many of the buffer's changes not yet synced the rows follow.
+    applied: usize,
+}
+
+/// Widths whose rows are kept.
+const WIDTHS: usize = 2;
 
 /// A long line's checkpoints: a character every few thousand, on a tab
 /// stop, with its display column, worked out as far along as asked.
@@ -185,6 +201,8 @@ impl Doc {
             widest: Default::default(),
             checkpoints: Default::default(),
             found: Default::default(),
+            inlays_version: 0,
+            wrapped: Default::default(),
         }
     }
 
@@ -288,6 +306,12 @@ impl Doc {
         self.extra_version = self.buffer.version();
         self.update_widest(&changes);
         self.update_checkpoints(&changes);
+        let wrapped = self.wrapped.get_mut();
+        let unseen = &changes[wrapped.applied.min(changes.len())..];
+        for rows in &mut wrapped.rows {
+            std::rc::Rc::make_mut(rows).update(unseen);
+        }
+        wrapped.applied = 0;
         let found = self.found.get_mut();
         if let Some(f) = found
             && !f.update(&changes, self.buffer.rope(), self.buffer.version())
@@ -440,6 +464,43 @@ impl Doc {
             self.found.replace(Some(found));
         }
         std::cell::Ref::filter_map(self.found.borrow(), Option::as_ref).ok()
+    }
+
+    /// Each line's rows when wrapped at `width` columns: kept, following
+    /// edits as they're made, and wrapped from scratch for a new width.
+    pub fn wrap_rows(&self, width: usize) -> std::rc::Rc<crate::rows::WrapRows> {
+        use std::rc::Rc;
+        let mut wrapped = self.wrapped.borrow_mut();
+        let pending = self.buffer.pending_changes();
+        if wrapped.applied < pending.len() {
+            let applied = wrapped.applied;
+            for rows in &mut wrapped.rows {
+                Rc::make_mut(rows).update(&pending[applied..]);
+            }
+            wrapped.applied = pending.len();
+        }
+        let src = crate::rows::Source {
+            rope: self.buffer.rope(),
+            inlays: &self.inlays,
+            inlays_version: self.inlays_version,
+        };
+        match wrapped.rows.iter().position(|r| r.width() == width) {
+            Some(i) => {
+                let rows = wrapped.rows.remove(i);
+                wrapped.rows.insert(0, rows);
+                // Shared with a row index still held: copied only to change.
+                if wrapped.rows[0].needs_refresh(&src) {
+                    Rc::make_mut(&mut wrapped.rows[0]).refresh(&src);
+                }
+            }
+            None => {
+                wrapped
+                    .rows
+                    .insert(0, Rc::new(crate::rows::WrapRows::new(&src, width)));
+                wrapped.rows.truncate(WIDTHS);
+            }
+        }
+        wrapped.rows[0].clone()
     }
 
     pub fn last_line(&self) -> usize {

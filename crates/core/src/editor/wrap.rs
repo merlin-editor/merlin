@@ -94,6 +94,13 @@ impl Editor {
         }
         let mut rows = if self.wrapping() {
             let doc = self.doc();
+            let width = self.text_columns();
+            // The kept rows say which lines take one: most of them.
+            if doc.wrap_rows(width).rows(line) == 1 {
+                let mut rows = vec![ONE_ROW];
+                rows.extend(std::iter::repeat_n(GAP_ROW, self.peek_gap(line)));
+                return rows;
+            }
             wrap(
                 &doc.line_chars(line),
                 &doc.line_inlays(line),
@@ -129,15 +136,8 @@ impl Editor {
         }
         // The top may be a row part-way down the first line.
         let (top, _) = self.top_sub();
-        let height = self.text_height();
-        let mut rows = 0;
-        for l in v.scroll..line {
-            rows += self.line_rows(l).len();
-            // No need to count further than the view.
-            if rows > height + top {
-                return Some(rows + r - top);
-            }
-        }
+        let index = self.row_index();
+        let rows = index.before(line) - index.before(v.scroll);
         (rows + r).checked_sub(top)
     }
 
@@ -216,13 +216,11 @@ impl Editor {
         if line < doc.scroll || (line == doc.scroll && r <= top) {
             return self.set_top(line, r);
         }
-        let mut scrolled = 0;
-        while self.screen_row(line, r).is_some_and(|row| row >= height) && scrolled < 10_000 {
-            self.scroll_by(1.0);
-            scrolled += 1;
-        }
-        // Scrolled to show it: whole rows, so it isn't cut at the bottom.
-        if scrolled > 0 {
+        // Straight to where its row is the last shown, however far.
+        if self.screen_row(line, r).is_some_and(|row| row >= height) {
+            let through = self.row_index().before(line) + r + 1;
+            self.set_top_row((through - height) as f64);
+            // Whole rows, so it isn't cut at the bottom.
             self.snap_top();
         }
     }

@@ -272,6 +272,21 @@ impl Editor {
             + self.test_gap(line)
     }
 
+    /// The lines [`Editor::peek_gap`] may open rows after, so the rest
+    /// needn't be asked.
+    pub(crate) fn gap_lines(&self) -> Vec<usize> {
+        let mut lines = Vec::new();
+        lines.extend(self.peek.as_ref().map(|p| p.line));
+        lines.extend(self.change_peek.as_ref().and_then(|p| p.line()));
+        lines.extend(self.agent_gap_lines());
+        lines.extend(self.merge_gap_lines());
+        let tests = self.doc_tests();
+        lines.extend(tests.lenses.keys().chain(tests.failures.keys()));
+        lines.sort_unstable();
+        lines.dedup();
+        lines
+    }
+
     /// Rows the references peek opens after `line`.
     pub(crate) fn references_gap(&self, line: usize) -> usize {
         match &self.peek {

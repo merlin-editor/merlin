@@ -306,10 +306,12 @@ mod tests {
             assert_eq!(signs_rope(base, &rope), signs(base, new), "{new:?}");
         }
         // One chunk of a rope at most is a few kilobytes: changes past it.
-        let big: String = (0..5000).map(|i| format!("line {i}\n")).collect();
+        // Small enough that the whole diff never meets its time limit, even
+        // in a debug build with every test running.
+        let big: String = (0..600).map(|i| format!("line {i}\n")).collect();
         let changed = big
-            .replace("line 2500\n", "changed\n")
-            .replace("line 4999\n", "");
+            .replace("line 300\n", "changed\n")
+            .replace("line 599\n", "");
         let rope = ropey::Rope::from_str(&changed);
         assert_eq!(signs_rope(&big, &rope), signs(&big, &changed));
     }

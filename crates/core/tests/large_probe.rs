@@ -105,26 +105,11 @@ fn probe(name: &str, path: &str, text: String) {
     );
     time("minimap off", || s.run("cmd view.minimap"));
     time("wrap on", || s.run("cmd view.wrap"));
-    frame(
-        &s,
-        "frame wrapped",
-        Some("step 3: the wrap is worked out again"),
-        &mut slow,
-    );
+    frame(&s, "frame wrapped", None, &mut slow);
     time("type wrapped", || s.run("type w"));
-    frame(
-        &s,
-        "frame wrapped",
-        Some("step 3: the wrap is worked out again"),
-        &mut slow,
-    );
+    frame(&s, "frame wrapped", None, &mut slow);
     time("go to end wrapped", || s.run("key ctrl+end"));
-    frame(
-        &s,
-        "frame wrapped",
-        Some("step 3: the wrap is worked out again"),
-        &mut slow,
-    );
+    frame(&s, "frame wrapped", None, &mut slow);
     time("wrap off", || s.run("cmd view.wrap"));
     assert!(
         slow.is_empty(),

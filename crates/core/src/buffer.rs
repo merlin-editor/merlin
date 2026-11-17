@@ -285,6 +285,11 @@ impl Buffer {
         !self.changes.is_empty()
     }
 
+    /// The changes [`Buffer::take_changes`] hasn't taken yet.
+    pub fn pending_changes(&self) -> &[Change] {
+        &self.changes
+    }
+
     pub fn take_changes(&mut self) -> Vec<Change> {
         std::mem::take(&mut self.changes)
     }

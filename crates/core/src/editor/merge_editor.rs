@@ -448,6 +448,17 @@ impl Editor {
 
     /// Rows the merge editor opens after `line`: a conflict's note, or in
     /// the Result alone, both sides of one not chosen yet.
+    /// The lines conflicts open rows after.
+    pub(crate) fn merge_gap_lines(&self) -> Vec<usize> {
+        let Some(m) = self.merging() else {
+            return Vec::new();
+        };
+        m.conflicts
+            .iter()
+            .flat_map(|c| [c.block_line(), c.note_line()])
+            .collect()
+    }
+
     pub(crate) fn merge_gap(&self, line: usize) -> usize {
         let Some(m) = self.merging() else { return 0 };
         let inline = self.merge_inline();

@@ -195,6 +195,13 @@ impl Editor {
         cache.rows.get(&line).copied().unwrap_or(0)
     }
 
+    /// The lines an agent's changes open rows after.
+    pub(crate) fn agent_gap_lines(&self) -> Vec<usize> {
+        // Asking for one line's rows makes them all.
+        self.agent_gap(0);
+        self.agent_rows.borrow().rows.keys().copied().collect()
+    }
+
     /// Whether `line` of the open file is one an agent added or changed.
     pub(crate) fn agent_added(hunks: &Hunks, line: usize) -> bool {
         hunks.runs.iter().any(|(_, new)| new.contains(&line))
