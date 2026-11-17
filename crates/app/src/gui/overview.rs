@@ -110,7 +110,7 @@ pub struct Map {
 
 impl Map {
     pub fn new(area: Rect, v: &TextView, map: &MinimapView) -> Self {
-        let lines = map.lines.len();
+        let lines = map.total;
         // Scaled up, it's wider.
         let scale = (area.w / MINIMAP_W).max(1.0);
         let (line, char) = (MAP_LINE * scale, MAP_CHAR * scale);
@@ -239,7 +239,11 @@ pub fn draw_minimap(canvas: &mut Canvas, p: &Palette, area: Rect, v: &TextView, 
             _ => canvas.tint(Rect::new(area.x, y, area.w, line_h), 0.0, colour, 110),
         }
     }
-    for (i, runs) in map.lines.iter().skip(geom.first).take(fit).enumerate() {
+    for i in 0..fit {
+        // The lines sent reach past any map's: one missing is past the end.
+        let Some(runs) = map.line(geom.first + i) else {
+            continue;
+        };
         let y = area.y + i as f32 * line_h;
         for &(col, len, syntax) in runs {
             let x = left + col as f32 * char_w;

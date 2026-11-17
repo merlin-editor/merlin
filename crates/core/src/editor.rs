@@ -533,8 +533,12 @@ pub struct Editor {
         std::cell::RefCell<Option<((u64, u64, u64), std::rc::Rc<Vec<crate::symbols::Symbol>>)>>,
     /// The minimap's lines, by document, version and colours.
     #[allow(clippy::type_complexity)]
-    minimap_cache:
-        std::cell::RefCell<Option<((u64, u64, u64), std::rc::Rc<Vec<overview::MinimapLine>>)>>,
+    minimap_cache: std::cell::RefCell<
+        Option<(
+            (u64, u64, u64, usize),
+            std::rc::Rc<Vec<overview::MinimapLine>>,
+        )>,
+    >,
     /// Where the mouse is, for lighting up what's under it.
     hover: Option<(u16, u16)>,
     /// Whether to draw Nerd Font icons.

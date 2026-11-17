@@ -292,6 +292,36 @@ fn the_minimap_is_each_line_in_runs_of_colour() {
 }
 
 #[test]
+fn the_minimap_gets_the_lines_around_the_view_not_the_whole_file() {
+    use merlin_core::Event;
+    let text: String = (0..50_000).map(|i| format!("line {i}\n")).collect();
+    let mut s = window(&text, 10);
+    s.run("cmd view.minimap");
+    s.send(Event::SetTokens {
+        path: "notes.txt".into(),
+        layer: merlin_core::layers::Layer::Base,
+        lines: None,
+        tokens: vec![merlin_core::lang::PluginToken {
+            start: (30_000, 0),
+            end: (30_000, 4),
+            kind: Syntax::Keyword,
+        }],
+    });
+    let map = s.editor.text_views().pop().unwrap().minimap.unwrap();
+    assert_eq!((map.total, map.first), (50_001, 0));
+    assert!(map.lines.len() < 10_000, "{}", map.lines.len());
+    s.send(Event::ScrollTo {
+        group: 0,
+        row: 30_000.0,
+    });
+    let map = s.editor.text_views().pop().unwrap().minimap.unwrap();
+    assert!(map.first < 30_000 && map.first + map.lines.len() > 30_010);
+    assert_eq!(map.line(30_000).unwrap()[0], (0, 4, Syntax::Keyword));
+    assert_eq!(map.line(30_001).unwrap()[0], (0, 4, Syntax::Plain));
+    assert!(map.line(0).is_none(), "far above the view");
+}
+
+#[test]
 fn a_selection_goes_to_the_selection_clipboard_and_a_middle_click_pastes() {
     use merlin_core::{Effect, Event, MouseKind};
     let mut s = window("alpha beta\n", 10);

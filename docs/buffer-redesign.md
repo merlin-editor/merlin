@@ -282,6 +282,44 @@ Wrapped frames are now held to the 2 ms limit.
   isn't the wrap. The git gutter diffs on each key, which step 5 changes.
 - The widest line stays the cache step 1 made, which edits already keep.
 
+### Step 4: the minimap from its window only, done
+
+The minimap was built for every line after any edit: a colour for each
+character of the file, then each line's runs. The window draws the few
+hundred that fit.
+
+**What changed:**
+- The minimap gets the lines around the view, 1 280 above and below.
+  That's more than a 4K screen's height shows at two pixels a line, and
+  the map shows lines from at most its height above the view to its
+  height below. The lines sent start on a multiple of 512, so scrolling
+  builds them again only now and then. With them come the file's line
+  count, for the slider, and the first line sent.
+- Colours are worked out for each line's first 120 characters only,
+  which is as many as the map shows, and not at all when the file has
+  none. Lines are read where they lie.
+- Git marks are kept as runs of lines with the same sign. The scrollbar
+  takes every *n*th line of a run, as many as it has places for, and the
+  minimap takes the lines it was sent. A gutter marked all through, as
+  the diff gives when it runs out of time on a large file, had been 1.7
+  million marks copied every frame.
+
+**The effect, in `large_probe`** (85 MB text / 342 MB log):
+
+| | Before | After |
+|---|---|---|
+| A frame with the minimap, after an edit | 2.3 s / 7.7 s | 1.3 ms / 1.5 ms |
+| A frame with the minimap, nothing new | 2.3 s / 7.7 s | 0.2 ms |
+| A frame after an edit at the end of the file | 20–27 ms, from the git marks | 0.4 ms |
+
+Every frame in `large_probe` is now held to the 2 ms limit, with no
+step excused.
+
+**Still to do from it:** a key typed at the end of the file takes 0.49 s
+/ 1.7 s, wrapped or not. The git gutter diffs everything from the first
+change to the last, gives up after 100 ms, and marks every line. Step 5's
+line hashes fix that.
+
 ### Fixed on this branch so far
 
 Committed (8181070) and covered by tests:
@@ -310,7 +348,7 @@ On the 85 MB / 342 MB files:
 | Open Find and type a word | ~~20 s / 70 s~~ 0.34 s / 0.56 s since step 2 | Every line copied into a `Vec<char>`, several times a keystroke |
 | A frame with Find open | ~~6.4 s / 23 s~~ fixed in step 2 | The scrollbar finds every match again each frame |
 | Find next; Ctrl+D | ~~3.2 s / 12 s; 5 s / 17 s for three~~ fixed in step 2 | All matches found to pick one |
-| A frame with the minimap on | 2.3 s / 7.7 s | Built for every line; it shows a few hundred |
+| A frame with the minimap on | ~~2.3 s / 7.7 s~~ fixed in step 4 | Built for every line; it shows a few hundred |
 | A frame with word wrap on | ~~2.6 s / 8.7 s~~ fixed in step 3 | Every line wrapped again after any change |
 | Idle | ~~a whole core~~ fixed in step 1 | Symbols for the breadcrumbs, each frame |
 | Opening | 3.2× the file at its peak | Read as a String, made a rope, git's copy kept beside it |
@@ -607,8 +645,8 @@ comparison with VS Code.
    UI change.
 3. **`LineIndex`.** Done as `WrapRows`; see "Step 3" above. Rows and wrap
    kept by edits. This fixes word wrap (2.6–8.7 s a frame).
-4. **The minimap from its window only.** This fixes the minimap (2.3–7.7 s
-   a frame).
+4. **The minimap from its window only.** Done; see "Step 4" above. This
+   fixes the minimap (2.3–7.7 s a frame).
 5. **One copy of the file.**
    - Stream into the rope.
    - Send ropes, and save from a snapshot.

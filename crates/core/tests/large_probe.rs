@@ -90,20 +90,14 @@ fn probe(name: &str, path: &str, text: String) {
     frame(&s, "frame", None, &mut slow);
     time("delete line", || s.run("key ctrl+shift+k"));
     time("minimap on", || s.run("cmd view.minimap"));
-    frame(
-        &s,
-        "frame with minimap",
-        Some("step 4: the minimap builds every line"),
-        &mut slow,
-    );
+    frame(&s, "frame with minimap", None, &mut slow);
     time("type with minimap", || s.run("type m"));
-    frame(
-        &s,
-        "frame with minimap",
-        Some("step 4: the minimap builds every line"),
-        &mut slow,
-    );
+    frame(&s, "frame with minimap", None, &mut slow);
+    time("scroll to the end with minimap", || s.run("key ctrl+end"));
+    frame(&s, "frame with minimap", None, &mut slow);
+    frame(&s, "frame with minimap", None, &mut slow);
     time("minimap off", || s.run("cmd view.minimap"));
+    time("type at the end", || s.run("type e"));
     time("wrap on", || s.run("cmd view.wrap"));
     frame(&s, "frame wrapped", None, &mut slow);
     time("type wrapped", || s.run("type w"));

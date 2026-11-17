@@ -94,9 +94,9 @@ pub struct Doc {
     pub git_base: Option<String>,
     /// A sign for each line, from comparing the text with `git_base`.
     pub git_signs: Vec<Option<Sign>>,
-    /// The lines with a sign, in order, for what draws all of them, such
-    /// as the scrollbar, every frame.
-    pub git_marks: Vec<(usize, Sign)>,
+    /// Runs of lines with the same sign, in order, for what draws all of
+    /// them, such as the scrollbar, every frame.
+    pub git_marks: Vec<(std::ops::Range<usize>, Sign)>,
     /// More cursors, for editing in several places at once.
     pub extra: Vec<Caret>,
     /// The text version `extra` was last placed for. Edits after it, such
@@ -268,12 +268,17 @@ impl Doc {
             Some(base) => diff::signs_rope(base, self.buffer.rope()),
             None => Vec::new(),
         };
-        self.git_marks = self
-            .git_signs
-            .iter()
-            .enumerate()
-            .filter_map(|(line, sign)| sign.map(|s| (line, s)))
-            .collect();
+        // Runs of lines with the same sign: one for a file marked all
+        // through, not a mark a line.
+        let mut runs: Vec<(std::ops::Range<usize>, Sign)> = Vec::new();
+        for (line, sign) in self.git_signs.iter().enumerate() {
+            let Some(sign) = *sign else { continue };
+            match runs.last_mut() {
+                Some((r, s)) if r.end == line && *s == sign => r.end += 1,
+                _ => runs.push((line..line + 1, sign)),
+            }
+        }
+        self.git_marks = runs;
     }
 
     /// Brings marks and the syntax tree up to date with the text, and
