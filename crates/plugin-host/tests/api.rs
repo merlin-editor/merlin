@@ -3,29 +3,30 @@
 //! `cargo build --release --manifest-path plugins/testbed/Cargo.toml`
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use merlin_core::{Event, Node};
 use merlin_plugins::{BufferEvent, Config, PluginHost, SettingKind, Snapshot};
 
+mod common;
+use common::Folder;
+
 const WASM: &str = "target/wasm32-wasip2/release/testbed.wasm";
 
 /// A fresh copy of the testbed, and a data folder of its own.
-fn setup(name: &str) -> (PathBuf, Config) {
+fn setup(name: &str) -> (Folder, Config) {
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/testbed");
     assert!(
         source.join(WASM).exists(),
         "build the testbed plugin first (see the top of this file)"
     );
-    let root = std::env::temp_dir().join(format!("merlin-api-{name}-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&root);
-    let dir = root.join("testbed");
+    let dir = Folder::new(&format!("merlin-api-{name}-")).sub("testbed");
     fs::create_dir_all(dir.join("target/wasm32-wasip2/release")).unwrap();
     fs::copy(source.join(WASM), dir.join(WASM)).unwrap();
     fs::copy(source.join("plugin.toml"), dir.join("plugin.toml")).unwrap();
     let config = Config {
-        data_dir: root.join("data"),
+        data_dir: dir.root().join("data"),
         ask: true,
         keyring: false,
         background: false,
@@ -249,7 +250,7 @@ fn plugins_hear_about_buffer_changes() {
 
 #[test]
 fn commands_carry_their_keys() {
-    let (_, mut config) = setup("keys");
+    let (_dir, mut config) = setup("keys");
     config.ask = false;
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/word-count");
     let mut host = PluginHost::new(config).unwrap();
@@ -341,9 +342,8 @@ fn plugins_add_languages_colours_and_folds() {
 
 #[test]
 fn data_only_plugins_have_no_panel_and_ask_nothing() {
-    let root = std::env::temp_dir().join(format!("merlin-api-data-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&root);
-    let dir = root.join("looks");
+    let dir = Folder::new("merlin-api-data-").sub("looks");
+    let root = dir.root();
     fs::create_dir_all(&dir).unwrap();
     fs::write(
         dir.join("plugin.toml"),
@@ -530,7 +530,7 @@ fn compiled_cache_drops_stale_files_for_the_same_plugin() {
 
 #[test]
 fn pure_language_plugins_skip_unrelated_files_and_panel_renders() {
-    let (_, mut config) = setup("pure-lang");
+    let (_dir, mut config) = setup("pure-lang");
     config.ask = false;
     let json_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/json");
     let mut host = PluginHost::new(config).unwrap();
@@ -572,7 +572,7 @@ fn pure_language_plugins_skip_unrelated_files_and_panel_renders() {
 fn language_plugins_route_lsp_commands_per_language_without_key_conflicts() {
     use merlin_core::{Editor, Effect, Key};
 
-    let (_, mut config) = setup("per-lang-lsp");
+    let (_dir, mut config) = setup("per-lang-lsp");
     config.ask = false;
     let plugins_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins");
     let mut host = PluginHost::new(config).unwrap();
@@ -616,7 +616,7 @@ fn language_plugins_route_lsp_commands_per_language_without_key_conflicts() {
 
 #[test]
 fn catch2_plugin_discovers_cpp_tests_and_skips_other_languages() {
-    let (_, mut config) = setup("catch2");
+    let (_dir, mut config) = setup("catch2");
     config.ask = false;
     let catch2_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/catch2");
     let mut host = PluginHost::new(config).unwrap();
@@ -744,7 +744,6 @@ fn described_settings_have_their_types_and_scopes() {
     let text = panel_text(&mut host);
     assert!(text.contains("mode changed"), "{text}");
     assert!(text.contains("server-path changed"), "{text}");
-    fs::remove_dir_all(dir.parent().unwrap()).ok();
 }
 
 #[test]
@@ -781,7 +780,6 @@ fn a_secret_setting_is_kept_out_of_the_settings_files() {
     host.set_secret("testbed", "token", None, &snapshot())
         .unwrap();
     assert!(info(&host).secrets.is_empty());
-    fs::remove_dir_all(dir.parent().unwrap()).ok();
 }
 
 #[test]

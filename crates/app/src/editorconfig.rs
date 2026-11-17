@@ -166,8 +166,8 @@ mod tests {
 
     #[test]
     fn nearer_files_win_up_to_a_root() {
-        let dir = std::env::temp_dir().join(format!("merlin-ec-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
+        let temp = tempfile::Builder::new().prefix("merlin-ec-").tempdir().unwrap();
+        let dir = temp.path();
         fs::create_dir_all(dir.join("a/b")).unwrap();
         fs::write(dir.join(".editorconfig"), "[*]\ntab_width = 3\n").unwrap();
         fs::write(
@@ -180,6 +180,5 @@ mod tests {
         assert_eq!(c.indent_size, Some(2));
         // The top file is past the root, so its 3 doesn't count.
         assert_eq!(c.tab_width, Some(5));
-        let _ = fs::remove_dir_all(&dir);
     }
 }

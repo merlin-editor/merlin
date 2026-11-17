@@ -49,3 +49,5 @@ libc = "0.2"
 [dev-dependencies]
 # Signs release lists in tests, as the release workflow does.
 minisign = "0.7"
+# Test folders that are removed even when a test fails.
+tempfile = "3"

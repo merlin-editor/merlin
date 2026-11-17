@@ -855,16 +855,19 @@ mod tests {
             cant_replace(Path::new("/usr/bin/merlin")).as_deref(),
             Some("in /usr/bin")
         );
-        let dir = scratch("writable");
+        let scratch = scratch("writable");
+        let dir = scratch.path();
         assert_eq!(cant_replace(&dir.join("merlin")), None);
         assert!(!dir.join(format!("{STAGING}-probe")).exists());
     }
 
-    fn scratch(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("merlin-update-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
+    /// A folder of the test's own, removed when it drops, even if the
+    /// test fails.
+    fn scratch(name: &str) -> tempfile::TempDir {
+        tempfile::Builder::new()
+            .prefix(&format!("merlin-update-{name}-"))
+            .tempdir()
+            .unwrap()
     }
 
     /// A release archive as `ci.yml` packs one, holding `binary` and a
@@ -930,7 +933,8 @@ mod tests {
         if archive_name().is_none_or(|n| !n.ends_with(".tar.gz")) {
             return;
         }
-        let dir = scratch("install");
+        let scratch = scratch("install");
+        let dir = scratch.path();
         let exe = dir.join("merlin");
         std::fs::write(&exe, b"old merlin").unwrap();
         let bundle = dir.join("plugins");
@@ -967,7 +971,8 @@ mod tests {
         if archive_name().is_none_or(|n| !n.ends_with(".tar.gz")) {
             return;
         }
-        let dir = scratch("refused");
+        let scratch = scratch("refused");
+        let dir = scratch.path();
         let exe = dir.join("merlin");
         std::fs::write(&exe, b"old merlin").unwrap();
         let signer = Signer::new();
@@ -1030,7 +1035,8 @@ mod tests {
         if archive_name().is_none() {
             return;
         }
-        let dir = scratch("cancel");
+        let scratch = scratch("cancel");
+        let dir = scratch.path();
         let exe = dir.join("merlin");
         std::fs::write(&exe, b"old merlin").unwrap();
         let signer = Signer::new();

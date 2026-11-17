@@ -33,3 +33,5 @@ ureq = "3"
 [dev-dependencies]
 # Signs indexes in tests, as a registry would.
 minisign = "0.7"
+# Test folders that are removed even when a test fails.
+tempfile = "3"

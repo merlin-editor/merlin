@@ -5,7 +5,10 @@ use std::path::{Path, PathBuf};
 
 use merlin_core::layers::Layer;
 use merlin_core::{Event, Syntax};
-use merlin_plugins::{BufferEvent, Config, PluginHost, Snapshot};
+use merlin_plugins::{BufferEvent, Snapshot};
+
+mod common;
+use common::Host;
 
 fn plugin_dir() -> PathBuf {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/cpp");
@@ -16,14 +19,8 @@ fn plugin_dir() -> PathBuf {
     dir
 }
 
-fn host() -> (PluginHost, Vec<Event>) {
-    let config = Config {
-        data_dir: std::env::temp_dir().join(format!("merlin-cpp-test-{}", std::process::id())),
-        ask: false,
-        keyring: false,
-        background: false,
-    };
-    let mut host = PluginHost::new(config).unwrap();
+fn host() -> (Host, Vec<Event>) {
+    let mut host = Host::new("merlin-cpp-test-");
     let events = host.load(&plugin_dir()).unwrap();
     (host, events)
 }

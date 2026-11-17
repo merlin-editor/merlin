@@ -1383,8 +1383,8 @@ NameError: name 'nme' is not defined\n";
 
     #[test]
     fn a_bad_pattern_stops_the_plugin_loading() {
-        let dir = std::env::temp_dir().join(format!("merlin-matcher-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
+        let temp = tempfile::Builder::new().prefix("merlin-matcher-").tempdir().unwrap();
+        let dir = temp.path();
         fs::write(
             dir.join("plugin.toml"),
             "name = \"bad\"\ntitle = \"Bad\"\nversion = \"0.1.0\"\napi = \"0.10\"\n\
@@ -1393,7 +1393,6 @@ NameError: name 'nme' is not defined\n";
         .unwrap();
         let err = format!("{:#}", super::manifest(&dir).unwrap_err());
         assert!(err.contains("problem matcher pattern"), "{err}");
-        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

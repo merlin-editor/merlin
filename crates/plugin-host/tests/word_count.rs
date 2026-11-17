@@ -5,7 +5,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use merlin_core::Event;
-use merlin_plugins::{Config, PluginHost, Snapshot};
+use merlin_plugins::Snapshot;
+
+mod common;
+use common::{Folder, Host};
 
 fn plugin_dir() -> PathBuf {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/word-count");
@@ -18,9 +21,8 @@ fn plugin_dir() -> PathBuf {
 }
 
 /// A copy of the plugin with its own manifest, in a fresh folder.
-fn copy_with_manifest(name: &str, permissions: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("merlin-test-{name}-{}", std::process::id()));
-    fs::create_dir_all(&dir).unwrap();
+fn copy_with_manifest(name: &str, permissions: &str) -> Folder {
+    let dir = Folder::new(&format!("merlin-test-{name}-"));
     fs::copy(
         plugin_dir().join("target/wasm32-wasip2/release/word_count.wasm"),
         dir.join("plugin.wasm"),
@@ -39,13 +41,8 @@ fn copy_with_manifest(name: &str, permissions: &str) -> PathBuf {
 
 /// Grants permissions without asking, and keeps nothing outside a temp
 /// folder.
-fn config() -> Config {
-    Config {
-        data_dir: std::env::temp_dir().join(format!("merlin-test-data-{}", std::process::id())),
-        ask: false,
-        keyring: false,
-        background: false,
-    }
+fn host() -> Host {
+    Host::new("merlin-test-data-")
 }
 
 fn snapshot(text: &str) -> Snapshot {
@@ -63,7 +60,7 @@ fn snapshot(text: &str) -> Snapshot {
 
 #[test]
 fn loads_and_registers_commands() {
-    let mut host = PluginHost::new(config()).unwrap();
+    let mut host = host();
     let events = host.load(&plugin_dir()).unwrap();
     let Some(Event::RegisterPlugin { plugin, commands }) = events.first() else {
         panic!("expected registration, got {events:?}");
@@ -74,7 +71,7 @@ fn loads_and_registers_commands() {
 
 #[test]
 fn commands_read_the_snapshot() {
-    let mut host = PluginHost::new(config()).unwrap();
+    let mut host = host();
     host.load(&plugin_dir()).unwrap();
     let events = host.run_command("word-count", "show", snapshot("one two three"));
     assert!(
@@ -86,20 +83,19 @@ fn commands_read_the_snapshot() {
 #[test]
 fn ungranted_permissions_are_denied() {
     let dir = copy_with_manifest("readonly", "editor-read = true");
-    let mut host = PluginHost::new(config()).unwrap();
+    let mut host = host();
     host.load(&dir).unwrap();
     let events = host.run_command("readonly", "todo", snapshot(""));
     assert!(
         matches!(&events[..], [Event::PluginNotice { text: m, .. }] if m == "permission denied: editor-write"),
         "{events:?}"
     );
-    fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
 fn reloads_when_the_component_changes() {
     let dir = copy_with_manifest("reloading", "editor-read = true");
-    let mut host = PluginHost::new(config()).unwrap();
+    let mut host = host();
     host.load(&dir).unwrap();
     assert!(host.reload_changed().is_empty());
 
@@ -123,7 +119,6 @@ fn reloads_when_the_component_changes() {
         matches!(events.last(), Some(Event::PluginLog { text, .. }) if text.starts_with("Reloaded the plugin")),
         "{events:?}"
     );
-    fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
@@ -138,7 +133,6 @@ fn rejects_other_api_versions() {
         ),
     )
     .unwrap();
-    let err = PluginHost::new(config()).unwrap().load(&dir).unwrap_err();
+    let err = host().load(&dir).unwrap_err();
     assert!(err.to_string().contains("needs plugin API 99.0"), "{err}");
-    fs::remove_dir_all(dir).unwrap();
 }
