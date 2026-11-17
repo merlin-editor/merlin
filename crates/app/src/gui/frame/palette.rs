@@ -21,7 +21,8 @@ impl Frame<'_> {
         let list_h = shown as f32 * 34.0 + headings as f32 * 26.0 + mores as f32 * 24.0 + 12.0;
         // The search's scope chips, under the query.
         let chips_h = if pv.scopes.is_empty() { 0.0 } else { 38.0 };
-        let ph = 48.0 + chips_h + list_h + 34.0;
+        let state_h = if pv.state.is_some() { 34.0 } else { 0.0 };
+        let ph = 48.0 + chips_h + list_h + state_h + 34.0;
         let r = Rect::new((w - pw) / 2.0, 56.0, pw, ph);
         self.canvas.shadow(r, 12.0, theme::is_light(&p));
         self.canvas.outline(r, 12.0, 1.0, p.border, p.widget);
@@ -96,7 +97,78 @@ impl Frame<'_> {
                 y += 24.0;
             }
         }
+        if let Some(state) = &pv.state {
+            let line = Rect::new(r.x, r.bottom() - 68.0, r.w, 34.0);
+            self.palette_state(state, line);
+        }
         self.palette_footer(pv, r);
+    }
+
+    /// The line over the footer: the project's symbols still coming, why
+    /// there are fewer, or what's excluded, with its link.
+    fn palette_state(&mut self, state: &merlin_core::PaletteState, line: Rect) {
+        use merlin_core::StateTone;
+        let p = self.p;
+        self.canvas
+            .fill(Rect::new(line.x + 1.0, line.y, line.w - 2.0, 1.0), p.chip);
+        let mid = line.y + line.h / 2.0;
+        let mut x = line.x + 16.0;
+        match state.tone {
+            StateTone::Busy => {
+                self.spinner(x, mid - 5.0);
+                x += 18.0;
+            }
+            StateTone::Warning => {
+                self.canvas
+                    .round(Rect::new(x + 1.0, mid - 4.0, 8.0, 8.0), 4.0, p.warning);
+                x += 18.0;
+            }
+            StateTone::Quiet => {
+                x += self.text.draw_in_row(
+                    &mut self.canvas,
+                    "⊘",
+                    Face::ui(12.0),
+                    x,
+                    line.y,
+                    line.h,
+                    p.muted,
+                    line,
+                ) + 8.0;
+            }
+        }
+        let face = Face::ui(12.0);
+        let link_w = state
+            .link
+            .as_ref()
+            .map_or(0.0, |l| self.text.width(l, face) + 16.0);
+        let room = line.right() - 16.0 - link_w - x;
+        let text = self.text.fit(&state.text, face, room);
+        self.text.draw_in_row(
+            &mut self.canvas,
+            &text,
+            face,
+            x,
+            line.y,
+            line.h,
+            p.text,
+            line,
+        );
+        if let Some(link) = &state.link {
+            let b = Rect::new(
+                line.right() - 16.0 - link_w + 8.0,
+                line.y + 5.0,
+                link_w - 8.0,
+                24.0,
+            );
+            let ink = if self.hovered(b) { p.bright } else { p.accent };
+            self.text
+                .draw_in_row(&mut self.canvas, link, face, b.x, b.y, b.h, ink, line);
+            self.marked_hit(
+                b,
+                Hit::Ui(UiEvent::Press("palette.state".into())),
+                Mark::Link,
+            );
+        }
     }
 
     /// The palette's query line: its title, sign, the query or its

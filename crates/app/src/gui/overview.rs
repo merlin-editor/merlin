@@ -167,6 +167,8 @@ fn mark_colour(p: &Palette, style: Style) -> u32 {
         Style::GitChanged => p.info,
         Style::GitRemoved | Style::GutterError => p.error,
         Style::ScrollMatch => p.find_current,
+        Style::WordRead => p.accent,
+        Style::WordWrite => p.warning,
         Style::Selection => p.muted,
         _ => p.warning,
     }
@@ -180,7 +182,9 @@ pub fn draw_vbar(canvas: &mut Canvas, p: &Palette, track: Rect, v: &TextView, sh
     for &(at, style) in &v.scrollbar.marks {
         let x = match style {
             Style::GitAdded | Style::GitChanged | Style::GitRemoved => track.x + 1.0,
-            Style::ScrollMatch | Style::Selection => track.x + lane,
+            Style::ScrollMatch | Style::Selection | Style::WordRead | Style::WordWrite => {
+                track.x + lane
+            }
             _ => track.x + 2.0 * lane,
         };
         let y = track.y + at * track.h;

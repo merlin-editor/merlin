@@ -2,7 +2,9 @@
 //! Several pin down bug classes reported against ttt.
 
 use merlin_core::script::Session;
-use merlin_core::{Button, Effect, Event, Focus, Node, Panel, PickItem, Settings};
+use merlin_core::{
+    Button, Choice, Effect, Event, Focus, LogLevel, Node, Panel, PickItem, Settings, UiEvent,
+};
 
 fn session(text: &str) -> Session {
     Session::new(text, Some("notes.txt"), 40, 6)
@@ -547,3 +549,84 @@ fn multiline_input_editing_and_cursor_movement() {
         })
     );
 }
+
+#[test]
+fn a_plugin_picker_opens_on_the_one_in_use() {
+    let mut s = session("");
+    s.send(Event::ShowPicker {
+        plugin: "cmake".into(),
+        id: "target".into(),
+        title: "Pick the target".into(),
+        items: ["app", "tool", "lib"]
+            .map(|i| PickItem {
+                id: i.into(),
+                label: i.into(),
+                current: i == "tool",
+                ..PickItem::default()
+            })
+            .into(),
+    });
+    s.run("key enter");
+    assert_eq!(
+        s.effects.last(),
+        Some(&Effect::PluginPick {
+            plugin: "cmake".into(),
+            picker: "target".into(),
+            item: "tool".into()
+        })
+    );
+}
+
+#[test]
+fn a_notice_with_a_choice_reports_the_pick_and_keeps_its_buttons() {
+    let mut s = session("");
+    let option = |id: &str, detail: &str| PickItem {
+        id: id.into(),
+        label: id.into(),
+        detail: detail.into(),
+        ..PickItem::default()
+    };
+    s.send(Event::PluginNotice {
+        plugin: "cmake".into(),
+        level: LogLevel::Info,
+        text: "Add gl.cpp to a target?".into(),
+        buttons: vec![Button {
+            id: "add".into(),
+            label: "Add".into(),
+        }],
+        choice: Some(Box::new(Choice {
+            id: "cmake-add".into(),
+            options: vec![
+                option("render", "libs/CMakeLists.txt, line 6"),
+                option("app", "apps/CMakeLists.txt, line 2"),
+            ],
+            chosen: "render".into(),
+        })),
+    });
+    let choice = |s: &mut Session| s.editor.window_view().toast.unwrap().choice.unwrap();
+    let shut = choice(&mut s);
+    assert_eq!(
+        (shut.label.as_str(), shut.detail.as_str()),
+        ("render", "libs/CMakeLists.txt, line 6")
+    );
+    assert!(shut.open.is_none());
+    s.send(Event::Ui(UiEvent::ToastChoice));
+    let open = choice(&mut s).open.expect("its list");
+    assert_eq!(open.len(), 2);
+    assert!(open[0].2, "render is the one picked");
+    s.send(Event::Ui(UiEvent::ToastChoose(1)));
+    assert_eq!(
+        s.effects.last(),
+        Some(&Effect::PluginPick {
+            plugin: "cmake".into(),
+            picker: "cmake-add".into(),
+            item: "app".into()
+        })
+    );
+    let now = choice(&mut s);
+    assert_eq!(now.label, "app");
+    assert!(now.open.is_none(), "it closes once picked");
+    let buttons = s.editor.window_view().toast.unwrap().buttons;
+    assert_eq!(buttons.last().map(String::as_str), Some("Add"));
+}
+

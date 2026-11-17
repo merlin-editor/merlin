@@ -246,7 +246,8 @@ fn switches_between_header_and_source() {
             .map(|c| c.key.clone()),
         _ => None,
     });
-    assert_eq!(key, Some(Some("alt+o".to_string())));
+    // Alt+O is the editor's own, which runs it.
+    assert_eq!(key, Some(None));
     let root = Folder::new("merlin-cpp-switch-");
     std::fs::write(root.join("shape.h"), "int area();\n").unwrap();
     let text = "#include \"shape.h\"\nint area() { return 1; }\n";
@@ -270,4 +271,367 @@ fn switches_between_header_and_source() {
         std::thread::sleep(Duration::from_millis(20));
     };
     assert_eq!(path, Path::new("shape.h"));
+}
+
+/// clangd's call hierarchy, a level at a time, and the uses of a name, read
+/// and written. Only where clangd is installed.
+#[test]
+fn calls_and_a_names_uses_come_from_clangd() {
+    use merlin_core::HierarchyMode;
+    use std::time::{Duration, Instant};
+    if std::process::Command::new("clangd")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        eprintln!("clangd isn't installed; skipping");
+        return;
+    }
+    let (mut host, _) = host();
+    let root = Folder::new("merlin-cpp-calls-");
+    let text = "int area(int w, int h) { return w * h; }\n\
+                int total() {\n    int t = 0;\n    t += area(1, 2);\n    return t;\n}\n\
+                int main() { return total(); }\n";
+    std::fs::write(root.join("a.cpp"), text).unwrap();
+    let at = |cursor: (u32, u32)| Snapshot {
+        root: root.to_path_buf(),
+        cursor,
+        ..snapshot("a.cpp", text)
+    };
+    host.buffer_event(&BufferEvent::Switched, &at((0, 5)));
+    let wait = |host: &mut PluginHost, what: &str, find: &dyn Fn(&Event) -> bool| {
+        let until = Instant::now() + Duration::from_secs(30);
+        loop {
+            let (events, _) = host.poll_processes(|| at((0, 5)));
+            if let Some(e) = events.into_iter().find(|e| find(e)) {
+                return e;
+            }
+            assert!(Instant::now() < until, "no {what}");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    };
+    // Callers of `area`, asked until clangd has read the file.
+    let mut shown = None;
+    for _ in 0..20 {
+        host.run_command("cpp", "call-hierarchy", at((0, 5)));
+        let e = wait(&mut host, "a hierarchy or a notice", &|e| {
+            matches!(e, Event::ShowHierarchy { .. } | Event::PluginNotice { .. })
+        });
+        if let Event::ShowHierarchy {
+            mode,
+            root,
+            children,
+            ..
+        } = e
+        {
+            shown = Some((mode, root, children));
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    let (mode, root_item, children) = shown.expect("clangd's call hierarchy");
+    assert_eq!(mode, HierarchyMode::Callers);
+    assert_eq!(root_item.name, "area");
+    let names: Vec<&str> = children.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(names, ["total"]);
+    assert_eq!(children[0].location.start.0, 3, "where total calls it");
+    // The level under total: main.
+    let total = children[0].id;
+    host.run_command("cpp", &format!("hierarchy-expand:{total}"), at((0, 5)));
+    let Event::HierarchyChildren {
+        parent, children, ..
+    } = wait(&mut host, "total's callers", &|e| {
+        matches!(e, Event::HierarchyChildren { .. })
+    })
+    else {
+        unreachable!()
+    };
+    assert_eq!(parent, total);
+    assert_eq!(children[0].name, "main");
+    // The other way from area: it calls nothing.
+    host.run_command("cpp", "hierarchy-mode:callees", at((0, 5)));
+    let Event::ShowHierarchy { mode, children, .. } = wait(&mut host, "callees", &|e| {
+        matches!(e, Event::ShowHierarchy { .. })
+    }) else {
+        unreachable!()
+    };
+    assert_eq!(mode, HierarchyMode::Callees);
+    assert!(children.is_empty(), "{children:?}");
+
+    // `t`'s uses: written where it's set and added to, read where returned.
+    host.run_command("cpp", "highlight", at((2, 8)));
+    let Event::SetHighlights { ranges, .. } = wait(&mut host, "highlights", &|e| {
+        matches!(e, Event::SetHighlights { .. })
+    }) else {
+        unreachable!()
+    };
+    let lines: Vec<(u32, bool)> = ranges.iter().map(|(s, _, w)| (s.0, *w)).collect();
+    assert!(lines.contains(&(4, false)), "{lines:?}");
+    assert!(
+        lines.iter().any(|&(l, w)| l == 2 && w) || lines.contains(&(2, false)),
+        "{lines:?}"
+    );
+    assert_eq!(lines.len(), 3, "{lines:?}");
+}
+
+/// A file clangd has no compile command for: a bar says it's guessing the
+/// flags, with Set Include Folders. Only where clangd is installed.
+#[test]
+fn a_bar_says_when_clangd_guesses_the_flags() {
+    use std::time::{Duration, Instant};
+    if std::process::Command::new("clangd")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        eprintln!("clangd isn't installed; skipping");
+        return;
+    }
+    let (mut host, _) = host();
+    let root = Folder::new("merlin-cpp-guess-");
+    let text = "#include \"engine.h\"\nint main() { return 0; }\n";
+    std::fs::write(root.join("a.cpp"), text).unwrap();
+    let at = Snapshot {
+        root: root.to_path_buf(),
+        ..snapshot("a.cpp", text)
+    };
+    let mut events = host.buffer_event(&BufferEvent::Switched, &at);
+    let until = Instant::now() + Duration::from_secs(30);
+    let bar = loop {
+        if let Some(bar) = events.iter().find_map(|e| match e {
+            Event::ShowBar {
+                id, text, buttons, ..
+            } => Some((id.clone(), text.clone(), buttons.clone())),
+            _ => None,
+        }) {
+            break bar;
+        }
+        assert!(Instant::now() < until, "no bar");
+        std::thread::sleep(Duration::from_millis(50));
+        events = host.poll_processes(|| at.clone()).0;
+    };
+    assert_eq!(bar.0, "no-compile-commands");
+    assert!(bar.1.contains("guessing the flags"), "{}", bar.1);
+    assert_eq!(
+        bar.2.last().map(|b| b.id.as_str()),
+        Some("run:settings.plugin:cpp")
+    );
+    // Hidden by hand, it stays hidden.
+    host.click("cpp", "dismiss:no-compile-commands", at.clone());
+    let events = host.buffer_event(&BufferEvent::Switched, &at);
+    assert!(
+        !events.iter().any(|e| matches!(e, Event::ShowBar { .. })),
+        "{events:?}"
+    );
+}
+
+/// Problems' Check Project: every file compile_commands.json lists,
+/// checked by clangd, its errors in Problems. Only where clangd is
+/// installed.
+#[test]
+fn check_project_puts_every_files_errors_in_problems() {
+    use std::time::{Duration, Instant};
+    if std::process::Command::new("clangd")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        eprintln!("clangd isn't installed; skipping");
+        return;
+    }
+    let (mut host, _) = host();
+    let root = Folder::new("merlin-cpp-check-");
+    let good = "int main() {\n  int unused;\n  return 0;\n}\n";
+    std::fs::write(root.join("good.cpp"), good).unwrap();
+    std::fs::write(root.join("bad.cpp"), "int f() {\n  return x;\n}\n").unwrap();
+    let dir = root.display().to_string();
+    std::fs::write(
+        root.join("compile_commands.json"),
+        format!(
+            r#"[{{"directory": "{dir}", "file": "good.cpp", "arguments": ["c++", "-Wall", "-c", "good.cpp"]}},
+                {{"directory": "{dir}", "file": "bad.cpp", "arguments": ["c++", "-c", "bad.cpp"]}}]"#
+        ),
+    )
+    .unwrap();
+    let at = Snapshot {
+        root: root.to_path_buf(),
+        ..snapshot("good.cpp", good)
+    };
+    let mut events = host.run_command("cpp", "check-project", at.clone());
+    let mut warned = Vec::new();
+    let mut last_bad: Option<usize> = None;
+    let until = Instant::now() + Duration::from_secs(60);
+    let mut found = Vec::new();
+    loop {
+        for e in &events {
+            if let Event::SetDiagnostics {
+                path, diagnostics, ..
+            } = e
+                && path.ends_with("bad.cpp")
+            {
+                last_bad = Some(diagnostics.len());
+            }
+            match e {
+                Event::SetDiagnostics {
+                    path, diagnostics, ..
+                } if path.ends_with("bad.cpp") && !diagnostics.is_empty() => {
+                    found = diagnostics.clone()
+                }
+                Event::SetDiagnostics {
+                    path, diagnostics, ..
+                } if path.ends_with("good.cpp") && !diagnostics.is_empty() => {
+                    warned = diagnostics.clone()
+                }
+                _ => {}
+            }
+        }
+        if events
+            .iter()
+            .any(|e| matches!(e, Event::ProgressEnd { .. }))
+        {
+            break;
+        }
+        assert!(Instant::now() < until, "the check didn't end");
+        std::thread::sleep(Duration::from_millis(50));
+        events = host.poll_processes(|| at.clone()).0;
+    }
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].start.0, 1);
+    assert!(
+        found[0].message.contains("undeclared identifier 'x'"),
+        "{}",
+        found[0].message
+    );
+    // Closed again, its problems stay.
+    std::thread::sleep(Duration::from_millis(500));
+    for e in host.poll_processes(|| at.clone()).0 {
+        if let Event::SetDiagnostics {
+            path, diagnostics, ..
+        } = e
+            && path.ends_with("bad.cpp")
+        {
+            last_bad = Some(diagnostics.len());
+        }
+    }
+    assert_eq!(last_bad, Some(1), "bad.cpp's problems were cleared");
+    // Warnings too, from the running clangd, as for an open file.
+    assert!(
+        warned
+            .iter()
+            .any(|d| d.severity == merlin_core::Severity::Warning && d.message.contains("unused")),
+        "{warned:?}"
+    );
+}
+
+/// With no compile_commands.json, clangd knows only open files: the
+/// palette's symbols come from a scan of the sources, marked, with a note
+/// saying why, and the ones in files excluded from search held back.
+#[test]
+fn symbols_without_compile_commands_come_from_a_scan() {
+    use merlin_core::exclude::{Exclusions, Matcher};
+    let (mut host, _) = host();
+    let root = Folder::new("merlin-cpp-scan-");
+    for (path, text) in [
+        (
+            "src/circle.cpp",
+            "#include \"shape.h\"\ndouble Circle::area() const {\n    return 3.14 * r * r;\n}\n",
+        ),
+        (
+            "include/shape.h",
+            "struct Shape {\n    virtual double area() const = 0;\n};\n",
+        ),
+        ("third_party/z.cpp", "int z_area(int a) { return a; }\n"),
+        ("README.md", "double area() {}\n"),
+    ] {
+        let full = root.join(path);
+        std::fs::create_dir_all(full.parent().unwrap()).unwrap();
+        std::fs::write(full, text).unwrap();
+    }
+    let at = Snapshot {
+        root: root.to_path_buf(),
+        exclusions: std::sync::Arc::new(Matcher::new(Exclusions {
+            search: vec!["third_party/".into()],
+            ..Exclusions::default()
+        })),
+        ..Snapshot::default()
+    };
+    let events = host.search_symbols("cpp", "project-symbols", "area", at);
+    let Some(Event::ProjectSymbols {
+        symbols,
+        excluded,
+        note,
+        ..
+    }) = events
+        .iter()
+        .find(|e| matches!(e, Event::ProjectSymbols { .. }))
+    else {
+        panic!("{events:?}");
+    };
+    let found: Vec<(String, String, String, u32, bool)> = symbols
+        .iter()
+        .map(|s| {
+            let path = s.path.display().to_string();
+            (s.name.clone(), s.container.clone(), path, s.line, s.scan)
+        })
+        .collect();
+    assert!(
+        found.contains(&(
+            "area".into(),
+            "Circle".into(),
+            "src/circle.cpp".into(),
+            1,
+            true
+        )),
+        "{found:?}"
+    );
+    assert!(
+        found.contains(&(
+            "area".into(),
+            "Shape".into(),
+            "include/shape.h".into(),
+            1,
+            true
+        )),
+        "{found:?}"
+    );
+    assert!(
+        !found.iter().any(|f| f.2 == "README.md"),
+        "only C and C++ files"
+    );
+    assert_eq!(excluded.len(), 1, "{excluded:?}");
+    assert_eq!(excluded[0].name, "z_area");
+    assert!(
+        note.warning.contains("No compile_commands.json"),
+        "{note:?}"
+    );
+}
+
+/// Keep clangd out of excluded folders: a block in .clangd, the user's
+/// own lines left alone, and taken out again when it's turned off.
+#[test]
+fn excluded_folders_are_kept_out_of_clangds_index() {
+    use merlin_core::exclude::{Exclusions, Matcher};
+    let (mut host, _) = host();
+    let root = Folder::new("merlin-cpp-clangd-");
+    let mine = "CompileFlags:\n  Add: [-Wall]\n";
+    std::fs::write(root.join(".clangd"), mine).unwrap();
+    let at = Snapshot {
+        root: root.to_path_buf(),
+        exclusions: std::sync::Arc::new(Matcher::new(Exclusions {
+            files: vec!["third_party/".into()],
+            ..Exclusions::default()
+        })),
+        ..Snapshot::default()
+    };
+    let on: toml::Table = toml::from_str("[cpp]\nindex-excluded = true\n").unwrap();
+    host.set_settings(on, toml::Table::new(), &at);
+    let text = std::fs::read_to_string(root.join(".clangd")).unwrap();
+    assert!(text.starts_with(mine), "{text}");
+    assert!(
+        text.contains("PathMatch: ['(.*/)?third_party/.*']"),
+        "{text}"
+    );
+    assert!(text.contains("Background: Skip"), "{text}");
+    host.set_settings(toml::Table::new(), toml::Table::new(), &at);
+    assert_eq!(std::fs::read_to_string(root.join(".clangd")).unwrap(), mine);
 }

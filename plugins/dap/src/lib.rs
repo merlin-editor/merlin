@@ -12,6 +12,7 @@
 use std::collections::HashMap;
 
 use merlin_plugin::prelude::*;
+use merlin_plugin::{DisassemblyLine, MemoryView};
 use serde_json::{Value, json};
 
 /// What a request was for, to know what to do with its answer.
@@ -28,6 +29,19 @@ enum Asked {
     Evaluate,
     Watch { index: u32, expression: String },
     SetVariable { parent: u32 },
+    /// The paused instruction alone, for the function it's in and how far
+    /// in: then the instructions from the function's start, as x86's can't
+    /// be read backwards.
+    DisassembleAt { ip: String },
+    /// The instructions around the pause, the paused one at `ip`.
+    Disassemble { ip: String },
+    /// A local's address, `&name`, for Variables.
+    Address { parent: u32, name: String },
+    /// The Memory view's expression, as an address, then its size, then
+    /// its bytes.
+    MemoryAddress { expression: String },
+    MemorySize { expression: String, address: u64 },
+    ReadMemory { expression: String, address: u64, size: u64 },
     Disconnect,
     Other,
 }
@@ -40,6 +54,12 @@ struct Run {
     seq: i64,
     asked: HashMap<i64, Asked>,
     caps: Value,
+    /// Each frame's instruction pointer, for Disassembly on a frame.
+    ips: HashMap<u32, String>,
+    /// The scopes of the frame shown, whose variables get their address,
+    /// and each scope's variables as last sent.
+    scopes: Vec<u32>,
+    vars: HashMap<u32, Vec<DebugVariable>>,
     /// The thread that stopped, and the frame shown.
     stopped: Option<u32>,
     frame: Option<u32>,
@@ -70,6 +90,50 @@ struct Run {
 #[derive(Default)]
 struct Debugger {
     run: Option<Run>,
+    /// How Step goes: into library code too, and an instruction at a time.
+    into_libraries: bool,
+    by_instruction: bool,
+    /// The Disassembly view is open.
+    disassembly: bool,
+    /// Breakpoints on instructions, by address.
+    instruction_breaks: Vec<String>,
+    /// The Memory view's expression, and what it read last: its first
+    /// address and bytes, to see what changed.
+    memory: String,
+    last_memory: Option<(u64, Vec<u8>)>,
+}
+
+/// The first `0x…` number in a debugger's value, as `(int *) 0x7ffe…`.
+fn address_in(text: &str) -> Option<u64> {
+    let at = text.find("0x")?;
+    let hex: String = text[at + 2..]
+        .chars()
+        .take_while(|c| c.is_ascii_hexdigit())
+        .collect();
+    u64::from_str_radix(&hex, 16).ok()
+}
+
+/// DAP's memory comes as base64.
+fn base64(text: &str) -> Vec<u8> {
+    let value = |c: u8| match c {
+        b'A'..=b'Z' => Some(c - b'A'),
+        b'a'..=b'z' => Some(c - b'a' + 26),
+        b'0'..=b'9' => Some(c - b'0' + 52),
+        b'+' | b'-' => Some(62),
+        b'/' | b'_' => Some(63),
+        _ => None,
+    };
+    let mut out = Vec::new();
+    let (mut bits, mut have) = (0u32, 0);
+    for v in text.bytes().filter_map(value) {
+        bits = (bits << 6) | v as u32;
+        have += 6;
+        if have >= 8 {
+            have -= 8;
+            out.push((bits >> have) as u8);
+        }
+    }
+    out
 }
 
 impl Run {
@@ -102,6 +166,26 @@ impl Run {
     }
 
     /// Sends every breakpoint, file by file, as DAP sets them.
+    /// Breakpoints on instructions, for a debugger that takes them.
+    fn send_instruction_breakpoints(&mut self, addresses: &[String]) {
+        if self.caps["supportsInstructionBreakpoints"].as_bool() != Some(true) {
+            let _ = host::debug_output(
+                OutputKind::Stderr,
+                "This debugger can't stop at an instruction.\n",
+            );
+            return;
+        }
+        let breakpoints: Vec<Value> = addresses
+            .iter()
+            .map(|a| json!({ "instructionReference": a }))
+            .collect();
+        self.send(
+            "setInstructionBreakpoints",
+            json!({ "breakpoints": breakpoints }),
+            Asked::Other,
+        );
+    }
+
     fn send_breakpoints(&mut self) {
         let all = host::breakpoints().unwrap_or_default();
         let mut files: Vec<String> = all.iter().map(|b| b.path.clone()).collect();
@@ -246,7 +330,17 @@ impl Debugger {
         {
             host::kill(old.process);
         }
-        let Some((program, args)) = start.command.split_first() else {
+        // `${args}` in the debugger's command is the target's arguments,
+        // for a debugger that is the program itself, as CMake's is.
+        let command: Vec<String> = start
+            .command
+            .iter()
+            .flat_map(|part| match part.as_str() {
+                "${args}" => start.args.clone(),
+                _ => vec![part.clone()],
+            })
+            .collect();
+        let Some((program, args)) = command.split_first() else {
             let _ = host::debug_output(
                 OutputKind::Stderr,
                 "This debugger has no command to start it.\n",
@@ -280,6 +374,7 @@ impl Debugger {
                 "columnsStartAt1": true,
                 "pathFormat": "path",
                 "supportsVariableType": true,
+                "supportsMemoryReferences": true,
                 "supportsRunInTerminalRequest": false,
                 "locale": "en",
             }),
@@ -428,6 +523,11 @@ impl Debugger {
                     .map(|s| s.cwd.clone())
                     .unwrap_or_default();
                 let list = body["stackFrames"].as_array().cloned().unwrap_or_default();
+                for f in &list {
+                    if let (Some(id), Some(ip)) = (f["id"].as_u64(), f["instructionPointerReference"].as_str()) {
+                        run.ips.insert(id as u32, ip.to_string());
+                    }
+                }
                 let frames: Vec<StackFrame> = list
                     .iter()
                     .filter_map(|f| {
@@ -481,6 +581,31 @@ impl Debugger {
                 {
                     run.frame = Some(frame);
                     run.send("scopes", json!({ "frameId": frame }), Asked::Scopes);
+                    // The paused instruction's neighbours, for Disassembly.
+                    let ip = list
+                        .first()
+                        .and_then(|f| f["instructionPointerReference"].as_str());
+                    if self.disassembly
+                        && let Some(ip) = ip
+                    {
+                        run.send(
+                            "disassemble",
+                            json!({
+                                "memoryReference": ip,
+                                "instructionCount": 1,
+                                "resolveSymbols": true,
+                            }),
+                            Asked::DisassembleAt { ip: ip.to_string() },
+                        );
+                    }
+                    if !self.memory.is_empty() {
+                        let expression = self.memory.clone();
+                        run.send(
+                            "evaluate",
+                            json!({ "expression": expression, "frameId": frame, "context": "watch" }),
+                            Asked::MemoryAddress { expression },
+                        );
+                    }
                 }
             }
             Asked::Scopes => {
@@ -494,11 +619,17 @@ impl Debugger {
                                 value: String::new(),
                                 type_name: String::new(),
                                 children: s["variablesReference"].as_u64().unwrap_or(0) as u32,
+                                address: String::new(),
                             })
                             .collect()
                     })
                     .unwrap_or_default();
                 let _ = host::set_variables(0, &scopes);
+                run.scopes = list
+                    .iter()
+                    .filter(|s| s["expensive"].as_bool() != Some(true))
+                    .filter_map(|s| s["variablesReference"].as_u64().map(|r| r as u32))
+                    .collect();
                 // Every scope's variables but the costly ones, such as
                 // registers, so values show after the lines at once.
                 for (scope, raw) in scopes.iter().zip(&list) {
@@ -522,11 +653,179 @@ impl Debugger {
                                 value: v["value"].as_str().unwrap_or_default().to_string(),
                                 type_name: v["type"].as_str().unwrap_or_default().to_string(),
                                 children: v["variablesReference"].as_u64().unwrap_or(0) as u32,
+                                address: String::new(),
                             })
                             .collect()
                     })
                     .unwrap_or_default();
                 let _ = host::set_variables(parent, &list);
+                // A scope's variables, plain names, get their address.
+                if run.scopes.contains(&parent) {
+                    for v in &list {
+                        let plain = v.name.chars().all(|c| c.is_alphanumeric() || c == '_');
+                        if plain && !v.name.is_empty() {
+                            let frame = run.frame;
+                            run.send(
+                                "evaluate",
+                                json!({ "expression": format!("&{}", v.name), "frameId": frame, "context": "watch" }),
+                                Asked::Address { parent, name: v.name.clone() },
+                            );
+                        }
+                    }
+                }
+                run.vars.insert(parent, list);
+            }
+            Asked::Address { parent, name } => {
+                let address = body["memoryReference"]
+                    .as_str()
+                    .and_then(address_in)
+                    .or_else(|| body["result"].as_str().and_then(address_in))
+                    .filter(|_| ok);
+                if let (Some(address), Some(list)) = (address, run.vars.get_mut(&parent))
+                    && let Some(v) = list.iter_mut().find(|v| v.name == name)
+                {
+                    v.address = format!("0x{address:x}");
+                    let _ = host::set_variables(parent, list);
+                }
+            }
+            Asked::DisassembleAt { ip } => {
+                // `main+23`: the function starts 23 bytes back. Without a
+                // symbol, the list starts at the pause.
+                let first = &body["instructions"][0];
+                let back = first["symbol"]
+                    .as_str()
+                    .and_then(|s| s.rsplit_once('+'))
+                    .and_then(|(_, n)| n.trim_end_matches('>').parse::<u64>().ok())
+                    .unwrap_or(0);
+                let start = address_in(&ip).map_or(ip.clone(), |a| format!("0x{:x}", a - back.min(a)));
+                // Enough to reach past the pause: an instruction is at
+                // least a byte.
+                let count = (back + 24).min(400);
+                run.send(
+                    "disassemble",
+                    json!({
+                        "memoryReference": start,
+                        "instructionCount": count,
+                        "resolveSymbols": true,
+                    }),
+                    Asked::Disassemble { ip },
+                );
+            }
+            Asked::Disassemble { ip } => {
+                let want = address_in(&ip);
+                let mut last: Option<(String, u64)> = None;
+                let lines: Vec<DisassemblyLine> = body["instructions"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|i| {
+                        let address = i["address"].as_str().unwrap_or_default().to_string();
+                        let path = i["location"]["path"].as_str().map(String::from);
+                        let line = i["line"].as_u64();
+                        // A source line over each run of its instructions.
+                        let source = match (path.or_else(|| last.as_ref().map(|l| l.0.clone())), line) {
+                            (Some(p), Some(n)) if last.as_ref() != Some(&(p.clone(), n)) => {
+                                last = Some((p.clone(), n));
+                                Some((p, n.saturating_sub(1) as u32))
+                            }
+                            _ => None,
+                        };
+                        DisassemblyLine {
+                            current: want.is_some() && address_in(&address) == want,
+                            instruction: i["instruction"].as_str().unwrap_or("?").to_string(),
+                            symbol: i["symbol"].as_str().unwrap_or_default().to_string(),
+                            address,
+                            source,
+                        }
+                    })
+                    .collect();
+                // Ten before the pause and twenty-five after, the source
+                // line over the first kept.
+                let mut lines = lines;
+                if let Some(at) = lines.iter().position(|l| l.current) {
+                    let from = at.saturating_sub(10);
+                    if lines[from].source.is_none()
+                        && let Some(source) = lines[..from].iter().rev().find_map(|l| l.source.clone())
+                    {
+                        lines[from].source = Some(source);
+                    }
+                    lines = lines.into_iter().skip(from).take(35).collect();
+                }
+                let _ = host::set_disassembly(&lines);
+            }
+            Asked::MemoryAddress { expression } => {
+                let address = body["memoryReference"]
+                    .as_str()
+                    .and_then(address_in)
+                    .or_else(|| body["result"].as_str().and_then(address_in))
+                    .filter(|_| ok);
+                let Some(address) = address else {
+                    let why = if ok {
+                        format!("{expression} isn't an address: try &{expression}")
+                    } else {
+                        error()
+                    };
+                    return self.memory_failed(&expression, &why);
+                };
+                // How many bytes it points at, where the language can say.
+                let frame = run.frame;
+                run.send(
+                    "evaluate",
+                    json!({ "expression": format!("sizeof(*({expression}))"), "frameId": frame, "context": "watch" }),
+                    Asked::MemorySize { expression, address },
+                );
+            }
+            Asked::MemorySize { expression, address } => {
+                // `4`, or as some debuggers put it, `(unsigned long) 4`.
+                let size = body["result"]
+                    .as_str()
+                    .and_then(|r| r.split_whitespace().last())
+                    .and_then(|n| match n.strip_prefix("0x") {
+                        Some(hex) => u64::from_str_radix(hex, 16).ok(),
+                        None => n.parse::<u64>().ok(),
+                    })
+                    .filter(|_| ok)
+                    .unwrap_or(1)
+                    .clamp(1, 256);
+                // Whole rows of sixteen from the one it starts in.
+                let start = address & !0xf;
+                let count = ((address + size - start).div_ceil(16) * 16).max(64);
+                run.send(
+                    "readMemory",
+                    json!({ "memoryReference": format!("0x{start:x}"), "count": count }),
+                    Asked::ReadMemory { expression, address, size },
+                );
+            }
+            Asked::ReadMemory { expression, address, size } => {
+                if !ok {
+                    let why = error();
+                    return self.memory_failed(&expression, &why);
+                }
+                let start = body["address"]
+                    .as_str()
+                    .and_then(address_in)
+                    .unwrap_or(address & !0xf);
+                let bytes = base64(body["data"].as_str().unwrap_or_default());
+                let changed: Vec<u32> = match &self.last_memory {
+                    Some((was, old)) if *was == start => bytes
+                        .iter()
+                        .zip(old)
+                        .enumerate()
+                        .filter(|(_, (a, b))| a != b)
+                        .map(|(i, _)| i as u32)
+                        .collect(),
+                    _ => Vec::new(),
+                };
+                self.last_memory = Some((start, bytes.clone()));
+                let _ = host::set_memory(&MemoryView {
+                    expression,
+                    address: start,
+                    mark_from: address.saturating_sub(start) as u32,
+                    mark_len: size as u32,
+                    bytes,
+                    changed,
+                    error: String::new(),
+                });
             }
             Asked::Evaluate => {
                 let text = if ok {
@@ -548,6 +847,7 @@ impl Debugger {
                         value: body["result"].as_str().unwrap_or_default().to_string(),
                         type_name: body["type"].as_str().unwrap_or_default().to_string(),
                         children: body["variablesReference"].as_u64().unwrap_or(0) as u32,
+                        address: String::new(),
                     }
                 } else {
                     DebugVariable {
@@ -555,6 +855,7 @@ impl Debugger {
                         value: error(),
                         type_name: "error".into(),
                         children: 0,
+                        address: String::new(),
                     }
                 };
                 let _ = host::set_watch(index, &value);
@@ -590,6 +891,10 @@ impl Debugger {
         match message["event"].as_str().unwrap_or_default() {
             "initialized" => {
                 run.send_breakpoints();
+                if !self.instruction_breaks.is_empty() {
+                    let list = self.instruction_breaks.clone();
+                    run.send_instruction_breakpoints(&list);
+                }
                 if !run.filters.is_empty() || !run.functions.is_empty() {
                     run.send_filters();
                 }
@@ -624,7 +929,7 @@ impl Debugger {
                 };
                 // A step shows once it's known to be in the project's code;
                 // one that lands in a library steps out of it again.
-                if pause.reason == "step" {
+                if pause.reason == "step" && !self.into_libraries && !self.by_instruction {
                     run.stepped = Some(pause);
                 } else {
                     run.skips = 0;
@@ -687,6 +992,48 @@ impl Debugger {
         }
     }
 
+    /// What a pause shows asked for again, for the frame shown: for a view
+    /// opened, or a setting changed, while it's paused.
+    fn again(&mut self) {
+        let Some(run) = &mut self.run else {
+            return;
+        };
+        let Some(frame) = run.frame.filter(|_| run.stopped.is_some()) else {
+            return;
+        };
+        if self.disassembly
+            && let Some(ip) = run.ips.get(&frame).cloned()
+        {
+            run.send(
+                "disassemble",
+                json!({ "memoryReference": ip, "instructionCount": 1, "resolveSymbols": true }),
+                Asked::DisassembleAt { ip },
+            );
+        }
+        if !self.memory.is_empty() {
+            let expression = self.memory.clone();
+            run.send(
+                "evaluate",
+                json!({ "expression": expression, "frameId": frame, "context": "watch" }),
+                Asked::MemoryAddress { expression },
+            );
+        }
+    }
+
+    /// The Memory view says why it has nothing.
+    fn memory_failed(&mut self, expression: &str, why: &str) {
+        self.last_memory = None;
+        let _ = host::set_memory(&MemoryView {
+            expression: expression.to_string(),
+            address: 0,
+            bytes: Vec::new(),
+            mark_from: 0,
+            mark_len: 0,
+            changed: Vec::new(),
+            error: why.to_string(),
+        });
+    }
+
     fn step(&mut self, command: &str) {
         let Some(run) = &mut self.run else {
             return;
@@ -694,7 +1041,12 @@ impl Debugger {
         let thread = run.thread();
         run.step_from = run.shown.clone();
         run.skips = 0;
-        run.send(command, json!({ "threadId": thread }), Asked::Other);
+        let mut args = json!({ "threadId": thread });
+        let stepping = matches!(command, "next" | "stepIn" | "stepOut");
+        if stepping && self.by_instruction {
+            args["granularity"] = json!("instruction");
+        }
+        run.send(command, args, Asked::Other);
         if command != "pause" {
             // The debugger says `continued` only sometimes.
             run.stopped = None;
@@ -708,6 +1060,45 @@ impl Plugin for Debugger {
         let id = id.strip_prefix("dap.").unwrap_or(id);
         if id == "debug.start" {
             return self.start();
+        }
+        if let Some((setting, on)) = id.split_once(':').filter(|(s, _)| {
+            matches!(
+                *s,
+                "debug.skip-libraries" | "debug.by-instruction" | "debug.disassembly"
+            )
+        }) {
+            let on = on == "on";
+            match setting {
+                "debug.skip-libraries" => self.into_libraries = !on,
+                "debug.by-instruction" => self.by_instruction = on,
+                _ => {
+                    self.disassembly = on;
+                    // Asked now, if it's paused.
+                    if on {
+                        self.again();
+                    }
+                }
+            }
+            return;
+        }
+        if let Some(list) = id.strip_prefix("debug.instruction-breakpoints:") {
+            self.instruction_breaks = list
+                .split(',')
+                .filter(|a| !a.is_empty())
+                .map(String::from)
+                .collect();
+            let list = self.instruction_breaks.clone();
+            if let Some(run) = &mut self.run
+                && !run.caps.is_null()
+            {
+                run.send_instruction_breakpoints(&list);
+            }
+            return;
+        }
+        if let Some(expression) = id.strip_prefix("debug.memory:") {
+            self.memory = expression.trim().to_string();
+            self.last_memory = None;
+            return self.again();
         }
         let Some(run) = &mut self.run else {
             return;
@@ -742,6 +1133,16 @@ impl Plugin for Debugger {
                 {
                     run.frame = Some(f);
                     run.send("scopes", json!({ "frameId": f }), Asked::Scopes);
+                    // Disassembly follows the frame shown.
+                    if self.disassembly
+                        && let Some(ip) = run.ips.get(&f).cloned()
+                    {
+                        run.send(
+                            "disassemble",
+                            json!({ "memoryReference": ip, "instructionCount": 1, "resolveSymbols": true }),
+                            Asked::DisassembleAt { ip },
+                        );
+                    }
                 } else if let Some(f) = id.strip_prefix("debug.stop-on:") {
                     if let Some(filter) = run.filters.iter_mut().find(|x| x.0 == f) {
                         filter.2 = !filter.2;

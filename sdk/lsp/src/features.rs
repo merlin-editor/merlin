@@ -80,6 +80,7 @@ impl Lsp {
                     opened: HashMap::new(),
                     queue: Vec::new(),
                     progress: BTreeMap::new(),
+                    progress_message: BTreeMap::new(),
                     pull: false,
                     pushed: HashMap::new(),
                     pulled: HashMap::new(),
@@ -87,6 +88,8 @@ impl Lsp {
                     legend: Vec::new(),
                     symbols: false,
                     workspace_symbols: false,
+                    guessed: Default::default(),
+                    highlights: false,
                     folds: false,
                     inlay_hints: false,
                     formats: false,
@@ -292,41 +295,29 @@ impl Lsp {
         server.request(method, params, request);
     }
 
-    /// Asks each server that's running, or the current file's, for the
-    /// project's symbols matching the palette's query.
-    pub(crate) fn project_symbols(&mut self) {
-        let query = host::symbol_query();
-        if query.is_empty() {
+    /// The uses of the name under the cursor in the file, from a server
+    /// that finds them. The editor always hears, an empty answer when
+    /// there's none, so it marks the same word instead.
+    pub(crate) fn highlight(&mut self) {
+        let Some((path, spec, language)) = self.active() else {
             return;
+        };
+        let Ok(cursor) = host::active_cursor() else {
+            return;
+        };
+        self.catch_up(&path, spec, language);
+        let server = self.ensure(spec);
+        if server.status != Status::Ready || !server.highlights {
+            return host::set_highlights(&path, &[]);
         }
-        if self.servers.iter().all(|s| s.process.is_none())
-            && let Some((_, spec, _)) = self.active()
-        {
-            self.ensure(spec);
-        }
-        let mut asked = false;
-        for server in &mut self.servers {
-            // One still starting is asked too: its answer comes once it's up.
-            let can = match server.status {
-                Status::Starting => true,
-                Status::Ready => server.workspace_symbols,
-                Status::Failed(_) => false,
-            };
-            if server.process.is_some() && can {
-                server.request(
-                    "workspace/symbol",
-                    json!({"query": query}),
-                    Request::ProjectSymbols {
-                        query: query.clone(),
-                    },
-                );
-                asked = true;
-            }
-        }
-        // Nothing to ask: the palette hears there's nothing.
-        if !asked {
-            host::show_project_symbols(&query, &[]);
-        }
+        server.request(
+            "textDocument/documentHighlight",
+            json!({
+                "textDocument": {"uri": uri(&path)},
+                "position": {"line": cursor.line, "character": cursor.column},
+            }),
+            Request::Highlight { path },
+        );
     }
 
     /// The editor's F2: whether the name at the cursor can be renamed, and

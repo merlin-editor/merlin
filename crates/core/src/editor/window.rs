@@ -142,6 +142,10 @@ pub enum UiEvent {
     ClosePalette,
     /// A notice's button, by its index.
     ToastButton(usize),
+    /// A notice's dropdown: its list opened or closed.
+    ToastChoice,
+    /// An option in a notice's open dropdown, by its index.
+    ToastChoose(usize),
     /// Something on the Output panel's bar.
     Output(super::OutputClick),
     /// A right-click menu item, by its index in [`ContextView::items`].
@@ -322,6 +326,8 @@ pub struct ToolView {
     pub icon: Option<super::ViewIcon>,
     /// The command's title, for its tip.
     pub title: String,
+    /// Drawn lit, as a switch that's on.
+    pub on: bool,
 }
 
 /// A side bar or the bottom panel, showing one panel.
@@ -408,6 +414,8 @@ pub struct PaletteView {
     pub placeholder: Option<String>,
     /// The footer's keys and what they do; empty for the usual ones.
     pub hints: Vec<(String, String)>,
+    /// A line over the footer, as the project's symbols still coming.
+    pub state: Option<super::search_all::PaletteState>,
 }
 
 /// What a row of the search shows before its label.
@@ -461,6 +469,17 @@ pub struct ToastView {
     /// A command in a box with Copy; Copy is the [`UiEvent::ToastButton`]
     /// after the link.
     pub code: Option<String>,
+    /// A plugin's dropdown under the text.
+    pub choice: Option<ChoiceView>,
+}
+
+/// A dropdown in a notice: the option picked, and every option while its
+/// list is open, the picked one marked.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChoiceView {
+    pub label: String,
+    pub detail: String,
+    pub open: Option<Vec<(String, String, bool)>>,
 }
 
 impl Editor {
@@ -485,7 +504,17 @@ impl Editor {
             (super::testing::TESTS, Icon::Testing, "Tests", "testing"),
             (super::debug::DEBUG, Icon::Debug, "Run and Debug", "debug"),
             (OUTLINE, Icon::Outline, "Outline", "outline"),
+            (
+                super::hierarchy::HIERARCHY,
+                Icon::Hierarchy,
+                "Hierarchy",
+                "hierarchy",
+            ),
         ] {
+            // Hierarchy once one's been asked for.
+            if view == super::hierarchy::HIERARCHY && self.hierarchy.is_none() {
+                continue;
+            }
             items.push((
                 RailItem {
                     id,
@@ -620,6 +649,7 @@ impl Editor {
                             command,
                             icon: t.icon.clone(),
                             title,
+                            on: false,
                         }
                     })
                     .collect()
@@ -632,18 +662,33 @@ impl Editor {
                     command: "agent.history".into(),
                     icon: Some(super::ViewIcon::Glyph("⟲".into())),
                     title: "Chats".into(),
+                    on: false,
                 },
                 ToolView {
                     command: "agent.add".into(),
                     icon: Some(super::ViewIcon::Glyph("+".into())),
                     title: "Add an Agent".into(),
+                    on: false,
                 },
                 ToolView {
                     command: "agent.more".into(),
                     icon: Some(super::ViewIcon::Glyph("⋯".into())),
                     title: "More".into(),
+                    on: false,
                 },
             ]
+        } else if name == super::views::EXPLORER {
+            let on = self.tree.as_ref().is_some_and(|t| t.show_left_out);
+            vec![ToolView {
+                command: "explorer.toggle_excluded".into(),
+                icon: Some(super::ViewIcon::Glyph("⊘".into())),
+                title: if on {
+                    "Hide Excluded Files".into()
+                } else {
+                    "Show Excluded Files".into()
+                },
+                on,
+            }]
         } else {
             toolbar
         };
@@ -773,7 +818,9 @@ impl Editor {
             (p, shown, extras)
         });
         let chrome = self.search_chrome();
+        let state = self.palette_state();
         let palette = palette.map(|(p, shown, extras)| PaletteView {
+            state,
             title: p.title.clone(),
             query: p.query.clone(),
             kind: match p.source {
@@ -837,6 +884,20 @@ impl Editor {
             buttons: m.actions.iter().map(|(label, _)| label.clone()).collect(),
             link: m.link.as_ref().map(|(label, _)| label.clone()),
             code: m.code.clone(),
+            choice: m.choice.as_ref().map(|c| {
+                let chosen = c.choice.options.iter().find(|o| o.id == c.choice.chosen);
+                ChoiceView {
+                    label: chosen.map(|o| o.label.clone()).unwrap_or_default(),
+                    detail: chosen.map(|o| o.detail.clone()).unwrap_or_default(),
+                    open: c.open.then(|| {
+                        c.choice
+                            .options
+                            .iter()
+                            .map(|o| (o.label.clone(), o.detail.clone(), o.id == c.choice.chosen))
+                            .collect()
+                    }),
+                }
+            }),
         });
         WindowView {
             project: self.project.clone(),
@@ -1059,7 +1120,7 @@ impl Editor {
                     self.toggle_row();
                 }
             }
-            UiEvent::Fold { side, index } => self.fold_clicked(side, index),
+            UiEvent::Fold { side, index } => self.fold_clicked(side, index, fx),
             UiEvent::DiffStage(n) => self.toggle_change(n, fx),
             UiEvent::DiffRevert(n) => self.revert_change(n, fx),
             UiEvent::DiffLine(line) => self.toggle_line(line, fx),
@@ -1085,12 +1146,14 @@ impl Editor {
                 }
             }
             UiEvent::Press(id) if id == "views-hidden" => self.list_views(fx),
+            UiEvent::Press(id) if id == "palette.state" => self.palette_state_pressed(fx),
             UiEvent::Press(id) if id.starts_with("view-menu:") => {
                 self.open_view_menu(id["view-menu:".len()..].to_string())
             }
             UiEvent::Press(id) if id.starts_with("merge:") => self.merge_press(&id),
             UiEvent::Press(id) if id.starts_with("test:") => self.test_press(&id, fx),
             UiEvent::Press(id) if id.starts_with("away:") => self.away_press(&id, fx),
+            UiEvent::Press(id) if id.starts_with("bar:") => self.bar_press(&id, fx),
             UiEvent::Press(id) => self.view_click(&id, fx),
             UiEvent::PeekRow { index, clicks } => self.peek_clicked(index, clicks, fx),
             UiEvent::PeekClose => self.peek = None,
@@ -1128,6 +1191,24 @@ impl Editor {
             {
                 if let Some(code) = self.message.as_ref().and_then(|m| m.code.clone()) {
                     fx.push(Effect::Copy(code));
+                }
+            }
+            UiEvent::ToastChoice => {
+                if let Some(c) = self.message.as_mut().and_then(|m| m.choice.as_mut()) {
+                    c.open = !c.open;
+                }
+            }
+            UiEvent::ToastChoose(i) => {
+                if let Some(c) = self.message.as_mut().and_then(|m| m.choice.as_mut())
+                    && let Some(option) = c.choice.options.get(i)
+                {
+                    c.choice.chosen = option.id.clone();
+                    c.open = false;
+                    fx.push(Effect::PluginPick {
+                        plugin: c.plugin.clone(),
+                        picker: c.choice.id.clone(),
+                        item: option.id.clone(),
+                    });
                 }
             }
             UiEvent::ToastButton(i) => {

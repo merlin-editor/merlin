@@ -131,6 +131,7 @@ fn a_plugin_notice_has_its_buttons_and_a_way_to_quieten_it() {
             id: "command:restart".into(),
             label: "Restart".into(),
         }],
+        choice: None,
     });
     let toast = s.editor.window_view().toast.expect("a notice");
     assert!(toast.error);
@@ -150,6 +151,7 @@ fn a_plugin_notice_has_its_buttons_and_a_way_to_quieten_it() {
         level: LogLevel::Warn,
         text: "hover failed".into(),
         buttons: Vec::new(),
+        choice: None,
     });
     s.send(Event::Ui(UiEvent::ToastButton(1)));
     let palette = s.editor.window_view().palette.expect("asks how many");
@@ -171,6 +173,7 @@ fn a_plugin_notice_has_its_buttons_and_a_way_to_quieten_it() {
         level: LogLevel::Warn,
         text: "hover failed".into(),
         buttons: Vec::new(),
+        choice: None,
     });
     s.send(Event::Ui(UiEvent::ToastButton(1)));
     let palette = s.editor.window_view().palette.unwrap();
@@ -204,6 +207,7 @@ fn a_notice_button_can_run_the_plugins_command() {
             id: "command:restart".into(),
             label: "Restart".into(),
         }],
+        choice: None,
     });
     s.effects.clear();
     s.send(Event::Ui(UiEvent::ToastButton(1)));

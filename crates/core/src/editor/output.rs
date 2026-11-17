@@ -471,6 +471,7 @@ impl Editor {
         level: LogLevel,
         text: String,
         buttons: Vec<crate::panel::Button>,
+        choice: Option<crate::panel::Choice>,
     ) {
         self.log_line(plugin, level, &text);
         let error = level >= LogLevel::Error;
@@ -485,6 +486,11 @@ impl Editor {
                 format!("output.notices:{plugin}"),
             )),
             code: None,
+            choice: choice.map(|choice| super::NoticeChoice {
+                plugin: plugin.to_string(),
+                choice,
+                open: false,
+            }),
         });
         // The plugin's own buttons last, so its main one is the notice's.
         self.add_action("Open Output", &format!("output.show:{plugin}"));

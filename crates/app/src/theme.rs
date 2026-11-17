@@ -281,6 +281,9 @@ pub fn kind(p: &Palette, kind: Kind) -> Look {
         Kind::Selection => look(p.text, p.selection),
         Kind::CurrentLine => look(p.text, p.current_line),
         Kind::WordMatch => look(p.text, p.word_match),
+        // Read in a blue tint, written in an amber one, as VS Code does.
+        Kind::WordRead => look(p.text, mix(p.accent, p.island, 0.2)),
+        Kind::WordWrite => look(p.text, mix(p.warning, p.island, 0.22)),
         Kind::Heading => text(p.bright).bold(),
         Kind::Button => look(p.text, p.chip),
         Kind::ButtonFocused => look(0xffffff, fill),
@@ -428,6 +431,8 @@ pub fn shows_code(kind: Kind) -> bool {
             | Kind::CodeBlock
             | Kind::CurrentLine
             | Kind::WordMatch
+            | Kind::WordRead
+            | Kind::WordWrite
             | Kind::DiffAdded
             | Kind::DiffRemoved
             | Kind::DiffAddedWord

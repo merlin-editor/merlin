@@ -179,7 +179,10 @@ fn project_symbols_come_from_language_plugins() {
         query: "widget".into(),
     }));
     s.send(Event::ProjectSymbols {
+        plugin: "lsp".into(),
         query: "widget".into(),
+        excluded: Vec::new(),
+        note: Default::default(),
         symbols: vec![merlin_core::lang::ProjectSymbol {
             name: "Widget".into(),
             kind: "struct".into(),
@@ -187,6 +190,7 @@ fn project_symbols_come_from_language_plugins() {
             path: "src/ui.rs".into(),
             line: 4,
             column: 11,
+            scan: false,
         }],
     });
     let p = palette(&s);

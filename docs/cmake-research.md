@@ -50,9 +50,9 @@ Built 2026-11-16 and 17:
 | Request | Votes | Tracker | merlin |
 |---|---|---|---|
 | Colours for `CMakeLists.txt` | 186 | CMake Tools #534 | Built |
-| Coloured CMake and build output | 167, open | CMake Tools #478 | Terminal colours; diagnostics colours to add |
+| Coloured CMake and build output | 167, open | CMake Tools #478 | Built: a real terminal, and `CMAKE_COLOR_DIAGNOSTICS` on |
 | ANSI codes garbled in output | 58, open | CMake Tools #3203 | Runs in a real terminal |
-| Several `CMakeLists.txt` without a multi-root workspace | 47 | CMake Tools #1374 | Root only |
+| Several `CMakeLists.txt` without a multi-root workspace | 47 | CMake Tools #1374 | Built (`CMakeProjects.html`) |
 | A CMake language server | 44 | CMake Tools #93 | Built (neocmakelsp) |
 | Run CTest's tests in parallel | 36 | CMake Tools #3091 | To add |
 | Add to cache variables when using presets | 26 | CMake Tools #1836 | To add |
@@ -111,11 +111,12 @@ fourth artboard for coloured completions in every language. Built:
   problems for the same file don't replace them), and not configured.
 - A new source file saved: a notice offers the nearest targets, and
   Add puts it in the command that adds the target, as an edit.
-- Where it differs from the mock-up: a row's actions show as chips all
-  the time rather than on hover, as every plugin view's rows do; a
-  boolean's switch is ON and OFF chips, as views have no switch; and
-  adding a file is merlin's notice with a button per target rather than
-  a card with a picker.
+- It first differed from the mock-up in three ways, as plugin views
+  couldn't do what it shows: a row's actions always showed, a boolean
+  was ON and OFF chips, and adding a file was a button per target. With
+  plugin API 0.16's row actions, switches and coloured marks, pickers
+  that open on the current item, and notices with a dropdown (built
+  2026-11-17), it now matches.
 
 6. **The status bar**: the preset and the target, each a picker, with
    Build, Run and Debug, as CMake Tools has it.
@@ -125,12 +126,48 @@ fourth artboard for coloured completions in every language. Built:
    them.
 8. **Adding a new file to a target**, as Qt Creator does.
 
-### Later
+### CMake's debugger (built 2026-11-17)
 
-- CMake's own debugger (DAP, CMake 3.27+). It talks over a pipe, not
-  stdin, so merlin's debuggers would need to connect to one.
-- Several `CMakeLists.txt` projects in one window, with "Several
-  folders in one window".
+CMake 3.27 and later can configure under a debugger, stopping at
+breakpoints in `CMakeLists.txt` and `.cmake` files, as Qt Creator and
+CMake Tools offer. It waits for the editor on a pipe it makes
+(`--debugger-pipe`), not stdin. Built:
+- `spawn` takes `${pipe}`: the host puts a new pipe's path in the
+  argument, connects once CMake has made it, and DAP goes through it.
+- The plugin's manifest declares the `cmake` debugger, run by the `dap`
+  plugin, with `${args}` taking the configure's arguments.
+- Run and Debug offers "CMake: Configure Debug in CMake's Debugger" for
+  each configure preset, configured or not. It stops at breakpoints
+  with CMake's variables, call stack and stop filters (warnings,
+  errors).
+- Found while trying it in the window: F5 before the Debugger plugin was
+  allowed left a run stuck at Starting, which Stop couldn't end; and a
+  target's build step that names a task (as `CMake: Build app`) ran the
+  name as a command. All three are fixed, so F5 on a CMake program now
+  builds it first and stops in gdb.
+
+### Several projects in one folder (approved and built 2026-11-17)
+
+`docs/mockups/CMakeProjects.html`, approved 2026-11-17 ("Go ahead").
+Built:
+- Projects are the `CMakeLists.txt` files with a `project()` call that no
+  other one reaches through `add_subdirectory`, outside build folders
+  and `_deps` (`plugins/cmake/src/projects.rs`).
+- With more than one, a ▣ project chip comes first in the status bar,
+  with a picker of each project's folder and state, and "Follow the open
+  file", on until a project is picked by hand. The CMake view gets a
+  Projects section, the chosen one's build, targets, tests and cache
+  below.
+- Each project reads its own presets, configures in its own folder
+  (`cd tools && cmake …`), and keeps its build while another is in use.
+  clangd gets the project's `compile_commands.json`, and none for a
+  project not configured.
+- Run Task and Run and Debug list every project's tasks and programs,
+  named `CMake tools: Build plot` with the project as the detail.
+- CMake's debugger takes `-S` with the project's folder.
+- The plugin starts for a project in a folder at the top: `activate-on`
+  takes `file:*/CMakeLists.txt`. A project deeper down starts it once
+  one of its CMake files opens.
 
 ## Sources
 

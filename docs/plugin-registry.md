@@ -1061,6 +1061,44 @@ requests, which always said 4 spaces before.
 - A picker's items have a `detail` and a `group`.
 - A plugin whose `activate-on` names a file the project has hears every
   file switched to or saved, not only its own language's.
+- `spawn` takes `${pipe}` in an argument for a program that talks over
+  a pipe it makes rather than stdin and stdout, as CMake's debugger
+  does: the host puts a new pipe's path there (a socket in the runtime
+  folder on Unix, a named pipe on Windows), connects once it's made, and
+  what the program prints arrives as `stderr`. In a debugger's command,
+  `${args}` is the target's arguments, for a debugger that is the
+  program itself.
+- F5 before a debugger plugin is allowed waits for Allow, and Stop ends a
+  run whose debugger never answered.
+- `activate-on` takes `file:*/<path>` for a file in any folder at the
+  workspace's top, as `file:*/CMakeLists.txt` for CMake projects that
+  sit side by side.
+- A view's row has `actions`, buttons each clicked on its own and shown
+  while the pointer is on the row; `toggle`, a switch a click on the row
+  flips; and `icon-colour`, one of merlin's hues for its mark. Before,
+  a row's chips past the first were one line of text that couldn't be
+  clicked one by one.
+- A picker item can be `current`: the picker opens on it.
+- `set-highlights` answers the editor's `highlight` command with a
+  name's uses, read or written.
+- `show-hierarchy` and `hierarchy-children` answer `call-hierarchy`,
+  `type-hierarchy`, `hierarchy-mode:<mode>` and `hierarchy-expand:<id>`
+  for the Hierarchy view.
+- `set-disassembly` and `set-memory`, for a debugger plugin, after
+  `debug.disassembly:on` and `debug.memory:<expression>`; a driver also
+  hears `debug.skip-libraries:on|off` and `debug.by-instruction:on|off`.
+- `show-bar` and `hide-bar`: a bar over the plugin's languages' files;
+  a `run:<command>` button runs one of the editor's commands.
+- `build-setup`, a shared value: how to set the project's build up,
+  from a build plugin, for a language plugin to offer.
+- A plugin command `check-project` puts a Check Project button in
+  Problems; the LSP SDK has one for clangd, opening each file in the
+  running server. A debug variable has an `address`; a driver hears
+  `debug.instruction-breakpoints:<addresses>`. A status item's empty
+  `hint` asks for the manifest's install command, which shows only then.
+- `notice-with-choice` puts a dropdown in a notice. A pick comes to
+  `on-pick` with the choice's id, the buttons to `on-click`, and
+  clicking the dropdown doesn't close the notice.
 
 ## 14. Out of Scope
 

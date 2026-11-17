@@ -274,6 +274,18 @@ impl Editor {
 
     /// Runs `command` in a terminal tab named `name`, closing the one an
     /// earlier run of it had.
+    /// A debug target's build step as a command line: the command of the
+    /// task it names, or itself, as a command line already.
+    pub(crate) fn build_command(&self, build: &str) -> String {
+        self.tasks
+            .found
+            .iter()
+            .chain(self.tasks.plugins.iter().flat_map(|(_, tasks)| tasks))
+            .find(|t| t.name == build)
+            .and_then(|t| t.command.clone())
+            .unwrap_or_else(|| build.to_string())
+    }
+
     pub(crate) fn start_command(&mut self, name: &str, command: &str, fx: &mut Vec<Effect>) -> u64 {
         if let Some(at) = self.tasks.runs.iter().position(|r| r.name == name) {
             let old = self.tasks.runs.remove(at);

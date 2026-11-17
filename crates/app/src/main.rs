@@ -7,6 +7,7 @@ mod clipboard;
 mod disk;
 mod editorconfig;
 mod effects;
+mod excluding;
 mod git;
 mod gui;
 mod jobs;
@@ -31,6 +32,7 @@ use std::{env, fs, io};
 use anyhow::{Context, Result, bail};
 use disk::{Backups, Changes, Watch};
 use jobs::{Jobs, Lane};
+use merlin_core::exclude::{Matcher, Why};
 use merlin_core::script::{self, Step};
 use merlin_core::{
     AutoSaveWhy, Editor, Effect, Event, FileOp, FilePick, GitAction, GitMove, MergeKind,
@@ -205,6 +207,10 @@ struct App {
     tree_dirs: Vec<PathBuf>,
     /// A hash of the last walk, so one that found the same sends nothing.
     tree_hash: Option<u64>,
+    /// What the project leaves out, from Settings › Files.
+    exclusions: std::sync::Arc<merlin_core::exclude::Matcher>,
+    /// The Explorer shows what's left out, dimmed.
+    show_excluded: bool,
     /// What the watched folders were last worked out from.
     watch_for: Option<(Vec<Option<PathBuf>>, usize)>,
     backups: Backups,
@@ -307,7 +313,7 @@ impl App {
     }
 
     fn snapshot(&self) -> Snapshot {
-        snapshot(&self.editor, &self.root)
+        snapshot(&self.editor, &self.root, &self.exclusions)
     }
 
     fn is_settings(&self, path: &Path) -> bool {
@@ -339,6 +345,8 @@ impl App {
             errors: errors.clone(),
         };
         let mut editor = settings::editor(&table);
+        editor.exclusions = settings::exclusions(&table, &self.loaded.user, &self.loaded.workspace);
+        let heard_exclusions = self.exclusions_changed();
         self.window = settings::window(&table);
         // MERLIN_MINIMAP=on or off still decides, for trying it out.
         match env::var("MERLIN_MINIMAP").as_deref() {
@@ -380,6 +388,7 @@ impl App {
         let mut events = vec![Event::Settings(editor)];
         events.extend(toggled);
         events.extend(heard);
+        events.extend(heard_exclusions);
         events.extend(self.refresh_looks());
         events.extend(
             errors
@@ -541,12 +550,15 @@ impl App {
     /// watch.
     fn list_tree_later(&mut self) {
         let root = self.root.clone();
+        let rules = self.exclusions.clone();
+        let show = self.show_excluded;
         self.jobs.run(Lane::Scan, move || {
-            let tree = list_tree(&root);
+            let (tree, left_out) = list_tree(&root, &rules, show);
             let hash = {
                 use std::hash::{Hash, Hasher};
                 let mut h = std::collections::hash_map::DefaultHasher::new();
                 tree.hash(&mut h);
+                left_out.hash(&mut h);
                 h.finish()
             };
             Box::new(move |app: &mut App| {
@@ -561,7 +573,13 @@ impl App {
                     .map(|d| app.root.join(d))
                     .collect();
                 app.watch_for = None;
-                vec![Event::Tree(tree)]
+                vec![
+                    Event::Tree(tree),
+                    Event::LeftOut {
+                        folder: None,
+                        entries: left_out,
+                    },
+                ]
             })
         });
     }
@@ -782,8 +800,8 @@ impl App {
     /// Hands queued process output to plugins, and applies what their
     /// calls asked for. Returns whether there was any.
     fn poll_processes(&mut self) -> bool {
-        let (editor, root) = (&self.editor, &self.root);
-        let (events, changed) = self.host.poll_processes(|| snapshot(editor, root));
+        let (editor, root, ex) = (&self.editor, &self.root, &self.exclusions);
+        let (events, changed) = self.host.poll_processes(|| snapshot(editor, root, ex));
         let any = changed || !events.is_empty();
         // A view drawn or text coloured changes no plugin, so the views
         // aren't asked for again; anything else may have.
@@ -965,11 +983,61 @@ fn modified(path: &Path) -> Option<SystemTime> {
     fs::metadata(path).and_then(|m| m.modified()).ok()
 }
 
-/// Lines in the project's files containing `query`, ignoring case unless
-/// it has capitals, as find does.
-fn search(root: &Path, query: &str) -> Vec<SearchHit> {
+/// Lines in the project's files containing the query, ignoring case
+/// unless it has capitals, as find does, and how many files and folders
+/// the project's exclusions skipped.
+fn search(root: &Path, ask: &merlin_core::SearchAsk, rules: &Matcher) -> (Vec<SearchHit>, usize) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
     const MAX_HITS: usize = 2000;
     const MAX_FILE: u64 = 2 << 20;
+    let query = ask.query.as_str();
+    let globs = |text: &str| {
+        let list: Vec<String> = text
+            .split(',')
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+            .map(String::from)
+            .collect();
+        (!list.is_empty()).then(|| {
+            Matcher::new(merlin_core::exclude::Exclusions {
+                files: list,
+                ..Default::default()
+            })
+        })
+    };
+    let (include, exclude) = (globs(&ask.include), globs(&ask.exclude));
+    let everything = Matcher::new(merlin_core::exclude::Exclusions {
+        gitignore: false,
+        hidden: true,
+        ..Default::default()
+    });
+    let rules = if ask.use_exclusions {
+        rules
+    } else {
+        &everything
+    };
+    let skipped = std::sync::Arc::new(AtomicUsize::new(0));
+    let files: Vec<String> =
+        merlin_plugins::walk::counting_walker(root, rules, true, Some(skipped.clone()))
+            .build()
+            .flatten()
+            .filter(|e| e.file_type().is_some_and(|t| t.is_file()))
+            .filter_map(|e| {
+                Some(
+                    e.path()
+                        .strip_prefix(root)
+                        .ok()?
+                        .to_string_lossy()
+                        .replace('\\', "/"),
+                )
+            })
+            .filter(|rel| include.as_ref().is_none_or(|m| m.excluded(rel, false)))
+            .filter(|rel| exclude.as_ref().is_none_or(|m| !m.excluded(rel, false)))
+            .take(merlin_plugins::walk::MAX)
+            .collect();
+    let skipped = skipped.load(Ordering::Relaxed);
+    let mut files = files;
+    files.sort();
     let fold = !query.chars().any(char::is_uppercase);
     let needle = if fold {
         query.to_lowercase()
@@ -977,7 +1045,7 @@ fn search(root: &Path, query: &str) -> Vec<SearchHit> {
         query.to_string()
     };
     let mut hits = Vec::new();
-    for path in list_files(root) {
+    for path in files {
         let full = root.join(&path);
         if fs::metadata(&full).map_or(true, |m| m.len() > MAX_FILE) {
             continue;
@@ -1010,11 +1078,11 @@ fn search(root: &Path, query: &str) -> Vec<SearchHit> {
                 text: shown,
             });
             if hits.len() >= MAX_HITS {
-                return hits;
+                return (hits, skipped);
             }
         }
     }
-    hits
+    (hits, skipped)
 }
 
 /// A file's changes since the last commit, from `from` as it was then to
@@ -1047,43 +1115,115 @@ fn changes_of(root: &Path, from: &Path, to: PathBuf) -> Event {
     }
 }
 
-/// The project's files for the open-file picker, skipping hidden and
-/// git-ignored ones.
 /// The project's files and folders for the Explorer, folders ending in
-/// `/` so empty ones show.
-fn list_tree(root: &Path) -> Vec<String> {
-    const MAX: usize = 50_000;
-    let mut paths: Vec<String> = ignore::WalkBuilder::new(root)
+/// `/` so empty ones show, and with `excluded`, what's left out of the
+/// folders it lists, each with why: those aren't walked into.
+fn list_tree(root: &Path, rules: &Matcher, excluded: bool) -> (Vec<String>, Vec<(String, Why)>) {
+    let mut paths: Vec<String> = merlin_plugins::walk::walker(root, rules, false)
         .build()
         .flatten()
         .filter_map(|e| {
-            let rel = e.path().strip_prefix(root).ok()?.display().to_string();
+            let rel = e
+                .path()
+                .strip_prefix(root)
+                .ok()?
+                .to_string_lossy()
+                .replace('\\', "/");
             if rel.is_empty() {
                 return None;
             }
             let dir = e.file_type().is_some_and(|t| t.is_dir());
             Some(if dir { format!("{rel}/") } else { rel })
         })
-        .take(MAX)
+        .take(merlin_plugins::walk::MAX)
         .collect();
     paths.sort();
-    paths
+    if !excluded {
+        return (paths, Vec::new());
+    }
+    let listed: std::collections::HashSet<&str> = paths.iter().map(String::as_str).collect();
+    let mut left = Vec::new();
+    let folders = std::iter::once("").chain(paths.iter().filter_map(|p| p.strip_suffix('/')));
+    for folder in folders {
+        for (rel, why) in left_out(root, folder, rules) {
+            if !listed.contains(rel.as_str()) {
+                left.push((rel, why));
+            }
+        }
+        if left.len() >= merlin_plugins::walk::MAX {
+            break;
+        }
+    }
+    left.sort();
+    (paths, left)
 }
 
-fn list_files(root: &Path) -> Vec<String> {
-    const MAX: usize = 50_000;
-    let mut files: Vec<String> = ignore::WalkBuilder::new(root)
-        .build()
+/// What's in `folder` that a walk could leave out, each with why it
+/// would. The caller drops what the walk did list.
+fn left_out(root: &Path, folder: &str, rules: &Matcher) -> Vec<(String, Why)> {
+    let Ok(entries) = fs::read_dir(root.join(folder)) else {
+        return Vec::new();
+    };
+    entries
         .flatten()
-        .filter(|e| e.file_type().is_some_and(|t| t.is_file()))
-        .filter_map(|e| Some(e.path().strip_prefix(root).ok()?.display().to_string()))
-        .take(MAX)
-        .collect();
-    files.sort();
-    files
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            if name == ".git" {
+                return None;
+            }
+            let dir = e.file_type().is_ok_and(|t| t.is_dir());
+            let mut rel = if folder.is_empty() {
+                name.clone()
+            } else {
+                format!("{folder}/{name}")
+            };
+            if dir {
+                rel.push('/');
+            }
+            let why =
+                rules
+                    .why(&rel, false)
+                    .unwrap_or(if name.starts_with('.') && !rules.rules.hidden {
+                        Why::Hidden
+                    } else {
+                        Why::GitIgnore
+                    });
+            Some((rel, why))
+        })
+        .collect()
 }
 
-fn snapshot(editor: &Editor, root: &Path) -> Snapshot {
+/// One left-out folder's entries, for the Explorer once it's opened:
+/// left out for the same reason.
+fn list_left_out(root: &Path, folder: &str, why: Why) -> Vec<(String, Why)> {
+    let Ok(entries) = fs::read_dir(root.join(folder)) else {
+        return Vec::new();
+    };
+    let mut found: Vec<(String, Why)> = entries
+        .flatten()
+        .take(merlin_plugins::walk::MAX)
+        .map(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            let dir = e.file_type().is_ok_and(|t| t.is_dir());
+            let rel = format!("{folder}/{name}{}", if dir { "/" } else { "" });
+            (rel, why)
+        })
+        .collect();
+    found.sort();
+    found
+}
+
+/// The project's files for the open-file picker: what Exclude from
+/// search leaves out too.
+fn list_files(root: &Path, rules: &Matcher) -> Vec<String> {
+    merlin_plugins::walk::project_files(root, rules, true)
+}
+
+fn snapshot(
+    editor: &Editor,
+    root: &Path,
+    exclusions: &std::sync::Arc<merlin_core::exclude::Matcher>,
+) -> Snapshot {
     let buffer = editor.buffer();
     Snapshot {
         path: buffer.path.as_ref().map(|p| p.display().to_string()),
@@ -1100,6 +1240,7 @@ fn snapshot(editor: &Editor, root: &Path) -> Snapshot {
             let indent = editor.indent();
             (indent.tabs, indent.width as u32)
         }),
+        exclusions: exclusions.clone(),
     }
 }
 
@@ -1226,6 +1367,8 @@ fn main() -> Result<()> {
         settle: None,
         tree_dirs: Vec::new(),
         tree_hash: None,
+        exclusions: Default::default(),
+        show_excluded: false,
         watch_for: None,
         backups: Backups::new(backups_dir),
         auto_save: None,
@@ -1639,5 +1782,87 @@ mod launch_tests {
         assert_eq!(configs[0].launch, r#"{"env":{"A":"1"},"justMyCode":false}"#);
         assert_eq!(configs[1].launch, r#"{"pid":42}"#);
         assert!(super::launch_configs("[[debug]\n").is_err());
+    }
+}
+
+#[cfg(test)]
+mod exclusion_tests {
+    use super::*;
+    use merlin_core::exclude::Exclusions;
+
+    fn project() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        for (path, text) in [
+            ("src/circle.cpp", "double radius_ = 1.0;\n"),
+            ("src/circle_test.cpp", "radius_\n"),
+            ("include/circle.h", "double radius();\n"),
+            ("third_party/z.c", "radius\n"),
+            ("docs/api/i.html", "radius\n"),
+            (".cache/x", "radius\n"),
+        ] {
+            let full = dir.path().join(path);
+            fs::create_dir_all(full.parent().unwrap()).unwrap();
+            fs::write(full, text).unwrap();
+        }
+        dir
+    }
+
+    fn rules() -> Matcher {
+        Matcher::new(Exclusions {
+            files: vec!["third_party/".into()],
+            search: vec!["docs/api/".into()],
+            ..Exclusions::default()
+        })
+    }
+
+    #[test]
+    fn search_follows_the_boxes_and_the_exclusions() {
+        let dir = project();
+        let ask = |include: &str, exclude: &str, use_exclusions| merlin_core::SearchAsk {
+            query: "radius".into(),
+            include: include.into(),
+            exclude: exclude.into(),
+            use_exclusions,
+        };
+        let files = |hits: Vec<SearchHit>| {
+            let mut f: Vec<String> = hits.into_iter().map(|h| h.path).collect();
+            f.dedup();
+            f
+        };
+        let (hits, skipped) = search(dir.path(), &ask("", "", true), &rules());
+        assert_eq!(
+            files(hits),
+            ["include/circle.h", "src/circle.cpp", "src/circle_test.cpp"]
+        );
+        assert_eq!(skipped, 2, "third_party/ and docs/api/");
+        let (hits, _) = search(dir.path(), &ask("src/", "*_test.cpp", true), &rules());
+        assert_eq!(files(hits), ["src/circle.cpp"]);
+        // Everything: excluded, hidden and all.
+        let (hits, skipped) = search(dir.path(), &ask("", "", false), &rules());
+        assert_eq!(files(hits).len(), 6);
+        assert_eq!(skipped, 0);
+    }
+
+    #[test]
+    fn the_tree_lists_whats_left_out_without_walking_it() {
+        let dir = project();
+        let (tree, left) = list_tree(dir.path(), &rules(), true);
+        assert!(tree.contains(&"docs/api/i.html".to_string()), "search only");
+        assert!(!tree.iter().any(|p| p.starts_with("third_party")));
+        assert_eq!(
+            left,
+            [
+                (".cache/".to_string(), Why::Hidden),
+                ("third_party/".to_string(), Why::Excluded),
+            ]
+        );
+        assert_eq!(
+            list_left_out(dir.path(), "third_party", Why::Excluded),
+            [("third_party/z.c".to_string(), Why::Excluded)]
+        );
+        assert_eq!(
+            list_files(dir.path(), &rules()),
+            ["include/circle.h", "src/circle.cpp", "src/circle_test.cpp"]
+        );
     }
 }

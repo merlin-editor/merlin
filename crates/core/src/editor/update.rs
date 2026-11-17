@@ -33,8 +33,11 @@ impl Editor {
             }
         }
         if by_user {
-            // A notice's button needs the notice to run.
-            if !matches!(event, Event::Ui(UiEvent::ToastButton(_))) {
+            // A notice's button and its dropdown need the notice.
+            if !matches!(
+                event,
+                Event::Ui(UiEvent::ToastButton(_) | UiEvent::ToastChoice | UiEvent::ToastChoose(_))
+            ) {
                 self.message = None;
             }
         }
@@ -193,12 +196,12 @@ impl Editor {
                     .iter()
                     .map(|i| (i.id.clone(), (i.detail.clone(), i.group.clone())))
                     .collect();
+                let current = items.iter().position(|i| i.current).unwrap_or(0);
                 let items = items.into_iter().map(|i| (i.id, i.label)).collect();
-                self.palette = Some(Palette::new(
-                    Source::Picker { plugin, id },
-                    Some(title),
-                    items,
-                ));
+                let mut palette = Palette::new(Source::Picker { plugin, id }, Some(title), items);
+                // It opens on the one in use.
+                palette.selected = current;
+                self.palette = Some(palette);
                 self.focus = Focus::Palette;
             }
             Event::InsertText(text) => self.type_text(&text, Kind::Other),
@@ -259,7 +262,8 @@ impl Editor {
                 level,
                 text,
                 buttons,
-            } => self.plugin_notice(&plugin, level, text, buttons),
+                choice,
+            } => self.plugin_notice(&plugin, level, text, buttons, choice.map(|c| *c)),
             Event::ShowOutput(channel) => self.show_output(&channel),
             Event::SetDiagnostics {
                 plugin,
@@ -332,7 +336,13 @@ impl Editor {
                 self.symbol_search.retain(|(p, _)| *p != plugin);
                 self.symbol_search.push((plugin, command));
             }
-            Event::ProjectSymbols { query, symbols } => self.project_symbols_came(&query, symbols),
+            Event::ProjectSymbols {
+                plugin,
+                query,
+                symbols,
+                excluded,
+                note,
+            } => self.project_symbols_came(&plugin, &query, symbols, excluded, note),
             Event::RegisterDebuggers { plugin, debuggers } => {
                 self.register_debuggers(plugin, debuggers, &mut fx)
             }
@@ -358,6 +368,36 @@ impl Editor {
             Event::ShowRename(info) => self.show_rename(info),
             Event::ShowRenameReview(edits) => self.show_rename_review(edits, &mut fx),
             Event::ShowReferences(places) => self.show_references(places, &mut fx),
+            Event::SetHighlights { path, ranges } => self.highlights_came(&path, ranges),
+            Event::ShowBar {
+                plugin,
+                id,
+                text,
+                buttons,
+            } => {
+                self.file_bars
+                    .retain(|b| !(b.plugin == plugin && b.id == id));
+                self.file_bars.push(super::bars::FileBar {
+                    plugin,
+                    id,
+                    text,
+                    buttons,
+                });
+            }
+            Event::HideBar { plugin, id } => self
+                .file_bars
+                .retain(|b| !(b.plugin == plugin && b.id == id)),
+            Event::ShowHierarchy {
+                plugin,
+                mode,
+                root,
+                children,
+            } => self.hierarchy_came(plugin, mode, root, children, &mut fx),
+            Event::HierarchyChildren {
+                plugin,
+                parent,
+                children,
+            } => self.hierarchy_children(&plugin, parent, children),
             Event::Definitions(places) => self.definitions_came(places, &mut fx),
             Event::FilesRead(files) => {
                 self.tasks_read(&files, &mut fx);
@@ -406,10 +446,21 @@ impl Editor {
                 tree.files = files;
                 tree.built_for = None;
             }
-            Event::SearchResults { query, hits } => {
-                self.palette_search_came(&query, &hits);
-                if query == self.search.query {
+            Event::LeftOut { folder, entries } => {
+                let tree = self.tree.get_or_insert_with(Default::default);
+                if folder.is_none() {
+                    tree.left_out.clear();
+                }
+                tree.left_out.extend(entries);
+                tree.built_for = None;
+            }
+            Event::SearchResults { ask, hits, skipped } => {
+                if ask == SearchAsk::text(&ask.query) {
+                    self.palette_search_came(&ask.query, &hits);
+                }
+                if ask == self.search_ask() {
                     self.search.hits = hits;
+                    self.search.skipped = skipped;
                     self.search.searching = false;
                 }
             }
@@ -505,6 +556,7 @@ impl Editor {
         self.follow_change_peek();
         self.follow_merges();
         self.ask_blame(fx);
+        self.ask_highlights(fx);
         self.scroll_out_of_folds();
         // An edited preview stays open.
         if let Some(id) = self.preview

@@ -445,7 +445,11 @@ impl Editor {
                         self.inputs.remove(&input_key).unwrap_or_default()
                     };
                     self.input_cursors.remove(&input_key);
-                    if !text.trim().is_empty() {
+                    // Search's boxes: Enter in any searches, an empty
+                    // include or exclude too.
+                    if owner.is_none() && input_key.0 == super::views::SEARCH {
+                        self.run_search(fx);
+                    } else if !text.trim().is_empty() {
                         if let Some(plugin) = owner {
                             fx.push(Effect::PluginSubmit {
                                 plugin,

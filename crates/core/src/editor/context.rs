@@ -13,10 +13,18 @@ use merlin_syntax::Syntax;
 /// commands that aren't loaded are left out.
 const ITEMS: &[(&str, &str)] = &[
     ("go.definition", "Go to Definition"),
-    ("go.references", "Find References"),
+    ("go.declaration", "Go to Declaration"),
+    ("go.type_definition", "Go to Type Definition"),
+    ("go.implementation", "Go to Implementations"),
+    ("go.references", "Find All References"),
     ("view.hover", "Show Hover"),
     ("-", ""),
+    ("view.call_hierarchy", "Show Call Hierarchy"),
+    ("view.type_hierarchy", "Show Type Hierarchy"),
+    ("-", ""),
     ("edit.rename", "Rename Symbol"),
+    ("edit.refactor", "Refactor…"),
+    ("go.switch_header", "Switch Header/Source"),
     ("edit.select_all_matches", "Change All Occurrences"),
     ("edit.expand_selection", "Expand Selection"),
     ("-", ""),
@@ -257,8 +265,15 @@ impl Editor {
             // The editor's own commands that ask the language server.
             let asks = match id {
                 "go.definition" => Some("definition"),
+                "go.declaration" => Some("declaration"),
+                "go.type_definition" => Some("type-definition"),
+                "go.implementation" => Some("implementation"),
                 "go.references" => Some("references"),
+                "view.call_hierarchy" => Some("call-hierarchy"),
+                "view.type_hierarchy" => Some("type-hierarchy"),
                 "edit.rename" => Some("rename"),
+                "edit.refactor" => Some("code-actions"),
+                "go.switch_header" => Some("switch-source-header"),
                 _ => None,
             };
             asks.is_none_or(|command| self.has_lsp(command))
@@ -604,6 +619,18 @@ impl Editor {
     }
 
     /// Asks the language server where the word at the cursor is defined.
+    /// Runs a language server's command for the file shown, if one has
+    /// it: `declaration`, `implementation` and the like.
+    pub(crate) fn lsp_command(&mut self, command: &str, fx: &mut Vec<Effect>) {
+        match self.lsp_plugin(command) {
+            Some(plugin) => fx.push(Effect::PluginCommand {
+                plugin,
+                command: command.into(),
+            }),
+            None => self.notify("No language server here can do that".into()),
+        }
+    }
+
     pub(crate) fn go_to_definition(&mut self, fx: &mut Vec<Effect>) {
         if let Some(plugin) = self.lsp_plugin("definition") {
             fx.push(Effect::PluginCommand {

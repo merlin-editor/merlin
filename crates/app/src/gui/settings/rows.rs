@@ -10,6 +10,8 @@ const LIST_MAX_W: f32 = 360.0;
 const CHIP_PAD: f32 = 30.0;
 const CHIP_GAP: f32 = 6.0;
 const ADD: &str = "+ Add";
+/// A pattern's line in a list of them.
+const PATTERN_H: f32 = 28.0;
 
 impl Frame<'_> {
     /// A small tinted label beside a setting's name.
@@ -30,7 +32,11 @@ impl Frame<'_> {
         let open = ui.open_choice.as_deref() == Some(row.key.as_str());
         let editing = ui.editing.as_ref().filter(|e| e.key == row.key);
         let (cw, seg) = self.control_width(&row.control, editing);
-        let reset = row.changed && row.yours.is_none() && !row.locked;
+        // A list's lines have their own ✕.
+        let reset = row.changed
+            && row.yours.is_none()
+            && !row.locked
+            && !matches!(row.control, Control::Patterns(_));
         let reset_w = if reset { 28.0 } else { 0.0 };
         let text_w = (c.w - cw - reset_w - 24.0).max(80.0);
         let about = Face::ui(12.5);
@@ -44,7 +50,11 @@ impl Frame<'_> {
             .as_ref()
             .map_or(0.0, |n| self.text.wrapped_height(n, about, text_w) + 2.0);
         let yours_h = if row.yours.is_some() { 22.0 } else { 0.0 };
-        let h = ROW_PAD * 2.0 + 20.0 + 3.0 + about_h + note_h + yours_h;
+        let list_h = match &row.control {
+            Control::Patterns(items) => (items.len() + 1) as f32 * PATTERN_H + 10.0,
+            _ => 0.0,
+        };
+        let h = ROW_PAD * 2.0 + 20.0 + 3.0 + about_h + note_h + yours_h + list_h;
         if c.shows(h) {
             let clip = c.clip;
             let label = Face::ui(13.5).medium();
@@ -118,6 +128,10 @@ impl Frame<'_> {
                     Hit::Settings(SettingsAction::Reset(row.key.clone())),
                 );
             }
+            if let Control::Patterns(items) = &row.control {
+                let r = Rect::new(c.x, ty + yours_h + 8.0, c.w, list_h - 10.0);
+                self.patterns(&row.key, items, r, editing, row.locked, clip);
+            }
             let right = c.x + c.w;
             let ctl = Rect::new(right - cw, c.y + (h - 28.0) / 2.0, cw, 28.0);
             if reset {
@@ -147,6 +161,77 @@ impl Frame<'_> {
         c.y += h;
     }
 
+    /// A list of patterns, a line each with ✕, yours marked and fixed on
+    /// the Workspace tab, then a line to add one.
+    fn patterns(
+        &mut self,
+        key: &str,
+        items: &[(String, bool)],
+        r: Rect,
+        editing: Option<&Editing>,
+        locked: bool,
+        clip: Rect,
+    ) {
+        let p = self.p;
+        self.s_outline(r, 6.0, clip, p.border, p.island);
+        let mono = Face::mono(12.0);
+        let small = Face::ui(11.5);
+        let mut own = 0;
+        for (i, (pattern, yours)) in items.iter().enumerate() {
+            let line = Rect::new(r.x + 1.0, r.y + i as f32 * PATTERN_H, r.w - 2.0, PATTERN_H);
+            if i % 2 == 1 {
+                self.s_fill(line, clip, mix(p.raised, p.island, 0.5));
+            }
+            let fg = if *yours { p.muted } else { p.text };
+            self.s_row_text(pattern, mono, line.x + 10.0, line.y, line.h, fg, clip);
+            let x = line.right() - 26.0;
+            let whose = if *yours { "from User" } else { "" };
+            let ww = self.text.width(whose, small);
+            self.s_row_text(whose, small, x - ww - 8.0, line.y, line.h, p.faint, clip);
+            if !*yours && !locked {
+                let b = Rect::new(x, line.y + 4.0, 20.0, line.h - 8.0);
+                let fg = if self.s_hovered(b, clip) {
+                    p.bright
+                } else {
+                    p.muted
+                };
+                self.s_row_text("✕", small, b.x + 5.0, b.y, b.h, fg, clip);
+                self.s_hit(
+                    b,
+                    clip,
+                    Hit::Settings(SettingsAction::Unlist(key.to_string(), own)),
+                );
+            }
+            if !*yours {
+                own += 1;
+            }
+        }
+        let add = Rect::new(
+            r.x + 1.0,
+            r.y + items.len() as f32 * PATTERN_H,
+            r.w - 2.0,
+            PATTERN_H,
+        );
+        let hit = Hit::Settings(SettingsAction::Edit(key.to_string(), true));
+        match editing.filter(|e| e.add) {
+            Some(e) => {
+                let f = Rect::new(add.x + 4.0, add.y + 2.0, add.w - 8.0, add.h - 4.0);
+                self.text_field("", Some(&e.text), true, false, f, clip, hit);
+            }
+            None if !locked => {
+                let label = "+ Add a pattern";
+                let fg = if self.s_hovered(add, clip) {
+                    mix(p.accent, 0xffffff, 0.8)
+                } else {
+                    p.accent
+                };
+                self.s_row_text(label, Face::ui(12.0), add.x + 10.0, add.y, add.h, fg, clip);
+                self.s_hit(add, clip, hit);
+            }
+            None => {}
+        }
+    }
+
     /// A tag for what's so whichever tab is open: greyer than the others.
     fn quiet_tag(&mut self, label: &str, x: f32, mid: f32, clip: Rect) -> f32 {
         let p = self.p;
@@ -167,6 +252,8 @@ impl Frame<'_> {
     ) -> (f32, bool) {
         match control {
             Control::Toggle(_) => (34.0, false),
+            // Drawn under the text, the row's width.
+            Control::Patterns(_) => (0.0, false),
             Control::Number(_) => (104.0, false),
             Control::Field(..) => (FIELD_W, false),
             Control::List(items) => {
@@ -214,6 +301,7 @@ impl Frame<'_> {
         let p = self.p;
         let key = || row.key.clone();
         match &row.control {
+            Control::Patterns(_) => {}
             Control::Toggle(on) => {
                 let s = Rect::new(r.x, r.y + 4.0, 34.0, 20.0);
                 self.switch(*on, s, clip, Hit::Settings(SettingsAction::Toggle(key())));

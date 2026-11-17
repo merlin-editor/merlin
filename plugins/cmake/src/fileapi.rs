@@ -44,6 +44,16 @@ fn join(dir: &str, path: &str) -> String {
     }
 }
 
+/// A path the reply gives relative to the project's folder, relative to
+/// the workspace.
+fn in_project(source: &str, path: &str) -> String {
+    if source.is_empty() {
+        path.to_string()
+    } else {
+        join(source, path)
+    }
+}
+
 /// Commands that ask CMake for the code model in `dir`, to run before a
 /// configure, joined with `&&`.
 pub fn query(dir: &str) -> String {
@@ -68,8 +78,11 @@ fn quote(path: &str) -> String {
 
 /// The targets in `dir`'s newest reply, if CMake answered the query:
 /// `list` lists a folder, `read` reads a file, both from the workspace.
+/// The reply's sources are relative to the project's folder, `source`,
+/// empty at the workspace's top.
 pub fn targets(
     dir: &str,
+    source: &str,
     list: impl Fn(&str) -> Option<Vec<String>>,
     read: impl Fn(&str) -> Option<String>,
 ) -> Option<Vec<Target>> {
@@ -114,13 +127,13 @@ pub fn targets(
             .flatten()
             // Generated files, as CMake's own, aren't the project's.
             .filter(|s| s["isGenerated"].as_bool() != Some(true))
-            .filter_map(|s| s["path"].as_str().map(String::from))
+            .filter_map(|s| s["path"].as_str().map(|p| in_project(source, p)))
             .collect();
         let graph = &target["backtraceGraph"];
         let defined = target["backtrace"].as_u64().and_then(|i| {
             let node = &graph["nodes"][i as usize];
             let file = graph["files"][node["file"].as_u64()? as usize].as_str()?;
-            Some((file.to_string(), node["line"].as_u64()? as u32))
+            Some((in_project(source, file), node["line"].as_u64()? as u32))
         });
         targets.push(Target {
             name: target["name"].as_str().unwrap_or_default().to_string(),
@@ -128,10 +141,10 @@ pub fn targets(
             artifact,
             sources,
             folder: target["folder"]["name"].as_str().map(String::from),
-            dir: target["paths"]["source"]
-                .as_str()
-                .unwrap_or(".")
-                .to_string(),
+            dir: match target["paths"]["source"].as_str().unwrap_or(".") {
+                "." if !source.is_empty() => source.to_string(),
+                d => in_project(source, d),
+            },
             defined,
         });
     }
@@ -199,7 +212,7 @@ mod tests {
             })
         };
         let read = |path: &str| files.get(path).map(|t| t.to_string());
-        let found = targets("build", list, read).unwrap();
+        let found = targets("build", "", list, read).unwrap();
         assert_eq!(
             found,
             [
@@ -224,6 +237,19 @@ mod tests {
             ]
         );
         assert!(found[0].is_program() && !found[1].is_program());
-        assert_eq!(targets("other", list, read), None, "no reply there");
+        assert_eq!(targets("other", "", list, read), None, "no reply there");
+
+        // A project in a folder of its own: its paths join onto it.
+        let reply_in = |dir: &str| list(&dir.replacen("tools/", "", 1));
+        let read_in = |path: &str| read(&path.replacen("tools/", "", 1));
+        let found = targets("tools/build", "tools", reply_in, read_in).unwrap();
+        assert_eq!(found[0].sources, ["tools/apps/main.cpp"]);
+        assert_eq!(found[0].dir, "tools/apps");
+        assert_eq!(found[0].artifact.as_deref(), Some("tools/build/app"));
+        assert_eq!(
+            found[0].defined,
+            Some(("tools/apps/CMakeLists.txt".into(), 3))
+        );
+        assert_eq!(found[1].dir, "tools");
     }
 }

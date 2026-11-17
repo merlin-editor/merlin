@@ -42,6 +42,29 @@ impl App {
                         .collect(),
                     value.map_or_else(|| d.to_string(), shown),
                 ),
+                Kind::Patterns => {
+                    let list = |t: &toml::Table| -> Vec<String> {
+                        get(t, key)
+                            .and_then(|v| v.as_array())
+                            .map(|a| {
+                                a.iter()
+                                    .filter_map(|v| v.as_str())
+                                    .map(String::from)
+                                    .collect()
+                            })
+                            .unwrap_or_default()
+                    };
+                    let mut items: Vec<(String, bool)> =
+                        list(scope).into_iter().map(|p| (p, false)).collect();
+                    if ui.workspace {
+                        for p in list(user) {
+                            if !items.iter().any(|(q, _)| *q == p) {
+                                items.push((p, true));
+                            }
+                        }
+                    }
+                    Control::Patterns(items)
+                }
                 Kind::Num(d) => Control::Number(
                     value
                         .and_then(|v| v.as_float().or(v.as_integer().map(|i| i as f64)))
@@ -49,6 +72,8 @@ impl App {
                 ),
             };
             let note = match (in_workspace, ui.workspace) {
+                // A list's lines say whose each is.
+                _ if matches!(control, Control::Patterns(_)) => None,
                 (true, true) => {
                     let w = get(workspace, key).map(shown).unwrap_or_default();
                     Some(match get(user, key) {
@@ -159,6 +184,16 @@ impl App {
                 category: Category::Editor,
                 title: "Updates".into(),
                 rows: vec![updates],
+            },
+            Section {
+                category: Category::Files,
+                title: "Exclude".into(),
+                rows: vec![
+                    row("Exclude", "Left out of the Explorer, Quick Open, Search, symbols, Check Project and plugins' file lists. A folder ends in /. A pattern with no other / matches at any depth, as *.o or third_party/; with one, from the top, as build/_deps/. On the Workspace tab, these add to yours.", "files.exclude", Kind::Patterns),
+                    row("Exclude from search", "Still in the Explorer, but left out of Quick Open, Search and symbols.", "search.exclude", Kind::Patterns),
+                    row("Use .gitignore", "Files git ignores are excluded too. Turn it off to see and search build/.", "files.use_gitignore", on(true)),
+                    row("Show hidden files", "Names starting with a dot, such as .github/ or .clang-format, in the Explorer and Quick Open.", "files.show_hidden", on(false)),
+                ],
             },
             Section {
                 category: Category::Files,

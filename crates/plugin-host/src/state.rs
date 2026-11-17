@@ -203,6 +203,18 @@ impl State {
             .collect()
     }
 
+    /// A hierarchy's item as the editor's, with a workspace path.
+    pub(super) fn hierarchy_item(&self, i: types::HierarchyItem) -> merlin_core::HierarchyItem {
+        merlin_core::HierarchyItem {
+            id: i.id,
+            name: i.name,
+            detail: i.detail,
+            kind: i.kind,
+            location: self.locations(vec![i.location]).remove(0),
+            calls: i.calls,
+        }
+    }
+
     /// A plugin's file edits as the editor's, with workspace paths.
     pub(super) fn file_edits(
         &self,
@@ -514,6 +526,55 @@ impl host::Host for State {
         self.events.push(Event::ShowReferences(places));
     }
 
+    fn set_highlights(&mut self, path: String, highlights: Vec<types::Highlight>) {
+        let at = |p: types::Position| (p.line, p.column);
+        self.events.push(Event::SetHighlights {
+            path: self.snapshot.local(&path),
+            ranges: highlights
+                .into_iter()
+                .map(|h| (at(h.start), at(h.end), h.write))
+                .collect(),
+        });
+    }
+
+    fn show_hierarchy(
+        &mut self,
+        mode: types::HierarchyMode,
+        root: types::HierarchyItem,
+        children: Vec<types::HierarchyItem>,
+    ) {
+        use merlin_core::HierarchyMode as M;
+        let mode = match mode {
+            types::HierarchyMode::Callers => M::Callers,
+            types::HierarchyMode::Callees => M::Callees,
+            types::HierarchyMode::Bases => M::Bases,
+            types::HierarchyMode::Derived => M::Derived,
+        };
+        let root = self.hierarchy_item(root);
+        let children = children
+            .into_iter()
+            .map(|i| self.hierarchy_item(i))
+            .collect();
+        self.events.push(Event::ShowHierarchy {
+            plugin: self.name.clone(),
+            mode,
+            root,
+            children,
+        });
+    }
+
+    fn hierarchy_children(&mut self, parent: u32, children: Vec<types::HierarchyItem>) {
+        let children = children
+            .into_iter()
+            .map(|i| self.hierarchy_item(i))
+            .collect();
+        self.events.push(Event::HierarchyChildren {
+            plugin: self.name.clone(),
+            parent,
+            children,
+        });
+    }
+
     fn show_definitions(&mut self, places: Vec<types::Location>) {
         let places = self.locations(places);
         self.events.push(Event::Definitions(places));
@@ -523,19 +584,87 @@ impl host::Host for State {
         self.symbol_query.clone()
     }
 
-    fn show_project_symbols(&mut self, query: String, symbols: Vec<types::ProjectSymbol>) {
-        let symbols = symbols
-            .into_iter()
-            .map(|s| merlin_core::lang::ProjectSymbol {
+    fn show_project_symbols(
+        &mut self,
+        query: String,
+        symbols: Vec<types::ProjectSymbol>,
+        note: types::SymbolsNote,
+    ) {
+        let rules = self.snapshot.exclusions.clone();
+        let (mut kept, mut excluded) = (Vec::new(), Vec::new());
+        for s in symbols {
+            let path = self.snapshot.local(&s.path);
+            let symbol = merlin_core::lang::ProjectSymbol {
                 name: s.name,
                 kind: s.kind,
                 container: s.container,
-                path: self.snapshot.local(&s.path),
                 line: s.start.line,
                 column: s.start.column,
-            })
-            .collect();
-        self.events.push(Event::ProjectSymbols { query, symbols });
+                scan: s.scan,
+                path,
+            };
+            // Only paths in the project can be excluded.
+            let rel = symbol.path.to_string_lossy().replace('\\', "/");
+            if symbol.path.is_relative() && rules.excluded(&rel, true) {
+                excluded.push(symbol);
+            } else {
+                kept.push(symbol);
+            }
+        }
+        self.events.push(Event::ProjectSymbols {
+            plugin: self.name.clone(),
+            query,
+            symbols: kept,
+            excluded,
+            note: merlin_core::lang::SymbolsNote {
+                indexing: note.indexing,
+                warning: note.warning,
+                action: note.action.map(|b| (b.label, b.id)),
+            },
+        });
+    }
+
+    fn is_excluded(&mut self, path: String, search: bool) -> bool {
+        let rel = self.snapshot.local(&path);
+        if rel.is_absolute() {
+            return false;
+        }
+        let mut rel = rel.to_string_lossy().replace('\\', "/");
+        if self.snapshot.root.join(&rel).is_dir() && !rel.ends_with('/') {
+            rel.push('/');
+        }
+        self.snapshot.exclusions.excluded(&rel, search)
+    }
+
+    fn excluded_patterns(&mut self) -> Vec<String> {
+        self.snapshot.exclusions.rules.files.clone()
+    }
+
+    fn write_file(&mut self, path: String, text: String) -> Result<(), String> {
+        self.need(self.permissions.workspace_write, "workspace-write")?;
+        let root = &self.snapshot.root;
+        if root.as_os_str().is_empty() {
+            return Err("no workspace yet".into());
+        }
+        let rel = self.snapshot.local(&path);
+        let escapes = rel.is_absolute()
+            || rel
+                .components()
+                .any(|c| !matches!(c, std::path::Component::Normal(_)));
+        if escapes || rel.as_os_str().is_empty() {
+            return Err(format!("{path} is outside the workspace"));
+        }
+        let full = root.join(&rel);
+        if let Some(dir) = full.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+            let inside = root
+                .canonicalize()
+                .is_ok_and(|r| dir.canonicalize().is_ok_and(|d| d.starts_with(r)));
+            if !inside {
+                return Err(format!("{path} is outside the workspace"));
+            }
+        }
+        std::fs::write(&full, text).map_err(|e| e.to_string())
     }
 
     fn insert_text(&mut self, text: String) -> Result<(), String> {
@@ -554,15 +683,7 @@ impl host::Host for State {
         if root.as_os_str().is_empty() {
             return Err("no workspace yet".into());
         }
-        const MAX: usize = 50_000;
-        let mut files: Vec<String> = ignore::WalkBuilder::new(root)
-            .build()
-            .flatten()
-            .filter(|e| e.file_type().is_some_and(|t| t.is_file()))
-            .filter_map(|e| Some(e.path().strip_prefix(root).ok()?.display().to_string()))
-            .take(MAX)
-            .collect();
-        files.sort();
+        let files = crate::walk::project_files(root, &self.snapshot.exclusions, false);
         Ok(files)
     }
 
@@ -609,13 +730,16 @@ impl host::Host for State {
                 .into_iter()
                 .map(|i| StatusLine {
                     // The manifest's command for this system wins over
-                    // the plugin's own, which can't tell systems apart.
-                    hint: self
-                        .programs
-                        .get(&i.name)
-                        .and_then(|p| p.install.as_ref()?.here())
-                        .map(String::from)
-                        .or(i.hint),
+                    // the plugin's own, which can't tell systems apart;
+                    // only where the plugin gives one, when it isn't
+                    // installed, not whenever its line is amber.
+                    hint: i.hint.and_then(|own| {
+                        self.programs
+                            .get(&i.name)
+                            .and_then(|p| p.install.as_ref()?.here())
+                            .map(String::from)
+                            .or(Some(own).filter(|o| !o.is_empty()))
+                    }),
                     name: i.name,
                     state: match i.state {
                         types::StatusState::Ready => StatusState::Ready,
@@ -821,6 +945,31 @@ impl host::Host for State {
         self.debug(merlin_core::DebugUpdate::Stack { thread, frames })
     }
 
+    fn set_disassembly(&mut self, lines: Vec<types::DisassemblyLine>) -> Result<(), String> {
+        let lines = lines
+            .into_iter()
+            .map(|l| merlin_core::DisasmLine {
+                address: l.address,
+                instruction: l.instruction,
+                symbol: l.symbol,
+                source: l.source.map(|(p, n)| (PathBuf::from(p), n)),
+                current: l.current,
+            })
+            .collect();
+        self.debug(merlin_core::DebugUpdate::Disassembly(lines))
+    }
+
+    fn set_memory(&mut self, view: types::MemoryView) -> Result<(), String> {
+        self.debug(merlin_core::DebugUpdate::Memory(merlin_core::MemoryView {
+            expression: view.expression,
+            address: view.address,
+            bytes: view.bytes,
+            mark: (view.mark_from as usize, view.mark_len as usize),
+            changed: view.changed.into_iter().map(|i| i as usize).collect(),
+            error: view.error,
+        }))
+    }
+
     fn set_variables(
         &mut self,
         parent: u32,
@@ -833,6 +982,7 @@ impl host::Host for State {
                 value: v.value,
                 kind: v.type_name,
                 children: v.children,
+                address: v.address,
             })
             .collect();
         self.debug(merlin_core::DebugUpdate::Variables { parent, variables })
@@ -883,6 +1033,7 @@ impl host::Host for State {
                 value: value.value,
                 kind: value.type_name,
                 children: value.children,
+                address: value.address,
             },
         })
     }
@@ -944,7 +1095,58 @@ impl host::Host for State {
                     label: b.label,
                 })
                 .collect(),
+            choice: None,
         });
+    }
+
+    fn show_bar(&mut self, id: String, text: String, buttons: Vec<types::Button>) {
+        self.events.push(Event::ShowBar {
+            plugin: self.name.clone(),
+            id,
+            text,
+            buttons: buttons
+                .into_iter()
+                .map(|b| Button {
+                    id: b.id,
+                    label: b.label,
+                })
+                .collect(),
+        });
+    }
+
+    fn hide_bar(&mut self, id: String) {
+        self.events.push(Event::HideBar {
+            plugin: self.name.clone(),
+            id,
+        });
+    }
+
+    fn notice_with_choice(
+        &mut self,
+        level: types::LogLevel,
+        message: String,
+        choice: types::Choice,
+        buttons: Vec<types::Button>,
+    ) {
+        self.notice(level, message, buttons);
+        // The notice just pushed, if the user's setting showed it.
+        if let Some(Event::PluginNotice { choice: slot, .. }) = self.events.last_mut() {
+            *slot = Some(Box::new(merlin_core::Choice {
+                id: choice.id,
+                options: choice
+                    .options
+                    .into_iter()
+                    .map(|i| PickItem {
+                        id: i.id,
+                        label: i.label,
+                        detail: i.detail,
+                        group: i.group,
+                        current: i.current,
+                    })
+                    .collect(),
+                chosen: choice.chosen,
+            }));
+        }
     }
 
     fn start_progress(&mut self, id: String, title: String, cancellable: bool) {
@@ -1070,6 +1272,7 @@ impl host::Host for State {
                     label: i.label,
                     detail: i.detail,
                     group: i.group,
+                    current: i.current,
                 })
                 .collect(),
         });
@@ -1446,7 +1649,11 @@ pub(super) fn convert_panel(panel: types::Panel) -> Panel {
             detail: r.detail,
             depth: r.depth.min(16) as usize,
             twisty: r.expanded.map(|open| if open { '▾' } else { '▸' }),
-            icon: r.icon.chars().next().map(|c| (c, Hue::Grey)),
+            icon: r
+                .icon
+                .chars()
+                .next()
+                .map(|c| (c, Hue::named(&r.icon_colour).unwrap_or(Hue::Grey))),
             badge,
             badge_tone,
             note: rest.first().map(|c| {
@@ -1454,6 +1661,9 @@ pub(super) fn convert_panel(panel: types::Panel) -> Panel {
                 (labels.join(" · "), c.tone)
             }),
             menu: r.menu.into_iter().map(button).collect(),
+            links: r.actions.into_iter().map(|b| (b.label, b.id)).collect(),
+            links_on_hover: true,
+            switch: r.toggle,
             ..Entry::default()
         })
     };

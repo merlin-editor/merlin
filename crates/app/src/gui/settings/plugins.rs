@@ -855,6 +855,9 @@ fn allowed(page: &PageView) -> Vec<(bool, String)> {
     if page.workspace_read {
         perms.push((true, "Read the project's files".into()));
     }
+    if page.workspace_write {
+        perms.push((true, "Write files in the project".into()));
+    }
     if page.terminal {
         perms.push((true, "Run command lines in a terminal".into()));
     }

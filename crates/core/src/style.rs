@@ -92,6 +92,10 @@ pub enum Style {
     WidgetFrame,
     /// Other uses of the word under the cursor.
     WordMatch,
+    /// The language server's uses of the name under the cursor: where it's
+    /// read, and where it's written.
+    WordRead,
+    WordWrite,
     /// A count in a pill, such as problems in a file.
     Badge,
     /// The activity bar's icons, and the one for the view shown.

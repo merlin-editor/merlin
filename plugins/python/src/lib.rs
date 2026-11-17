@@ -22,6 +22,7 @@ const PYTHON_SERVER: Spec = Spec {
     restarts: &[],
     shared: &[],
     adjust: None,
+    scan: None,
 };
 
 struct Python(Grammar);

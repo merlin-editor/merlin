@@ -32,6 +32,29 @@ pub struct SearchHit {
     pub text: String,
 }
 
+/// A project search: the text, and which files.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SearchAsk {
+    pub query: String,
+    /// Comma-separated globs: only files they match. Empty for all.
+    pub include: String,
+    /// Comma-separated globs left out, besides the project's own.
+    pub exclude: String,
+    /// The project's exclusions and `.gitignore` apply.
+    pub use_exclusions: bool,
+}
+
+impl SearchAsk {
+    /// The palette's: the text in the whole project, as it's excluded.
+    pub fn text(query: &str) -> Self {
+        Self {
+            query: query.to_string(),
+            use_exclusions: true,
+            ..Self::default()
+        }
+    }
+}
+
 /// The project's files, and which folders are open.
 #[derive(Default)]
 pub(crate) struct Tree {
@@ -43,6 +66,10 @@ pub(crate) struct Tree {
     pub reveal: Option<String>,
     /// A name being typed in the tree.
     pub edit: Option<super::files::Naming>,
+    /// What the project leaves out, and why, while the Explorer shows it.
+    pub left_out: BTreeMap<String, crate::exclude::Why>,
+    /// The Explorer shows what's left out, dimmed.
+    pub show_left_out: bool,
 }
 
 #[derive(Default)]
@@ -56,6 +83,11 @@ pub(crate) struct Search {
     pub query: String,
     pub hits: Vec<SearchHit>,
     pub searching: bool,
+    /// What the last search left out by the project's exclusions.
+    pub skipped: usize,
+    /// The project's exclusions and `.gitignore` apply: on unless the
+    /// user turned them off.
+    pub all_files: bool,
 }
 
 /// What git says about the project.
@@ -128,7 +160,12 @@ impl Tree {
     /// The rows shown, as entries.
     fn rows(&self, marks: &Marks) -> Vec<Entry> {
         let mut root = Folder::default();
-        for file in &self.files {
+        let left_out = self.show_left_out.then_some(&self.left_out);
+        let all = self
+            .files
+            .iter()
+            .chain(left_out.into_iter().flat_map(|l| l.keys()));
+        for file in all {
             let mut folder = &mut root;
             // A folder, which may have nothing in it yet.
             if let Some(dir) = file.strip_suffix('/') {
@@ -171,21 +208,22 @@ impl Tree {
                 (_, true) => Tone::Warning,
                 _ => Tone::Normal,
             };
+            let why = self.why_left_out(&format!("{path}/"));
             rows.push(Entry {
                 id: format!("d:{path}"),
                 label: name.clone(),
-                tone,
+                tone: if why.is_some() { Tone::Muted } else { tone },
                 depth,
                 twisty: Some(icon(
                     if open { Icon::Open } else { Icon::Closed },
                     marks.nerd,
                 )),
-                badge: if tone == Tone::Normal {
-                    String::new()
-                } else {
-                    "●".into()
+                badge: match why {
+                    Some(why) => why.label().into(),
+                    None if tone == Tone::Normal => String::new(),
+                    None => "●".into(),
                 },
-                badge_tone: tone,
+                badge_tone: if why.is_some() { Tone::Muted } else { tone },
                 ..Default::default()
             });
             if open {
@@ -210,18 +248,44 @@ impl Tree {
             if let Some(status) = status {
                 badge.push(letter(status).to_string());
             }
+            let why = self.why_left_out(&path);
             rows.push(Entry {
                 id: format!("f:{path}"),
                 label: name.clone(),
-                tone,
+                tone: if why.is_some() { Tone::Muted } else { tone },
                 depth,
                 twisty: Some(' '),
                 icon: Some(file_icon(name, marks.nerd)),
-                badge: badge.join(", "),
-                badge_tone: tone,
+                badge: match why {
+                    Some(why) => why.label().into(),
+                    None => badge.join(", "),
+                },
+                badge_tone: if why.is_some() { Tone::Muted } else { tone },
                 ..Default::default()
             });
         }
+    }
+
+    /// Why the Explorer shows `rel` dimmed: it, or a folder it's in, is
+    /// left out. Folders end in `/`.
+    pub(crate) fn why_left_out(&self, rel: &str) -> Option<crate::exclude::Why> {
+        if !self.show_left_out || self.left_out.is_empty() {
+            return None;
+        }
+        if let Some(why) = self.left_out.get(rel) {
+            return Some(*why);
+        }
+        let mut at = 0;
+        while let Some(i) = rel[at..].find('/') {
+            let folder = &rel[..at + i + 1];
+            if folder.len() < rel.len()
+                && let Some(why) = self.left_out.get(folder)
+            {
+                return Some(*why);
+            }
+            at += i + 1;
+        }
+        None
     }
 
     /// Opens the folders a file is in.
@@ -246,6 +310,7 @@ impl Editor {
             (super::testing::TESTS, "Tests", Side::Left),
             (super::debug::DEBUG, "Run and Debug", Side::Left),
             (OUTLINE, "Outline", Side::Left),
+            (super::hierarchy::HIERARCHY, "Hierarchy", Side::Left),
             (PROBLEMS, "Problems", Side::Bottom),
             (OUTPUT, "Output", Side::Bottom),
             (super::terminal::TERMINAL, "Terminal", Side::Bottom),
@@ -264,6 +329,21 @@ impl Editor {
                 view: None,
             });
         }
+        // Disassembly and Memory once they're opened.
+        for (name, side) in [
+            (super::debug::DISASSEMBLY, Side::Right),
+            (super::debug::MEMORY, Side::Bottom),
+        ] {
+            self.plugins.push(Plugin {
+                name: name.into(),
+                commands: Vec::new(),
+                keys: Vec::new(),
+                panel: None,
+                error: None,
+                side,
+                view: None,
+            });
+        }
         // Rename shows only while one's reviewed.
         self.plugins.push(Plugin {
             name: super::rename::RENAME.into(),
@@ -274,6 +354,18 @@ impl Editor {
             side: Side::Bottom,
             view: None,
         });
+    }
+
+    /// Gives a view that waits to be opened its panel, so it shows.
+    pub(crate) fn open_view(&mut self, name: &str, title: &str) {
+        if let Some(plugin) = self.plugins.iter_mut().find(|p| p.name == name)
+            && plugin.panel.is_none()
+        {
+            plugin.panel = Some(Panel {
+                title: title.into(),
+                nodes: Vec::new(),
+            });
+        }
     }
 
     pub(crate) fn set_view(&mut self, name: &str, nodes: Vec<Node>) {
@@ -378,6 +470,12 @@ impl Editor {
         self.set_view(super::testing::TESTS, tests);
         let rename = self.rename_nodes();
         self.set_view(super::rename::RENAME, rename);
+        let hierarchy = self.hierarchy_nodes();
+        self.set_view(super::hierarchy::HIERARCHY, hierarchy);
+        let disassembly = self.disassembly_nodes();
+        self.set_view(super::debug::DISASSEMBLY, disassembly);
+        let memory = self.memory_nodes();
+        self.set_view(super::debug::MEMORY, memory);
         let debug = self.debug_nodes();
         self.set_view(super::debug::DEBUG, debug);
         let console = self.console_nodes();
@@ -497,12 +595,26 @@ impl Editor {
 
     fn search_nodes(&self) -> Vec<Node> {
         let search = &self.search;
-        let mut nodes = vec![Node::Input {
-            id: "query".into(),
-            placeholder: "Search".into(),
+        let input = |id: &str, placeholder: &str| Node::Input {
+            id: id.into(),
+            placeholder: placeholder.into(),
             secret: false,
             multiline: false,
-        }];
+        };
+        let mut nodes = vec![
+            input("query", "Search"),
+            Node::Styled("Files to include".into(), Tone::Muted),
+            input("include", "e.g. src/, *.h"),
+            Node::Styled("Files to exclude".into(), Tone::Muted),
+            input("exclude", "e.g. *_test.cpp"),
+            Node::entry(Entry {
+                id: "search:exclusions".into(),
+                label: "Use exclusions and .gitignore".into(),
+                icon: Some(('⊘', crate::style::Hue::Blue)),
+                switch: Some(!search.all_files),
+                ..Default::default()
+            }),
+        ];
         let files = {
             let mut seen: Vec<&str> = search.hits.iter().map(|h| h.path.as_str()).collect();
             seen.dedup();
@@ -515,6 +627,12 @@ impl Editor {
             (_, 1) => "1 result".into(),
             (_, n) if files == 1 => format!("{n} results in 1 file"),
             (_, n) => format!("{n} results in {files} files"),
+        };
+        let summary = if search.skipped > 0 && !search.searching {
+            let s = if search.skipped == 1 { "" } else { "s" };
+            format!("{summary} · {} excluded path{s} skipped", search.skipped)
+        } else {
+            summary
         };
         nodes.push(Node::Styled(summary, Tone::Muted));
         let mut last: Option<&str> = None;
@@ -783,9 +901,61 @@ impl Editor {
     }
 
     /// Every error, warning and note, by file, for the Problems panel.
+    /// The plugins that check every file of the project, as the C/C++
+    /// plugin does with clangd: their `check-project` command.
+    fn project_checkers(&self) -> Vec<String> {
+        self.plugins
+            .iter()
+            .filter(|p| p.commands.iter().any(|c| c.id == "check-project"))
+            .map(|p| p.name.clone())
+            .collect()
+    }
+
     fn problems_nodes(&mut self) -> Vec<Node> {
+        let open: Vec<PathBuf> = self
+            .docs
+            .iter()
+            .filter_map(|d| d.buffer.path.clone())
+            .collect();
+        let is_open = |p: &Path| open.iter().any(|o| o == p);
+        let chip = |id: &str, label: &str, on: bool| crate::panel::Chip {
+            id: id.into(),
+            label: label.into(),
+            tone: if on { Tone::Strong } else { Tone::Muted },
+        };
+        let mut head = vec![Node::Chips {
+            chips: vec![
+                chip("pr:open", "Open Files", self.problems_open_only),
+                chip("pr:all", "Whole Project", !self.problems_open_only),
+            ],
+            hint: String::new(),
+        }];
+        // Checking every file: how far it's got and Stop, or Check Project.
+        let checkers = self.project_checkers();
+        if !self.problems_open_only && !checkers.is_empty() {
+            match self.progress.iter().find(|p| p.id == "check-project") {
+                Some(p) => {
+                    head.push(Node::Progress {
+                        label: p.title.clone(),
+                        detail: p.message.clone(),
+                        done: p.done,
+                    });
+                    head.push(Node::Button(crate::panel::Button {
+                        id: format!("pr:stop:{}", p.plugin),
+                        label: "Stop".into(),
+                    }));
+                }
+                None => head.push(Node::Button(crate::panel::Button {
+                    id: "pr:check".into(),
+                    label: "Check Project".into(),
+                })),
+            }
+        }
         let mut by_file: BTreeMap<&PathBuf, Vec<&crate::lang::Diagnostic>> = BTreeMap::new();
         for ((_, path), list) in &self.diagnostics {
+            if self.problems_open_only && !is_open(path) {
+                continue;
+            }
             by_file
                 .entry(path)
                 .or_default()
@@ -796,11 +966,16 @@ impl Editor {
         let mut nodes = Vec::new();
         for (path, mut list) in by_file {
             list.sort_by_key(|d| (d.severity, d.start));
-            nodes.push(Node::entry(self.file_entry(
+            let mut entry = self.file_entry(
                 format!("f:{}", path.display()),
                 path,
                 list.len().to_string(),
-            )));
+            );
+            // Open files' problems are live; the rest from the last check.
+            if !self.problems_open_only && is_open(path) {
+                entry.note = Some(("open".into(), Tone::Muted));
+            }
+            nodes.push(Node::entry(entry));
             for d in list {
                 let (glyph, hue) = match d.severity {
                     Severity::Error => (Icon::Error, Hue::Problem),
@@ -820,12 +995,17 @@ impl Editor {
         }
         if nodes.is_empty() {
             nodes.push(Node::Styled(
-                "No problems have been detected in the workspace.".into(),
+                if self.problems_open_only {
+                    "No problems in the open files.".into()
+                } else {
+                    "No problems have been detected in the workspace.".into()
+                },
                 Tone::Muted,
             ));
         }
         self.problems = problems;
-        nodes
+        head.extend(nodes);
+        head
     }
 
     /// Shows or hides the panel under the editor.
@@ -854,6 +1034,9 @@ impl Editor {
         if id.starts_with("dbg:") {
             return self.debug_click(id, fx);
         }
+        if self.hierarchy_click(id, fx) {
+            return;
+        }
         if id.starts_with("rn:") || id.starts_with("rename:") {
             return self.rename_click(id, fx);
         }
@@ -861,6 +1044,17 @@ impl Editor {
             if let Some(tree) = &mut self.tree {
                 if !tree.expanded.remove(folder) {
                     tree.expanded.insert(folder.to_string());
+                    // A left-out folder's insides weren't walked: listed now.
+                    let dir = format!("{folder}/");
+                    let listed = tree
+                        .left_out
+                        .keys()
+                        .any(|k| k.len() > dir.len() && k.starts_with(&dir));
+                    if let Some(why) = tree.why_left_out(&dir)
+                        && !listed
+                    {
+                        fx.push(Effect::ListLeftOut(folder.to_string(), why));
+                    }
                 }
                 tree.built_for = None;
             }
@@ -876,10 +1070,26 @@ impl Editor {
                     self.keep_open();
                 }
             }
+        } else if id == "search:exclusions" {
+            self.search.all_files = !self.search.all_files;
+            self.build_views();
+            self.run_search(fx);
         } else if let Some(i) = id.strip_prefix("h:").and_then(|i| i.parse::<usize>().ok()) {
             if let Some(hit) = self.search.hits.get(i).cloned() {
                 self.open_at(PathBuf::from(hit.path), hit.line, hit.column, fx);
             }
+        } else if id == "pr:open" || id == "pr:all" {
+            self.problems_open_only = id == "pr:open";
+            self.build_views();
+        } else if id == "pr:check" {
+            for plugin in self.project_checkers() {
+                fx.push(Effect::PluginCommand {
+                    plugin,
+                    command: "check-project".into(),
+                });
+            }
+        } else if let Some(plugin) = id.strip_prefix("pr:stop:") {
+            self.cancel_progress(&format!("{plugin}:check-project"), fx);
         } else if let Some(i) = id.strip_prefix("p:").and_then(|i| i.parse::<usize>().ok()) {
             if let Some((path, line, column)) = self.problems.get(i).cloned() {
                 self.open_at(path, line, column, fx);
@@ -1008,15 +1218,49 @@ impl Editor {
         if view == CHANGES {
             return self.commit(text, fx);
         }
+        if view == super::debug::MEMORY {
+            return self.show_memory(text, fx);
+        }
         if view == super::debug::CONSOLE {
             return self.console_submit(text, fx);
         }
         if view == SEARCH {
-            self.search.query = text.to_string();
-            self.search.searching = true;
-            self.search.hits.clear();
-            fx.push(Effect::Search(text.to_string()));
+            self.inputs
+                .insert((SEARCH.into(), "query".into()), text.to_string());
+            self.run_search(fx);
         }
+    }
+
+    /// The Search view's search as its boxes have it.
+    pub(crate) fn search_ask(&self) -> SearchAsk {
+        let input = |id: &str| {
+            self.inputs
+                .get(&(SEARCH.to_string(), id.to_string()))
+                .map_or(String::new(), |t| t.trim().to_string())
+        };
+        SearchAsk {
+            query: self.search.query.clone(),
+            include: input("include"),
+            exclude: input("exclude"),
+            use_exclusions: !self.search.all_files,
+        }
+    }
+
+    /// Searches with what the Search view's boxes say.
+    pub(crate) fn run_search(&mut self, fx: &mut Vec<Effect>) {
+        let query = self
+            .inputs
+            .get(&(SEARCH.to_string(), "query".to_string()))
+            .cloned()
+            .unwrap_or_default();
+        if query.trim().is_empty() {
+            return;
+        }
+        self.search.query = query;
+        self.search.searching = true;
+        self.search.hits.clear();
+        self.search.skipped = 0;
+        fx.push(Effect::Search(self.search_ask()));
     }
 }
 

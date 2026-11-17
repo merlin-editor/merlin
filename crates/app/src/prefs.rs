@@ -189,6 +189,9 @@ pub enum Control {
     Field(String, FieldKind),
     /// Strings as chips, with a way to add one.
     List(Vec<String>),
+    /// Patterns a line each, with a way to add one: whether each is the
+    /// user's, shown on the Workspace tab but changed only on yours.
+    Patterns(Vec<(String, bool)>),
 }
 
 /// What a field takes.
@@ -429,6 +432,7 @@ pub struct PageView {
     pub read: bool,
     pub write: bool,
     pub workspace_read: bool,
+    pub workspace_write: bool,
     pub terminal: bool,
     pub processes: Vec<String>,
     pub running: Vec<(String, u32, Option<u64>)>,
@@ -535,6 +539,8 @@ enum Kind {
     Bool(bool),
     Pick(Vec<&'static str>, &'static str),
     Num(f32),
+    /// A list of patterns; on the Workspace tab, yours show under it.
+    Patterns,
 }
 
 /// `editor.minimap` is `minimap` in `[editor]`.
@@ -728,9 +734,22 @@ impl App {
                 Vec::new()
             }
             SettingsAction::Unlist(key, i) => {
-                let Some(Control::List(mut items)) = self.find_row(&key).map(|r| r.control) else {
-                    return Vec::new();
+                let mut items = match self.find_row(&key).map(|r| r.control) {
+                    Some(Control::List(items)) => items,
+                    // Only the file's own: yours aren't changed from here.
+                    Some(Control::Patterns(items)) => items
+                        .into_iter()
+                        .filter(|(_, yours)| !yours)
+                        .map(|(p, _)| p)
+                        .collect(),
+                    _ => return Vec::new(),
                 };
+                if items.is_empty() || i >= items.len() {
+                    return Vec::new();
+                }
+                if items.len() == 1 {
+                    return self.write(&key, None);
+                }
                 if i < items.len() {
                     items.remove(i);
                 }
@@ -1053,6 +1072,14 @@ enum Typed {
 fn typed(control: &Control, text: &str) -> Result<Typed, String> {
     let text = text.trim();
     match control {
+        Control::Patterns(items) => {
+            let own: Vec<String> = items
+                .iter()
+                .filter(|(_, yours)| !yours)
+                .map(|(p, _)| p.clone())
+                .collect();
+            typed(&Control::List(own), text)
+        }
         Control::List(items) => {
             if text.is_empty() || items.iter().any(|i| i == text) {
                 return Ok(Typed::Nothing);

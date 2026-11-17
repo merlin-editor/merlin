@@ -72,6 +72,11 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
     ("view.sidebar", "View: Toggle Side Bar"),
     ("view.explorer", "View: Explorer"),
     ("view.search", "View: Search"),
+    (
+        "explorer.toggle_excluded",
+        "Explorer: Show or Hide Excluded Files",
+    ),
+    ("settings.files", "Preferences: Exclude Files and Folders"),
     ("view.outline", "View: Outline"),
     ("settings.user", "Preferences: Open User Settings"),
     ("settings.workspace", "Preferences: Open Workspace Settings"),
@@ -133,7 +138,14 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
     ("output.clear", "Output: Clear the Channel"),
     ("go.line", "Go: Go to Line…"),
     ("go.definition", "Go: Go to Definition"),
+    ("go.declaration", "Go: Go to Declaration"),
+    ("go.type_definition", "Go: Go to Type Definition"),
+    ("go.implementation", "Go: Go to Implementations"),
+    ("go.switch_header", "Go: Switch Header/Source"),
     ("go.references", "Go: Peek References"),
+    ("view.call_hierarchy", "View: Show Call Hierarchy"),
+    ("view.type_hierarchy", "View: Show Type Hierarchy"),
+    ("edit.refactor", "Edit: Refactor…"),
     ("go.next_change", "Go: Next Change"),
     ("git.blame", "Git: Blame"),
     ("file.compare", "File: Compare Files…"),
@@ -164,6 +176,8 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
     ("debug.step_out", "Debug: Step Out"),
     ("debug.configure", "Debug: Add Configuration…"),
     ("debug.attach", "Debug: Attach to Process…"),
+    ("debug.disassembly", "Debug: Open Disassembly"),
+    ("debug.memory", "Debug: Open Memory"),
     ("debug.toggle_breakpoint", "Debug: Toggle Breakpoint"),
     (
         "debug.toggle_breakpoints",
@@ -211,6 +225,9 @@ impl Editor {
                 fx.push(Effect::OpenUrl(url.to_string()));
             }
             return;
+        }
+        if let Some(plugin) = id.strip_prefix("settings.plugin:") {
+            return self.open_settings(Some(plugin.to_string()), fx);
         }
         if let Some(plugin) = id.strip_prefix("plugins.page:") {
             self.open_page(SETTINGS_PAGE, "Settings");
@@ -379,6 +396,14 @@ impl Editor {
                 None => self.run("file.save_as", fx),
             },
             "go.definition" => self.go_to_definition(fx),
+            "go.declaration" => self.lsp_command("declaration", fx),
+            "go.type_definition" => self.lsp_command("type-definition", fx),
+            "go.implementation" => self.lsp_command("implementation", fx),
+            "go.switch_header" => self.lsp_command("switch-source-header", fx),
+            "view.call_hierarchy" => self.ask_hierarchy(true, fx),
+            "view.type_hierarchy" => self.ask_hierarchy(false, fx),
+            "view.hierarchy" => self.show_view(super::hierarchy::HIERARCHY, fx),
+            "edit.refactor" => self.refactors(fx),
             "go.references" => self.find_references(fx),
             "git.blame" => self.toggle_blame_column(),
             "go.next_change" => self.go_to_change(true),
@@ -485,6 +510,10 @@ impl Editor {
             "find.replace" => self.open_find(true),
             "palette.open" => self.open_search(search_all::Scope::Everything, fx),
             "settings.open" => self.open_settings(None, fx),
+            "settings.files" => {
+                self.open_page(SETTINGS_PAGE, "Settings");
+                fx.push(Effect::OpenSettingsFiles);
+            }
             "agent.add" => self.agent_menu(fx),
             "agent.more" => self.agent_more_menu(),
             "agent.history" => self.agent_history(),

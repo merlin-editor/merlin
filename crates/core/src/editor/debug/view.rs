@@ -41,6 +41,16 @@ pub(super) fn short_value(value: &str) -> String {
     }
 }
 
+/// An address cut in the middle, as `0x7ffe…a4c`.
+fn short_address(address: &str) -> Option<String> {
+    let hex = address.strip_prefix("0x").filter(|h| !h.is_empty())?;
+    Some(if hex.len() > 8 {
+        format!("0x{}…{}", &hex[..4], &hex[hex.len() - 3..])
+    } else {
+        address.to_string()
+    })
+}
+
 impl Editor {
     /// The toolbar, while a run is on.
     pub(crate) fn debug_bar(&self) -> Option<DebugBarView> {
@@ -48,6 +58,7 @@ impl Editor {
         Some(DebugBarView {
             paused: matches!(session.state, DebugState::Paused { .. }),
             building: session.building.is_some(),
+            by_instruction: self.debug.by_instruction,
         })
     }
 
@@ -330,6 +341,39 @@ impl Editor {
                 ..Default::default()
             }));
         }
+        // Breakpoints on instructions, from Disassembly.
+        for address in &self.debug.instruction_breaks {
+            nodes.push(Node::entry(Entry {
+                id: format!("dbg:asm:{address}"),
+                label: address.clone(),
+                detail: "instruction".into(),
+                code: true,
+                icon: Some(('●', Hue::Red)),
+                action: Some(('✕', format!("dbg:rib:{address}"))),
+                ..Default::default()
+            }));
+        }
+        // How Step goes: past library code, an instruction at a time.
+        nodes.push(heading("Stepping"));
+        for (id, label, on) in [
+            (
+                "dbg:skip-libraries",
+                "Skip library code",
+                !self.debug.into_libraries,
+            ),
+            (
+                "dbg:by-instruction",
+                "Step by instruction",
+                self.debug.by_instruction,
+            ),
+        ] {
+            nodes.push(Node::entry(Entry {
+                id: id.into(),
+                label: label.into(),
+                switch: Some(on),
+                ..Default::default()
+            }));
+        }
         if !self.debug.filters.is_empty() {
             nodes.push(heading("Stop on"));
             for f in &self.debug.filters {
@@ -376,7 +420,12 @@ impl Editor {
                 },
                 depth,
                 twisty: (v.children != 0).then_some(if open { '▾' } else { '▸' }),
-                badge: short_type(&v.kind),
+                // The type, and where it is: `int · 0x7ffe…a4c`.
+                badge: match (short_type(&v.kind), short_address(&v.address)) {
+                    (kind, None) => kind,
+                    (kind, Some(at)) if kind.is_empty() => at,
+                    (kind, Some(at)) => format!("{kind} · {at}"),
+                },
                 code: !scope,
                 ..Default::default()
             }));
@@ -530,6 +579,54 @@ impl Editor {
         if rest == "again" {
             return self.debug_command("debug.restart", fx);
         }
+        if let Some(n) = rest.strip_prefix("unit:").and_then(|n| n.parse().ok()) {
+            self.debug.memory_unit = n;
+            return self.build_views();
+        }
+        if rest == "refresh" {
+            let expr = self.debug.memory_expr.clone();
+            if !expr.is_empty() {
+                self.send_driver(&format!("debug.memory:{expr}"), fx);
+            }
+            return;
+        }
+        if let Some(address) = rest.strip_prefix("asm:") {
+            let address = address.to_string();
+            if !self.debug.instruction_breaks.contains(&address) {
+                self.debug.instruction_breaks.push(address);
+            } else {
+                self.debug.instruction_breaks.retain(|a| *a != address);
+            }
+            let list = self.debug.instruction_breaks.join(",");
+            self.send_driver(&format!("debug.instruction-breakpoints:{list}"), fx);
+            return self.build_views();
+        }
+        if let Some(address) = rest.strip_prefix("rib:") {
+            self.debug.instruction_breaks.retain(|a| a != address);
+            let list = self.debug.instruction_breaks.join(",");
+            self.send_driver(&format!("debug.instruction-breakpoints:{list}"), fx);
+            return self.build_views();
+        }
+        if rest == "skip-libraries" {
+            self.debug.into_libraries = !self.debug.into_libraries;
+            let on = if self.debug.into_libraries {
+                "off"
+            } else {
+                "on"
+            };
+            self.send_driver(&format!("debug.skip-libraries:{on}"), fx);
+            return self.build_views();
+        }
+        if rest == "by-instruction" {
+            self.debug.by_instruction = !self.debug.by_instruction;
+            let on = if self.debug.by_instruction {
+                "on"
+            } else {
+                "off"
+            };
+            self.send_driver(&format!("debug.by-instruction:{on}"), fx);
+            return self.build_views();
+        }
         if let Some(name) = rest.strip_prefix("t:") {
             self.debug.chosen = Some(name.to_string());
             return self.debug_read_then(false, fx);
@@ -668,6 +765,21 @@ impl Editor {
         let Some(row) = row else {
             return;
         };
+        // A frame: Open Disassembly there.
+        if let Some((thread, frame)) = row
+            .strip_prefix("dbg:fr:")
+            .and_then(|r| r.split_once(':'))
+            .and_then(|(t, f)| Some((t.parse().ok()?, f.parse().ok()?)))
+        {
+            self.debug.menu_frame = Some((thread, frame));
+            self.context = Some(super::context::ContextMenu {
+                items: vec!["debug.frame_disassembly"],
+                selected: None,
+                title: None,
+            });
+            self.focus = Focus::Menu;
+            return;
+        }
         let Some(rest) = row.strip_prefix("dbg:v:") else {
             return;
         };
@@ -689,7 +801,12 @@ impl Editor {
         };
         self.debug.menu_var = Some((parent, name.to_string(), value));
         self.context = Some(super::context::ContextMenu {
-            items: vec!["debug.var_set", "debug.var_copy", "debug.var_watch"],
+            items: vec![
+                "debug.var_set",
+                "debug.var_copy",
+                "debug.var_watch",
+                "debug.var_memory",
+            ],
             selected: None,
             title: None,
         });
@@ -776,5 +893,170 @@ impl Editor {
             text: text.to_string(),
         });
         self.build_views();
+    }
+
+    /// The Disassembly view: the instructions around the pause, the
+    /// source line over each run of them, the paused one marked.
+    pub(crate) fn disassembly_nodes(&self) -> Vec<Node> {
+        if self.debug.disassembly.is_empty() {
+            let text = if self.debug.session.is_some() {
+                "The instructions show when the program pauses."
+            } else {
+                "Start debugging, and the instructions where it pauses show here."
+            };
+            return vec![Node::Styled(text.into(), Tone::Muted)];
+        }
+        let mut nodes = Vec::new();
+        for l in &self.debug.disassembly {
+            if let Some((path, line)) = &l.source {
+                let text = self
+                    .docs
+                    .iter()
+                    .find(|d| {
+                        d.buffer
+                            .path
+                            .as_deref()
+                            .is_some_and(|p| self.same_file(p, path))
+                    })
+                    .map(|d| d.line_chars(*line as usize).into_iter().collect::<String>())
+                    .map(|t| t.trim().to_string())
+                    .unwrap_or_else(|| {
+                        path.file_name()
+                            .map_or(String::new(), |n| n.to_string_lossy().into_owned())
+                    });
+                nodes.push(Node::entry(Entry {
+                    id: String::new(),
+                    label: format!("{:>4}  {text}", line + 1),
+                    code: true,
+                    tone: Tone::Muted,
+                    ..Default::default()
+                }));
+            }
+            // A click puts a breakpoint on it, or takes it off.
+            let breaks = self.debug.instruction_breaks.contains(&l.address);
+            nodes.push(Node::entry(Entry {
+                id: format!("dbg:asm:{}", l.address),
+                label: format!("{:<14} {}", l.address, l.instruction),
+                detail: l.symbol.clone(),
+                code: true,
+                tone: if l.current {
+                    Tone::Warning
+                } else {
+                    Tone::Normal
+                },
+                icon: if l.current {
+                    Some(('▶', Hue::Yellow))
+                } else if breaks {
+                    Some(('●', Hue::Red))
+                } else {
+                    Some((' ', Hue::Grey))
+                },
+                ..Default::default()
+            }));
+        }
+        nodes
+    }
+
+    /// The Memory view: a box for an address or expression, then rows of
+    /// sixteen bytes and their text, the expression's own tinted and the
+    /// ones that changed since the last pause in amber.
+    pub(crate) fn memory_nodes(&self) -> Vec<Node> {
+        let mut nodes = vec![Node::Input {
+            id: "memory".into(),
+            placeholder: "An address or expression, such as &total, then Enter".into(),
+            secret: false,
+            multiline: false,
+        }];
+        let Some(m) = &self.debug.memory else {
+            let text = if self.debug.session.is_none() {
+                "Memory shows while the program is paused."
+            } else {
+                "Type an address or an expression above, or right-click a variable and Show in Memory."
+            };
+            nodes.push(Node::Styled(text.into(), Tone::Muted));
+            return nodes;
+        };
+        if !m.error.is_empty() {
+            nodes.push(Node::Styled(m.error.clone(), Tone::Error));
+            return nodes;
+        }
+        let (from, len) = m.mark;
+        nodes.push(Node::Styled(
+            format!(
+                "{} · 0x{:x} · {len} byte{}",
+                m.expression,
+                m.address + from as u64,
+                if len == 1 { "" } else { "s" }
+            ),
+            Tone::Muted,
+        ));
+        // How the bytes go: one at a time, or as numbers of 2, 4 or 8, the
+        // way the machine (little-endian) holds them; and Refresh.
+        let unit = self.debug.memory_unit.clamp(1, 8);
+        let chip = |id: &str, label: &str, on: bool| crate::panel::Chip {
+            id: id.into(),
+            label: label.into(),
+            tone: if on { Tone::Strong } else { Tone::Muted },
+        };
+        let mut chips: Vec<crate::panel::Chip> =
+            [(1, "Bytes"), (2, "16-bit"), (4, "32-bit"), (8, "64-bit")]
+                .iter()
+                .map(|(n, label)| chip(&format!("dbg:unit:{n}"), label, *n == unit))
+                .collect();
+        chips.push(chip("dbg:refresh", "Refresh", false));
+        nodes.push(Node::Chips {
+            chips,
+            hint: String::new(),
+        });
+        for (row, chunk) in m.bytes.chunks(16).enumerate() {
+            let base = row * 16;
+            let mut label = format!("0x{:012x}  ", m.address + base as u64);
+            let mut spans = Vec::new();
+            for (k, group) in chunk.chunks(unit).enumerate() {
+                let first = base + k * unit;
+                if k * unit == 8 {
+                    label.push(' ');
+                }
+                let at = label.chars().count();
+                // Little-endian: the last byte is the highest.
+                for b in group.iter().rev() {
+                    label.push_str(&format!("{b:02x}"));
+                }
+                let indices = first..first + group.len();
+                let tone = if indices.clone().any(|i| m.changed.contains(&i)) {
+                    Some(Tone::Warning)
+                } else if indices.clone().any(|i| (from..from + len).contains(&i)) {
+                    Some(Tone::Strong)
+                } else {
+                    None
+                };
+                if let Some(tone) = tone {
+                    spans.push((at, at + group.len() * 2, tone));
+                }
+                label.push(' ');
+            }
+            // Short last rows keep the text in its column.
+            let shown = chunk.len();
+            if shown < 16 {
+                let groups = (16 - shown).div_ceil(unit);
+                label.push_str(&" ".repeat(groups * (unit * 2 + 1) + usize::from(shown <= 8)));
+            }
+            label.push(' ');
+            label.extend(chunk.iter().map(|&b| {
+                if b.is_ascii_graphic() || b == b' ' {
+                    b as char
+                } else {
+                    '.'
+                }
+            }));
+            nodes.push(Node::entry(Entry {
+                id: String::new(),
+                label,
+                code: true,
+                spans,
+                ..Default::default()
+            }));
+        }
+        nodes
     }
 }

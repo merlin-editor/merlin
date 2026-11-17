@@ -94,6 +94,16 @@ pub struct Location {
     pub end: (u32, u32),
 }
 
+/// What a language plugin says under the project's symbols, besides
+/// them: that it's still indexing, or why there may be fewer, with a
+/// button's label and id for the plugin.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SymbolsNote {
+    pub indexing: String,
+    pub warning: String,
+    pub action: Option<(String, String)>,
+}
+
 /// A symbol anywhere in the project, as a language plugin found it for the
 /// palette: where it starts, as UTF-16 line and column.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -105,6 +115,8 @@ pub struct ProjectSymbol {
     pub path: std::path::PathBuf,
     pub line: u32,
     pub column: u32,
+    /// Found by a quick look through the sources, not the server.
+    pub scan: bool,
 }
 
 /// What renaming the name at the cursor would change: the name's place in

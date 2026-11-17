@@ -1386,9 +1386,62 @@ fn the_right_click_menu_finds_references_and_renames() {
         items,
         [
             ("Go to Definition".into(), Some("F12".into())),
-            ("Find References".into(), Some("Shift+F12".into())),
+            ("Find All References".into(), Some("Shift+F12".into())),
             ("Show Hover".into(), Some("Ctrl+K Ctrl+I".into())),
             ("Rename Symbol".into(), Some("F2".into())),
+        ]
+    );
+}
+
+#[test]
+fn the_right_click_menu_has_every_way_a_server_offers_to_follow_a_name() {
+    let mut s = peeking();
+    s.send(Event::RegisterPlugin {
+        plugin: "lsp".into(),
+        commands: [
+            "references",
+            "rename",
+            "definition",
+            "declaration",
+            "type-definition",
+            "implementation",
+            "call-hierarchy",
+            "type-hierarchy",
+            "code-actions",
+            "switch-source-header",
+        ]
+        .map(|id| merlin_core::Command {
+            id: id.into(),
+            title: id.into(),
+            key: None,
+        })
+        .into(),
+    });
+    let (x, y) = s.editor.text_origin();
+    s.run(&format!("right-click {} {}", x + 4, y));
+    let menu = s.editor.window_view().context.expect("a menu");
+    let items: Vec<(String, Option<String>)> = menu
+        .items
+        .into_iter()
+        .map(|i| (i.label, i.key))
+        .filter(|(l, _)| !l.is_empty())
+        .take(11)
+        .collect();
+    let item = |l: &str, k: Option<&str>| (l.to_string(), k.map(String::from));
+    assert_eq!(
+        items,
+        [
+            item("Go to Definition", Some("F12")),
+            item("Go to Declaration", None),
+            item("Go to Type Definition", None),
+            item("Go to Implementations", Some("Ctrl+F12")),
+            item("Find All References", Some("Shift+F12")),
+            item("Show Hover", Some("Ctrl+K Ctrl+I")),
+            item("Show Call Hierarchy", Some("Alt+Shift+H")),
+            item("Show Type Hierarchy", None),
+            item("Rename Symbol", Some("F2")),
+            item("Refactor…", Some("Ctrl+Shift+R")),
+            item("Switch Header/Source", Some("Alt+O")),
         ]
     );
 }

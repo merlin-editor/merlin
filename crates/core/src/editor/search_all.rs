@@ -91,6 +91,29 @@ pub(crate) struct TextSearch {
     symbols: Vec<crate::lang::ProjectSymbol>,
     /// Plugins asked that haven't answered yet.
     symbols_waiting: usize,
+    /// Symbols in excluded files, held back, and whether they're shown.
+    symbols_excluded: Vec<crate::lang::ProjectSymbol>,
+    show_excluded: bool,
+    /// What the plugins said besides, by plugin.
+    notes: Vec<(String, crate::lang::SymbolsNote)>,
+}
+
+/// The line under the palette's results: what it says, how, and its link.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PaletteState {
+    pub text: String,
+    pub tone: StateTone,
+    pub link: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StateTone {
+    /// Still going: a spinner.
+    Busy,
+    /// Fewer than there might be: an amber dot.
+    Warning,
+    /// Left out: ⊘.
+    Quiet,
 }
 
 impl Editor {
@@ -110,7 +133,9 @@ impl Editor {
         ));
         self.focus = Focus::Palette;
         // The file names come from the Explorer's list, or are asked for.
-        if self.tree.as_ref().is_none_or(|t| t.files.is_empty()) {
+        if self.tree.as_ref().is_none_or(|t| t.files.is_empty())
+            || !self.exclusions.rules.search.is_empty()
+        {
             fx.push(Effect::ListFiles);
         }
         self.search_changed();
@@ -385,7 +410,8 @@ impl Editor {
 
     fn search_files(&self) -> &[String] {
         match &self.tree {
-            Some(t) if !t.files.is_empty() => &t.files,
+            // The Explorer keeps what's only excluded from search.
+            Some(t) if !t.files.is_empty() && self.exclusions.rules.search.is_empty() => &t.files,
             _ => &self.palette_files,
         }
     }
@@ -423,13 +449,130 @@ impl Editor {
     /// Symbols a plugin found: kept if they're for what's being searched.
     pub(crate) fn project_symbols_came(
         &mut self,
+        plugin: &str,
         query: &str,
         symbols: Vec<crate::lang::ProjectSymbol>,
+        excluded: Vec<crate::lang::ProjectSymbol>,
+        note: crate::lang::SymbolsNote,
     ) {
         if query == self.palette_text.symbols_asked {
-            self.palette_text.symbols_waiting = self.palette_text.symbols_waiting.saturating_sub(1);
-            self.palette_text.symbols.extend(symbols);
+            let t = &mut self.palette_text;
+            t.symbols_waiting = t.symbols_waiting.saturating_sub(1);
+            // A plugin may answer again as its index fills: its later
+            // answer replaces what it said.
+            t.symbols.extend(symbols);
+            t.symbols
+                .sort_by(|a, b| (&a.path, a.line, a.scan).cmp(&(&b.path, b.line, b.scan)));
+            t.symbols
+                .dedup_by(|a, b| a.path == b.path && a.line == b.line && a.name == b.name);
+            t.symbols_excluded.extend(excluded);
+            t.notes.retain(|(p, _)| p != plugin);
+            if note != Default::default() {
+                t.notes.push((plugin.to_string(), note));
+            }
             self.search_changed();
+        }
+    }
+
+    /// The line under the results, for the project's symbols.
+    pub(crate) fn palette_state(&self) -> Option<PaletteState> {
+        let (scope, _) = self.search_state()?;
+        if !matches!(scope, Scope::Symbols | Scope::Everything) {
+            return None;
+        }
+        let query = self.symbol_query()?;
+        let t = &self.palette_text;
+        if query != t.symbols_asked {
+            return None;
+        }
+        if let Some((_, note)) = t.notes.iter().find(|(_, n)| !n.indexing.is_empty()) {
+            return Some(PaletteState {
+                text: format!("{}. More come as it goes.", note.indexing),
+                tone: StateTone::Busy,
+                link: Some("Refresh".into()),
+            });
+        }
+        if let Some((_, note)) = t.notes.iter().find(|(_, n)| !n.warning.is_empty()) {
+            return Some(PaletteState {
+                text: note.warning.clone(),
+                tone: StateTone::Warning,
+                link: note.action.as_ref().map(|(label, _)| label.clone()),
+            });
+        }
+        if !t.symbols_excluded.is_empty() && !t.show_excluded {
+            let mut folders: Vec<String> = t
+                .symbols_excluded
+                .iter()
+                .map(|s| {
+                    let path = s.path.to_string_lossy();
+                    match path.split_once('/') {
+                        Some((top, _)) => format!("{top}/"),
+                        None => path.into_owned(),
+                    }
+                })
+                .collect();
+            folders.sort();
+            folders.dedup();
+            let n = t.symbols_excluded.len();
+            return Some(PaletteState {
+                text: format!("{n} more in excluded files: {}", folders.join(", ")),
+                tone: StateTone::Quiet,
+                link: Some("Show Them".into()),
+            });
+        }
+        None
+    }
+
+    /// The state line's link: Refresh asks again, a plugin's button goes
+    /// to it, Show Them adds the excluded ones.
+    pub(crate) fn palette_state_pressed(&mut self, fx: &mut Vec<Effect>) {
+        let Some(state) = self.palette_state() else {
+            return;
+        };
+        match state.tone {
+            StateTone::Busy => {
+                if let Some(query) = self.symbol_query() {
+                    self.ask_symbols(query, fx);
+                }
+            }
+            StateTone::Warning => {
+                let action = self
+                    .palette_text
+                    .notes
+                    .iter()
+                    .find(|(_, n)| !n.warning.is_empty())
+                    .and_then(|(p, n)| Some((p.clone(), n.action.clone()?.1)));
+                if let Some((plugin, id)) = action {
+                    let _ = self.close_palette();
+                    match id.strip_prefix("run:") {
+                        Some(command) => self.run(command, fx),
+                        None => self.run(&format!("plugin.click:{plugin}:{id}"), fx),
+                    }
+                }
+            }
+            StateTone::Quiet => {
+                self.palette_text.show_excluded = true;
+                self.search_changed();
+            }
+        }
+    }
+
+    /// Asks the language plugins for the project's symbols matching
+    /// `query`, afresh.
+    fn ask_symbols(&mut self, query: String, fx: &mut Vec<Effect>) {
+        let t = &mut self.palette_text;
+        t.symbols_asked = query.clone();
+        t.symbols.clear();
+        t.symbols_excluded.clear();
+        t.show_excluded = false;
+        t.notes.clear();
+        t.symbols_waiting = self.symbol_search.len();
+        for (plugin, command) in &self.symbol_search {
+            fx.push(Effect::SearchSymbols {
+                plugin: plugin.clone(),
+                command: command.clone(),
+                query: query.clone(),
+            });
         }
     }
 
@@ -454,16 +597,7 @@ impl Editor {
         if let Some(query) = self.symbol_query()
             && query != self.palette_text.symbols_asked
         {
-            self.palette_text.symbols_asked = query.clone();
-            self.palette_text.symbols.clear();
-            self.palette_text.symbols_waiting = self.symbol_search.len();
-            for (plugin, command) in &self.symbol_search {
-                fx.push(Effect::SearchSymbols {
-                    plugin: plugin.clone(),
-                    command: command.clone(),
-                    query: query.clone(),
-                });
-            }
+            self.ask_symbols(query, fx);
         }
         if let Some(text) = self.search_text()
             && text != self.palette_text.asked
@@ -471,7 +605,7 @@ impl Editor {
             self.palette_text.asked = text.clone();
             self.palette_text.hits.clear();
             self.palette_text.searching = true;
-            fx.push(Effect::Search(text));
+            fx.push(Effect::Search(super::SearchAsk::text(&text)));
             self.search_changed();
         }
     }
@@ -968,7 +1102,14 @@ impl Editor {
                 .iter()
                 .filter_map(|d| d.buffer.path.as_deref())
                 .collect();
-            for s in &self.palette_text.symbols {
+            let t = &self.palette_text;
+            let excluded = t.show_excluded.then_some(&t.symbols_excluded);
+            let all = t
+                .symbols
+                .iter()
+                .map(|s| (s, false))
+                .chain(excluded.into_iter().flatten().map(|s| (s, true)));
+            for (s, excluded) in all {
                 if open.contains(&s.path.as_path()) {
                     continue;
                 }
@@ -994,6 +1135,14 @@ impl Editor {
                                 let (letter, kind) = symbol_letter(&s.kind);
                                 PaletteIcon::Symbol(letter, kind)
                             },
+                            chip: if excluded {
+                                Some("excluded".into())
+                            } else if s.scan {
+                                Some("SCAN".into())
+                            } else {
+                                None
+                            },
+                            muted: excluded,
                             ..Default::default()
                         },
                     },
@@ -1133,7 +1282,7 @@ fn symbol_letter(kind: &str) -> (char, bool) {
         "impl" => ('I', true),
         "mod" | "module" | "namespace" | "package" => ('M', false),
         "const" | "static" | "let" | "var" => ('C', false),
-        "#" => ('#', false),
+        "#" | "macro" => ('#', false),
         k => (k.chars().next().unwrap_or('?').to_ascii_uppercase(), false),
     }
 }

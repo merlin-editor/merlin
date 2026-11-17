@@ -58,6 +58,8 @@ pub struct Settings {
     pub keys: Vec<super::UserKey>,
     /// Macros saved by name, as `[[macros]]`.
     pub macros: Vec<super::Macro>,
+    /// What the project leaves out: Settings › Files.
+    pub exclusions: crate::exclude::Exclusions,
 }
 
 impl Default for Settings {
@@ -88,6 +90,7 @@ impl Default for Settings {
             relative_line_numbers: false,
             keys: Vec::new(),
             macros: Vec::new(),
+            exclusions: Default::default(),
         }
     }
 }
@@ -128,6 +131,9 @@ impl Editor {
         self.vim_settings = settings.vim;
         self.relative_numbers = settings.relative_line_numbers;
         self.macros = settings.macros;
+        if self.exclusions.rules != settings.exclusions {
+            self.exclusions = crate::exclude::Matcher::new(settings.exclusions);
+        }
         if !self.preview_tabs {
             self.preview = None;
         }

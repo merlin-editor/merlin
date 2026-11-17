@@ -24,6 +24,10 @@ use view::*;
 pub(crate) const DEBUG: &str = "merlin.debug";
 /// The Debug Console, in the bottom panel.
 pub(crate) const CONSOLE: &str = "merlin.debug-console";
+/// The paused code's instructions, on the right.
+pub(crate) const DISASSEMBLY: &str = "merlin.disassembly";
+/// Bytes of the program's memory, in the bottom panel.
+pub(crate) const MEMORY: &str = "merlin.memory";
 /// The plugin that drives a debugger unless its manifest names another.
 pub const DAP: &str = "dap";
 /// Your own configurations.
@@ -158,6 +162,8 @@ pub struct DebugVariable {
     pub value: String,
     pub kind: String,
     pub children: u32,
+    /// Where it is in memory, when the debugger says.
+    pub address: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -183,6 +189,29 @@ pub enum OutputKind {
     Important,
 }
 
+/// An instruction, for the Disassembly view.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct DisasmLine {
+    pub address: String,
+    pub instruction: String,
+    pub symbol: String,
+    /// The source line it starts, from 0.
+    pub source: Option<(PathBuf, u32)>,
+    pub current: bool,
+}
+
+/// Bytes of the program's memory, for the Memory view.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct MemoryView {
+    pub expression: String,
+    pub address: u64,
+    pub bytes: Vec<u8>,
+    /// The expression's own bytes: first and how many.
+    pub mark: (usize, usize),
+    pub changed: Vec<usize>,
+    pub error: String,
+}
+
 /// What a driver reports about its run.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DebugUpdate {
@@ -203,6 +232,10 @@ pub enum DebugUpdate {
         values: Vec<(u32, String)>,
     },
     Output(OutputKind, String),
+    /// The instructions around the pause, for the Disassembly view.
+    Disassembly(Vec<DisasmLine>),
+    /// The Memory view's bytes.
+    Memory(MemoryView),
     /// A watch expression's value, by its place in Watch.
     Watch {
         index: u32,
@@ -215,6 +248,8 @@ pub(crate) const BREAK_ITEMS: &[(&str, &str)] = &[
     ("debug.var_set", "Set Value…"),
     ("debug.var_copy", "Copy Value"),
     ("debug.var_watch", "Add to Watch"),
+    ("debug.var_memory", "Show in Memory"),
+    ("debug.frame_disassembly", "Open Disassembly"),
     ("debug.bp_add", "Add Breakpoint"),
     ("debug.bp_condition", "Add Conditional Breakpoint…"),
     ("debug.bp_log", "Add Logpoint…"),
@@ -290,6 +325,8 @@ pub struct DebugBarView {
     pub paused: bool,
     /// Building first: only Stop works.
     pub building: bool,
+    /// Steps go an instruction at a time.
+    pub by_instruction: bool,
 }
 
 /// A button of the debug toolbar.
@@ -375,6 +412,22 @@ pub(crate) struct Debugging {
     /// The variable the menu was opened on: what lists it, its name and
     /// its value.
     pub menu_var: Option<(u32, String, String)>,
+    /// Stepping: into library code too (off skips it, as "Just My Code"
+    /// does), and an instruction at a time.
+    pub into_libraries: bool,
+    pub by_instruction: bool,
+    /// The Disassembly view is open, and what it shows.
+    pub disassembly_open: bool,
+    pub disassembly: Vec<DisasmLine>,
+    /// The Memory view's expression, and what it read, shown in units of
+    /// this many bytes.
+    pub memory_expr: String,
+    pub memory: Option<MemoryView>,
+    pub memory_unit: usize,
+    /// Breakpoints on instructions, by address.
+    pub instruction_breaks: Vec<String>,
+    /// The frame whose menu was opened: its thread and id.
+    pub menu_frame: Option<(u32, u32)>,
     /// The variable the hover card is about, by name.
     pub hover: Option<String>,
     /// Linux's ptrace_scope, as last read.
@@ -505,6 +558,34 @@ impl Editor {
     pub(crate) fn debug_command(&mut self, id: &str, fx: &mut Vec<Effect>) {
         match id {
             "debug.start" => self.debug_read_then(false, fx),
+            "debug.disassembly" => {
+                self.debug.disassembly_open = true;
+                self.open_view(DISASSEMBLY, "Disassembly");
+                self.build_views();
+                self.send_driver("debug.disassembly:on", fx);
+                // On the right, beside the code.
+                let bar = self.bar_mut(Side::Right);
+                bar.visible = true;
+                bar.active = Some(DISASSEMBLY.into());
+                self.build_views();
+            }
+            "debug.frame_disassembly" => {
+                if let Some((thread, frame)) = self.debug.menu_frame.take() {
+                    self.debug_click(&format!("dbg:fr:{thread}:{frame}"), fx);
+                }
+                self.debug_command("debug.disassembly", fx);
+            }
+            "debug.memory" => {
+                self.open_view(MEMORY, "Memory");
+                self.show_bottom(MEMORY);
+                self.build_views();
+                self.focus_input(Side::Bottom, "memory");
+            }
+            "debug.var_memory" => {
+                if let Some((_, name, _)) = self.debug.menu_var.clone() {
+                    self.show_memory(&format!("&{name}"), fx);
+                }
+            }
             "debug.run" => self.debug_read_then(true, fx),
             "debug.attach" => fx.push(Effect::ListProcesses),
             "debug.last_build" => {
@@ -580,6 +661,18 @@ impl Editor {
                 self.debug.session = None;
                 self.build_views();
             }
+            // A debugger that never answered can't end the run itself.
+            "debug.stop"
+                if self
+                    .debug
+                    .session
+                    .as_ref()
+                    .is_some_and(|s| s.state == DebugState::Starting) =>
+            {
+                self.send_debug("debug.stop", fx);
+                self.debug.session = None;
+                self.build_views();
+            }
             "debug.restart" => {
                 if self.debug.running() {
                     // Stopped and started again, so the build runs too.
@@ -623,7 +716,7 @@ impl Editor {
 
     /// Whether two paths are the same file, one perhaps relative to the
     /// project.
-    fn same_file(&self, a: &Path, b: &Path) -> bool {
+    pub(crate) fn same_file(&self, a: &Path, b: &Path) -> bool {
         let full = |p: &Path| match p.is_absolute() {
             true => p.to_path_buf(),
             false => self.root.join(p),
@@ -768,6 +861,8 @@ impl Editor {
                 session.inline.insert(path, values);
             }
             DebugUpdate::Output(kind, text) => self.debug.push_console(kind, &text),
+            DebugUpdate::Disassembly(lines) => self.debug.disassembly = lines,
+            DebugUpdate::Memory(view) => self.debug.memory = Some(view),
             DebugUpdate::Watch { index, value } => {
                 let i = index as usize;
                 if session.watched.len() <= i {
@@ -777,6 +872,58 @@ impl Editor {
             }
         }
         self.build_views();
+    }
+
+    /// Sends a command to the run's driver as it is.
+    pub(crate) fn send_driver(&mut self, command: &str, fx: &mut Vec<Effect>) {
+        if let Some(session) = &self.debug.session {
+            fx.push(Effect::Debug {
+                plugin: session.driver.clone(),
+                command: command.into(),
+                start: None,
+                breakpoints: self.debug.breakpoints.clone(),
+            });
+        }
+    }
+
+    /// The Memory view on an address or expression, read at each pause.
+    pub(crate) fn show_memory(&mut self, expression: &str, fx: &mut Vec<Effect>) {
+        self.debug.memory_expr = expression.trim().to_string();
+        self.send_driver(&format!("debug.memory:{}", self.debug.memory_expr), fx);
+        self.open_view(MEMORY, "Memory");
+        self.show_bottom(MEMORY);
+        self.build_views();
+    }
+
+    /// What the driver hears as a run starts: how to step, and what the
+    /// views that are open want.
+    pub(crate) fn driver_settings(&mut self, fx: &mut Vec<Effect>) {
+        let d = &self.debug;
+        let mut commands = vec![
+            format!(
+                "debug.skip-libraries:{}",
+                if d.into_libraries { "off" } else { "on" }
+            ),
+            format!(
+                "debug.by-instruction:{}",
+                if d.by_instruction { "on" } else { "off" }
+            ),
+        ];
+        if d.disassembly_open {
+            commands.push("debug.disassembly:on".into());
+        }
+        if !d.instruction_breaks.is_empty() {
+            commands.push(format!(
+                "debug.instruction-breakpoints:{}",
+                d.instruction_breaks.join(",")
+            ));
+        }
+        if !d.memory_expr.is_empty() {
+            commands.push(format!("debug.memory:{}", d.memory_expr));
+        }
+        for c in commands {
+            self.send_driver(&c, fx);
+        }
     }
 
     /// Opens the shown frame's file at its line.
@@ -898,6 +1045,68 @@ mod tests {
             "{}",
             start.launch
         );
+    }
+
+    #[test]
+    fn a_build_step_naming_a_task_runs_that_tasks_command() {
+        let mut e = Editor::new("int main() {}\n", Some(PathBuf::from("main.cpp")));
+        e.update(Event::SetTasks {
+            plugin: "cmake".into(),
+            set: "cmake".into(),
+            tasks: vec![crate::editor::tasks::Task {
+                name: "CMake: Build app".into(),
+                command: Some("cmake --build build --target app".into()),
+                group: crate::editor::tasks::TaskGroup::Build,
+                source: String::new(),
+                plugin: Some("cmake".into()),
+            }],
+        });
+        assert_eq!(
+            e.build_command("CMake: Build app"),
+            "cmake --build build --target app"
+        );
+        assert_eq!(e.build_command("make app"), "make app", "a command line");
+    }
+
+    #[test]
+    fn stop_ends_a_run_whose_debugger_never_answered() {
+        let mut e = Editor::new("project(x)\n", Some(PathBuf::from("CMakeLists.txt")));
+        e.update(Event::RegisterDebuggers {
+            plugin: "cmake".into(),
+            debuggers: vec![Debugger {
+                id: "cmake".into(),
+                name: "CMake".into(),
+                languages: vec!["cmake".into()],
+                command: vec!["cmake".into()],
+                launch: "{}".into(),
+                driver: "dap".into(),
+                ..Default::default()
+            }],
+        });
+        e.update(Event::RegisterPlugin {
+            plugin: "dap".into(),
+            commands: Vec::new(),
+        });
+        e.update(Event::StartDebugging {
+            plugin: "cmake".into(),
+            target: Box::new(DebugTarget {
+                name: "Configure".into(),
+                debugger: "cmake".into(),
+                language: "cmake".into(),
+                program: "cmake".into(),
+                ..Default::default()
+            }),
+            fallback: None,
+        });
+        assert!(e.debug.running(), "starting");
+        let mut fx = Vec::new();
+        e.debug_command("debug.stop", &mut fx);
+        assert!(
+            fx.iter()
+                .any(|f| matches!(f, Effect::Debug { command, .. } if command == "debug.stop")),
+            "{fx:?}"
+        );
+        assert!(!e.debug.running(), "the run ends without the debugger");
     }
 
     #[test]

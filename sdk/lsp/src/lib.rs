@@ -3,11 +3,14 @@
 //! A language plugin brings its own servers and embeds it:
 //! `WithLsp::new(Rust::new(), "Rust", &[RUST_SERVER])`.
 
+mod check;
 mod features;
 mod handlers;
+mod hierarchy;
 mod protocol;
 mod server;
 mod spec;
+mod symbols;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -21,7 +24,7 @@ use serde_json::{Value, json};
 use crate::features::Formatting;
 use crate::protocol::{file_edits, uri};
 use crate::server::{Request, Server, Status};
-pub use crate::spec::Spec;
+pub use crate::spec::{Scanned, Spec};
 
 #[derive(Serialize, Deserialize)]
 pub struct Lsp {
@@ -51,7 +54,21 @@ pub struct Lsp {
     pub(crate) warned: BTreeSet<String>,
     /// The file and `(line, column)` of the name the rename box is open on.
     pub(crate) rename_at: Option<(String, (u32, u32))>,
+    /// The Hierarchy view's items.
+    #[serde(default)]
+    pub(crate) hierarchy: hierarchy::Hierarchy,
+    /// Problems' Check Project while it runs, and the files it closed
+    /// whose empty publish is still to come.
+    #[serde(skip)]
+    pub(crate) check: Option<check::ProjectCheck>,
+    #[serde(skip)]
+    pub(crate) closing: BTreeSet<String>,
+    /// Check Project has run, so a header's save runs it again.
+    #[serde(default)]
+    pub(crate) checked_once: bool,
 }
+
+pub use check::flags_line;
 
 impl Lsp {
     pub fn new(title: &'static str, specs: &'static [Spec]) -> Self {
@@ -67,6 +84,10 @@ impl Lsp {
             next_batch: 0,
             warned: BTreeSet::new(),
             rename_at: None,
+            hierarchy: hierarchy::Hierarchy::default(),
+            check: None,
+            closing: BTreeSet::new(),
+            checked_once: false,
         }
     }
 
@@ -120,16 +141,24 @@ impl Lsp {
             Command::new("rename", format!("{prefix}: Rename")),
             // The editor's Shift+F12, which peeks at them.
             Command::new("references", format!("{prefix}: Find References")),
+            // The editor's Shift+Alt+H, and its Hierarchy view's.
+            Command::new("call-hierarchy", format!("{prefix}: Show Call Hierarchy")),
+            Command::new("type-hierarchy", format!("{prefix}: Show Type Hierarchy")),
         ];
+        // Problems' Check Project, for a server that reports only on the
+        // files open.
+        if self.checks_projects() {
+            commands.push(Command::new(
+                "check-project",
+                format!("{prefix}: Check Whole Project"),
+            ));
+        }
         // clangd's own, with the key its VS Code extension gives it.
         if clangd {
-            commands.push(
-                Command::new(
-                    "switch-source-header",
-                    format!("{prefix}: Switch Header/Source"),
-                )
-                .key("alt+o"),
-            );
+            commands.push(Command::new(
+                "switch-source-header",
+                format!("{prefix}: Switch Header/Source"),
+            ));
         }
         commands
     }
@@ -153,6 +182,10 @@ impl Lsp {
             "format-changed" => self.format(Formatting::Changed, true),
             "rename" => self.prepare_rename(),
             "references" => self.ask("textDocument/references", Request::Peek),
+            id if self.hierarchy_command(id) => {}
+            "check-project" => self.check_project(),
+            // The editor's, as the cursor comes to a name; it doesn't list it.
+            "highlight" => self.highlight(),
             // The palette's symbol search, as the manifest's `symbols`.
             "project-symbols" => self.project_symbols(),
             "complete" => self.ask(
@@ -286,6 +319,19 @@ impl Lsp {
         let Some((path, spec, language)) = self.active() else {
             return;
         };
+        // A header saved can break the files that include it: once the
+        // project has been checked, it's checked again.
+        if let BufferEvent::Saved(saved) = &event {
+            let header = saved.rsplit_once('.').is_some_and(|(_, e)| {
+                matches!(
+                    e,
+                    "h" | "hh" | "hpp" | "hxx" | "h++" | "inl" | "ipp" | "tpp"
+                )
+            });
+            if header && self.checked_once && self.check.is_none() && self.checks_projects() {
+                self.check_project();
+            }
+        }
         if let BufferEvent::Saved(_) = event {
             if let Some(server) = self.server(spec.program)
                 && server.opened.contains_key(&path)
@@ -318,7 +364,18 @@ impl Lsp {
                     self.on_message(&program, message);
                 }
             }
-            ProcessEvent::Stderr(_) => {}
+            // clangd's log says when it guesses a file's flags.
+            ProcessEvent::Stderr(line) => {
+                if let Some((path, guessed)) = flags_line(&line)
+                    && let Some(server) = self.server(&program)
+                {
+                    if guessed {
+                        server.guessed.insert(path.to_string());
+                    } else {
+                        server.guessed.remove(path);
+                    }
+                }
+            }
             ProcessEvent::Exit(code) => {
                 if let Some(server) = self.server(&program) {
                     server.process = None;
@@ -341,12 +398,14 @@ impl Lsp {
     /// How each server is doing, for the language card, sent when it
     /// changes.
     pub fn report_status(&mut self) {
+        let open = self.active().map(|(path, _, _)| path);
         let lines: Vec<StatusItem> = self
             .servers
             .iter()
             .filter_map(|server| {
                 let spec = self.specs.iter().find(|s| s.program == server.program)?;
-                Some(server.status_item(spec))
+                let guessing = open.as_ref().is_some_and(|p| server.guessed.contains(p));
+                Some(server.status_item(spec, guessing))
             })
             .collect();
         let sent = format!("{lines:?}");
@@ -406,6 +465,12 @@ impl Plugin for Lsp {
     fn process(&mut self, process: u32, event: ProcessEvent) {
         Lsp::process(self, process, event);
         self.report_status();
+    }
+
+    fn cancel(&mut self, id: &str) {
+        if id == "check-project" {
+            self.stop_check();
+        }
     }
 
     fn save_state(&self) -> Option<Vec<u8>> {
@@ -506,6 +571,13 @@ impl<P: Plugin> Plugin for WithLsp<P> {
 
     fn click(&mut self, button: &str) {
         self.inner.click(button);
+    }
+
+    fn cancel(&mut self, id: &str) {
+        self.inner.cancel(id);
+        if id == "check-project" {
+            self.lsp.stop_check();
+        }
     }
 
     fn colour_text(&mut self, language: &str, text: &str) -> Vec<Token> {

@@ -70,6 +70,17 @@ impl Editor {
                 marks.push((doc.line_col(m).0, Style::ScrollMatch));
             }
         }
+        // The name's uses, where the server sends them.
+        if let Some(uses) = self.current_highlights() {
+            for &(a, _, write) in uses {
+                let style = if write {
+                    Style::WordWrite
+                } else {
+                    Style::WordRead
+                };
+                marks.push((doc.line_col(a).0, style));
+            }
+        }
         for caret in self.carets() {
             if let Some((a, b)) = caret.selection() {
                 let (first, last) = (doc.line_col(a).0, doc.line_col(b).0);

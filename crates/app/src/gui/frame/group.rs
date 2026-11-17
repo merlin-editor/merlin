@@ -302,6 +302,83 @@ impl Frame<'_> {
         );
     }
 
+    /// A plugin's bar over the file: what to fix, its buttons, the first
+    /// the main one, and ✕.
+    pub(super) fn plugin_bar(&mut self, bar: &merlin_core::FileBarView, r: Rect) {
+        let p = self.p;
+        let face = Face::ui(12.5);
+        self.canvas.fill(r, mix(p.warning, p.island, 0.12));
+        self.canvas.fill(
+            Rect::new(r.x, r.bottom() - 1.0, r.w, 1.0),
+            mix(p.warning, p.island, 0.22),
+        );
+        let (h, y) = (26.0, r.y + (r.h - 26.0) / 2.0);
+        let mut x = r.right() - 8.0;
+        // ✕ last.
+        let close = Rect::new(x - 26.0, y, 26.0, h);
+        if self.hovered(close) {
+            self.canvas.round(close, 6.0, p.chip);
+        }
+        let xw = self.text.width("✕", face);
+        self.text.draw_in_row(
+            &mut self.canvas,
+            "✕",
+            face,
+            close.x + (close.w - xw) / 2.0,
+            y,
+            h,
+            p.muted,
+            close,
+        );
+        self.hit(
+            close,
+            Hit::Ui(UiEvent::Press(format!("bar:{}:x", bar.index))),
+        );
+        self.tips.push((close, "Hide for This Project".into()));
+        x = close.x - 8.0;
+        for (n, (i, label)) in bar.buttons.iter().enumerate().rev() {
+            let primary = n == 0;
+            let face = if primary { face.medium() } else { face };
+            let w = self.text.width(label, face) + 20.0;
+            x -= w;
+            let b = Rect::new(x, y, w, h);
+            let hovered = self.hovered(b);
+            let (bg, fg) = match (primary, hovered) {
+                (true, false) => (p.accent, p.on_accent),
+                (true, true) => (mix(p.accent, 0xffffff, 0.88), p.on_accent),
+                (false, false) => (p.chip, p.bright),
+                (false, true) => (p.border, p.bright),
+            };
+            self.canvas.round(b, 6.0, bg);
+            self.text
+                .draw_in_row(&mut self.canvas, label, face, b.x + 10.0, y, h, fg, b);
+            self.hit(b, Hit::Ui(UiEvent::Press(format!("bar:{}:{i}", bar.index))));
+            x -= 8.0;
+        }
+        let text_r = Rect::new(r.x + 12.0, r.y, (x - r.x - 12.0).max(0.0), r.h);
+        self.text.draw_in_row(
+            &mut self.canvas,
+            "⚠",
+            face,
+            text_r.x,
+            r.y,
+            r.h,
+            p.warning,
+            text_r,
+        );
+        let text = self.text.fit(&bar.text, face, (text_r.w - 22.0).max(0.0));
+        self.text.draw_in_row(
+            &mut self.canvas,
+            &text,
+            face,
+            text_r.x + 22.0,
+            r.y,
+            r.h,
+            p.text,
+            text_r,
+        );
+    }
+
     pub(super) fn crumb_row(&mut self, crumbs: &[String], row: Rect, group: Option<usize>) {
         let p = self.p;
         let face = Face::ui(12.0);
@@ -369,6 +446,8 @@ impl Frame<'_> {
             }
             if let (Some((id, name)), Some(r)) = (&group.away, area.away) {
                 self.away_bar(*id, name, r);
+            } else if let (Some(bar), Some(r)) = (&group.bar, area.away) {
+                self.plugin_bar(bar, r);
             }
         }
         // Where a dragged tab or file would land: a side of a group, or

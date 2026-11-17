@@ -4,8 +4,8 @@ use std::collections::BTreeSet;
 
 use merlin_plugin::{
     ActionKind, CodeAction, Completion, CompletionKind, DetailedDiagnostic, Diagnostic, FoldRange,
-    InlayHint, Location, LogLevel, Position, ProjectSymbol, RenameInfo, Severity, Task, TaskGroup,
-    TokenLayer, host,
+    Highlight, InlayHint, Location, LogLevel, Position, ProjectSymbol, RenameInfo, Severity, Task,
+    TaskGroup, TokenLayer, host,
 };
 use serde_json::{Value, json};
 
@@ -143,10 +143,14 @@ impl Lsp {
                     .as_array()
                     .cloned()
                     .unwrap_or_default();
+                if self.closing_publish(&path, list.is_empty()) {
+                    return;
+                }
                 if let Some(server) = self.server(program) {
                     server.pushed.insert(path.clone(), list);
                 }
                 self.publish(program, &path);
+                self.checked(program, &path);
             }
             "$/progress" => {
                 let Some(server) = self.server(program) else {
@@ -157,6 +161,7 @@ impl Lsp {
                 match value["kind"].as_str() {
                     Some("end") => {
                         server.progress.remove(&token);
+                        server.progress_message.remove(&token);
                     }
                     Some(kind) => {
                         let title = match (kind, server.progress.get(&token)) {
@@ -169,6 +174,11 @@ impl Lsp {
                             Some(p) => format!("{title}: {p}%"),
                             None => title,
                         };
+                        if let Some(message) = value["message"].as_str() {
+                            server
+                                .progress_message
+                                .insert(token.clone(), message.to_string());
+                        }
                         server.progress.insert(token, detail);
                     }
                     None => {}
@@ -221,10 +231,12 @@ impl Lsp {
                 }
                 // The palette waits to hear, quietly.
                 Request::ProjectSymbols { query } => {
-                    return host::show_project_symbols(query, &[]);
+                    return self.answer_symbols(program, query, Vec::new());
                 }
                 // So does Ctrl over a name.
                 Request::DefinitionLink => return host::show_definitions(&[]),
+                // And the name's uses, which fall back to the same word.
+                Request::Highlight { path } => return host::set_highlights(path, &[]),
                 _ => {}
             }
             // Servers cancel requests that newer edits made pointless.
@@ -272,6 +284,7 @@ impl Lsp {
                 let offered = |v: &Value| !v.is_null() && *v != Value::Bool(false);
                 server.symbols = offered(&caps["documentSymbolProvider"]);
                 server.workspace_symbols = offered(&caps["workspaceSymbolProvider"]);
+                server.highlights = offered(&caps["documentHighlightProvider"]);
                 server.folds = offered(&caps["foldingRangeProvider"]);
                 server.inlay_hints = offered(&caps["inlayHintProvider"]);
                 server.formats = offered(&caps["documentFormattingProvider"]);
@@ -392,10 +405,29 @@ impl Lsp {
                             container: s["containerName"].as_str().unwrap_or_default().to_string(),
                             path: path_of(location["uri"].as_str()?)?,
                             start: position(&location["range"]["start"]),
+                            scan: false,
                         })
                     })
                     .collect();
-                host::show_project_symbols(&query, &symbols);
+                self.answer_symbols(program, &query, symbols);
+            }
+            Request::HierarchyPrepare { mode } => self.hierarchy_prepared(result, mode),
+            Request::HierarchyLevel { parent, mode, show } => {
+                self.hierarchy_level(result, parent, mode, show)
+            }
+            Request::Highlight { path } => {
+                // Kind 3 is a write; 2 a read, 1 text.
+                let uses: Vec<Highlight> = result
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|h| Highlight {
+                        start: position(&h["range"]["start"]),
+                        end: position(&h["range"]["end"]),
+                        write: h["kind"].as_u64() == Some(3),
+                    })
+                    .collect();
+                host::set_highlights(&path, &uses);
             }
             Request::Peek => {
                 let places: Vec<Location> = result

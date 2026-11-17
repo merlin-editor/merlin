@@ -6,6 +6,7 @@ pub use agents::{
     AgentRequest, AgentSpec, AgentTool, AgentUpdate, MissingProgram, PastChat, PlanStep, ToolKind,
     line_counts, read_only_command,
 };
+mod bars;
 mod blame;
 mod carets;
 mod chrome;
@@ -26,6 +27,8 @@ mod find;
 pub(crate) mod fold;
 mod format;
 mod groups;
+mod hierarchy;
+mod highlights;
 mod hot_exit;
 mod inline_change;
 mod matcher;
@@ -42,6 +45,7 @@ mod link;
 mod macros;
 mod search_all;
 pub use macros::{Macro, MacroView};
+pub use search_all::{PaletteState, StateTone};
 mod menu;
 mod merge;
 mod merge_editor;
@@ -59,7 +63,7 @@ pub use compare::{DiffBarView, DiffMark, DiffMarks};
 pub use debug::{
     BreakBoxView, BreakField, BreakMark, Breakpoint, BreakpointState, DAP, DebugBarView,
     DebugButton, DebugStart, DebugState, DebugTarget, DebugThread, DebugUpdate, DebugVariable,
-    Debugger, FunctionStop, OutputKind, StackFrame, StopFilter,
+    Debugger, DisasmLine, FunctionStop, MemoryView, OutputKind, StackFrame, StopFilter,
 };
 pub use inline_change::ChangeView;
 pub use merge_editor::{MergeBarView, MergeNote, MergePaneView, MergeRow, MergeSide, MergeView};
@@ -96,9 +100,11 @@ mod window;
 mod workspace;
 mod wrap;
 
+pub use bars::FileBarView;
+pub use hierarchy::{HierarchyItem, HierarchyMode};
 pub use window::{
-    PaletteExtra, PaletteIcon, PaletteView, PanelTab, RailItem, SideView, StatusView, TabView,
-    ToastView, ToolView, UiEvent, WindowView,
+    ChoiceView, PaletteExtra, PaletteIcon, PaletteView, PanelTab, RailItem, SideView, StatusView,
+    TabView, ToastView, ToolView, UiEvent, WindowView,
 };
 
 pub use agent_review::{AgentBarView, AgentHunkView};
@@ -149,7 +155,7 @@ pub use surface::{
     DocEditor, PAGE_GAP, PX_PER_PT, PageSize, Pages, SurfaceAction, SurfaceView, THUMB, TILE,
     TextBox, TileKey, Tiles, page_layout,
 };
-pub use views::SearchHit;
+pub use views::{SearchAsk, SearchHit};
 
 /// Most matches the palette keeps, so a big project stays fast.
 const PALETTE_LIMIT: usize = 500;
@@ -295,6 +301,15 @@ struct Message {
     link: Option<(String, String)>,
     /// A command to copy, in a box with Copy under the text.
     code: Option<String>,
+    /// A plugin's dropdown under the text.
+    choice: Option<NoticeChoice>,
+}
+
+/// A dropdown in a plugin's notice, and whether its list is open.
+struct NoticeChoice {
+    plugin: String,
+    choice: crate::panel::Choice,
+    open: bool,
 }
 
 pub struct Editor {
@@ -323,6 +338,8 @@ pub struct Editor {
     menu_target: Option<String>,
     /// Plugins' work under way, oldest first.
     progress: Vec<plugin_views::Progress>,
+    /// Problems shows only the open files'.
+    problems_open_only: bool,
     menu: Option<menu::Menu>,
     tree: Option<views::Tree>,
     search: views::Search,
@@ -372,6 +389,10 @@ pub struct Editor {
     last_macro_register: Option<char>,
     /// The macros saved in the settings.
     macros: Vec<Macro>,
+    /// What the project leaves out, as the host walks it.
+    exclusions: crate::exclude::Matcher,
+    /// The last pattern the Explorer's Exclude added, for its Undo.
+    last_exclude: Option<(String, bool)>,
     /// The project's files, as the palette asked for them.
     palette_files: Vec<String>,
     palette_text: search_all::TextSearch,
@@ -472,6 +493,16 @@ pub struct Editor {
     /// and what was last asked for. `now` is the time blame last came.
     blames: HashMap<PathBuf, (u64, crate::git::Blame)>,
     blame_asked: Option<(PathBuf, u64)>,
+    /// The name under the cursor's uses, from its language server, and the
+    /// name last asked about.
+    highlights: Option<highlights::Highlights>,
+    /// The widest line, by document and version.
+    widest_cache: std::cell::Cell<Option<((u64, u64), usize)>>,
+    highlight_asked: Option<(u64, u64, usize)>,
+    /// The Hierarchy view's calls or types, once one's been asked for.
+    hierarchy: Option<hierarchy::Hierarchy>,
+    /// Plugins' bars over their languages' files.
+    file_bars: Vec<bars::FileBar>,
     now: i64,
     /// The document showing the blame column (Git: Blame), the line and
     /// commit its card is open for, commits each file's blame leaves out,
@@ -496,8 +527,6 @@ pub struct Editor {
     /// The lines folded away, for a document, version and set of folds.
     #[allow(clippy::type_complexity)]
     fold_cache: std::cell::RefCell<Option<((u64, u64, Vec<usize>), Vec<std::ops::Range<usize>>)>>,
-    /// The widest line, by document and version.
-    widest_cache: std::cell::Cell<Option<((u64, u64), usize)>>,
     /// The minimap's lines, by document, version and colours.
     #[allow(clippy::type_complexity)]
     minimap_cache:
@@ -641,6 +670,7 @@ impl Editor {
             menus: Vec::new(),
             menu_target: None,
             progress: Vec::new(),
+            problems_open_only: false,
             menu: None,
             tree: None,
             search: Default::default(),
@@ -670,6 +700,8 @@ impl Editor {
             last_macro: None,
             last_macro_register: None,
             macros: Vec::new(),
+            exclusions: Default::default(),
+            last_exclude: None,
             palette_files: Vec::new(),
             palette_text: Default::default(),
             symbol_search: Vec::new(),
@@ -699,6 +731,7 @@ impl Editor {
             format_on_save: Default::default(),
             waiting_format: None,
             rename_box: None,
+            widest_cache: Default::default(),
             renaming: None,
             rename_review: None,
             peek: None,
@@ -718,6 +751,10 @@ impl Editor {
             compare_on_left: false,
             blames: HashMap::new(),
             blame_asked: None,
+            highlights: None,
+            highlight_asked: None,
+            hierarchy: None,
+            file_bars: Vec::new(),
             now: 0,
             blame_column: None,
             blame_card: None,
@@ -731,7 +768,6 @@ impl Editor {
             bracket_cache: Default::default(),
             fold_cache: Default::default(),
             row_cache: Default::default(),
-            widest_cache: Default::default(),
             minimap_cache: Default::default(),
             hover: None,
             nerd: false,
@@ -1046,6 +1082,7 @@ impl Editor {
             actions: Vec::new(),
             link: None,
             code: None,
+            choice: None,
         });
     }
 
@@ -1067,6 +1104,7 @@ impl Editor {
             actions: Vec::new(),
             link: None,
             code: None,
+            choice: None,
         });
     }
 

@@ -416,6 +416,7 @@ impl Editor {
         let number_line = vim_at.map_or(cur_line, |p| doc.line_col(p.min(doc.buffer.len())).0);
         let highlight_line = focused && selection.is_none();
         let guides = self.guides(visible_lines(first, last_shown - first, lines));
+        let uses: Option<Vec<(usize, usize, bool)>> = self.current_highlights().map(<[_]>::to_vec);
         // Fold arrows show for folded blocks, and for the others while the
         // mouse is over the gutter.
         let over_gutter = self.hover.is_some_and(|(hx, hy)| {
@@ -563,7 +564,23 @@ impl Editor {
                     }
                 }
             }
-            if let Some(word) = &guides.word {
+            // The server's uses of the name, read and written; else the
+            // same word.
+            if let Some(uses) = &uses {
+                for &(a, b, write) in uses.iter() {
+                    for (i, style) in styles.iter_mut().enumerate() {
+                        if (a..b).contains(&(start + i))
+                            && matches!(*style, Style::Normal | Style::CurrentLine)
+                        {
+                            *style = if write {
+                                Style::WordWrite
+                            } else {
+                                Style::WordRead
+                            };
+                        }
+                    }
+                }
+            } else if let Some(word) = &guides.word {
                 for m in guides::word_matches(&chars, word) {
                     for style in &mut styles[m..m + word.len()] {
                         if matches!(*style, Style::Normal | Style::CurrentLine) {

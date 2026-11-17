@@ -6,8 +6,9 @@ hue = "green"
 version = "0.1.0"
 api = "0.16"
 component = "target/wasm32-wasip2/release/cmake.wasm"
-# Starts when the project has a CMakeLists.txt, or one of its files opens.
-activate-on = ["file:CMakeLists.txt", "language:cmake"]
+# Starts when the project has a CMakeLists.txt, at its top or in a folder
+# there, or one of its files opens.
+activate-on = ["file:CMakeLists.txt", "file:*/CMakeLists.txt", "language:cmake"]
 
 [permissions]
 editor-read = true
@@ -22,7 +23,17 @@ processes = ["neocmakelsp", "ctest"]
 # Where the configured build put compile_commands.json, for the C/C++
 # plugin's clangd.
 [shared]
-provides = ["compile-commands"]
+provides = ["compile-commands", "build-setup"]
+
+# CMake's own debugger, in CMake 3.27 and later: it configures, stopping at
+# breakpoints in CMakeLists.txt and .cmake files. It talks over a pipe it
+# makes, so the editor connects to that.
+[[debuggers]]
+id = "cmake"
+name = "CMake"
+languages = ["cmake"]
+command = ["cmake", "--debugger", "--debugger-pipe", "${pipe}", "${args}"]
+url = "https://cmake.org/cmake/help/latest/manual/cmake.1.html#cmdoption-cmake-debugger"
 
 [programs.neocmakelsp]
 for = "Completion, hover, go to definition and formatting"

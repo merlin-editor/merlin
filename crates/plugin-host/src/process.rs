@@ -2,14 +2,14 @@
 //! queued; the host hands it to the plugin between editor events.
 
 use std::collections::HashMap;
-use std::io::{self, BufRead, BufReader, Write};
-use std::path::Path;
+use std::io::{self, BufRead, BufReader, Read, Write};
+use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::Waker;
 
@@ -36,9 +36,22 @@ struct Process {
     /// The program, as the manifest names it.
     program: String,
     child: Arc<Mutex<Child>>,
-    stdin: ChildStdin,
+    to: To,
     framing: Framing,
 }
+
+/// Where messages to a process go: its stdin, or the pipe it made, through
+/// the thread that connects to it.
+enum To {
+    Stdin(ChildStdin),
+    Pipe(Sender<Vec<u8>>),
+}
+
+/// The argument a plugin passes for a pipe the program makes, as CMake's
+/// `--debugger-pipe` does: the host puts a new pipe's path there, connects
+/// to it once the program has made it, and messages go through it rather
+/// than stdin and stdout.
+pub(crate) const PIPE: &str = "${pipe}";
 
 /// One plugin instance's processes. Dropping it kills them.
 pub(crate) struct Processes {
@@ -99,10 +112,18 @@ impl Processes {
         cwd: &Path,
         framing: Framing,
     ) -> Result<u32, String> {
+        let pipe = args.iter().any(|a| a.contains(PIPE)).then(pipe_path);
+        let args: Vec<String> = match &pipe {
+            Some(path) => {
+                let path = path.display().to_string();
+                args.iter().map(|a| a.replace(PIPE, &path)).collect()
+            }
+            None => args.to_vec(),
+        };
         let mut command = Command::new(program);
         die_with_editor(&mut command);
         command
-            .args(args)
+            .args(&args)
             .envs(env.iter().map(|(k, v)| (k, v)))
             .current_dir(cwd)
             .stdin(Stdio::piped())
@@ -123,19 +144,29 @@ impl Processes {
             }
         });
 
+        let to = match pipe {
+            Some(path) => {
+                let (tx, rx) = channel::<Vec<u8>>();
+                let send = self.sender(id);
+                let alive = child.clone();
+                thread::spawn(move || through_pipe(&path, framing, rx, &alive, send));
+                To::Pipe(tx)
+            }
+            None => To::Stdin(stdin),
+        };
+
         let send = self.sender(id);
         let waiter = child.clone();
+        let piped = matches!(to, To::Pipe(_));
         thread::spawn(move || {
             let mut reader = BufReader::new(stdout);
-            loop {
-                let message = match framing {
-                    Framing::Lines => read_line(&mut reader),
-                    Framing::ContentLength => read_content_length(&mut reader),
-                };
-                match message {
-                    Ok(Some(m)) => send(ProcessEvent::Message(m)),
-                    Ok(None) | Err(_) => break,
+            if piped {
+                // What it prints, as it talks over the pipe.
+                for line in reader.lines().map_while(Result::ok) {
+                    send(ProcessEvent::Stderr(line));
                 }
+            } else {
+                read_messages(&mut reader, framing, &send);
             }
             // Stdout closed; the process is exiting. Poll rather than wait()
             // so kill() can still take the lock.
@@ -155,7 +186,7 @@ impl Processes {
             Process {
                 program: program.to_string(),
                 child,
-                stdin,
+                to,
                 framing,
             },
         );
@@ -214,11 +245,15 @@ impl Processes {
                 format!("Content-Length: {}\r\n\r\n{message}", message.len())
             }
         };
-        process
-            .stdin
-            .write_all(framed.as_bytes())
-            .and_then(|()| process.stdin.flush())
-            .map_err(|e| format!("writing to process {id}: {e}"))
+        match &mut process.to {
+            To::Stdin(stdin) => stdin
+                .write_all(framed.as_bytes())
+                .and_then(|()| stdin.flush())
+                .map_err(|e| format!("writing to process {id}: {e}")),
+            To::Pipe(tx) => tx
+                .send(framed.into_bytes())
+                .map_err(|_| format!("process {id}'s pipe is closed")),
+        }
     }
 
     pub fn kill(&mut self, id: u32) {
@@ -282,6 +317,100 @@ fn start(command: Command) -> io::Result<Child> {
             command.spawn()
         }
     }
+}
+
+/// Reads framed messages until the stream ends.
+fn read_messages(reader: &mut impl BufRead, framing: Framing, send: &impl Fn(ProcessEvent)) {
+    loop {
+        let message = match framing {
+            Framing::Lines => read_line(reader),
+            Framing::ContentLength => read_content_length(reader),
+        };
+        match message {
+            Ok(Some(m)) => send(ProcessEvent::Message(m)),
+            Ok(None) | Err(_) => break,
+        }
+    }
+}
+
+/// A new pipe's path. On Unix a socket in the runtime folder, as a socket's
+/// path can't be longer than about a hundred bytes; on Windows a named
+/// pipe.
+fn pipe_path() -> PathBuf {
+    static NEXT: AtomicU32 = AtomicU32::new(0);
+    let name = format!(
+        "merlin-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    );
+    if cfg!(windows) {
+        return PathBuf::from(format!(r"\\.\pipe\{name}"));
+    }
+    let short = |dir: PathBuf| (dir.as_os_str().len() < 80).then_some(dir);
+    std::env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .and_then(short)
+        .or_else(|| short(std::env::temp_dir()))
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join(format!("{name}.sock"))
+}
+
+/// Connects to the pipe at `path` once the program has made it, then
+/// writes what arrives on `rx` to it and reads its messages back. Gives up
+/// if the program ends first, or after a minute.
+fn through_pipe(
+    path: &Path,
+    framing: Framing,
+    rx: std::sync::mpsc::Receiver<Vec<u8>>,
+    alive: &Mutex<Child>,
+    send: impl Fn(ProcessEvent) + Send + 'static,
+) {
+    let until = Instant::now() + Duration::from_secs(60);
+    let (reader, mut writer) = loop {
+        match connect(path) {
+            Ok(ends) => break ends,
+            Err(e) => {
+                let ended = !matches!(alive.lock().unwrap().try_wait(), Ok(None));
+                if ended || Instant::now() > until {
+                    send(ProcessEvent::Stderr(format!(
+                        "Couldn't connect to {}: {e}",
+                        path.display()
+                    )));
+                    return;
+                }
+                thread::sleep(Duration::from_millis(50));
+            }
+        }
+    };
+    thread::spawn(move || read_messages(&mut BufReader::new(reader), framing, &send));
+    for message in rx {
+        if writer
+            .write_all(&message)
+            .and_then(|()| writer.flush())
+            .is_err()
+        {
+            break;
+        }
+    }
+    #[cfg(unix)]
+    let _ = std::fs::remove_file(path);
+}
+
+type Ends = (Box<dyn Read + Send>, Box<dyn Write + Send>);
+
+#[cfg(unix)]
+fn connect(path: &Path) -> io::Result<Ends> {
+    let stream = std::os::unix::net::UnixStream::connect(path)?;
+    Ok((Box::new(stream.try_clone()?), Box::new(stream)))
+}
+
+#[cfg(windows)]
+fn connect(path: &Path) -> io::Result<Ends> {
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)?;
+    Ok((Box::new(file.try_clone()?), Box::new(file)))
 }
 
 fn read_line(reader: &mut impl BufRead) -> io::Result<Option<String>> {

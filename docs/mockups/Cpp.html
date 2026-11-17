@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>C++ Features</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#08090a;padding:24px 0}
+.w{width:1280px;height:800px;background:#0f1012;font-family:Inter,sans-serif;color:#d4d5da;display:flex;flex-direction:column;font-size:13px;overflow:hidden;position:relative;margin:0 auto 24px}
+.bar{height:40px;display:flex;align-items:center;gap:10px;padding:0 12px;flex-shrink:0}
+.logo{width:20px;height:20px;border-radius:5px;background:#7c9cff;color:#0f1012;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
+.search{margin:0 auto;width:400px;height:26px;border-radius:7px;background:#1c1d21;border:1px solid #2c2d33;color:#8e9099;display:flex;align-items:center;gap:8px;padding:0 10px;font-size:12.5px;box-sizing:border-box}
+.kbd{font-size:11px;background:#26272c;border-radius:4px;padding:1px 6px;color:#b4b6bd;font-family:Inter,sans-serif}
+.mid{flex:1;display:flex;gap:6px;padding-right:6px;min-height:0}
+.rail{width:44px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:6px;padding-top:6px}
+.ri{width:30px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:#7a7d86;font-size:14px;position:relative}
+.ri.on{background:#1c1d21;color:#eef0f3}
+.ri .cm{font:700 9px Inter,sans-serif;letter-spacing:.02em}
+.rline{width:22px;height:1px;background:#2c2d33;margin:2px 0}
+.island{background:#17181b;border-radius:10px;display:flex;flex-direction:column;min-width:0;overflow:hidden;position:relative}
+.tabs{height:32px;display:flex;align-items:center;gap:3px;padding:0 6px;flex-shrink:0}
+.tab{height:24px;padding:0 10px;border-radius:6px;display:flex;align-items:center;gap:6px;color:#8e9099;font-size:12.5px}
+.tab.on{background:#26272c;color:#eef0f3;box-shadow:inset 0 0 0 1px #2c2d33}
+.ic{width:14px;height:14px;border-radius:3px;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;background:#1e2a3a;color:#7cb7ff}
+.ic.cm{background:#1f3324;color:#a6d189}
+.code{font-family:'JetBrains Mono',monospace;font-size:13px;line-height:22px;white-space:pre;padding:4px 0}
+.ln{display:inline-block;width:40px;text-align:right;padding-right:20px;color:#7a7d86}
+.k{color:#c4a7e7}.s{color:#a6d189}.f{color:#f0c674}.t{color:#9ccfd8}.c{color:#7f8794}.n{color:#f5a97f}.v{color:#e5c890}
+.card{position:absolute;background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.45);font-family:Inter,sans-serif;overflow:hidden}
+.head{display:flex;align-items:center;gap:8px;padding:10px 12px 8px}
+.title{font-size:13px;font-weight:600;color:#eef0f3}
+.from{font-size:11.5px;color:#7a7d86}
+.item{display:flex;align-items:center;gap:9px;padding:7px 12px;min-height:22px}
+.dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.what{font-size:12.5px;color:#eef0f3;white-space:nowrap}
+.detail{font-size:12px;color:#8e9099;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+.mono{font-family:'JetBrains Mono',monospace;font-size:12px}
+.link{color:#7c9cff;font-size:12px;white-space:nowrap}
+.btn{height:22px;white-space:nowrap;flex-shrink:0;display:flex;align-items:center;gap:6px;padding:0 8px;border-radius:5px;font-size:12px;color:#d4d5da;background:#26272c}
+.btn.pri{background:#262b3d;color:#eef0f3;box-shadow:inset 0 0 0 1px #3a4466}
+.btn.icon{width:22px;padding:0;justify-content:center}
+.sep{height:1px;background:#2c2d33}
+.status{height:24px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px;color:#8e9099;flex-shrink:0;position:relative}
+.si{display:flex;align-items:center;gap:5px;white-space:nowrap}
+.si.hot{background:#1f2024;border-radius:4px;padding:2px 6px;margin:0 -6px;color:#eef0f3}
+.chip{display:flex;align-items:center;gap:5px;white-space:nowrap;border-radius:4px;padding:2px 6px;margin:0 -4px}
+.chip.on{background:#1f2024;color:#eef0f3}
+.sb{color:#8e9099;font-size:12px;padding:0 2px}
+.spin{width:9px;height:9px;border-radius:50%;border:1.5px solid #3a3b42;border-top-color:#7c9cff;display:inline-block}
+.label{position:absolute;font-family:Inter,sans-serif;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#7c9cff}
+.note{position:absolute;font-family:Inter,sans-serif;font-size:11.5px;color:#8e9099;line-height:16px}
+.note b{color:#d4d5da;font-weight:600}
+.panel{background:#0f1012;border:1px solid #2c2d33;border-radius:8px;position:absolute;overflow:hidden}
+.strip{height:24px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px;color:#8e9099;background:#0f1012}
+.pick{padding:6px}
+.ptitle{height:28px;display:flex;align-items:center;padding:0 8px;font-size:12.5px;color:#eef0f3;border-bottom:1px solid #2c2d33;margin-bottom:4px;gap:8px}
+.prow{display:flex;align-items:center;gap:8px;height:26px;padding:0 8px;border-radius:5px;font-size:12.5px;color:#d4d5da}
+.prow.on{background:#262b3d;color:#eef0f3}
+.prow .detail{flex:0 1 auto;margin-left:auto}
+.psec{font-size:10.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#7a7d86;padding:6px 8px 2px}
+.view{display:flex;flex-direction:column;font-size:12.5px}
+.vhead{height:32px;display:flex;align-items:center;gap:6px;padding:0 10px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#8e9099}
+.sec{display:flex;align-items:center;gap:6px;height:26px;padding:0 10px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#8e9099}
+.row{display:flex;align-items:center;gap:7px;height:24px;padding:0 10px;color:#d4d5da;white-space:nowrap}
+.row.on{background:#262b3d}
+.row .detail{flex:0 1 auto}
+.row .acts{margin-left:auto;display:flex;gap:4px;color:#8e9099}
+.tw{color:#7a7d86;width:10px;font-size:10px}
+.kind{font-size:10px;font-weight:700;border-radius:3px;padding:0 4px;height:14px;line-height:14px}
+.exe{background:#262b3d;color:#9db4ff}
+.lib{background:#26272c;color:#b4b6bd}
+.var{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#d4d5da;width:200px;overflow:hidden;text-overflow:ellipsis}
+.val{height:22px;border-radius:5px;background:#1c1d21;border:1px solid #2c2d33;display:flex;align-items:center;padding:0 7px;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#d4d5da;box-sizing:border-box;flex:1}
+.sw{width:26px;height:14px;border-radius:7px;background:#3a4466;position:relative;flex-shrink:0}
+.sw i{position:absolute;top:2px;left:14px;width:10px;height:10px;border-radius:50%;background:#eef0f3}
+.sw.off{background:#3a3b42}.sw.off i{left:2px;background:#8e9099}
+.mod{font-size:10px;color:#e3b341;border:1px solid #5a4a1e;border-radius:3px;padding:0 4px}
+.banner{display:flex;align-items:center;gap:8px;padding:7px 10px;background:#1f2a40;color:#c9d6ff;font-size:12px}
+.box{height:24px;border-radius:6px;background:#1c1d21;border:1px solid #2c2d33;display:flex;align-items:center;padding:0 8px;color:#7a7d86;font-size:12px;margin:4px 10px;box-sizing:border-box}
+.term{font-family:'JetBrains Mono',monospace;font-size:12px;line-height:19px;white-space:pre;padding:8px 12px;color:#b4b6bd}
+.err{color:#f0807a}.ok{color:#a6d189}.dim{color:#7a7d86}
+.cc{position:absolute;background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.45);overflow:hidden;font-family:'JetBrains Mono',monospace;font-size:12.5px}
+.ci{display:flex;align-items:center;gap:8px;height:24px;padding:0 8px 0 6px;color:#9a9ca4;white-space:nowrap}
+.ci.on{background:#262b3d;color:#d4d5da}
+.km{width:16px;height:16px;border-radius:4px;font:700 9.5px Inter,sans-serif;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.km.fn{background:#3a3320;color:#f0c674}.km.ty{background:#1f3236;color:#9ccfd8}.km.va{background:#2a2b31;color:#d4d5da}
+.km.kw{background:#2f2840;color:#c4a7e7}.km.co{background:#3a2a20;color:#f5a97f}.km.fi{background:#2a2b31;color:#b4b6bd}
+.km.mo{background:#1f3236;color:#9ccfd8}.km.ma{background:#1f3236;color:#9ccfd8}
+.nm{flex-shrink:0}
+.mt{font-weight:600;text-decoration:underline;text-decoration-color:#7c9cff;text-underline-offset:3px}
+.dt{margin-left:auto;padding-left:14px;font-size:11.5px;opacity:.55;overflow:hidden;text-overflow:ellipsis}
+.ci.on .dt{opacity:.9}
+.cdoc{border-top:1px solid #2c2d33;padding:8px 10px;font-size:12px;line-height:18px;color:#d4d5da;white-space:normal}
+.cdoc .p{font-family:Inter,sans-serif;color:#8e9099;font-size:12px;margin-top:4px}
+.ed{font-family:'JetBrains Mono',monospace;font-size:13px;line-height:22px;white-space:pre;color:#d4d5da}
+.cur{display:inline-block;width:2px;height:16px;background:#7c9cff;vertical-align:-3px}
+.old{position:absolute;background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;overflow:hidden;font-family:'JetBrains Mono',monospace;font-size:12.5px}
+.old .ci{color:#d4d5da}
+h2{font:600 12px Inter,sans-serif;letter-spacing:.04em;text-transform:uppercase;color:#7c9cff;margin:0 0 6px}
+.ic.h{background:#2a2440;color:#c4a7e7}
+.menu{position:absolute;background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.45);padding:4px;font-size:12.5px;width:290px}
+.mi{display:flex;align-items:center;height:26px;padding:0 10px;border-radius:5px;color:#d4d5da}
+.mi.on{background:#262b3d;color:#eef0f3}
+.mi .key{margin-left:auto;color:#7a7d86;font-size:11.5px}
+.msep{height:1px;background:#2c2d33;margin:4px 6px}
+.use{background:rgba(124,156,255,.16);border-radius:3px}
+.usew{background:rgba(227,179,65,.18);border-radius:3px;box-shadow:inset 0 -1.5px 0 #e3b341}
+.seg{display:flex;background:#1c1d21;border-radius:6px;padding:2px;gap:2px;font-size:11.5px}
+.seg span{padding:2px 9px;border-radius:4px;color:#8e9099}
+.seg .on{background:#26272c;color:#eef0f3}
+.asm{font-family:'JetBrains Mono',monospace;font-size:12px;line-height:20px;white-space:pre;padding:4px 0}
+.ad{display:inline-block;width:150px;color:#7a7d86;padding-left:14px}
+.op{color:#c4a7e7;display:inline-block;width:60px}
+.src{color:#7f8794;font-style:italic}
+.here{background:rgba(227,179,65,.13);box-shadow:inset 3px 0 0 #e3b341}
+.hex{font-family:'JetBrains Mono',monospace;font-size:12px;line-height:20px;white-space:pre;padding:4px 12px;color:#b4b6bd}
+.hx{color:#7a7d86}
+.hb{background:rgba(124,156,255,.22);color:#eef0f3;border-radius:2px}
+.sq{text-decoration:underline wavy #f0807a;text-underline-offset:4px}
+.sqw{text-decoration:underline wavy #e3b341;text-underline-offset:4px}
+.tool{position:absolute;height:34px;display:flex;align-items:center;gap:8px;padding:0 10px;background:#1c1d21;border:1px solid #2c2d33;border-radius:9px;box-shadow:0 8px 22px rgba(0,0,0,.45);font-size:14px}
+.dstatus{height:24px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px;flex-shrink:0;background:#2a2416;color:#e3b341}
+</style>
+</head>
+<body>
+
+<!-- ARTBOARD 1: getting around C++ code -->
+<div class="w">
+  <div class="bar"><div class="logo">m</div><div class="search">⌕ Search files, commands, symbols and text <span class="kbd" style="margin-left:auto">Ctrl Shift P</span></div></div>
+  <div class="mid">
+    <div class="rail">
+      <div class="ri">❐</div><div class="ri">⌕</div><div class="ri">⑂</div><div class="ri">⚗</div><div class="ri">▷</div><div class="ri on">⇄</div>
+      <div class="rline"></div><div class="ri"><span class="cm">CM</span></div>
+    </div>
+    <div class="island view" style="width:330px;flex-shrink:0">
+      <div class="vhead">Hierarchy<span style="margin-left:auto" class="seg"><span class="on">Calls</span><span>Types</span></span></div>
+      <div class="item" style="padding:2px 10px 6px;gap:8px">
+        <span class="km fn" style="font-family:Inter">ƒ</span>
+        <span style="display:flex;flex-direction:column;gap:1px;min-width:0"><span class="what mono">area(int, int)</span><span class="detail" style="font-size:11.5px">shapes.cpp:3</span></span>
+        <span style="margin-left:auto" class="seg"><span class="on">Callers</span><span>Callees</span></span>
+      </div>
+      <div class="sep"></div>
+      <div class="row on"><span class="tw">▾</span><span class="km fn" style="font-family:Inter">ƒ</span>total_area<span class="detail" style="margin-left:6px">shapes.cpp:18</span><span class="acts"><span class="dim" style="font-size:11.5px">2 calls</span></span></div>
+      <div class="row" style="padding-left:28px"><span class="tw">▾</span><span class="km fn" style="font-family:Inter">ƒ</span>main<span class="detail" style="margin-left:6px">main.cpp:9</span></div>
+      <div class="row" style="padding-left:46px;color:#7a7d86"><span class="tw"></span>no callers</div>
+      <div class="row" style="padding-left:28px"><span class="tw">▸</span><span class="km fn" style="font-family:Inter">ƒ</span>Report::print<span class="detail" style="margin-left:6px">report.cpp:41</span></div>
+      <div class="row"><span class="tw">▸</span><span class="km fn" style="font-family:Inter">ƒ</span>Square::size<span class="detail" style="margin-left:6px">square.h:12</span></div>
+      <div class="row"><span class="tw">▸</span><span class="km fn" style="font-family:Inter">ƒ</span>test_area<span class="detail" style="margin-left:6px">tests/area.cpp:7</span></div>
+      <div class="sep" style="margin-top:8px"></div>
+      <div class="note" style="position:static;padding:10px;font-size:11.5px">
+        <b>Types</b>, the same view's other half, for a class: <b>Bases</b> up to the top, or <b>Derived</b> down, as a tree:
+      </div>
+      <div class="row"><span class="tw">▾</span><span class="km ty">T</span>Circle<span class="detail" style="margin-left:6px">circle.h:5</span></div>
+      <div class="row" style="padding-left:28px"><span class="tw">▾</span><span class="km ty">T</span>Shape<span class="detail" style="margin-left:6px">shape.h:3</span></div>
+      <div class="row" style="padding-left:46px"><span class="tw"></span><span class="km ty">T</span>Drawable<span class="detail" style="margin-left:6px">draw.h:8</span></div>
+    </div>
+    <div class="island" style="flex:1">
+      <div class="tabs"><div class="tab on"><span class="ic">CP</span>shapes.cpp</div><div class="tab"><span class="ic h">H</span>shapes.h</div></div>
+      <div class="code"><span class="ln">3</span><span class="k">int</span> <span class="f">area</span>(<span class="k">int</span> w, <span class="k">int</span> h) { <span class="k">return</span> w * h; }
+<span class="ln">4</span>
+<span class="ln">15</span><span class="k">int</span> <span class="f">total_area</span>(<span class="k">const</span> std::<span class="t">vector</span>&lt;<span class="t">Rect</span>&gt; &amp;rects) {
+<span class="ln">16</span>    <span class="k">int</span> <span class="usew">total</span> = <span class="n">0</span>;
+<span class="ln">17</span>    <span class="k">for</span> (<span class="k">auto</span> &amp;r : rects)
+<span class="ln">18</span>        <span class="usew">total</span> += <span class="f">area</span>(r.w, r.h);
+<span class="ln">19</span>    <span class="k">if</span> (<span class="use">total</span> &lt; <span class="n">0</span>)
+<span class="ln">20</span>        <span class="usew">total</span> = <span class="n">0</span>;
+<span class="ln">21</span>    <span class="k">return</span> <span class="use">total</span><span class="cur"></span>;
+<span class="ln">22</span>}</div>
+      <div style="position:absolute;right:4px;top:40px;width:8px;height:300px">
+        <div style="position:absolute;top:60px;width:8px;height:3px;background:#e3b341"></div>
+        <div style="position:absolute;top:84px;width:8px;height:3px;background:#e3b341"></div>
+        <div style="position:absolute;top:96px;width:8px;height:3px;background:#7c9cff"></div>
+        <div style="position:absolute;top:108px;width:8px;height:3px;background:#e3b341"></div>
+        <div style="position:absolute;top:120px;width:8px;height:3px;background:#7c9cff"></div>
+      </div>
+
+      <div class="menu" style="left:150px;top:262px">
+        <div class="mi on">Go to Definition<span class="key">F12</span></div>
+        <div class="mi">Go to Declaration</div>
+        <div class="mi">Go to Type Definition</div>
+        <div class="mi">Go to Implementations<span class="key">Ctrl F12</span></div>
+        <div class="mi">Find All References<span class="key">Shift F12</span></div>
+        <div class="msep"></div>
+        <div class="mi">Show Call Hierarchy<span class="key">Shift Alt H</span></div>
+        <div class="mi">Show Type Hierarchy</div>
+        <div class="msep"></div>
+        <div class="mi">Rename Symbol<span class="key">F2</span></div>
+        <div class="mi">Refactor…<span class="key">Ctrl Shift R</span></div>
+        <div class="mi">Switch Header/Source<span class="key">Alt O</span></div>
+        <div class="msep"></div>
+        <div class="mi">Cut</div><div class="mi">Copy</div><div class="mi">Paste</div>
+      </div>
+
+      <div class="label" style="left:480px;top:300px">1 · Getting around C++ code</div>
+      <div class="note" style="left:480px;top:320px;width:390px">
+        <b>Right-click</b> on a name gives every way to follow it, with its key. The entries come from what the file's language server can do, so the menu is the same for Rust, Go or Python, less what their server lacks. Go to Implementations gets Ctrl+F12 here, as merlin's own binding, which plugins can't take.<br><br>
+        <b>Call and Type Hierarchy</b> (Shift+Alt+H; 380 and 114 votes) open in a view of their own. <b>Callers</b> go up, <b>Callees</b> down, each level opened as asked, as the LSP's <span class="mono">callHierarchy</span> calls it. A click opens the call, a row's count says how many calls it makes there. <b>Types</b> shows a class's bases or the classes derived from it.<br><br>
+        <b>The name's other uses</b> light up when the cursor rests on one, from the server's <span class="mono">documentHighlight</span>: where it's written in amber with a line under it, where it's read in blue, and marks in the scrollbar. Without a server, the same word in the file, faintly.
+      </div>
+    </div>
+  </div>
+  <div class="status">
+    <span class="si">⑂ main</span><span class="si">⊗ 0</span><span class="si">⚠ 0</span>
+    <span class="si" style="margin-left:auto">Ln 21, Col 17</span><span class="si">Spaces: 4</span><span class="si">UTF-8</span><span class="si">LF</span>
+    <span class="si hot"><span style="color:#a6d189">{ }</span> C++</span>
+  </div>
+</div>
+
+<!-- ARTBOARD 2: the debugger, closer to the machine -->
+<div class="w">
+  <div class="bar"><div class="logo">m</div><div class="search">⌕ Search files, commands, symbols and text <span class="kbd" style="margin-left:auto">Ctrl Shift P</span></div></div>
+  <div class="mid">
+    <div class="rail">
+      <div class="ri">❐</div><div class="ri">⌕</div><div class="ri">⑂</div><div class="ri">⚗</div><div class="ri on">▷</div><div class="ri">☰</div>
+    </div>
+    <div class="island view" style="width:290px;flex-shrink:0">
+      <div class="item" style="padding:8px 10px"><span class="dot" style="background:#e3b341"></span><span class="what">cmdemo (gdb)</span><span style="margin-left:auto;font-size:11.5px;color:#e3b341">Paused, step</span></div>
+      <div class="sec">▾ Variables</div>
+      <div class="row mono" style="font-size:12px"><span class="tw">▸</span><span style="color:#c4a7e7">rects</span>&nbsp;= size 3<span class="detail" style="margin-left:auto;font-family:Inter;font-size:11px">std::vector&lt;Rect&gt;</span></div>
+      <div class="row mono" style="font-size:12px;padding-left:28px"><span style="color:#c4a7e7">[0]</span>&nbsp;= {w = 3, h = 4}</div>
+      <div class="row mono" style="font-size:12px"><span class="tw"></span><span style="color:#c4a7e7">total</span>&nbsp;= <span class="n">12</span><span class="detail" style="margin-left:auto;font-family:Inter;font-size:11px">int · 0x7ffe…a4c</span></div>
+      <div class="sec">▾ Call Stack</div>
+      <div class="row on">total_area<span class="detail" style="margin-left:auto">shapes.cpp:18</span></div>
+      <div class="row">main<span class="detail" style="margin-left:auto">main.cpp:9</span></div>
+      <div class="row" style="color:#7a7d86">3 frames in libraries</div>
+      <div class="sec">▾ Stepping</div>
+      <div class="row" style="gap:8px">Skip library code<span class="sw" style="margin-left:auto"><i></i></span></div>
+      <div class="row" style="color:#7a7d86;font-size:11.5px;white-space:normal;height:auto;padding:2px 10px 6px">Step Into goes past std:: and the system's headers, to your code again, as "Just My Code" does (171 votes).</div>
+      <div class="row" style="gap:8px">Step by instruction<span class="sw off" style="margin-left:auto"><i></i></span></div>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;gap:6px;min-width:0">
+      <div style="flex:1;display:flex;gap:6px;min-height:0">
+        <div class="island" style="flex:1">
+          <div class="tabs"><div class="tab on"><span class="ic">CP</span>shapes.cpp</div></div>
+          <div class="code"><span class="ln">15</span><span class="k">int</span> <span class="f">total_area</span>(<span class="k">const</span> std::<span class="t">vector</span>&lt;<span class="t">Rect</span>&gt; &amp;rects) {
+<span class="ln">16</span>    <span class="k">int</span> total = <span class="n">0</span>;
+<span class="ln">17</span>    <span class="k">for</span> (<span class="k">auto</span> &amp;r : rects)
+<div class="here"><span class="ln">18</span>        total += <span class="f">area</span>(r.w, r.h);</div><span class="ln">19</span>    <span class="k">return</span> total;
+<span class="ln">20</span>}</div>
+        </div>
+        <div class="island" style="flex:1.1">
+          <div class="tabs"><div class="tab on">⚙ Disassembly</div><span style="margin-left:auto;font-size:11.5px;color:#7a7d86;padding-right:8px">total_area · x86-64</span></div>
+          <div class="asm"><span class="src">  18      total += area(r.w, r.h);</span>
+<span class="ad">0x401146 &lt;+22&gt;</span><span class="op">mov</span>eax, DWORD PTR [rbp-0x18]
+<span class="ad">0x40114a &lt;+26&gt;</span><span class="op">mov</span>edx, DWORD PTR [rax+0x4]
+<div class="here"><span class="ad">0x40114d &lt;+29&gt;</span><span class="op">mov</span>esi, edx</div><span class="ad">0x40114f &lt;+31&gt;</span><span class="op">mov</span>edi, eax
+<span class="ad">0x401151 &lt;+33&gt;</span><span class="op">call</span><span class="f">0x401126 &lt;area(int, int)&gt;</span>
+<span class="ad">0x401156 &lt;+38&gt;</span><span class="op">add</span>DWORD PTR [rbp-0x4], eax
+<span class="src">  17  for (auto &amp;r : rects)</span>
+<span class="ad">0x401159 &lt;+41&gt;</span><span class="op">add</span>QWORD PTR [rbp-0x10], 0x8
+<span class="ad">0x40115e &lt;+46&gt;</span><span class="op">jmp</span><span class="f">0x401136 &lt;+6&gt;</span></div>
+        </div>
+      </div>
+      <div class="island" style="height:220px;flex-shrink:0">
+        <div style="height:34px;display:flex;align-items:center;gap:14px;padding:0 14px;font-size:12.5px;color:#8e9099"><span>Problems</span><span>Terminal</span><span>Debug Console</span><span style="color:#eef0f3;border-bottom:2px solid #7c9cff;padding-bottom:3px">Memory</span>
+          <span class="val" style="margin-left:18px;flex:0 0 220px">&amp;total ▾</span><span class="dim" style="font-size:11.5px">0x7ffd5e1c2a4c · 4 bytes</span>
+          <span style="margin-left:auto;display:flex;gap:6px"><span class="btn">Bytes ▾</span><span class="btn">Refresh</span></span></div>
+        <div class="hex"><span class="hx">0x7ffd5e1c2a40</span>  01 00 00 00 03 00 00 00  04 00 00 00 <span class="hb">0c 00 00 00</span>   <span class="hx">................</span>
+<span class="hx">0x7ffd5e1c2a50</span>  60 2b 1c 5e fd 7f 00 00  56 11 40 00 00 00 00 00   <span class="hx">`+.^....V.@.....</span>
+<span class="hx">0x7ffd5e1c2a60</span>  a0 c2 41 00 00 00 00 00  03 00 00 00 00 00 00 00   <span class="hx">..A.............</span>
+<span class="hx">0x7ffd5e1c2a70</span>  00 00 00 00 00 00 00 00  <span style="color:#e3b341">ff</span> 00 00 00 00 00 00 00   <span class="hx">................</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="dstatus"><span>● Debugging cmdemo</span><span>Paused at shapes.cpp:18 · 0x40114d</span><span style="margin-left:auto">C++</span></div>
+  <div class="tool" style="left:600px;top:42px;height:28px"><span style="color:#6cc070">▶</span><span style="color:#7c9cff">⤼</span><span style="color:#7c9cff">⤓</span><span style="color:#7c9cff">⤒</span><span style="color:#c4a7e7;font-size:11px;font-weight:700;border:1px solid #3a3b42;border-radius:4px;padding:0 4px">⤼ i</span><span style="color:#6cc070">↻</span><span style="color:#f0807a">■</span></div>
+
+</div>
+<div class="w" style="height:auto;padding:22px 32px;box-sizing:border-box;display:block">
+  <h2>2 · The debugger, closer to the machine</h2>
+  <div class="note" style="position:static;width:auto;font-size:12px">
+    For every language whose debugger has them (gdb and lldb-dap for C, C++, Rust, Zig, Go), as the debug protocol's own requests: <span class="mono">disassemble</span>, <span class="mono">readMemory</span>, instruction stepping and <span class="mono">stepInTargets</span>. The most voted C/C++ requests after renaming (436, 367 and 345 votes).<br><br>
+    <b>Disassembly</b> (Debug › Open Disassembly, or right-click a frame) opens beside the source and follows it: the paused instruction marked as the paused line is, the source line each run of instructions comes from above it in grey, calls named. Breakpoints go on an instruction too. <b>Step by instruction</b> switches F10 and F11 to one instruction at a time, and the toolbar shows <b>⤼ i</b> while it's on.<br><br>
+    <b>Memory</b> is a bottom panel tab: an address, or any expression (<span class="mono">&amp;total</span>, <span class="mono">rects.data()</span>), then rows of 16 bytes with their text. The bytes of the expression are tinted, ones that changed since the last stop are amber. Right-click a variable for "Show in Memory"; a variable's row shows its address faintly.<br><br>
+    <b>Skip library code</b> ("Just My Code"), on by default: Step Into steps over code from the standard library and the system's headers (outside the workspace), as gdb's <span class="mono">skip</span> and lldb's step-avoid settings do. The call stack folds library frames into one line, as it does today.
+  </div>
+</div>
+
+<!-- ARTBOARD 3: setting a project up, and every file's errors -->
+<div class="w">
+  <div class="bar"><div class="logo">m</div><div class="search">⌕ Search files, commands, symbols and text <span class="kbd" style="margin-left:auto">Ctrl Shift P</span></div></div>
+  <div class="mid">
+    <div class="rail">
+      <div class="ri on">❐</div><div class="ri">⌕</div><div class="ri">⑂</div><div class="ri">⚗</div><div class="ri">▷</div><div class="ri">☰</div>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;gap:6px;min-width:0">
+      <div class="island" style="flex:1">
+        <div class="tabs"><div class="tab on"><span class="ic">CP</span>engine.cpp</div></div>
+        <div class="banner" style="background:#2a2416;color:#e3b341;gap:10px;padding:8px 12px">
+          <span style="font-weight:600">⚠</span>
+          <span style="color:#d4d5da">clangd has no compile commands for this project, so it's guessing the flags: includes may not be found.</span>
+          <span style="margin-left:auto;display:flex;gap:6px"><span class="btn pri">Configure with CMake</span><span class="btn">Set Include Folders…</span><span class="btn icon">✕</span></span>
+        </div>
+        <div class="code"><span class="ln">1</span><span class="k">#include</span> <span class="s sq">&lt;fmt/core.h&gt;</span>   <span style="color:#f0807a;font-family:Inter;font-size:12px">'fmt/core.h' file not found</span>
+<span class="ln">2</span><span class="k">#include</span> <span class="s">"engine.h"</span>
+<span class="ln">3</span>
+<span class="ln">4</span><span class="k">void</span> <span class="t">Engine</span>::<span class="f">run</span>() {
+<span class="ln">5</span>    fmt::<span class="f sq">print</span>(<span class="s">"tick {}\n"</span>, ticks_);
+<span class="ln">6</span>}</div>
+      </div>
+      <div class="island" style="height:330px;flex-shrink:0">
+        <div style="height:34px;display:flex;align-items:center;gap:14px;padding:0 14px;font-size:12.5px;color:#8e9099"><span style="color:#eef0f3;border-bottom:2px solid #7c9cff;padding-bottom:3px">Problems</span><span>Output</span><span>Terminal</span>
+          <span class="seg" style="margin-left:18px"><span>Open Files</span><span class="on">Whole Project</span></span>
+          <span style="margin-left:auto;display:flex;gap:8px;align-items:center"><span class="spin"></span><span class="dim" style="font-size:11.5px">Checking 84 of 212 files…</span><span class="btn">Stop</span></span></div>
+        <div class="row"><span class="tw">▾</span><span class="ic">CP</span>src/engine.cpp<span class="detail" style="margin-left:6px">open</span><span class="acts"><span style="color:#f0807a">2</span></span></div>
+        <div class="row" style="padding-left:30px"><span style="color:#f0807a">⊗</span>'fmt/core.h' file not found<span class="detail" style="margin-left:8px">1:10 · clang</span></div>
+        <div class="row" style="padding-left:30px"><span style="color:#f0807a">⊗</span>use of undeclared identifier 'fmt'<span class="detail" style="margin-left:8px">5:5 · clang</span></div>
+        <div class="row"><span class="tw">▾</span><span class="ic">CP</span>src/net/socket.cpp<span class="acts"><span style="color:#e3b341">1</span></span></div>
+        <div class="row" style="padding-left:30px"><span style="color:#e3b341">⚠</span>unused variable 'retries'<span class="detail" style="margin-left:8px">48:9 · -Wunused-variable</span></div>
+        <div class="row"><span class="tw">▾</span><span class="ic h">H</span>include/net/socket.h<span class="acts"><span style="color:#e3b341">1</span></span></div>
+        <div class="row" style="padding-left:30px"><span style="color:#e3b341">⚠</span>'close' overrides a member function but isn't marked 'override'<span class="detail" style="margin-left:8px">22:10 · clang-tidy</span></div>
+        <div class="row"><span class="tw">▸</span><span class="ic">CP</span>src/render/gl.cpp<span class="acts"><span style="color:#e3b341">3</span></span></div>
+      </div>
+    </div>
+  </div>
+  <div class="status">
+    <span class="si">⑂ main</span><span class="si">⊗ 2</span><span class="si">⚠ 5</span>
+    <span class="si" style="margin-left:auto">Ln 1, Col 1</span><span class="si">Spaces: 4</span><span class="si">UTF-8</span><span class="si">LF</span>
+    <span class="si hot"><span style="color:#e3b341">{ }</span> C++ · guessing flags</span>
+  </div>
+</div>
+<div class="w" style="height:auto;padding:22px 32px;box-sizing:border-box;display:block">
+  <h2>3 · Setting a project up, and every file's errors</h2>
+  <div class="note" style="position:static;width:auto;font-size:12px">
+    <b>No compile commands</b>: today clangd guesses each file's flags, and a project that needs any include folder shows red everywhere with no word why. When clangd says it's guessing (its <span class="mono">fileStatus</span>, or no <span class="mono">compile_commands.json</span> found), a bar over the file says so, once per project, with what would fix it here:
+    <b>Configure with CMake</b> when the CMake plugin finds a project that isn't configured (it shares the build's file, as today); <b>Configure Meson</b> and the like from other build plugins; else <b>Set Include Folders…</b>, which opens the C/C++ plugin's settings. ✕ hides it for the project. The language's status item turns amber, "C++ · guessing flags", and its card says the same with the same buttons, so the bar can go and the help stays.<br><br>
+    <b>Errors for the whole project</b> (29 votes for clangd): clangd reports only open files. <b>Whole Project</b> in Problems checks every file <span class="mono">compile_commands.json</span> lists, a few at a time in the background, with clangd's own <span class="mono">--check</span> or the compiler's <span class="mono">-fsyntax-only</span>, clang-tidy's findings too when the project has a <span class="mono">.clang-tidy</span>. A spinner says how far it's got, Stop stops it, and it runs again on Save All or by hand, not on every keystroke. Open files keep their live problems from clangd, marked "open". The status bar counts follow the scope picked.
+  </div>
+</div>
+
+</body>
+</html>

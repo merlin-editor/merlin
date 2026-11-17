@@ -36,6 +36,23 @@ pub(crate) enum Request {
     },
     /// clangd's own: the header for a source file, or the other way.
     SwitchSourceHeader,
+    /// The function or type a call or type hierarchy starts from.
+    HierarchyPrepare {
+        #[serde(with = "mode_name")]
+        mode: merlin_plugin::HierarchyMode,
+    },
+    /// The level under a hierarchy's item: shown as the tree, or as the
+    /// item's children.
+    HierarchyLevel {
+        parent: u32,
+        #[serde(with = "mode_name")]
+        mode: merlin_plugin::HierarchyMode,
+        show: bool,
+    },
+    /// The uses of the name under the cursor, in `path`.
+    Highlight {
+        path: String,
+    },
     CodeActions,
     /// A code action's command, which the server runs.
     ExecuteCommand,
@@ -132,6 +149,10 @@ pub(crate) struct Server {
     pub queue: Vec<Value>,
     /// Work in progress by token, such as indexing.
     pub progress: BTreeMap<String, String>,
+    /// The last message each work in progress gave, as clangd's
+    /// `412/1030` files indexed.
+    #[serde(default)]
+    pub progress_message: BTreeMap<String, String>,
     /// Whether the server gives diagnostics when asked (LSP 3.17 pull
     /// diagnostics). rust-analyzer gives its own only this way, and pushes
     /// just `cargo check`'s.
@@ -156,6 +177,12 @@ pub(crate) struct Server {
     /// Whether it searches the project's symbols.
     #[serde(default)]
     pub workspace_symbols: bool,
+    /// Files it guesses the flags for, with no compile command, as clangd
+    /// logs.
+    #[serde(default)]
+    pub guessed: std::collections::BTreeSet<String>,
+    /// It finds a name's uses in a file (`documentHighlight`).
+    pub highlights: bool,
     #[serde(default)]
     pub folds: bool,
     #[serde(default)]
@@ -393,7 +420,8 @@ impl Server {
 
     /// How it's doing, for the language card, with Restart, and how to
     /// install it when it isn't.
-    pub(crate) fn status_item(&self, spec: &Spec) -> StatusItem {
+    /// Its status item; `guessing` while it guesses the open file's flags.
+    pub(crate) fn status_item(&self, spec: &Spec, guessing: bool) -> StatusItem {
         let mut item = StatusItem {
             name: self.program.clone(),
             state: StatusState::Ready,
@@ -412,7 +440,8 @@ impl Server {
             Status::Failed(err) if err.contains("os error 2") => {
                 item.state = StatusState::Warning;
                 item.detail = "isn't installed".into();
-                item.hint = spec.install.map(String::from);
+                // Empty when the manifest's [programs] says how instead.
+                item.hint = Some(spec.install.unwrap_or_default().to_string());
                 item.action = Some(("Try Again".into(), "restart".into()));
             }
             Status::Failed(err) => {
@@ -420,6 +449,10 @@ impl Server {
                 item.detail = format!("stopped: {err}");
             }
             Status::Ready => {
+                if guessing {
+                    item.state = StatusState::Warning;
+                    item.detail = "guessing the flags: no compile commands".into();
+                }
                 // `Indexing: 45%`, as `$/progress` left it.
                 if let Some(work) = self.progress.values().next() {
                     let (what, done) = work.split_once(": ").unwrap_or((work, ""));
@@ -430,5 +463,29 @@ impl Server {
             }
         }
         item
+    }
+}
+
+/// A hierarchy's mode by name, for requests kept across a reload.
+mod mode_name {
+    use merlin_plugin::HierarchyMode as M;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(mode: &M, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(match mode {
+            M::Callers => "callers",
+            M::Callees => "callees",
+            M::Bases => "bases",
+            M::Derived => "derived",
+        })
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<M, D::Error> {
+        Ok(match String::deserialize(d)?.as_str() {
+            "callees" => M::Callees,
+            "bases" => M::Bases,
+            "derived" => M::Derived,
+            _ => M::Callers,
+        })
     }
 }

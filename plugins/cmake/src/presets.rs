@@ -96,6 +96,42 @@ fn quote(word: &str) -> String {
     }
 }
 
+/// A command line's words, as the shell splits them: quotes taken off, a
+/// backslash keeping the next character.
+pub fn words(command: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut word = String::new();
+    let mut started = false;
+    let mut quote = None;
+    let mut chars = command.chars();
+    while let Some(c) = chars.next() {
+        match (quote, c) {
+            (Some(q), c) if c == q => quote = None,
+            (Some('"'), '\\') | (None, '\\') => {
+                if let Some(next) = chars.next() {
+                    word.push(next);
+                }
+            }
+            (Some(_), c) => word.push(c),
+            (None, '"' | '\'') => {
+                quote = Some(c);
+                started = true;
+            }
+            (None, c) if c.is_whitespace() => {
+                if started || !word.is_empty() {
+                    words.push(std::mem::take(&mut word));
+                }
+                started = false;
+            }
+            (None, c) => word.push(c),
+        }
+    }
+    if started || !word.is_empty() {
+        words.push(word);
+    }
+    words
+}
+
 fn presets(json: &Value, key: &str, file: &'static str) -> Vec<Preset> {
     json[key]
         .as_array()
@@ -309,6 +345,14 @@ fn expand(dir: &str, preset: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_command_splits_into_words_as_the_shell_would() {
+        assert_eq!(
+            words(r#"cmake -S . -B "my build" -DX='a b' -DY=\"q\" ''"#),
+            ["cmake", "-S", ".", "-B", "my build", "-DX=a b", "-DY=\"q\"", ""]
+        );
+    }
 
     const PROJECT: &str = r#"{
         "version": 6,

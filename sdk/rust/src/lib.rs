@@ -46,8 +46,8 @@ pub use bindings::merlin::plugin::types::{
     DrawCurve, DrawImage, DrawItem, DrawLine, DrawPoint, DrawRect, DrawText, Drawing, EditCard,
     EmptyState, FetchRequest, FetchResponse, FileEdit, FoldRange, Framing, FunctionStop, Image,
     Indent, InlayHint, InlayKind, InlineValue, Input, Item, LineRange, Location, LogLevel, Message,
-    Node, OutputKind, PageSize, Panel, PickItem, Picture, PlanStep, Position, ProcessEvent,
-    Progress, ProjectSymbol, RenameInfo, RgbaPicture, Row, Selection, Setting, Severity, Shape,
+    Node, OutputKind, PageSize, Panel, PickItem, Choice, DisassemblyLine, Highlight, HierarchyItem, HierarchyMode, MemoryView, Picture, PlanStep, Position, ProcessEvent,
+    Progress, ProjectSymbol, SymbolsNote, RenameInfo, RgbaPicture, Row, Selection, Setting, Severity, Shape,
     Signature, StackFrame, StatusChip, StatusItem, StatusState, StepState, StopFilter, Styled, Task, TaskGroup,
     TestItem, TestOutcome, TestResult, TextBox, TextChange, Tile, Token, TokenKind, TokenLayer,
     Tone, ToolKind,
@@ -180,6 +180,22 @@ pub mod shared {
     impl Shared for CompileCommands {
         const KEY: &'static str = "compile-commands";
     }
+
+    /// How to set up the project's build, while it isn't: a build plugin
+    /// whose project it is shares it, as CMake's does before the first
+    /// configure, and a language plugin can offer it, as the C/C++ one
+    /// does when clangd has no compile commands.
+    #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    pub struct BuildSetup {
+        /// A button's words, as `Configure with CMake`.
+        pub label: String,
+        /// The editor's command that does it, as `cmake.configure`.
+        pub command: String,
+    }
+
+    impl Shared for BuildSetup {
+        const KEY: &'static str = "build-setup";
+    }
 }
 
 impl Picture {
@@ -199,7 +215,7 @@ pub mod prelude {
         Completion, CompletionKind, DebugLaunch, DebugPause, DebugState, DebugTarget, DebugThread,
         DebugVariable, DetailedDiagnostic, Diagnostic, DocSymbol, EditCard, FileEdit, FoldRange,
         Framing, FunctionStop, Indent, InlayHint, InlayKind, InlineValue, LineRange, Location,
-        LogLevel, Message, Node, OutputKind, PageSize, Panel, PickItem, Picture, Plugin, Position,
+        LogLevel, Message, Node, OutputKind, PageSize, Panel, PickItem, Choice, Picture, Plugin, Position,
         ProcessEvent, Progress, ProjectSymbol, RenameInfo, RgbaPicture, Row, Selection, Severity,
         Signature, StackFrame, StatusItem, StatusState, StopFilter, Task, TaskGroup, TestItem,
         TestOutcome, TestResult, TextBox, TextChange, Tile, Token, TokenKind, TokenLayer, Tone,
@@ -513,7 +529,29 @@ impl Row {
             chips: Vec::new(),
             count: String::new(),
             menu: Vec::new(),
+            icon_colour: String::new(),
+            actions: Vec::new(),
+            toggle: None,
         }
+    }
+
+    /// The icon in one of merlin's hues: blue, green, yellow, orange, red,
+    /// purple, cyan or grey.
+    pub fn icon_colour(mut self, hue: impl Into<String>) -> Self {
+        self.icon_colour = hue.into();
+        self
+    }
+
+    /// A button at the row's end, shown while the pointer is on the row.
+    pub fn action(mut self, button: Button) -> Self {
+        self.actions.push(button);
+        self
+    }
+
+    /// A switch at the row's end; a click on the row flips it.
+    pub fn toggle(mut self, on: bool) -> Self {
+        self.toggle = Some(on);
+        self
     }
 
     pub fn detail(mut self, detail: impl Into<String>) -> Self {

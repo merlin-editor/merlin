@@ -378,9 +378,19 @@ impl Editor {
         .into()
     }
 
-    /// Errors and warnings from every plugin, in every file.
+    /// Errors and warnings from every plugin, in every file, or in the
+    /// open ones while Problems shows only those.
     pub(crate) fn problem_counts(&self) -> (usize, usize) {
-        let all = self.diagnostics.values().flatten();
+        let open: Vec<&std::path::Path> = self
+            .docs
+            .iter()
+            .filter_map(|d| d.buffer.path.as_deref())
+            .collect();
+        let all = self
+            .diagnostics
+            .iter()
+            .filter(|((_, path), _)| !self.problems_open_only || open.contains(&path.as_path()))
+            .flat_map(|(_, list)| list);
         let count = |s: Severity| all.clone().filter(|d| d.severity == s).count();
         (count(Severity::Error), count(Severity::Warning))
     }

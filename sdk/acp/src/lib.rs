@@ -1044,6 +1044,7 @@ impl Plugin for Acp {
             .map(|(value, name)| PickItem {
                 detail: String::new(),
                 group: String::new(),
+                current: *value == set.value,
                 id: value.clone(),
                 label: if *value == set.value {
                     format!("{name} ✓")

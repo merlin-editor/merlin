@@ -28,6 +28,7 @@ const JS_SERVER: Spec = Spec {
     restarts: &[],
     shared: &[],
     adjust: None,
+    scan: None,
 };
 
 merlin_plugin::export!(WithLsp<JavaScript> => WithLsp::new(JavaScript::new(), "JavaScript", &[JS_SERVER]));

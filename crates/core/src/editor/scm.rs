@@ -112,8 +112,10 @@ impl Editor {
     }
 
     /// Folds or unfolds a changed file's hunks, from its arrow.
-    pub(crate) fn fold_clicked(&mut self, side: Side, index: usize) {
-        if let Some(Target::Button(id)) = self.panel_targets(side).into_iter().nth(index) {
+    pub(crate) fn fold_clicked(&mut self, side: Side, index: usize, fx: &mut Vec<Effect>) {
+        if let Some(Target::Button(id)) = self.panel_targets(side).into_iter().nth(index)
+            && !self.hierarchy_fold(&id, fx)
+        {
             self.fold_file(&id, None);
         }
     }

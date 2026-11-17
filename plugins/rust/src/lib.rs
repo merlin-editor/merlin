@@ -33,6 +33,7 @@ const RUST_SERVER: Spec = Spec {
     restarts: &[],
     shared: &[],
     adjust: None,
+    scan: None,
 };
 
 merlin_plugin::export!(WithLsp<Rust> => WithLsp::new(Rust::new(), "Rust", &[RUST_SERVER]));

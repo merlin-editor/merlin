@@ -52,7 +52,13 @@ const USER_TEMPLATE: &str = r#"# merlin settings. Saving this file applies them.
 # auto_save = "off"   # after_delay, on_focus_change, on_window_change
 # auto_save_delay = 1000   # milliseconds, with after_delay
 # hot_exit = true     # quit without asking; unsaved files come back next time
+# exclude = ["third_party/", "*.o"]   # left out of the Explorer, Quick Open, Search and symbols
+# use_gitignore = true   # what git ignores is left out too
+# show_hidden = false    # names starting with a dot
 # A project's .editorconfig wins over these and the indentation settings.
+
+[search]
+# exclude = ["docs/api/"]   # in the Explorer, but left out of Quick Open, Search and symbols
 
 [vim]
 # leader = "space"       # merlin's own commands start with it
@@ -399,6 +405,7 @@ pub fn editor(table: &toml::Table) -> Settings {
                     .collect()
             })
             .unwrap_or_default(),
+        exclusions: Default::default(),
     }
 }
 
@@ -547,6 +554,53 @@ pub fn editor_list(table: &toml::Table, key: &str) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// A list of strings at `table.key` of a settings file.
+fn list_at(table: &toml::Table, section: &str, key: &str) -> Vec<String> {
+    table
+        .get(section)
+        .and_then(|e| e.as_table())
+        .and_then(|e| e.get(key))
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// What the project leaves out: the user's patterns with the
+/// workspace's added, not replaced, and the switches as merged.
+pub fn exclusions(
+    merged: &toml::Table,
+    user: &toml::Table,
+    workspace: &toml::Table,
+) -> merlin_core::exclude::Exclusions {
+    let both = |section: &str| {
+        let mut list = list_at(user, section, "exclude");
+        for p in list_at(workspace, section, "exclude") {
+            if !list.contains(&p) {
+                list.push(p);
+            }
+        }
+        list
+    };
+    let flag = |key: &str, default: bool| {
+        merged
+            .get("files")
+            .and_then(|f| f.get(key))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(default)
+    };
+    merlin_core::exclude::Exclusions {
+        files: both("files"),
+        search: both("search"),
+        gitignore: flag("use_gitignore", true),
+        hidden: flag("show_hidden", false),
+    }
 }
 
 /// The `[plugins]` table, for the plugin host.

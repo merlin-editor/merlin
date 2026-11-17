@@ -23,6 +23,7 @@ pub(crate) enum Icon {
     Outline,
     Testing,
     Debug,
+    Hierarchy,
 }
 
 pub(crate) fn icon(icon: Icon, nerd: bool) -> char {
@@ -43,6 +44,7 @@ pub(crate) fn icon(icon: Icon, nerd: bool) -> char {
             Outline => '\u{eb86}',
             Testing => '\u{ea79}',
             Debug => '\u{eb91}',
+            Hierarchy => '\u{ebb9}',
         }
     } else {
         match icon {
@@ -60,6 +62,7 @@ pub(crate) fn icon(icon: Icon, nerd: bool) -> char {
             Outline => '≣',
             Testing => '⚗',
             Debug => '▷',
+            Hierarchy => '⇄',
         }
     }
 }

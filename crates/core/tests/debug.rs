@@ -79,12 +79,17 @@ fn report(s: &mut Session, update: DebugUpdate) {
 }
 
 /// The commands sent to the Debugger plugin, in order.
+/// The commands sent to the driver, without the stepping settings that
+/// follow a start.
 fn commands(s: &Session) -> Vec<String> {
     s.effects
         .iter()
         .filter_map(|e| match e {
             Effect::Debug { command, .. } => Some(command.clone()),
             _ => None,
+        })
+        .filter(|c| {
+            !c.starts_with("debug.skip-libraries:") && !c.starts_with("debug.by-instruction:")
         })
         .collect()
 }
@@ -241,6 +246,7 @@ fn hovering_a_variable_while_paused_shows_its_value() {
         value: value.into(),
         kind: kind.into(),
         children,
+        address: String::new(),
     };
     report(
         &mut s,
@@ -448,6 +454,7 @@ fn pause_with_locals(s: &mut Session) {
         value: value.into(),
         kind: "i32".into(),
         children,
+        address: String::new(),
     };
     report(
         s,
@@ -478,7 +485,10 @@ fn watches_are_asked_at_each_pause_and_a_value_can_be_set() {
     s.send(Event::Ui(merlin_core::UiEvent::TargetMenu { side, index }));
     let menu = s.editor.window_view().context.expect("the variable's menu");
     let labels: Vec<&str> = menu.items.iter().map(|i| i.label.as_str()).collect();
-    assert_eq!(labels, ["Set Value…", "Copy Value", "Add to Watch"]);
+    assert_eq!(
+        labels,
+        ["Set Value…", "Copy Value", "Add to Watch", "Show in Memory"]
+    );
     s.effects.clear();
     s.send(Event::Ui(merlin_core::UiEvent::ContextItem(2)));
     let asked = s.effects.iter().any(|e| {
@@ -494,6 +504,7 @@ fn watches_are_asked_at_each_pause_and_a_value_can_be_set() {
                 value: "1".into(),
                 kind: "i32".into(),
                 children: 0,
+                address: String::new(),
             },
         },
     );

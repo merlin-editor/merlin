@@ -291,8 +291,10 @@ fn search_finds_lines_across_the_project_and_opens_them() {
     let screen = s.screen();
     assert!(screen.contains("2 results in 2 files"), "{screen}");
     assert!(screen.contains("▾ lib.rs  src"), "{screen}");
-    // Down past the first file's name, to its line.
-    s.run("key down; key down; key enter");
+    // Down past the boxes for which files and the exclusions' switch,
+    // and the first file's name, to its line.
+    assert!(screen.contains("Files to include"), "{screen}");
+    s.run("key down; key down; key down; key down; key down; key enter");
     assert_eq!(s.text(), "// lib\npub fn b() {}\n");
     assert_eq!(s.editor.cursor_utf16(), (1, 4));
     s.run("key ctrl+shift+f");

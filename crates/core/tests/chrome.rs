@@ -191,3 +191,40 @@ fn guides_brackets_and_the_word_under_the_cursor() {
     assert_eq!(line(&s, 4).styles[4], Style::WordMatch);
     assert_eq!(line(&s, 1).styles[4], Style::Normal);
 }
+
+#[test]
+fn a_language_servers_uses_of_the_name_show_reads_and_writes() {
+    let mut s = Session::new(
+        "let mut total = 0;\ntotal += 1;\nprint(total);\nlet totals = 2;\n",
+        Some("main.rs"),
+        80,
+        16,
+    );
+    let line = |s: &Session, n: usize| s.editor.text_views().pop().unwrap().lines[n].clone();
+    s.run("key down; key end; key home");
+    // Before the server answers, the same word is marked.
+    assert_eq!(line(&s, 2).styles[6], Style::WordMatch);
+    s.send(Event::SetHighlights {
+        path: "main.rs".into(),
+        ranges: vec![
+            ((0, 8), (0, 13), true),
+            ((1, 0), (1, 5), true),
+            ((2, 6), (2, 11), false),
+        ],
+    });
+    assert_eq!(line(&s, 0).styles[8], Style::WordWrite);
+    assert_eq!(line(&s, 2).styles[6], Style::WordRead);
+    assert_eq!(
+        line(&s, 3).styles[4],
+        Style::Normal,
+        "totals is another name"
+    );
+    let marks = s.editor.text_views().pop().unwrap().scrollbar.marks;
+    assert!(
+        marks.iter().any(|(_, st)| *st == Style::WordRead),
+        "{marks:?}"
+    );
+    // Off the name, they go.
+    s.run("key down; key down; key end");
+    assert_ne!(line(&s, 0).styles[8], Style::WordWrite);
+}

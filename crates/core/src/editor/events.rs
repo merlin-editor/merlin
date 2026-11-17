@@ -322,11 +322,26 @@ pub enum Event {
     },
     /// A notice from a plugin. Its buttons' clicks go back to the plugin's
     /// `on-click`, and it says how to quieten that plugin's notices.
+    /// A plugin's bar over its languages' files, replacing its earlier one
+    /// with this id.
+    ShowBar {
+        plugin: String,
+        id: String,
+        text: String,
+        buttons: Vec<crate::panel::Button>,
+    },
+    HideBar {
+        plugin: String,
+        id: String,
+    },
     PluginNotice {
         plugin: String,
         level: super::LogLevel,
         text: String,
         buttons: Vec<crate::panel::Button>,
+        /// A dropdown under the text; a pick goes to the plugin's
+        /// `on-pick`.
+        choice: Option<Box<crate::panel::Choice>>,
     },
     /// Shows a channel of the Output panel: `merlin` or a plugin's name.
     ShowOutput(String),
@@ -434,8 +449,13 @@ pub enum Event {
     },
     /// Symbols a plugin found for the palette's search for `query`.
     ProjectSymbols {
+        plugin: String,
         query: String,
         symbols: Vec<crate::lang::ProjectSymbol>,
+        /// Ones in files the project excludes from search, held back
+        /// until the user asks for them.
+        excluded: Vec<crate::lang::ProjectSymbol>,
+        note: crate::lang::SymbolsNote,
     },
     /// The palette's text search waited as long as
     /// [`Editor::palette_search_wait`] asked: it searches.
@@ -495,6 +515,26 @@ pub enum Event {
     ShowRenameReview(Vec<crate::lang::FileEdit>),
     /// Where the name at the cursor is used, for the peek view.
     ShowReferences(Vec<crate::lang::Location>),
+    /// A call or type hierarchy from a language plugin: its root and first
+    /// level, for the Hierarchy view.
+    ShowHierarchy {
+        plugin: String,
+        mode: super::hierarchy::HierarchyMode,
+        root: super::hierarchy::HierarchyItem,
+        children: Vec<super::hierarchy::HierarchyItem>,
+    },
+    /// The level under one of a hierarchy's items.
+    HierarchyChildren {
+        plugin: String,
+        parent: u32,
+        children: Vec<super::hierarchy::HierarchyItem>,
+    },
+    /// The name under the cursor's uses in a file, from its language
+    /// server: UTF-16 starts and ends, and whether each writes it.
+    SetHighlights {
+        path: PathBuf,
+        ranges: Vec<super::highlights::HighlightRange>,
+    },
     /// Where the name under Ctrl is defined, from `definition-link`.
     Definitions(Vec<crate::lang::Location>),
     /// Files read for a rename's review, each with its text, or none if
@@ -551,6 +591,13 @@ pub enum Event {
     /// The project's files for the Explorer, asked for with
     /// [`Effect::ListTree`]. Folders end in `/`, so empty ones show too.
     Tree(Vec<String>),
+    /// What the project leaves out, for the Explorer while it shows it:
+    /// all of it with no folder, or what's in one left-out folder once
+    /// it's opened. Folders end in `/`.
+    LeftOut {
+        folder: Option<String>,
+        entries: Vec<(String, crate::exclude::Why)>,
+    },
     /// A file or folder was renamed, by the host after
     /// [`Effect::File`].
     Renamed {
@@ -570,8 +617,10 @@ pub enum Event {
     },
     /// What a project search found, asked for with [`Effect::Search`].
     SearchResults {
-        query: String,
+        ask: SearchAsk,
         hits: Vec<SearchHit>,
+        /// Files and folders the project's exclusions left out.
+        skipped: usize,
     },
     /// The branch and changed files, asked for with [`Effect::GitStatus`].
     /// No branch means the project isn't in a git repository.
@@ -757,6 +806,8 @@ pub enum Effect {
         plugin: Option<String>,
         plugins: bool,
     },
+    /// The Settings tab opened at Files, where the exclusions are.
+    OpenSettingsFiles,
     /// Create, rename or trash a file or folder in the project, then send
     /// what changed and list the tree again.
     File(FileOp),
@@ -897,8 +948,23 @@ pub enum Effect {
         accepted: bool,
     },
     ListTree,
-    /// Search the project's files for this text.
-    Search(String),
+    /// The Explorer shows what's left out, or stops: answered with
+    /// [`Event::LeftOut`].
+    ShowLeftOut(bool),
+    /// What's in a left-out folder the Explorer opened, left out for
+    /// the same reason.
+    ListLeftOut(String, crate::exclude::Why),
+    /// Search the project's files.
+    Search(SearchAsk),
+    /// Add a pattern to the workspace's Exclude, or with `search`
+    /// Exclude from search.
+    Exclude {
+        pattern: String,
+        search: bool,
+    },
+    /// Take patterns out of Exclude or Exclude from search, wherever
+    /// they're set.
+    Include(Vec<(String, bool)>),
     GitStatus,
     OpenDiff(PathBuf),
     /// A conflicted file's sides, for the merge editor: answered with

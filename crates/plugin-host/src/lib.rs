@@ -24,6 +24,7 @@ pub mod registry;
 mod secrets;
 mod shared;
 mod state;
+pub mod walk;
 mod worker;
 
 use std::collections::BTreeMap;
@@ -220,6 +221,8 @@ pub struct Snapshot {
     /// The active file's indentation: tabs or not, and the width. None
     /// when no file is open.
     pub indent: Option<(bool, u32)>,
+    /// What the project leaves out, for `list-files` and `is-excluded`.
+    pub exclusions: std::sync::Arc<merlin_core::exclude::Matcher>,
 }
 
 /// Selected text, and where it starts and ends as lines and UTF-16 columns.
@@ -263,7 +266,17 @@ struct Loaded {
     /// Not started yet: it waits for what its `activate-on` names, or
     /// for one of its commands or views to be used.
     dormant: bool,
+    /// A run asked of a debugger plugin while it waits for the user to
+    /// allow it: what to start, the breakpoints, and the commands, all
+    /// given to it once it's allowed.
+    held: Option<Held>,
 }
+
+type Held = (
+    Option<merlin_core::DebugStart>,
+    Vec<merlin_core::Breakpoint>,
+    Vec<(String, Snapshot)>,
+);
 
 impl Loaded {
     fn handles_path(&self, path: Option<&str>) -> bool {
@@ -346,6 +359,20 @@ pub struct PluginHost {
     disabled: Vec<String>,
     /// What plugins share with each other.
     board: SharedBoard,
+}
+
+/// Whether the workspace at `root` has `file`, as `activate-on` names it:
+/// a path from the top, or `*/` and a path in any folder at the top, as
+/// `*/CMakeLists.txt` for a project in a folder of its own.
+fn has_file(root: &Path, file: &str) -> bool {
+    match file.strip_prefix("*/") {
+        Some(rest) => fs::read_dir(root).is_ok_and(|entries| {
+            entries
+                .flatten()
+                .any(|e| e.file_type().is_ok_and(|t| t.is_dir()) && e.path().join(rest).exists())
+        }),
+        None => root.join(file).exists(),
+    }
 }
 
 const ALLOW: &str = "merlin:allow";
@@ -462,6 +489,7 @@ impl PluginHost {
                 disabled: false,
                 pure_language: false,
                 dormant: false,
+                held: None,
             });
             return Ok(events);
         };
@@ -492,6 +520,7 @@ impl PluginHost {
             disabled: off,
             pure_language: false,
             dormant: cached.is_some(),
+            held: None,
         });
         let index = self.plugins.len() - 1;
         if off {
@@ -608,10 +637,17 @@ impl PluginHost {
         self.plugins[index].worker = Some(worker);
         // The card goes; a plugin with a panel of its own draws it again.
         let mut events = vec![Event::SetPanel {
-            plugin: name,
+            plugin: name.clone(),
             panel: None,
         }];
         events.extend(self.activate(index, None));
+        // A run asked of it while it waited starts now.
+        if let Some((start, breakpoints, commands)) = self.plugins[index].held.take() {
+            events.extend(self.set_debug(&name, start, breakpoints));
+            for (command, snapshot) in commands {
+                events.extend(self.run_command(&name, &command, snapshot));
+            }
+        }
         if let Err(err) = saved {
             events.push(Event::Notify(format!(
                 "Couldn't remember the permission: {err:#}"
@@ -879,7 +915,7 @@ impl PluginHost {
                 .activate_on
                 .iter()
                 .filter_map(|t| t.strip_prefix("file:"))
-                .any(|f| snapshot.root.join(f).exists())
+                .any(|f| has_file(&snapshot.root, f))
     }
 
     /// Whether a waiting plugin's `activate-on` matches the open file or
@@ -898,7 +934,7 @@ impl PluginHost {
                 });
             }
             t.strip_prefix("file:").is_some_and(|f| {
-                !snapshot.root.as_os_str().is_empty() && snapshot.root.join(f).exists()
+                !snapshot.root.as_os_str().is_empty() && has_file(&snapshot.root, f)
             })
         })
     }
@@ -1020,6 +1056,16 @@ impl PluginHost {
         self.post(index, snapshot, None, false, f, |_| Vec::new())
     }
 
+    /// Whether a plugin waits for the user to allow it.
+    fn waiting(&self, index: usize) -> bool {
+        let p = &self.plugins[index];
+        p.worker.is_none()
+            && !p.dormant
+            && !p.failed
+            && !p.disabled
+            && p.manifest.component.is_some()
+    }
+
     fn index(&self, name: &str) -> Option<usize> {
         self.plugins.iter().position(|p| p.manifest.name == name)
     }
@@ -1101,6 +1147,22 @@ impl PluginHost {
         events
     }
 
+    /// The project's exclusions changed: running plugins that read the
+    /// project hear it as the setting `files.exclude`.
+    pub fn exclusions_changed(&mut self, snapshot: &Snapshot) -> Vec<Event> {
+        let mut events = Vec::new();
+        for i in 0..self.plugins.len() {
+            let plugin = &self.plugins[i];
+            if plugin.worker.is_none() || !plugin.manifest.permissions.workspace_read {
+                continue;
+            }
+            let call =
+                |b: &Bindings, s: &mut Store<State>| b.call_on_setting_changed(s, "files.exclude");
+            events.extend(self.post_call(i, snapshot.clone(), call));
+        }
+        events
+    }
+
     /// Stores one of a plugin's secret settings, or forgets it given none,
     /// as its row in Settings does. The plugin hears it changed.
     pub fn set_secret(
@@ -1122,15 +1184,30 @@ impl PluginHost {
     }
 
     /// Gives a debugger plugin what `debug-start` and `breakpoints` read,
-    /// before a debug command. `start` replaces what it had when given.
+    /// before a debug command. `start` replaces what it had when given. A
+    /// plugin that waits to start starts now, so it has them for the
+    /// command; one waiting to be allowed keeps them until it is.
     pub fn set_debug(
         &mut self,
         plugin: &str,
         start: Option<merlin_core::DebugStart>,
         breakpoints: Vec<merlin_core::Breakpoint>,
-    ) {
+    ) -> Vec<Event> {
         let Some(i) = self.index(plugin) else {
-            return;
+            return Vec::new();
+        };
+        if self.waiting(i) {
+            let held = self.plugins[i].held.get_or_insert_default();
+            if start.is_some() {
+                held.0 = start;
+            }
+            held.1 = breakpoints;
+            return Vec::new();
+        }
+        let events = if self.plugins[i].dormant {
+            self.wake(i)
+        } else {
+            Vec::new()
         };
         if let Some(worker) = &self.plugins[i].worker {
             worker.post(None, move |i| {
@@ -1141,12 +1218,19 @@ impl PluginHost {
                 state.breakpoints = breakpoints;
             });
         }
+        events
     }
 
     pub fn run_command(&mut self, plugin: &str, command: &str, snapshot: Snapshot) -> Vec<Event> {
         let Some(i) = self.index(plugin) else {
             return Vec::new();
         };
+        if self.waiting(i) && self.plugins[i].held.is_some() {
+            if let Some(held) = &mut self.plugins[i].held {
+                held.2.push((command.to_string(), snapshot));
+            }
+            return Vec::new();
+        }
         let command = command.to_string();
         self.post_call(i, snapshot, move |b, s| b.call_run_command(s, &command))
     }
@@ -1834,6 +1918,7 @@ impl PluginHost {
                     level: LogLevel::Error,
                     text: format!("{name} didn't reload, so its old code keeps running: {err:#}"),
                     buttons: Vec::new(),
+                    choice: None,
                 });
             }
         }

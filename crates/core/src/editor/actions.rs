@@ -24,6 +24,8 @@ pub(crate) enum ActionsFor {
     Menu,
     /// The fix the hover card over a problem offers.
     Hover,
+    /// Refactor… (Ctrl+Shift+R): the list with only the refactors.
+    Refactor,
 }
 
 #[derive(Default)]
@@ -38,6 +40,13 @@ impl Editor {
     /// Ctrl+.: lists the code actions at the cursor.
     pub(crate) fn code_actions(&mut self, fx: &mut Vec<Effect>) {
         self.ask_actions(ActionsFor::Menu, fx);
+    }
+
+    /// The refactors at the cursor or of the selection, alone.
+    pub(crate) fn refactors(&mut self, fx: &mut Vec<Effect>) {
+        if !self.ask_actions(ActionsFor::Refactor, fx) {
+            self.notify("No language server here offers refactors".into());
+        }
     }
 
     /// Asks the language server for the actions at the cursor, or at the
@@ -66,6 +75,14 @@ impl Editor {
                 }
             }
             ActionsFor::Menu => self.open_actions(actions),
+            ActionsFor::Refactor => {
+                actions.retain(|a| a.kind == crate::lang::ActionKind::Refactor);
+                if actions.is_empty() {
+                    self.notify("No refactors here".into());
+                } else {
+                    self.open_actions(actions);
+                }
+            }
         }
     }
 

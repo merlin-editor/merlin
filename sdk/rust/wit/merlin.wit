@@ -57,6 +57,22 @@ interface types {
     /// Relative to the workspace root, or absolute.
     path: string,
     start: position,
+    /// Found by a quick look through the sources rather than the
+    /// language server: the palette marks it SCAN.
+    scan: bool,
+  }
+
+  /// What the palette says under the project's symbols, besides them.
+  record symbols-note {
+    /// The server is still indexing, so more may come, such as `clangd
+    /// is still indexing: 412 of 1,030 files`. Empty when it's done.
+    indexing: string,
+    /// Why there are fewer than there might be, such as `No
+    /// compile_commands.json, so clangd only knows open files`.
+    warning: string,
+    /// A button after the warning; a click goes to `on-click`, or runs
+    /// the command when its id is `command:<id>`.
+    action: option<button>,
   }
 
   /// Lines `start` up to `end`, not including it.
@@ -159,6 +175,17 @@ interface types {
     chips: list<chip>,
     count: string,
     menu: list<button>,
+    /// The icon's colour: one of merlin's hues (blue, green, yellow,
+    /// orange, red, purple, cyan, grey); empty for the usual grey.
+    icon-colour: string,
+    /// Buttons at the row's end, each clicked on its own, shown while the
+    /// pointer is on the row: Build and Run on a target. Their clicks come
+    /// to `on-click` with their ids.
+    actions: list<button>,
+    /// A switch at the row's end, on or off. A click on the row flips it:
+    /// it comes to `on-click` with the row's id, and the plugin draws the
+    /// row again.
+    toggle: option<bool>,
   }
 
   /// A message in a conversation: who it's from, its Markdown, and chips
@@ -379,6 +406,79 @@ interface types {
     detail: string,
     /// A heading over the first of its group, such as Programs.
     group: string,
+    /// The one in use: the picker opens on it.
+    current: bool,
+  }
+
+  /// An instruction of the paused code, for the Disassembly view.
+  record disassembly-line {
+    address: string,
+    /// As the debugger prints it: `mov esi, edx`.
+    instruction: string,
+    /// The function and offset, as `total_area+29`, when known.
+    symbol: string,
+    /// The source line it starts, when it starts one: the file, and the
+    /// line from 0.
+    source: option<tuple<string, u32>>,
+    /// The instruction the program is paused at.
+    current: bool,
+  }
+
+  /// A piece of the program's memory, for the Memory view.
+  record memory-view {
+    /// What was asked for: an address or an expression.
+    expression: string,
+    /// The first byte's address.
+    address: u64,
+    bytes: list<u8>,
+    /// The expression's own bytes: the first, and how many.
+    mark-from: u32,
+    mark-len: u32,
+    /// The bytes that changed since the last pause, by their index.
+    changed: list<u32>,
+    /// Why it couldn't be read; empty when it was.
+    error: string,
+  }
+
+  /// Which way a hierarchy goes from its root: the functions that call
+  /// it or that it calls, or a type's bases or the types derived from it.
+  enum hierarchy-mode {
+    callers,
+    callees,
+    bases,
+    derived,
+  }
+
+  /// A function or a type in a call or type hierarchy.
+  record hierarchy-item {
+    /// The plugin's own, which `hierarchy-expand:<id>` asks about.
+    id: u32,
+    name: string,
+    /// Dimmed after it, such as its class or signature.
+    detail: string,
+    /// `function`, `method`, `constructor`, `class`, `struct` and so on,
+    /// for its mark.
+    kind: string,
+    /// Where it is, or for callers and callees, where the first call is.
+    location: location,
+    /// The calls it makes there, for callers and callees; 0 for types.
+    calls: u32,
+  }
+
+  /// A use of the name under the cursor, from `highlight`: where it's
+  /// written (as an assignment) or only read.
+  record highlight {
+    start: position,
+    end: position,
+    write: bool,
+  }
+
+  /// A choice in a notice, as which target takes a new file: a dropdown
+  /// of `options`, with `chosen`'s id picked first.
+  record choice {
+    id: string,
+    options: list<pick-item>,
+    chosen: string,
   }
 
   /// One of a plugin's items in the status bar, as CMake's preset and
@@ -718,6 +818,8 @@ interface types {
     /// How far along it is, from 0 to 100, while busy.
     progress: option<u8>,
     /// A command line shown under it, with Copy: how to install it, say.
+    /// Empty asks for the manifest's `[programs]` install command for
+    /// this system, which also wins over the plugin's own.
     hint: option<string>,
     /// A button: its label, and the command it runs in the plugin.
     action: option<tuple<string, string>>,
@@ -876,6 +978,8 @@ interface types {
     value: string,
     type-name: string,
     children: u32,
+    /// Where it is in memory, as `0x7ffe5e1c2a4c`, when known.
+    address: string,
   }
 
   /// Whether the debugger could set a breakpoint, where (from 0, or the
@@ -921,7 +1025,7 @@ interface types {
 /// What the editor offers a plugin. Calls that need a permission check the
 /// plugin's manifest and return an error naming the permission if denied.
 interface host {
-  use types.{status-item, status-chip, framing, pick-item, position, indent, selection, text-change, diagnostic, detailed-diagnostic, code-action, file-edit, rename-info, location, project-symbol, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint, signature, task, test-item, test-result, debug-target, debug-launch, function-stop, breakpoint, debug-state, debug-thread, stack-frame, debug-variable, breakpoint-state, stop-filter, inline-value, output-kind, log-level, button, picture, fetch-request, agent-part, agent-request, agent-outcome, chip, agent-command, agent-mode};
+  use types.{status-item, status-chip, framing, pick-item, choice, highlight, hierarchy-mode, hierarchy-item, disassembly-line, memory-view, position, indent, selection, text-change, diagnostic, detailed-diagnostic, code-action, file-edit, rename-info, location, project-symbol, symbols-note, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint, signature, task, test-item, test-result, debug-target, debug-launch, function-stop, breakpoint, debug-state, debug-thread, stack-frame, debug-variable, breakpoint-state, stop-filter, inline-value, output-kind, log-level, button, picture, fetch-request, agent-part, agent-request, agent-outcome, chip, agent-command, agent-mode};
 
   /// Text of the active buffer. Needs `editor-read`.
   active-text: func() -> result<string, string>;
@@ -972,6 +1076,17 @@ interface host {
   /// too, sorted: names, folders' ending in `/`. For a build's own files,
   /// which `list-files` leaves out. Needs `workspace-read`.
   list-folder: func(path: string) -> result<list<string>, string>;
+  /// Whether the project leaves `path` out: Settings › Files' Exclude,
+  /// or with `search`, Exclude from search too. Relative to the
+  /// workspace root, or absolute. `list-files` already skips these.
+  is-excluded: func(path: string, search: bool) -> bool;
+  /// Settings › Files' Exclude patterns, the user's and the
+  /// workspace's: a folder's ends in `/`, one with no other `/` matches
+  /// at any depth.
+  excluded-patterns: func() -> list<string>;
+  /// Writes a file in the workspace, making its folders. Relative to the
+  /// workspace root, or absolute within it. Needs `workspace-write`.
+  write-file: func(path: string, text: string) -> result<_, string>;
   /// A file's text as it is on disk. The path is relative to the
   /// workspace root, or absolute within it. Needs `workspace-read`.
   read-file: func(path: string) -> result<string, string>;
@@ -991,6 +1106,20 @@ interface host {
   /// the plugin instead. merlin adds Open Output, and the user's `notices` setting
   /// for the plugin (all, errors, none) may log it instead.
   notice: func(level: log-level, message: string, buttons: list<button>);
+
+  /// A bar over every file of the plugin's languages, for something about
+  /// the project to fix, as clangd guessing the flags without compile
+  /// commands. A button whose id is `run:<command>` runs one of the
+  /// editor's commands (`run:cmake.configure`, `run:settings.plugin:cpp`)
+  /// and shows only when there's such a command; the others' clicks come
+  /// to `on-click`. Its ✕ hides it, and `on-click` hears `dismiss:<id>`.
+  show-bar: func(id: string, text: string, buttons: list<button>);
+  hide-bar: func(id: string);
+
+  /// A notice with a choice in it: a dropdown under the message. Picking
+  /// another option comes to `on-pick` with the choice's id; the buttons'
+  /// clicks to `on-click`, so the plugin acts on the option picked last.
+  notice-with-choice: func(level: log-level, message: string, choice: choice, buttons: list<button>);
 
   /// Shows one of the views the plugin's manifest declares, where the
   /// user keeps it, and focuses its first input.
@@ -1071,6 +1200,19 @@ interface host {
   /// at the cursor is used, for the editor's peek view.
   show-references: func(places: list<location>);
 
+  /// Answers the editor's `highlight` command, which it runs as the cursor
+  /// comes to a name: the name's uses in `path`, lit up while the cursor
+  /// stays on one of them. None leaves the editor marking the same word.
+  set-highlights: func(path: string, highlights: list<highlight>);
+
+  /// Answers the editor's `call-hierarchy` (callers of the function at
+  /// the cursor) and `type-hierarchy` (the type's bases), and
+  /// `hierarchy-mode:<mode>`, which asks the other way from the same
+  /// root: the root and its first level, shown in the Hierarchy view.
+  show-hierarchy: func(mode: hierarchy-mode, root: hierarchy-item, children: list<hierarchy-item>);
+  /// Answers `hierarchy-expand:<id>`: the next level under an item.
+  hierarchy-children: func(parent: u32, children: list<hierarchy-item>);
+
   /// Answers the editor's `definition-link` command, which it runs while
   /// Ctrl is held over a name: where the name at the cursor is defined,
   /// empty if nowhere. The editor underlines the name as a link, and a
@@ -1082,8 +1224,10 @@ interface host {
   symbol-query: func() -> string;
 
   /// Answers the palette's symbol search for `query`: the project's
-  /// symbols whose names match it, best first.
-  show-project-symbols: func(query: string, symbols: list<project-symbol>);
+  /// symbols whose names match it, best first, and what to say under
+  /// them. Ones in files the project excludes from search are held back
+  /// by the editor, counted, and shown when the user asks.
+  show-project-symbols: func(query: string, symbols: list<project-symbol>, note: symbols-note);
 
   /// Shows text next to the cursor until the next key.
   show-hover: func(text: string);
@@ -1164,6 +1308,12 @@ interface host {
   set-debug-state: func(state: debug-state) -> result<_, string>;
   set-threads: func(threads: list<debug-thread>) -> result<_, string>;
   set-stack: func(thread: u32, frames: list<stack-frame>) -> result<_, string>;
+  /// The instructions around where the program is paused, while the
+  /// Disassembly view is open (`debug.disassembly:on`).
+  set-disassembly: func(lines: list<disassembly-line>) -> result<_, string>;
+  /// The memory `debug.memory:<expression>` asked for, read again at each
+  /// pause.
+  set-memory: func(view: memory-view) -> result<_, string>;
   /// What's in a variable or scope, by its `children`; 0 is the scopes of
   /// the frame shown.
   set-variables: func(parent: u32, variables: list<debug-variable>) -> result<_, string>;
@@ -1190,7 +1340,11 @@ interface host {
   /// editor's environment. It must be listed in the manifest's `processes`
   /// permission, or, with `debugger`, be a debugger a plugin's manifest
   /// declares. It runs with the user's rights. Its output arrives at
-  /// `on-process`.
+  /// `on-process`. An argument holding `${pipe}` gets a new pipe's path
+  /// there, for a program that talks over a pipe it makes, as CMake's
+  /// `--debugger-pipe` does: the host connects once it's made, `send` and
+  /// messages go through the pipe, and what the program prints arrives as
+  /// `stderr`.
   spawn: func(program: string, args: list<string>, env: list<tuple<string, string>>, framing: framing) -> result<u32, string>;
 
   /// Sends one message to a process, framed as it was spawned.
@@ -1280,7 +1434,9 @@ world plugin {
   /// scrolling and typed text, so a new panel resets none of it.
   export render-view: func(view: string) -> option<panel>;
   /// One of the plugin's settings changed, by its dotted key, after the
-  /// user or a workspace set it. `get-setting` has the new value.
+  /// user or a workspace set it. `get-setting` has the new value. A
+  /// plugin with `workspace-read` also hears `files.exclude` when the
+  /// project's exclusions change: `excluded-patterns` has them.
   export on-setting-changed: func(key: string);
   export on-click: func(button: string);
   export on-submit: func(input: string, text: string);

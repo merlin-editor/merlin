@@ -201,9 +201,10 @@ impl Editor {
                 command.push(' ');
                 command.push_str(a);
             }
-            let command = match target.build.is_empty() {
+            let build = self.build_command(&target.build);
+            let command = match build.is_empty() {
                 true => command,
-                false => format!("{} && {command}", target.build),
+                false => format!("{build} && {command}"),
             };
             self.start_command(&format!("Run {}", target.name), &command, fx);
             return;
@@ -388,8 +389,9 @@ impl Editor {
             inline: HashMap::new(),
             watched: Vec::new(),
         };
-        if !target.build.is_empty() {
-            let term = self.start_command(&format!("Build {}", target.name), &target.build, fx);
+        let build = self.build_command(&target.build);
+        if !build.is_empty() {
+            let term = self.start_command(&format!("Build {}", target.name), &build, fx);
             session.building = Some(term);
             self.debug.session = Some(session);
             self.build_views();
@@ -419,6 +421,7 @@ impl Editor {
             start: Some(Box::new(start)),
             breakpoints: self.debug.breakpoints.clone(),
         });
+        self.driver_settings(fx);
         self.show_view(DEBUG, fx);
         // The console comes to the front, as VS Code's does, but the keys
         // stay in the code.

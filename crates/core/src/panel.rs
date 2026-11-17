@@ -526,6 +526,14 @@ pub struct Entry {
     /// the first always shows, the rest while the row is hovered. They take
     /// focus after the entry and its action.
     pub links: Vec<(String, String)>,
+    /// Every link waits for the pointer, the first too, as a plugin's
+    /// row actions do.
+    pub links_on_hover: bool,
+    /// A switch at the row's end, on or off; a click on the row flips it.
+    pub switch: Option<bool>,
+    /// Characters of the label in a tone of their own, as a memory row's
+    /// bytes: first, end, and tone. Strong ones get a tint behind them.
+    pub spans: Vec<(usize, usize, Tone)>,
     /// The label and detail in the code font, as a hunk's line.
     pub code: bool,
     /// Drawn as a section's heading, its label in capitals, with its badge
@@ -558,6 +566,17 @@ pub struct PickItem {
     pub detail: String,
     /// A heading over the first of its group.
     pub group: String,
+    /// The one in use: the picker opens on it.
+    pub current: bool,
+}
+
+/// A choice in a plugin's notice: a dropdown of options, one chosen.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct Choice {
+    pub id: String,
+    pub options: Vec<PickItem>,
+    /// The id of the option picked.
+    pub chosen: String,
 }
 
 /// A plugin's item in the status bar; a click goes to the plugin.

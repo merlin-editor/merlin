@@ -2,7 +2,8 @@
 
 Research of 2026-11-16 on the C/C++ plugin (`plugins/cpp`, version 0.2.0,
 API 0.15) against CLion, VS Code, Zed and Qt Creator, and what their users
-vote for. Nothing here is built yet; any UI in it needs a mock-up first.
+vote for. "Order" below says what's built since (plugin 0.3.0, API 0.16);
+any UI in it needs a mock-up first.
 
 ## Where the plugin stands
 
@@ -111,31 +112,31 @@ code model. Users report clangd's memory use on big sessions.
 | Request | Votes | Tracker | merlin |
 |---|---|---|---|
 | Renaming | 550 | VS Code C/C++ #296 | Has it |
-| Disassembly view while debugging | 436 | VS Code C/C++ #206 | Missing |
+| Disassembly view while debugging | 436 | VS Code C/C++ #206 | Mock-up (`Cpp.html`) |
 | Inline errors (error lens) | 382 | Zed #4901 | Has it |
-| Call hierarchy | 380 | VS Code C/C++ #16 | Missing |
-| Memory view while debugging | 367 | VS Code C/C++ #509 | Missing |
+| Call hierarchy | 380 | VS Code C/C++ #16 | Mock-up (`Cpp.html`) |
+| Memory view while debugging | 367 | VS Code C/C++ #509 | Mock-up (`Cpp.html`) |
 | Find all references | 364 | VS Code C/C++ #15 | Has it |
-| Memory view and disassembly, instruction stepping | 345 | VS Code C/C++ #941 | Missing |
-| Generate definitions from declarations | 321 | VS Code C/C++ #664 | Dropped (clangd tweak) |
-| Extract function | 235 | VS Code C/C++ #1162 | Dropped (clangd tweak) |
+| Memory view and disassembly, instruction stepping | 345 | VS Code C/C++ #941 | Mock-up (`Cpp.html`) |
+| Generate definitions from declarations | 321 | VS Code C/C++ #664 | Built (clangd's define outline) |
+| Extract function | 235 | VS Code C/C++ #1162 | Built (clangd's refactor) |
 | Doxygen in hovers | 219 | VS Code C/C++ #658 | Partly: hovers are Markdown |
-| clang-tidy | 200 | VS Code C/C++ #2908 | Missing: clangd can run it |
-| "Just My Code" (step over the std library) | 171, open | VS Code C/C++ #5763 | Missing |
-| Colourised CMake and build output | 167, open | CMake Tools #478 | Missing |
-| Call hierarchy panel | 114, open | Zed #14203 | Missing |
+| clang-tidy | 200 | VS Code C/C++ #2908 | Has it: clangd runs it with a `.clang-tidy` |
+| "Just My Code" (step over the std library) | 171, open | VS Code C/C++ #5763 | Mock-up (`Cpp.html`) |
+| Colourised CMake and build output | 167, open | CMake Tools #478 | Built (CMake plugin) |
+| Call hierarchy panel | 114, open | Zed #14203 | Mock-up (`Cpp.html`) |
 | Lower memory use | 89, open | Zed #18673 | Aimed at already |
-| CMake support | 66 | Zed #5102 | Missing |
-| `--query-driver` for clangd | 51 | Zed #4295 | Missing |
+| CMake support | 66 | Zed #5102 | Built (CMake plugin) |
+| `--query-driver` for clangd | 51 | Zed #4295 | Built |
 | Parameter hints | 40 | Zed #4879 | Has it |
-| Errors for the whole project | 29, open | vscode-clangd #158 | Missing |
+| Errors for the whole project | 29, open | vscode-clangd #158 | Mock-up (`Cpp.html`) |
 | Streamline clangd setup | 24, open | vscode-clangd #323 | Partly: install card |
-| Switch source/header | 20 | Zed #12801 | Missing |
-| Watch for `compile_commands.json` | 19 | vscode-clangd #6 | Missing |
+| Switch source/header | 20 | Zed #12801 | Built (Alt+O) |
+| Watch for `compile_commands.json` | 19 | vscode-clangd #6 | Built: the CMake plugin shares it, and clangd restarts |
 | Hover comments have no formatting | 17, open | vscode-clangd #10 | Missing |
 | Doc comments in C++ | 16 | Zed #18169 | Missing |
-| A replacement for the `$gcc` problem matcher | 9, open | vscode-clangd #337 | Missing |
-| Dim inactive `#if` blocks | 9 | Zed #13089 | Missing |
+| A replacement for the `$gcc` problem matcher | 9, open | vscode-clangd #337 | Built |
+| Dim inactive `#if` blocks | 9 | Zed #13089 | Built (clangd's colours) |
 | STL pretty printers in the debugger | 7 | Zed #33116 | Missing |
 
 What people praise that merlin already has: low memory use (the C++
@@ -254,8 +255,50 @@ printers are lldb-dap's and gdb's own, so they need checking there first.
      Linux-only ones are gone; the description no longer says
      "outlines"; and recent Ubuntu's `lldb` package does have
      `/usr/bin/lldb-dap` (older releases unchecked).
-4. **Needs a mock-up first**:
-   - The CMake plugin's status bar, presets and build output.
+4. **Mocked up in `docs/mockups/Cpp.html`, approved and built
+   2026-11-17** ("Yes, build it"), each tried in the window with clangd
+   and gdb:
+   - The right-click menu has every Go to with its key, Show Call and
+     Type Hierarchy, Refactor… (Ctrl+Shift+R, the refactors alone) and
+     Switch Header/Source; Alt+O and Ctrl+F12 are merlin's own now.
+   - The Hierarchy view (Shift+Alt+H): Calls, callers or callees, and
+     Types, bases or derived, a level at a time, from the LSP SDK.
+   - A name's uses from `documentHighlight`: writes amber, reads blue,
+     marks in the scrollbar; the same word faintly without a server.
+   - Disassembly on the right (Debug: Open Disassembly), from the
+     function's start, as x86 can't be read backwards; Step by
+     instruction, with an i on the toolbar's steps; a Memory tab for any
+     expression, its bytes tinted and changed ones amber; Show in Memory
+     on a variable; Skip library code as a switch for what the dap
+     plugin already did.
+   - A bar over C and C++ files while clangd guesses a file's flags, as
+     its log says: Configure with CMake when the CMake plugin says its
+     project isn't configured (the new `build-setup` shared value), and
+     Set Include Folders.
+   - Problems' Open Files and Whole Project, and Check Project, which
+     runs `clangd --check` on every file `compile_commands.json` lists,
+     two at a time, with its progress and Stop.
+   - Fixed while trying it: F5 the first time after a restart didn't
+     start a run, as the debugger plugin was asleep when it was told
+     what to run.
+   - The gaps first left, built after ("Yes, build them"): the language's
+     status item turns amber while clangd guesses the open file's flags,
+     and its card says so; the status bar's counts follow Open Files;
+     breakpoints on an instruction (a click in Disassembly, listed under
+     Breakpoints); Memory's Bytes, 16-, 32- and 64-bit units and Refresh;
+     each local's address in Variables (`int · 0x7fff…e18`, from `&name`,
+     as gdb gives none with a variable); Open Disassembly on a call stack
+     frame. Check Project moved into the LSP SDK and runs through the
+     clangd that's running, each file opened and closed again, so it finds
+     warnings and clang-tidy's findings too (`clangd --check` reports
+     errors only); once it has run, saving a header runs it again, as
+     merlin has no Save All and a header is what breaks other files.
+   - Found while trying them: the card offered `sudo apt install clangd`
+     whenever clangd's line was amber; a manifest's install command now
+     shows only for a program that isn't installed.
+   The CMake plugin's status bar, presets and output were mocked up and
+   built in its own plugin.
+   - Right-click Go to entries, and highlighting a name's other uses.
    - A call and type hierarchy view.
    - Disassembly and memory views in the debugger.
    - Help when `compile_commands.json` is missing.

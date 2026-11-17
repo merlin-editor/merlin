@@ -2,11 +2,13 @@
 //! colours from a fast lexer, and `clangd` language server integration
 //! tuned for low CPU and memory usage.
 
+mod clangd_config;
 pub mod lex;
+pub mod scan;
 
-use merlin_lsp::{Spec, WithLsp};
+use merlin_lsp::{Spec, WithLsp, flags_line};
 use merlin_plugin::prelude::*;
-use merlin_plugin::shared::{CompileCommands, Shared};
+use merlin_plugin::shared::{BuildSetup, CompileCommands, Shared};
 use merlin_plugin::text::utf16_column;
 
 use lex::Kind;
@@ -47,9 +49,15 @@ const CPP_SERVER: Spec = Spec {
     case_blind: false,
     // The manifest's [programs] says how to install it, per system.
     install: None,
-    restarts: &["compile-commands", "include-folders", "defines"],
+    restarts: &[
+        "compile-commands",
+        "include-folders",
+        "defines",
+        "index-excluded",
+    ],
     shared: &[CompileCommands::KEY],
     adjust: Some(adjust),
+    scan: Some(scan::symbols),
 };
 
 /// clangd's start-up options from the plugin's settings and what build
@@ -112,6 +120,54 @@ const MAX_BYTES: usize = 512 * 1024;
 #[derive(Default)]
 struct Cpp {
     last: Option<(String, Option<u64>)>,
+    /// Files clangd guesses the flags for, with no compile command, by
+    /// their full path, as its log says.
+    guessed: std::collections::BTreeSet<String>,
+    /// The bar about it: hidden for this project, and shown now.
+    dismissed: bool,
+    shown: bool,
+}
+
+/// The bar's id.
+const NO_COMMANDS: &str = "no-compile-commands";
+
+impl Cpp {
+    /// The bar over C and C++ files while clangd guesses the open one's
+    /// flags: what would fix it here, a build plugin's setup or the
+    /// include folders. Not once the user has set include folders or
+    /// defines, or hid it.
+    fn bar(&mut self) {
+        let root = host::workspace_root();
+        let open = active().map(|p| {
+            if p.starts_with('/') {
+                p
+            } else {
+                format!("{}/{p}", root.trim_end_matches('/'))
+            }
+        });
+        let set_by_hand = !list("include-folders").is_empty() || !list("defines").is_empty();
+        let guessing = open.is_some_and(|p| self.guessed.contains(&p));
+        if guessing && !self.dismissed && !set_by_hand {
+            let mut buttons: Vec<Button> = merlin_plugin::shared::all::<BuildSetup>()
+                .into_iter()
+                .map(|(_, s)| Button::new(format!("run:{}", s.command), s.label))
+                .collect();
+            buttons.push(Button::new(
+                "run:settings.plugin:cpp",
+                "Set Include Folders…",
+            ));
+            host::show_bar(
+                NO_COMMANDS,
+                "clangd has no compile commands for this project, so it's guessing the flags: \
+                 includes may not be found.",
+                &buttons,
+            );
+            self.shown = true;
+        } else if self.shown {
+            host::hide_bar(NO_COMMANDS);
+            self.shown = false;
+        }
+    }
 }
 
 /// The open file, if it's C or C++.
@@ -152,6 +208,42 @@ fn tokens(text: &str) -> Vec<Token> {
 }
 
 impl Plugin for Cpp {
+    /// clangd's log, which says whether it has a file's flags or guesses.
+    fn process(&mut self, _process: u32, event: ProcessEvent) {
+        let ProcessEvent::Stderr(line) = event else {
+            return;
+        };
+        let Some((path, guessed)) = flags_line(&line) else {
+            return;
+        };
+        let changed = if guessed {
+            self.guessed.insert(path.to_string())
+        } else {
+            self.guessed.remove(path)
+        };
+        if changed {
+            self.bar();
+        }
+    }
+
+    fn click(&mut self, button: &str) {
+        if button == format!("dismiss:{NO_COMMANDS}") {
+            self.dismissed = true;
+            self.shown = false;
+        }
+    }
+
+    fn shared_changed(&mut self, _key: &str) {
+        self.bar();
+    }
+
+    fn setting_changed(&mut self, key: &str) {
+        if matches!(key, "index-excluded" | "files.exclude") {
+            clangd_config::sync();
+        }
+        self.bar();
+    }
+
     fn colour_text(&mut self, _language: &str, text: &str) -> Vec<Token> {
         if text.len() > MAX_BYTES {
             return Vec::new();
@@ -162,6 +254,9 @@ impl Plugin for Cpp {
     fn buffer(&mut self, event: BufferEvent) {
         if matches!(event, BufferEvent::Saved(_)) {
             return;
+        }
+        if matches!(event, BufferEvent::Switched) {
+            self.bar();
         }
         let Some(path) = active() else {
             return;

@@ -368,6 +368,9 @@ impl Plugin for Testbed {
                     chips: Vec::new(),
                     count: count.into(),
                     menu: Vec::new(),
+                    icon_colour: String::new(),
+                    actions: Vec::new(),
+                    toggle: None,
                 })
             };
             say(AgentPart::Panel(vec![

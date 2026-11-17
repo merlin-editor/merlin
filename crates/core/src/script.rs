@@ -269,7 +269,8 @@ impl Session {
                 }
                 Effect::ListFiles => self.send(Event::Files(self.files.keys().cloned().collect())),
                 Effect::ListTree => self.send(Event::Tree(self.files.keys().cloned().collect())),
-                Effect::Search(query) => {
+                Effect::Search(ask) => {
+                    let query = ask.query.clone();
                     let hits = self
                         .files
                         .iter()
@@ -285,7 +286,11 @@ impl Session {
                             })
                         })
                         .collect();
-                    self.send(Event::SearchResults { query, hits });
+                    self.send(Event::SearchResults {
+                        ask,
+                        hits,
+                        skipped: 0,
+                    });
                 }
                 Effect::ReadClipboard => self.send(Event::Clipboard(None)),
                 Effect::Quit => self.quit = true,
@@ -321,6 +326,11 @@ impl Session {
                 | Effect::PreviewTheme(..)
                 | Effect::SetTheme(..)
                 | Effect::OpenSettingsWindow { .. }
+                | Effect::OpenSettingsFiles
+                | Effect::ShowLeftOut(_)
+                | Effect::ListLeftOut(..)
+                | Effect::Exclude { .. }
+                | Effect::Include(_)
                 | Effect::Zoom(_)
                 | Effect::File(_)
                 | Effect::GitStatus

@@ -43,4 +43,23 @@ pub struct Spec {
     /// `options`: to put in what a shared value says, say. It runs each
     /// time the server starts.
     pub adjust: Option<fn(&mut serde_json::Value)>,
+    /// A quick look through a file's text for its definitions, for the
+    /// palette's symbol search when the server can't search the whole
+    /// project, as clangd without compile commands: its symbols are
+    /// marked SCAN.
+    pub scan: Option<fn(&str) -> Vec<Scanned>>,
+}
+
+/// A definition [`Spec::scan`] found.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Scanned {
+    pub name: String,
+    /// Such as `function`, `class`, `struct`, `enum`, `namespace`, `macro`.
+    pub kind: &'static str,
+    /// What it's written in, as `Circle` for `Circle::area`; empty for
+    /// nothing.
+    pub container: String,
+    /// From 0; the column in UTF-16 units.
+    pub line: u32,
+    pub column: u32,
 }

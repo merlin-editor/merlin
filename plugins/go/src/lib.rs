@@ -17,6 +17,7 @@ const GO_SERVER: Spec = Spec {
     restarts: &[],
     shared: &[],
     adjust: None,
+    scan: None,
 };
 
 merlin_plugin::export!(WithLsp<Grammar> => WithLsp::new(

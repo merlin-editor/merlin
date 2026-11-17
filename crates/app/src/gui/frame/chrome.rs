@@ -508,7 +508,13 @@ impl Frame<'_> {
                 }
                 self.hit(b, Hit::Ui(UiEvent::Debug(button)));
             }
-            self.tips.push((b, tip.to_string()));
+            let tip = match tip.split_once(" (") {
+                Some((what, key)) if bar.by_instruction && what.starts_with("Step") => {
+                    format!("{what}, an Instruction ({key}")
+                }
+                _ => tip.to_string(),
+            };
+            self.tips.push((b, tip));
             let colour = if waiting {
                 theme::mix(colour, p.widget, 0.65)
             } else {
@@ -518,6 +524,20 @@ impl Frame<'_> {
             // lands on, as VS Code draws them.
             if matches!(button, B::StepOver | B::StepInto | B::StepOut) {
                 self.step_icon(button, b.x + bw / 2.0, b.y + bh / 2.0, colour);
+                // An instruction at a time: a small i at its corner.
+                if bar.by_instruction {
+                    let f = Face::ui(9.0).bold();
+                    self.text.draw_in_row(
+                        &mut self.canvas,
+                        "i",
+                        f,
+                        b.right() - 7.0,
+                        b.y + bh - 12.0,
+                        10.0,
+                        p.keyword,
+                        b,
+                    );
+                }
             } else {
                 let gw = self.text.width(glyph, face);
                 self.text.draw_in_row(
@@ -585,17 +605,39 @@ impl Frame<'_> {
     pub(super) fn toast(&mut self, toast: &ToastView, editor: Rect) {
         let p = self.p;
         let face = Face::ui(13.0);
-        let w = 420.0_f32.min(editor.w - 32.0);
+        let bf = Face::ui(12.5).medium();
+        let widths: Vec<f32> = toast
+            .buttons
+            .iter()
+            .map(|label| self.text.width(label, bf) + 24.0)
+            .collect();
+        let link_w = toast
+            .link
+            .as_ref()
+            .map_or(0.0, |link| self.text.width(link, Face::ui(12.0)) + 24.0);
+        // Wide enough for the buttons in one row, up to the editor's width;
+        // past that they wrap, the last one staying at the bottom right.
+        let row_w: f32 = widths.iter().sum::<f32>() + 8.0 * widths.len().saturating_sub(1) as f32;
+        let w = 420.0_f32.max(row_w + link_w + 28.0).min(editor.w - 32.0);
+        let rows = button_rows(&widths, w - 28.0);
+        // The link goes beside the bottom row, or on a line above the
+        // buttons when it doesn't fit there.
+        let bottom_w: f32 = rows
+            .last()
+            .map_or(0.0, |row| row.iter().map(|&i| widths[i] + 8.0).sum::<f32>());
+        let link_above = toast.link.is_some() && !rows.is_empty() && bottom_w + link_w > w - 28.0;
         let text_w = w - 56.0;
         let th = self.text.wrapped_height(&toast.text, face, text_w);
         let code_h = if toast.code.is_some() { 40.0 } else { 0.0 };
+        let choice_h = if toast.choice.is_some() { 40.0 } else { 0.0 };
         let h = th
             + 28.0
             + code_h
+            + choice_h
             + if toast.buttons.is_empty() && toast.link.is_none() {
                 0.0
             } else {
-                40.0
+                40.0 * (rows.len().max(1) + usize::from(link_above)) as f32
             };
         let r = Rect::new(editor.right() - w - 16.0, editor.bottom() - h - 16.0, w, h);
         self.canvas.shadow(r, 10.0, theme::is_light(&p));
@@ -662,26 +704,76 @@ impl Frame<'_> {
             self.text
                 .draw_in_row(&mut self.canvas, &t, mono, b.x + 10.0, b.y, b.h, p.text, b);
         }
+        // A plugin's dropdown: what's picked, and its detail beside it.
+        let mut list = None;
+        if let Some(choice) = &toast.choice {
+            let y = r.y + 12.0 + th + 8.0 + code_h;
+            let cf = Face::ui(12.5);
+            let label = format!("{} ▾", choice.label);
+            let lw = self.text.width(&label, cf) + 20.0;
+            let b = Rect::new(r.x + 38.0, y, lw.clamp(120.0, w - 38.0 - 16.0), 28.0);
+            let hovered = self.hovered(b) || choice.open.is_some();
+            self.canvas.outline(
+                b,
+                6.0,
+                1.0,
+                if hovered { p.accent } else { p.line },
+                p.ground,
+            );
+            self.text.draw_in_row(
+                &mut self.canvas,
+                &label,
+                cf,
+                b.x + 10.0,
+                b.y,
+                b.h,
+                p.text,
+                b,
+            );
+            self.hit(b, Hit::Ui(UiEvent::ToastChoice));
+            if !choice.detail.is_empty() {
+                let room = r.right() - 16.0 - b.right() - 12.0;
+                let df = Face::ui(12.0);
+                let detail = self.text.fit(&choice.detail, df, room);
+                let d = Rect::new(b.right() + 12.0, b.y, room.max(0.0), b.h);
+                self.text
+                    .draw_in_row(&mut self.canvas, &detail, df, d.x, d.y, d.h, p.muted, d);
+            }
+            list = choice.open.as_ref().map(|options| (b, options));
+        }
+        // Rows from the bottom up; `bx` ends as the bottom row's left edge.
         let mut bx = r.right() - 14.0;
-        for (i, label) in toast.buttons.iter().enumerate().rev() {
-            let bf = Face::ui(12.5).medium();
-            let bw = self.text.width(label, bf) + 24.0;
-            bx -= bw;
-            let b = Rect::new(bx, r.bottom() - 40.0, bw, 28.0);
-            // A notice with a command keeps its buttons plain.
-            let primary = i + 1 == toast.buttons.len() && toast.code.is_none();
-            let (bg, fg) = self.button_colours(primary, self.hovered(b));
-            self.canvas.round(b, 6.0, bg);
-            self.text
-                .draw_in_row(&mut self.canvas, label, bf, b.x + 12.0, b.y, 28.0, fg, b);
-            self.hit(b, Hit::Ui(UiEvent::ToastButton(i)));
-            bx -= 8.0;
+        for (n, row) in rows.iter().rev().enumerate() {
+            let y = r.bottom() - 40.0 * (n + 1) as f32;
+            let mut x = r.right() - 14.0;
+            for &i in row.iter().rev() {
+                let label = &toast.buttons[i];
+                let bw = widths[i];
+                x -= bw;
+                let b = Rect::new(x, y, bw, 28.0);
+                // A notice with a command keeps its buttons plain.
+                let primary = i + 1 == toast.buttons.len() && toast.code.is_none();
+                let (bg, fg) = self.button_colours(primary, self.hovered(b));
+                self.canvas.round(b, 6.0, bg);
+                self.text
+                    .draw_in_row(&mut self.canvas, label, bf, b.x + 12.0, b.y, 28.0, fg, b);
+                self.hit(b, Hit::Ui(UiEvent::ToastButton(i)));
+                x -= 8.0;
+            }
+            if n == 0 {
+                bx = x;
+            }
         }
         // The link, at the start of the row.
         if let Some(link) = &toast.link {
             let lf = Face::ui(12.0);
             let lw = self.text.width(link, lf);
-            let l = Rect::new(r.x + 14.0, r.bottom() - 40.0, lw.min(bx - r.x - 22.0), 28.0);
+            let l = if link_above {
+                let y = r.bottom() - 40.0 * (rows.len() + 1) as f32;
+                Rect::new(r.x + 14.0, y, lw.min(w - 28.0), 28.0)
+            } else {
+                Rect::new(r.x + 14.0, r.bottom() - 40.0, lw.min(bx - r.x - 22.0), 28.0)
+            };
             let colour = if self.hovered(l) {
                 self.p.bright
             } else {
@@ -690,6 +782,75 @@ impl Frame<'_> {
             self.text
                 .draw_in_row(&mut self.canvas, link, lf, l.x, l.y, l.h, colour, l);
             self.hit(l, Hit::Ui(UiEvent::ToastButton(toast.buttons.len())));
+        }
+        // The dropdown's list, open over the notice, upward from its box.
+        if let Some((b, options)) = list {
+            let face = Face::ui(12.5);
+            let df = Face::ui(12.0);
+            let lw = options
+                .iter()
+                .map(|(l, d, _)| {
+                    self.text.width(l, face)
+                        + if d.is_empty() {
+                            0.0
+                        } else {
+                            self.text.width(d, df) + 24.0
+                        }
+                })
+                .fold(b.w - 40.0, f32::max)
+                + 40.0;
+            let lw = lw.min(r.right() - 8.0 - b.x);
+            let lh = options.len() as f32 * 26.0 + 8.0;
+            let card = Rect::new(b.x, b.y - 4.0 - lh, lw, lh);
+            self.canvas.shadow(card, 8.0, theme::is_light(&p));
+            self.canvas.outline(card, 8.0, 1.0, p.border, p.widget);
+            self.hit(card, Hit::Block);
+            for (i, (label, detail, picked)) in options.iter().enumerate() {
+                let row = Rect::new(
+                    card.x + 4.0,
+                    card.y + 4.0 + i as f32 * 26.0,
+                    card.w - 8.0,
+                    26.0,
+                );
+                if self.hovered(row) {
+                    self.canvas.round(row, 5.0, p.chip);
+                }
+                let mark = if *picked { "✓" } else { "" };
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    mark,
+                    face,
+                    row.x + 6.0,
+                    row.y,
+                    row.h,
+                    p.accent,
+                    row,
+                );
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    label,
+                    face,
+                    row.x + 24.0,
+                    row.y,
+                    row.h,
+                    p.text,
+                    row,
+                );
+                if !detail.is_empty() {
+                    let dw = self.text.width(detail, df);
+                    self.text.draw_in_row(
+                        &mut self.canvas,
+                        detail,
+                        df,
+                        row.right() - 8.0 - dw,
+                        row.y,
+                        row.h,
+                        p.muted,
+                        row,
+                    );
+                }
+                self.hit(row, Hit::Ui(UiEvent::ToastChoose(i)));
+            }
         }
     }
 
@@ -719,7 +880,7 @@ impl Frame<'_> {
     }
 
     /// A ring with its head in the accent, 10 across, from `x`, `y`.
-    fn spinner(&mut self, x: f32, y: f32) {
+    pub(super) fn spinner(&mut self, x: f32, y: f32) {
         let p = self.p;
         let ring = Rect::new(x, y, 10.0, 10.0);
         self.canvas.outline(ring, 5.0, 1.5, p.faint, p.ground);
@@ -893,3 +1054,43 @@ pub(super) fn layout_toggles(w: f32) -> f32 {
 
 /// merlin's icon for small sizes (`assets/icon/merlin-small.svg`).
 const ICON: &[u8] = include_bytes!("../../../../../assets/icon/merlin-small.svg");
+
+/// Buttons of `widths` in rows no wider than `room`, in order, filled from
+/// the last so the last button ends the bottom row. Each row holds at
+/// least one button.
+fn button_rows(widths: &[f32], room: f32) -> Vec<Vec<usize>> {
+    let mut rows: Vec<Vec<usize>> = Vec::new();
+    let mut row: Vec<usize> = Vec::new();
+    let mut used = 0.0;
+    for i in (0..widths.len()).rev() {
+        let need = widths[i] + if row.is_empty() { 0.0 } else { 8.0 };
+        if !row.is_empty() && used + need > room {
+            row.reverse();
+            rows.push(std::mem::take(&mut row));
+            used = 0.0;
+        }
+        used += widths[i] + if row.is_empty() { 0.0 } else { 8.0 };
+        row.push(i);
+    }
+    if !row.is_empty() {
+        row.reverse();
+        rows.push(row);
+    }
+    rows.reverse();
+    rows
+}
+
+#[cfg(test)]
+mod tests {
+    use super::button_rows;
+
+    #[test]
+    fn buttons_wrap_with_the_last_at_the_bottom_right() {
+        assert_eq!(button_rows(&[50.0, 50.0, 50.0], 500.0), [vec![0, 1, 2]]);
+        assert_eq!(
+            button_rows(&[100.0, 80.0, 120.0, 130.0], 270.0),
+            [vec![0, 1], vec![2, 3]]
+        );
+        assert_eq!(button_rows(&[400.0, 10.0], 100.0), [vec![0], vec![1]]);
+    }
+}

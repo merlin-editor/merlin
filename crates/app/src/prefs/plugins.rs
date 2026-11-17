@@ -77,6 +77,7 @@ impl App {
             read: p.permissions.editor_read,
             write: p.permissions.editor_write,
             workspace_read: p.permissions.workspace_read,
+            workspace_write: p.permissions.workspace_write,
             terminal: p.permissions.terminal,
             processes: p.permissions.processes,
             memory: p.memory,

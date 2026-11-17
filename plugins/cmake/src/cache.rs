@@ -19,8 +19,14 @@ pub struct Variable {
 }
 
 impl Variable {
+    /// A boolean, or one set by `-D` without a type to ON or OFF.
     pub fn is_bool(&self) -> bool {
         self.kind == "BOOL"
+            || (self.kind == "UNINITIALIZED"
+                && matches!(
+                    self.value.to_ascii_uppercase().as_str(),
+                    "ON" | "OFF" | "TRUE" | "FALSE" | "YES" | "NO"
+                ))
     }
 
     pub fn on(&self) -> bool {
@@ -124,6 +130,8 @@ mod tests {
             ]
         );
         assert!(found[0].is_bool() && found[0].on());
+        assert!(found[3].is_bool(), "a -D ON without a type");
+        assert!(!found[2].is_bool());
         assert_eq!(found[0].help, "Build tests");
         assert!(found[1].advanced);
         assert_eq!(found[2].choices, ["Debug", "Release"]);

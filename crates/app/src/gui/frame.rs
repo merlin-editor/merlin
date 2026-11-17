@@ -367,7 +367,10 @@ pub fn group_areas(
                 area.split_for_merge(sizes, inline);
             } else if groups.get(g).is_some_and(|v| v.compare.is_some()) {
                 area.under_titles();
-            } else if groups.get(g).is_some_and(|v| v.away.is_some()) {
+            } else if groups
+                .get(g)
+                .is_some_and(|v| v.away.is_some() || v.bar.is_some())
+            {
                 area.under_away();
             }
             areas.push(area);

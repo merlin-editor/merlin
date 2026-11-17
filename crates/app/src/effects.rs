@@ -47,19 +47,43 @@ impl App {
             Effect::Open(path) => self.open_later(&path),
             Effect::ListFiles => {
                 let root = self.root.clone();
+                let rules = self.exclusions.clone();
                 self.jobs.run(Lane::Scan, move || {
-                    jobs::events(vec![Event::Files(list_files(&root))])
+                    jobs::events(vec![Event::Files(list_files(&root, &rules))])
                 });
             }
             Effect::ListTree => self.list_tree_later(),
-            Effect::File(op) => self.file_later(op),
-            Effect::Search(query) => {
+            Effect::ShowLeftOut(on) => {
+                self.show_excluded = on;
+                self.tree_hash = None;
+                self.list_tree_later();
+            }
+            Effect::ListLeftOut(folder, why) => {
                 let root = self.root.clone();
                 self.jobs.run(Lane::Scan, move || {
-                    let hits = search(&root, &query);
-                    jobs::events(vec![Event::SearchResults { query, hits }])
+                    let entries = list_left_out(&root, &folder, why);
+                    jobs::events(vec![Event::LeftOut {
+                        folder: Some(folder),
+                        entries,
+                    }])
                 });
             }
+            Effect::File(op) => self.file_later(op),
+            Effect::Search(ask) => {
+                let root = self.root.clone();
+                let rules = self.exclusions.clone();
+                self.jobs.run(Lane::Scan, move || {
+                    let (hits, skipped) = search(&root, &ask, &rules);
+                    jobs::events(vec![Event::SearchResults { ask, hits, skipped }])
+                });
+            }
+            Effect::Exclude { pattern, search } => {
+                queue.extend(self.exclude(&pattern, search));
+            }
+            Effect::Include(rules) => {
+                queue.extend(self.include(&rules));
+            }
+            Effect::OpenSettingsFiles => self.open_settings_files(),
             Effect::GitStatus => self.git_status_later(),
             // Asked for as the text changes, it runs after a pause.
             Effect::Blame {
@@ -165,7 +189,8 @@ impl App {
                 start,
                 breakpoints,
             } => {
-                self.host.set_debug(&plugin, start.map(|s| *s), breakpoints);
+                let woke = self.host.set_debug(&plugin, start.map(|s| *s), breakpoints);
+                queue.extend(woke);
                 let snapshot = self.snapshot();
                 queue.extend(self.host.run_command(&plugin, &command, snapshot));
                 self.panels_for = None;

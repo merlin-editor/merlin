@@ -25,7 +25,9 @@ impl Frame<'_> {
             _ => false,
         };
         // A plugin view's buttons, at the header's right.
-        let tools_x = if side == Side::Right || (side != Side::Tab && sv.from.is_some()) {
+        let tools_x = if side == Side::Right
+            || (side != Side::Tab && (sv.from.is_some() || !sv.toolbar.is_empty()))
+        {
             self.view_tools(sv, side, header)
         } else {
             header.right()
@@ -392,6 +394,7 @@ impl Frame<'_> {
                 Some(merlin_core::ViewIcon::Glyph("⋯".into())),
                 format!("view-menu:{}", sv.name),
                 "Move or Hide".to_string(),
+                false,
             )
         });
         // On the right, + shows a view that's hidden.
@@ -400,6 +403,7 @@ impl Frame<'_> {
                 Some(merlin_core::ViewIcon::Glyph("+".into())),
                 "views-hidden".to_string(),
                 "Show a Hidden View".to_string(),
+                false,
             )
         });
         let tools = sv
@@ -412,17 +416,21 @@ impl Frame<'_> {
                         .next()
                         .map(|c| merlin_core::ViewIcon::Glyph(c.into()))
                 });
-                (icon, format!("run:{}", t.command), t.title.clone())
+                (icon, format!("run:{}", t.command), t.title.clone(), t.on)
             })
             .rev();
-        for (icon, press, tip) in more.into_iter().chain(add).chain(tools) {
+        for (icon, press, tip, on) in more.into_iter().chain(add).chain(tools) {
             x -= size;
             let r = Rect::new(x, y, size, size);
             let hovered = self.hovered(r);
             if hovered {
                 self.canvas.round(r, 6.0, p.hover);
             }
-            let colour = if hovered { p.bright } else { p.muted };
+            let colour = match (on, hovered) {
+                (true, _) => p.accent,
+                (_, true) => p.bright,
+                _ => p.muted,
+            };
             if let Some(icon) = &icon {
                 self.view_icon(icon, x + 5.0, y + 5.0, 14.0, colour, header);
             }
@@ -1548,6 +1556,57 @@ impl Frame<'_> {
     /// A tree row: indent, arrow, checkbox, icon, name, detail, counts,
     /// and a badge and buttons at the end. Returns where its checkbox,
     /// arrow and buttons are, to click.
+    /// A label drawn in pieces, its spans in their tones, a tint behind
+    /// the strong ones: a memory row's bytes. Returns its width.
+    fn spans(&mut self, e: &Entry, face: Face, x: f32, row: Rect, colour: u32, clip: Rect) -> f32 {
+        let p = self.p;
+        let chars: Vec<char> = e.label.chars().collect();
+        let mut cuts: Vec<(usize, usize, Option<Tone>)> = Vec::new();
+        let mut at = 0;
+        let mut spans = e.spans.clone();
+        spans.sort_by_key(|s| s.0);
+        for (a, b, tone) in spans {
+            let (a, b) = (a.min(chars.len()), b.min(chars.len()));
+            if a < at || a >= b {
+                continue;
+            }
+            if at < a {
+                cuts.push((at, a, None));
+            }
+            cuts.push((a, b, Some(tone)));
+            at = b;
+        }
+        if at < chars.len() {
+            cuts.push((at, chars.len(), None));
+        }
+        let mut dx = 0.0;
+        for (a, b, tone) in cuts {
+            let piece: String = chars[a..b].iter().collect();
+            let w = self.text.width(&piece, face);
+            let fg = match tone {
+                Some(Tone::Strong) => {
+                    let r = Rect::new(x + dx - 1.0, row.y + 4.0, w + 2.0, row.h - 8.0);
+                    self.canvas.round(r, 2.0, mix(p.accent, p.island, 0.3));
+                    p.bright
+                }
+                Some(t) => tone_colour(&p, t),
+                None => colour,
+            };
+            self.text.draw_in_row(
+                &mut self.canvas,
+                &piece,
+                face,
+                x + dx,
+                row.y,
+                row.h,
+                fg,
+                clip,
+            );
+            dx += w;
+        }
+        dx
+    }
+
     pub(super) fn entry(&mut self, e: &Entry, row: Rect, clip: Rect) -> EntryHits {
         if e.id.starts_with("plugin:") {
             return self.plugin_entry(e, row, clip);
@@ -1658,9 +1717,10 @@ impl Frame<'_> {
             .links
             .iter()
             .enumerate()
-            .filter(|(j, _)| *j == 0 || hovered)
+            .filter(|(j, _)| (*j == 0 && !e.links_on_hover) || hovered)
             .map(|(_, l)| l)
             .collect();
+        let switch_w = if e.switch.is_some() { 34.0 } else { 0.0 };
         let links_w: f32 = links
             .iter()
             .map(|(l, _)| self.text.width(l, link_face) + 12.0)
@@ -1669,6 +1729,7 @@ impl Frame<'_> {
             - x
             - badge_w
             - links_w
+            - switch_w
             - if e.action.is_some() { 26.0 } else { 0.0 }
             - 6.0)
             .max(0.0);
@@ -1682,6 +1743,7 @@ impl Frame<'_> {
                 let room = room - if e.detail.is_empty() { 0.0 } else { 70.0 };
                 self.swap(s, e.tone == Tone::Muted, x, row, room, clip)
             }
+            None if !e.spans.is_empty() => self.spans(e, face, x, row, colour, clip),
             None => {
                 let label = self.text.fit(&e.label, face, room);
                 self.text.draw_in_row(
@@ -1778,15 +1840,49 @@ impl Frame<'_> {
             }
         }
         let mut right = row.right() - 8.0;
+        // A switch at the very end, as Settings draws one, smaller.
+        if let Some(on) = e.switch {
+            let s = Rect::new(right - 26.0, mid - 7.0, 26.0, 14.0);
+            let track = match (on, hovered) {
+                (true, false) => p.accent,
+                (true, true) => mix(p.accent, 0xffffff, 0.88),
+                (false, false) => p.border,
+                (false, true) => mix(p.border, p.muted, 0.7),
+            };
+            self.canvas.round(s, 7.0, track);
+            let knob = if on {
+                Rect::new(s.right() - 12.0, s.y + 2.0, 10.0, 10.0)
+            } else {
+                Rect::new(s.x + 2.0, s.y + 2.0, 10.0, 10.0)
+            };
+            self.canvas
+                .round(knob, 5.0, if on { p.on_accent } else { p.muted });
+            right -= switch_w;
+        }
         // Buttons as words: the first always, in green, at the end, so it
-        // stays put; the rest before it while the row is hovered.
-        for (j, (label, _)) in links.iter().enumerate() {
+        // stays put; the rest before it while the row is hovered. A
+        // plugin's wait for the pointer, all of them, and are plain.
+        // Laid out from the right: a plugin's read left to right, so the
+        // last goes first.
+        let order: Vec<usize> = if e.links_on_hover {
+            (0..links.len()).rev().collect()
+        } else {
+            (0..links.len()).collect()
+        };
+        let mut placed: Vec<(usize, Rect)> = Vec::new();
+        for j in order {
+            let (label, _) = links[j];
             let w = self.text.width(label, link_face);
             let r = Rect::new(right - w - 6.0, row.y + 3.0, w + 12.0, row.h - 6.0);
             if self.hovered(r) {
                 self.canvas.round(r, 5.0, p.chip);
             }
-            let colour = if j == 0 { p.success } else { p.muted };
+            let colour = match (j, e.links_on_hover) {
+                (_, true) if self.hovered(r) => p.text,
+                (_, true) => p.muted,
+                (0, false) => p.success,
+                _ => p.muted,
+            };
             self.text.draw_in_row(
                 &mut self.canvas,
                 label,
@@ -1797,9 +1893,12 @@ impl Frame<'_> {
                 colour,
                 clip,
             );
-            hits.links.push(r);
+            placed.push((j, r));
             right -= w + 12.0;
         }
+        // Hits in the links' own order, as their targets are.
+        placed.sort_by_key(|(j, _)| *j);
+        hits.links.extend(placed.into_iter().map(|(_, r)| r));
         if !e.badge.is_empty() {
             let face = Face::ui(11.0).bold();
             let bw = self.text.width(&e.badge, face);

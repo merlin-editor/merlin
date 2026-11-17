@@ -20,6 +20,15 @@ pub(crate) const EXPLORER_ITEMS: &[(&str, &str)] = &[
     ("-", ""),
     ("explorer.open_side", "Open to the Side"),
     ("-", ""),
+    ("explorer.find_in_folder", "Find in Folder…"),
+    ("-", ""),
+    ("explorer.exclude", "Exclude from Project"),
+    ("explorer.exclude_search", "Exclude from Search Only"),
+    ("explorer.include", "Include in Project"),
+    ("explorer.gitignore", "Add to .gitignore"),
+    ("explorer.open_gitignore", "Open .gitignore"),
+    ("explorer.show_hidden", "Show Hidden Files"),
+    ("-", ""),
     ("explorer.select_compare", "Select for Compare"),
     ("explorer.compare_with", "Compare with Selected"),
     ("-", ""),
@@ -99,6 +108,18 @@ impl Editor {
         self.popup = None;
         let on_row = row.is_some();
         let is_file = row.as_deref().is_some_and(|r| r.starts_with("f:"));
+        let is_folder = row.as_deref().is_some_and(|r| r.starts_with("d:"));
+        // Why it's dimmed, if it is: what it can be put back with.
+        let why = row.as_deref().and_then(|r| {
+            let rel = if is_folder {
+                format!("{}/", &r[2..])
+            } else {
+                r[2..].to_string()
+            };
+            self.tree.as_ref()?.why_left_out(&rel)
+        });
+        use crate::exclude::Why;
+        let ruled = matches!(why, Some(Why::Excluded | Why::SearchOnly));
         self.explorer_row = row;
         let items = EXPLORER_ITEMS
             .iter()
@@ -110,6 +131,13 @@ impl Editor {
                 | "explorer.copy_relative"
                 | "explorer.rename"
                 | "explorer.delete" => on_row,
+                "explorer.find_in_folder" => is_folder && why.is_none(),
+                "explorer.exclude" | "explorer.exclude_search" | "explorer.gitignore" => {
+                    on_row && why.is_none()
+                }
+                "explorer.include" => ruled,
+                "explorer.open_gitignore" => why == Some(Why::GitIgnore),
+                "explorer.show_hidden" => why == Some(Why::Hidden),
                 _ => true,
             })
             .collect::<Vec<_>>();
@@ -221,6 +249,46 @@ impl Editor {
                     fx.push(Effect::Copy(text));
                 }
             }
+            "explorer.find_in_folder" => {
+                if let Some(path) = path {
+                    let key = (super::views::SEARCH.to_string(), "include".to_string());
+                    self.inputs.insert(key, format!("{path}/"));
+                    self.show_view(super::views::SEARCH, fx);
+                    self.bar_mut(Side::Left).target = Some(Target::Input("query".into()));
+                }
+            }
+            "explorer.exclude" | "explorer.exclude_search" => {
+                if let Some(path) = path {
+                    let folder = row.as_deref().is_some_and(|r| r.starts_with("d:"));
+                    let pattern = crate::exclude::pattern_for(&path, folder);
+                    let search = id == "explorer.exclude_search";
+                    self.exclude(pattern, search, fx);
+                }
+            }
+            "explorer.include" => {
+                if let Some(path) = path {
+                    let folder = row.as_deref().is_some_and(|r| r.starts_with("d:"));
+                    let rel = crate::exclude::pattern_for(&path, folder);
+                    let rules = self.exclusions.rules_for(&rel);
+                    if !rules.is_empty() {
+                        fx.push(Effect::Include(rules));
+                    }
+                }
+            }
+            "explorer.gitignore" => {
+                if let Some(path) = path {
+                    let folder = row.as_deref().is_some_and(|r| r.starts_with("d:"));
+                    let entry = crate::exclude::pattern_for(&path, folder);
+                    fx.push(Effect::Git(super::GitAction::Ignore(entry)));
+                }
+            }
+            "explorer.undo_exclude" => self.undo_exclude(fx),
+            "explorer.toggle_excluded" => self.toggle_left_out(fx),
+            "explorer.open_gitignore" => self.open(PathBuf::from(".gitignore"), fx),
+            "explorer.show_hidden" => {
+                self.open_page(super::SETTINGS_PAGE, "Settings");
+                fx.push(Effect::OpenSettingsFiles);
+            }
             "explorer.open_side" => {
                 if let Some(path) = path {
                     self.open(PathBuf::from(&path), fx);
@@ -231,6 +299,55 @@ impl Editor {
         }
         self.explorer_row = None;
         true
+    }
+
+    /// Adds a pattern to the workspace's exclusions, with a notice that
+    /// can undo it.
+    fn exclude(&mut self, pattern: String, search: bool, fx: &mut Vec<Effect>) {
+        fx.push(Effect::Exclude {
+            pattern: pattern.clone(),
+            search,
+        });
+        let what = if search {
+            "Search, Quick Open and symbols"
+        } else {
+            "the Explorer, Search and symbols"
+        };
+        self.message = Some(super::Message {
+            text: format!(
+                "Excluded {pattern}: it's out of {what}. Saved in .merlin/settings.toml."
+            ),
+            error: false,
+            done: true,
+            warning: false,
+            actions: Vec::new(),
+            link: None,
+            code: None,
+            choice: None,
+        });
+        self.add_action("Open Exclusions", "settings.files");
+        self.add_action("Undo", "explorer.undo_exclude");
+        self.last_exclude = Some((pattern, search));
+    }
+
+    /// The notice's Undo: the pattern Exclude added comes out again.
+    pub(crate) fn undo_exclude(&mut self, fx: &mut Vec<Effect>) {
+        if let Some(rule) = self.last_exclude.take() {
+            fx.push(Effect::Include(vec![rule]));
+            self.message = None;
+        }
+    }
+
+    /// The Explorer's ⊘: shows what's left out, dimmed, or stops.
+    pub(crate) fn toggle_left_out(&mut self, fx: &mut Vec<Effect>) {
+        let tree = self.tree.get_or_insert_with(Default::default);
+        tree.show_left_out = !tree.show_left_out;
+        tree.built_for = None;
+        if !tree.show_left_out {
+            tree.left_out.clear();
+        }
+        fx.push(Effect::ShowLeftOut(tree.show_left_out));
+        self.build_views();
     }
 
     /// What a name typed in the Explorer makes happen.

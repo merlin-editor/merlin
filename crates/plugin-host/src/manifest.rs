@@ -76,7 +76,8 @@ pub struct Manifest {
     pub views: Vec<ManifestView>,
     /// When to start it, rather than at launch: `language:<id>` when a
     /// file of that language opens, `file:<path>` when the workspace has
-    /// that file. Using one of its commands or views starts it too.
+    /// that file, at its top or, as `file:*/<path>`, in a folder there.
+    /// Using one of its commands or views starts it too.
     #[serde(default, rename = "activate-on")]
     pub activate_on: Vec<String>,
     /// Plugins it needs, each with a version requirement read as Cargo
@@ -661,6 +662,9 @@ pub struct Permissions {
     /// Reads the project's files from disk, not only the open one.
     #[serde(default)]
     pub workspace_read: bool,
+    /// Writes the project's files on disk, as a tool's config file.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub workspace_write: bool,
     /// Runs command lines in terminal tabs, as tasks do, when it likes.
     #[serde(default)]
     pub terminal: bool,
@@ -692,6 +696,9 @@ impl Permissions {
         }
         if self.workspace_read {
             what.push(("read the project's files".to_string(), false));
+        }
+        if self.workspace_write {
+            what.push(("write files in the project".to_string(), false));
         }
         if self.terminal {
             what.push((
@@ -742,6 +749,7 @@ impl Permissions {
             && (self.editor_write || !wanted.editor_write)
             && (self.debugger || !wanted.debugger)
             && (self.workspace_read || !wanted.workspace_read)
+            && (self.workspace_write || !wanted.workspace_write)
             && (self.terminal || !wanted.terminal)
             && wanted.processes.iter().all(|p| self.processes.contains(p))
             && wanted.network.iter().all(|h| self.network.contains(h))

@@ -72,7 +72,7 @@ fn level(doc: &Doc, line: usize) -> usize {
     up.unwrap_or(0).min(down.unwrap_or(0))
 }
 
-fn is_word(c: char) -> bool {
+pub(crate) fn is_word(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
 }
 
