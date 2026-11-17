@@ -9,11 +9,15 @@
 #![cfg(not(windows))]
 
 use std::path::{Path, PathBuf};
-use std::sync::Once;
+use std::ops::{Deref, DerefMut};
+use std::sync::{Mutex, Once};
 use std::time::{Duration, Instant};
 
 use merlin_core::{Completion, Event, Severity};
-use merlin_plugins::{BufferEvent, Config, PluginHost, Snapshot};
+use merlin_plugins::{BufferEvent, PluginHost, Snapshot};
+
+mod common;
+use common::Host;
 
 fn plugin_dir() -> PathBuf {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/rust");
@@ -38,11 +42,57 @@ fn use_fake_server() {
     });
 }
 
-/// An empty project, so the plugin has no Cargo.toml files to read.
+/// An empty project, so the plugin has no Cargo.toml files to read. It's
+/// shared by the tests running at once: [`Root`] makes it for the first and
+/// removes it after the last.
 fn root() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("merlin-lsp-root-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+    std::env::temp_dir().join(format!("merlin-lsp-root-{}", std::process::id()))
+}
+
+/// How many tests are using [`root`].
+static ROOT_USERS: Mutex<usize> = Mutex::new(0);
+
+/// One test's use of [`root`], which is removed when the last one drops,
+/// even if a test fails.
+struct Root;
+
+impl Root {
+    fn new() -> Self {
+        let mut users = ROOT_USERS.lock().unwrap_or_else(|e| e.into_inner());
+        std::fs::create_dir_all(root()).unwrap();
+        *users += 1;
+        Root
+    }
+}
+
+impl Drop for Root {
+    fn drop(&mut self) {
+        let mut users = ROOT_USERS.lock().unwrap_or_else(|e| e.into_inner());
+        *users -= 1;
+        if *users == 0 {
+            let _ = std::fs::remove_dir_all(root());
+        }
+    }
+}
+
+/// A started host, with its data folder and its use of [`root`]. The host
+/// drops first.
+struct Started {
+    host: Host,
+    _root: Root,
+}
+
+impl Deref for Started {
+    type Target = PluginHost;
+    fn deref(&self) -> &PluginHost {
+        &self.host
+    }
+}
+
+impl DerefMut for Started {
+    fn deref_mut(&mut self) -> &mut PluginHost {
+        &mut self.host
+    }
 }
 
 fn snapshot() -> Snapshot {
@@ -58,18 +108,13 @@ fn snapshot() -> Snapshot {
 }
 
 /// A host with the plugin loaded and the server told about main.rs.
-fn started() -> PluginHost {
+fn started() -> Started {
     use_fake_server();
-    let config = Config {
-        data_dir: std::env::temp_dir().join(format!("merlin-lsp-test-{}", std::process::id())),
-        ask: false,
-        keyring: false,
-        background: false,
-    };
-    let mut host = PluginHost::new(config).unwrap();
+    let root = Root::new();
+    let mut host = Host::new("merlin-lsp-test-");
     host.load(&plugin_dir()).unwrap();
     host.buffer_event(&BufferEvent::Switched, &snapshot());
-    host
+    Started { host, _root: root }
 }
 
 /// Polls process output until an event matches.

@@ -4,7 +4,10 @@
 use std::path::{Path, PathBuf};
 
 use merlin_core::Event;
-use merlin_plugins::{BufferEvent, Config, PluginHost, Snapshot};
+use merlin_plugins::{BufferEvent, PluginHost, Snapshot};
+
+mod common;
+use common::Host;
 
 fn plugin_dir() -> PathBuf {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/rust");
@@ -16,14 +19,8 @@ fn plugin_dir() -> PathBuf {
     dir
 }
 
-fn host() -> PluginHost {
-    let config = Config {
-        data_dir: std::env::temp_dir().join(format!("merlin-rust-test-{}", std::process::id())),
-        ask: false,
-        keyring: false,
-        background: false,
-    };
-    let mut host = PluginHost::new(config).unwrap();
+fn host() -> Host {
+    let mut host = Host::new("merlin-rust-test-");
     host.load(&plugin_dir()).unwrap();
     host
 }

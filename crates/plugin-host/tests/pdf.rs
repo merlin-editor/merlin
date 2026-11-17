@@ -5,7 +5,9 @@
 use std::path::Path;
 
 use merlin_core::{Event, TileKey};
-use merlin_plugins::{Config, PluginHost};
+
+mod common;
+use common::Host;
 
 #[test]
 fn a_pdf_opens_draws_and_has_its_words() {
@@ -14,13 +16,7 @@ fn a_pdf_opens_draws_and_has_its_words() {
         dir.join("target/wasm32-wasip2/release/pdf.wasm").exists(),
         "build the pdf plugin first (see the top of this file)"
     );
-    let mut host = PluginHost::new(Config {
-        data_dir: std::env::temp_dir().join(format!("merlin-pdf-test-{}", std::process::id())),
-        ask: false,
-        keyring: false,
-        background: false,
-    })
-    .unwrap();
+    let mut host = Host::new("merlin-pdf-test-");
     let events = host.load(&dir).unwrap();
     assert!(
         events.iter().any(|e| matches!(

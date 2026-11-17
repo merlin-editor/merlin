@@ -562,14 +562,31 @@ pub fn plugins(table: &toml::Table) -> toml::Table {
 mod tests {
     use super::*;
 
-    fn files(name: &str) -> Files {
-        let dir =
-            std::env::temp_dir().join(format!("merlin-settings-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        Files {
+    /// Settings files in a folder of the test's own, removed when this
+    /// drops, even if the test fails.
+    struct TestFiles {
+        _temp: tempfile::TempDir,
+        files: Files,
+    }
+
+    impl std::ops::Deref for TestFiles {
+        type Target = Files;
+        fn deref(&self) -> &Files {
+            &self.files
+        }
+    }
+
+    fn files(name: &str) -> TestFiles {
+        let temp = tempfile::Builder::new()
+            .prefix(&format!("merlin-settings-{name}-"))
+            .tempdir()
+            .unwrap();
+        let dir = temp.path();
+        let files = Files {
             user: dir.join("user/settings.toml"),
             workspace: dir.join("ws/.merlin/settings.toml"),
-        }
+        };
+        TestFiles { _temp: temp, files }
     }
 
     #[test]
