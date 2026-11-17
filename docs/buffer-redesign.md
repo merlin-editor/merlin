@@ -174,6 +174,57 @@ and 5.4 s before the breadcrumbs.
 thread after every edit while it shows. That waits for the background
 jobs of step 7.
 
+### Step 2: search without lists, done
+
+Find copied every line into a `Vec<char>` and made a list of every
+match, several times a keystroke and again on each frame (the count, the
+scrollbar and the find box each asked). Find next and Ctrl+D made the
+whole list to pick one match from it.
+
+**What changed:**
+- `search.rs` searches the rope where it lies. A query typed as it is
+  can't reach past a line's end, so it's searched 64 KB of whole lines at
+  a time, with `memchr` for exact text and the regex crate for case
+  ignored. The gaps between matches give their lines and characters, as
+  the rope counts them. A regular expression is searched a line at a
+  time, read in place unless the line crosses two of the rope's chunks.
+- `Found` keeps a count for each block of 1 024 lines, and which of its
+  64 bands of 16 lines have a match: 16 bytes a block, 1 MB for the
+  342 MB log's 4.9 million lines. Nothing is kept per match. An edit
+  counts again only the blocks it touched. Each change now records its
+  lines as the rope counts them, as a lone `\r` ends a line too.
+- The find box's total comes from the counts. Which match is selected
+  counts the blocks before it and searches its own block.
+- The scrollbar marks each line with a match in a file of up to 65 536
+  lines. In a larger one it marks each band with one, which is finer than
+  a pixel, at most about 8 000 marks.
+- Find next and previous, Ctrl+D and Ctrl+K Ctrl+D search from the cursor
+  and stop at the first match, skipping blocks with none.
+- Select All Occurrences, Replace All and a plugin's surface still need
+  every match, and make the list then, from the same search.
+
+**The effect, in `large_probe`** (85 MB text / 342 MB log):
+
+| | Before | After |
+|---|---|---|
+| Open Find and type a 5-letter word | 20 s / 70 s | 0.46 s / 1.3 s |
+| A key typed in Find, a rare word | | 30 ms / 170 ms |
+| A frame with Find open | 6.4 s / 23 s | 0.8 ms / 0.6 ms |
+| Find next; Find previous | 3.2 s / 12 s | 0.2 ms; 0.3 ms |
+| Ctrl+D three times | 5 s / 17 s | 0.1 ms |
+
+On the 20 MB Rust file a key in Find takes 9–14 ms. The `regex` crate's
+literal optimisations made no difference: they were already on through
+another crate.
+
+**Still to do from it:**
+- A key in Find still counts the whole file on the window's thread:
+  about 120 ms for exact text on the 342 MB log, close to the 77–160 ms
+  the prototype found for one thread. Counting on four threads in the
+  background, with a count that fills in, is step 7.
+- Vim's match count copies the whole text into a String for each search
+  (`vim_match_count`). It should use the counts too.
+
 ### Fixed on this branch so far
 
 Committed (8181070) and covered by tests:
@@ -199,9 +250,9 @@ On the 85 MB / 342 MB files:
 
 | | Today | Why |
 |---|---|---|
-| Open Find and type a word | 20 s / 70 s | Every line copied into a `Vec<char>`, several times a keystroke |
-| A frame with Find open | 6.4 s / 23 s | The scrollbar finds every match again each frame |
-| Find next; Ctrl+D | 3.2 s / 12 s; 5 s / 17 s for three | All matches found to pick one |
+| Open Find and type a word | ~~20 s / 70 s~~ 0.46 s / 1.3 s since step 2 | Every line copied into a `Vec<char>`, several times a keystroke |
+| A frame with Find open | ~~6.4 s / 23 s~~ fixed in step 2 | The scrollbar finds every match again each frame |
+| Find next; Ctrl+D | ~~3.2 s / 12 s; 5 s / 17 s for three~~ fixed in step 2 | All matches found to pick one |
 | A frame with the minimap on | 2.3 s / 7.7 s | Built for every line; it shows a few hundred |
 | A frame with word wrap on | 2.6 s / 8.7 s | Every line wrapped again after any change |
 | Idle | ~~a whole core~~ fixed in step 1 | Symbols for the breadcrumbs, each frame |
@@ -489,7 +540,7 @@ comparison with VS Code.
 
    Stopping a blink from rebuilding the view wasn't needed: a whole frame
    now costs under a millisecond.
-2. **Search without lists.**
+2. **Search without lists.** Done; see "Step 2" above.
    - Search the rope's bytes.
    - Counts per block.
    - The screen's matches on demand.

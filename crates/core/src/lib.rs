@@ -21,6 +21,7 @@ pub mod layers;
 pub mod lsp;
 pub mod panel;
 pub mod script;
+pub mod search;
 pub mod style;
 pub mod symbols;
 

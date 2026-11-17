@@ -109,21 +109,12 @@ impl Editor {
         let Some((start, end)) = doc.selection() else {
             return self.add_next_occurrence();
         };
-        let needle: Vec<char> = doc.slice(start, end).chars().collect();
-        let taken: Vec<usize> = self.carets().iter().map(|c| c.start()).collect();
-        let hits = self.exact_matches(&needle);
-        let next = hits
-            .iter()
-            .copied()
-            .filter(|h| !taken.contains(h))
-            .find(|&h| h > start)
-            .or_else(|| hits.iter().copied().find(|h| !taken.contains(h)));
-        let Some(hit) = next else {
+        let Some((hit, len)) = self.next_occurrence(start, end) else {
             return self.notify("No more occurrences".into());
         };
         let doc = self.doc_mut();
         doc.anchor = Some(hit);
-        doc.cursor = hit + needle.len();
+        doc.cursor = hit + len;
     }
 
     /// Remembers the cursors before more are added, for Ctrl+U.

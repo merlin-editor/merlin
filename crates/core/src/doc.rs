@@ -117,6 +117,8 @@ pub struct Doc {
     widest: std::cell::Cell<Option<Widest>>,
     /// The last long line's checkpoints, for finding its columns.
     checkpoints: std::cell::RefCell<Option<Checkpoints>>,
+    /// The last search's counts, kept up to date with edits.
+    found: std::cell::RefCell<Option<crate::search::Found>>,
 }
 
 /// A long line's checkpoints: a character every few thousand, on a tab
@@ -182,6 +184,7 @@ impl Doc {
             config: Default::default(),
             widest: Default::default(),
             checkpoints: Default::default(),
+            found: Default::default(),
         }
     }
 
@@ -285,6 +288,12 @@ impl Doc {
         self.extra_version = self.buffer.version();
         self.update_widest(&changes);
         self.update_checkpoints(&changes);
+        let found = self.found.get_mut();
+        if let Some(f) = found
+            && !f.update(&changes, self.buffer.rope(), self.buffer.version())
+        {
+            *found = None;
+        }
         self.layers.tidy();
         // A fold whose first line was joined to another goes.
         self.folds
@@ -398,6 +407,29 @@ impl Doc {
             .chars()
             .take(self.buffer.line_len(line))
             .collect()
+    }
+
+    /// The counts of `matcher`'s matches, made now if they aren't kept;
+    /// none while edits are waiting for [`Doc::sync`], whose lines they
+    /// wouldn't know.
+    pub fn found(
+        &self,
+        matcher: &crate::search::Matcher,
+    ) -> Option<std::cell::Ref<'_, crate::search::Found>> {
+        let version = self.buffer.version();
+        if self.buffer.has_changes() {
+            return None;
+        }
+        let kept = self
+            .found
+            .borrow()
+            .as_ref()
+            .is_some_and(|f| f.is_for(matcher, version));
+        if !kept {
+            let found = crate::search::Found::new(matcher, self.buffer.rope(), version);
+            self.found.replace(Some(found));
+        }
+        std::cell::Ref::filter_map(self.found.borrow(), Option::as_ref).ok()
     }
 
     pub fn last_line(&self) -> usize {

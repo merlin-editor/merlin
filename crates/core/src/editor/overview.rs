@@ -64,10 +64,12 @@ impl Editor {
             };
             marks.push((line, style));
         }
-        if let Some(matcher) = self.query() {
-            for (m, _) in self.all_matches(&matcher) {
-                marks.push((doc.line_col(m).0, Style::ScrollMatch));
-            }
+        // From the counts kept, not every match.
+        if let Some(matcher) = self.query()
+            && let Some(found) = doc.found(&matcher)
+        {
+            let lines = found.marks(doc.buffer.rope());
+            marks.extend(lines.iter().map(|&line| (line, Style::ScrollMatch)));
         }
         // The name's uses, where the server sends them.
         if let Some(uses) = self.current_highlights() {

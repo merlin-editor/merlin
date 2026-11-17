@@ -26,132 +26,7 @@ pub struct FindView {
     pub invalid: bool,
 }
 
-pub(super) fn same(a: char, b: char, fold: bool) -> bool {
-    a == b || (fold && a.to_lowercase().eq(b.to_lowercase()))
-}
-
-/// Where `query` starts in `chars`, without overlaps.
-pub(super) fn line_matches(chars: &[char], query: &[char], fold: bool) -> Vec<usize> {
-    let mut found = Vec::new();
-    let mut i = 0;
-    while i + query.len() <= chars.len() {
-        if chars[i..i + query.len()]
-            .iter()
-            .zip(query)
-            .all(|(a, b)| same(*a, *b, fold))
-        {
-            found.push(i);
-            i += query.len();
-        } else {
-            i += 1;
-        }
-    }
-    found
-}
-
-/// How the find box matches text, from its query and toggles.
-pub(crate) struct Matcher {
-    pattern: Pattern,
-    whole_word: bool,
-    /// Only matches inside this range count.
-    scope: Option<(usize, usize)>,
-}
-
-enum Pattern {
-    Plain { query: Vec<char>, fold: bool },
-    Regex(regex::Regex),
-}
-
-impl Matcher {
-    /// A regular expression's matches.
-    pub(crate) fn regex(re: regex::Regex) -> Self {
-        Self {
-            pattern: Pattern::Regex(re),
-            whole_word: false,
-            scope: None,
-        }
-    }
-
-    /// Exactly `needle`, case and all.
-    pub(crate) fn exact(needle: &[char]) -> Self {
-        Self {
-            pattern: Pattern::Plain {
-                query: needle.to_vec(),
-                fold: false,
-            },
-            whole_word: false,
-            scope: None,
-        }
-    }
-
-    /// Whether case is ignored.
-    pub(crate) fn folds(&self) -> bool {
-        match &self.pattern {
-            Pattern::Plain { fold, .. } => *fold,
-            Pattern::Regex(re) => re.as_str().starts_with("(?i)"),
-        }
-    }
-
-    /// The matches in a line's characters, as where each starts and how
-    /// long it is, without overlaps. `start` is where the line starts in
-    /// the document, for the scope.
-    pub(crate) fn line(&self, chars: &[char], start: usize) -> Vec<(usize, usize)> {
-        let mut found: Vec<(usize, usize)> = match &self.pattern {
-            Pattern::Plain { query, fold } => line_matches(chars, query, *fold)
-                .into_iter()
-                .map(|m| (m, query.len()))
-                .filter(|&(m, len)| !self.whole_word || whole_word(chars, m, len))
-                .collect(),
-            Pattern::Regex(re) => {
-                let text: String = chars.iter().collect();
-                let col = char_cols(&text);
-                re.find_iter(&text)
-                    .filter(|m| !m.is_empty())
-                    .map(|m| (col[m.start()], col[m.end()] - col[m.start()]))
-                    .collect()
-            }
-        };
-        if let Some((a, b)) = self.scope {
-            found.retain(|&(m, len)| start + m >= a && start + m + len <= b);
-        }
-        found
-    }
-
-    /// What the match at `at` in `chars` is replaced with: `with`, and for
-    /// a regular expression with `$1` and the like filled in.
-    pub(crate) fn replacement(&self, chars: &[char], at: usize, with: &str) -> String {
-        let Pattern::Regex(re) = &self.pattern else {
-            return with.to_string();
-        };
-        let text: String = chars.iter().collect();
-        let byte = text.char_indices().nth(at).map_or(text.len(), |(b, _)| b);
-        let mut out = String::new();
-        if let Some(caps) = re.captures_at(&text, byte) {
-            caps.expand(with, &mut out);
-        }
-        out
-    }
-}
-
-/// For each byte offset of `text` that starts a character (and its end),
-/// which character that is.
-fn char_cols(text: &str) -> Vec<usize> {
-    let mut cols = vec![0; text.len() + 1];
-    let mut n = 0;
-    for (b, c) in text.char_indices() {
-        cols[b..b + c.len_utf8()].fill(n);
-        n += 1;
-    }
-    cols[text.len()] = n;
-    cols
-}
-
-/// Whether the `len` characters at `m` are a whole word: no word
-/// character just before or after.
-fn whole_word(chars: &[char], m: usize, len: usize) -> bool {
-    let word = |c: &char| c.is_alphanumeric() || *c == '_';
-    !(m > 0 && chars.get(m - 1).is_some_and(word)) && !chars.get(m + len).is_some_and(word)
-}
+pub(crate) use crate::search::Matcher;
 
 impl Editor {
     /// Opens find, starting from the selection if it's on one line.
@@ -263,7 +138,7 @@ impl Editor {
             return Ok(None);
         }
         let fold = !find.match_case && !find.query.chars().any(char::is_uppercase);
-        let pattern = if find.regex {
+        let matcher = if find.regex {
             let mut source = find.query.clone();
             if find.whole_word {
                 source = format!(r"\b(?:{source})\b");
@@ -271,37 +146,18 @@ impl Editor {
             if fold {
                 source = format!("(?i){source}");
             }
-            Pattern::Regex(regex::Regex::new(&source)?)
+            Matcher::regex(regex::Regex::new(&source)?)
         } else {
-            Pattern::Plain {
-                query: find.query.chars().collect(),
-                fold,
-            }
+            Matcher::plain(&find.query, fold, find.whole_word, None)
         };
-        Ok(Some(Matcher {
-            pattern,
-            whole_word: find.whole_word && !find.regex,
-            scope: find.scope,
-        }))
+        Ok(Some(matcher.with_scope(find.scope)))
     }
 
     /// Every match in the document, left to right, as where each starts
     /// and how long it is.
     pub(crate) fn all_matches(&self, matcher: &Matcher) -> Vec<(usize, usize)> {
         let doc = self.doc();
-        let lines = match matcher.scope {
-            Some((a, b)) => doc.line_col(a).0..=doc.line_col(b).0,
-            None => 0..=doc.last_line(),
-        };
-        lines
-            .flat_map(|line| {
-                let start = doc.line_start(line);
-                matcher
-                    .line(&doc.line_chars(line), start)
-                    .into_iter()
-                    .map(move |(m, len)| (start + m, len))
-            })
-            .collect()
+        matcher.all(doc.buffer.rope(), doc.found(matcher).as_deref())
     }
 
     /// The match that starts at `pos`, if there is one: its length.
@@ -330,14 +186,20 @@ impl Editor {
         self.find_from(origin);
     }
 
-    /// Moves to the first match at or after `from`, wrapping around. Matches
-    /// come from the current text every time, so edits can't leave stale ones.
+    /// Moves to the first match at or after `from`, wrapping around. It
+    /// searches forward from there and stops at the first, skipping the
+    /// blocks of lines the counts say have none.
     pub(crate) fn find_from(&mut self, from: usize) {
         let Some(matcher) = self.query() else {
             return;
         };
-        let matches = self.all_matches(&matcher);
-        let hit = matches.iter().find(|m| m.0 >= from).or(matches.first());
+        let doc = self.doc();
+        let hit = matcher.next(
+            doc.buffer.rope(),
+            from,
+            doc.found(&matcher).as_deref(),
+            |_| true,
+        );
         self.go_to_match(hit.map(|m| m.0));
     }
 
@@ -346,12 +208,8 @@ impl Editor {
         let Some(matcher) = self.query() else {
             return;
         };
-        let matches = self.all_matches(&matcher);
-        let hit = matches
-            .iter()
-            .rev()
-            .find(|m| m.0 < before)
-            .or(matches.last());
+        let doc = self.doc();
+        let hit = matcher.previous(doc.buffer.rope(), before, doc.found(&matcher).as_deref());
         self.go_to_match(hit.map(|m| m.0));
     }
 
@@ -426,20 +284,26 @@ impl Editor {
         let find = self.find.as_ref()?;
         let matcher = self.matcher();
         let invalid = matcher.is_err();
-        let (matches, ignore_case) = match matcher.ok().flatten() {
-            Some(m) => (self.all_matches(&m), m.folds()),
-            None => (Vec::new(), !find.match_case),
+        let doc = self.doc();
+        let at = doc.selection().map(|(start, _)| start);
+        let (current, total, ignore_case) = match matcher.ok().flatten() {
+            Some(m) => match doc.found(&m) {
+                Some(found) => {
+                    let rope = doc.buffer.rope();
+                    let current = at.and_then(|a| found.index_of(rope, a));
+                    (current, found.total(), m.folds())
+                }
+                None => (None, 0, m.folds()),
+            },
+            None => (None, 0, !find.match_case),
         };
-        let at = self.doc().selection().map(|(start, _)| start);
         Some(FindView {
             query: find.query.clone(),
             replace: find.replace.clone(),
             in_replace: find.in_replace,
             focused: self.focus == Focus::Find,
-            current: at
-                .and_then(|a| matches.iter().position(|&m| m.0 == a))
-                .map(|i| i + 1),
-            total: matches.len(),
+            current,
+            total,
             ignore_case,
             match_case: find.match_case,
             whole_word: find.whole_word,

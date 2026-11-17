@@ -1974,6 +1974,7 @@ name = "merlin-core"
 version = "0.2.0"
 dependencies = [
  "globset",
+ "memchr",
  "merlin-syntax",
  "regex",
  "ropey",

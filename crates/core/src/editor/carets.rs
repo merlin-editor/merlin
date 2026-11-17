@@ -192,20 +192,25 @@ impl Editor {
             doc.cursor = end;
             return;
         }
-        let needle: Vec<char> = self.doc().slice(start, end).chars().collect();
-        let taken: Vec<usize> = self.carets().iter().map(|c| c.start()).collect();
-        let hits = self.exact_matches(&needle);
-        let after = hits
-            .iter()
-            .copied()
-            .filter(|h| !taken.contains(h))
-            .find(|&h| h > start)
-            .or_else(|| hits.iter().copied().find(|h| !taken.contains(h)));
-        let Some(hit) = after else {
+        let Some((hit, len)) = self.next_occurrence(start, end) else {
             return self.notify("No more occurrences".into());
         };
-        self.add_caret_at(hit + needle.len());
+        self.add_caret_at(hit + len);
         self.doc_mut().anchor = Some(hit);
+    }
+
+    /// The next place the text from `start` to `end` appears that no
+    /// cursor is at, wrapping around: where and how long. It's searched
+    /// forward and stops at the first, as there may be millions after it.
+    pub(crate) fn next_occurrence(&self, start: usize, end: usize) -> Option<(usize, usize)> {
+        let doc = self.doc();
+        let needle = doc.slice(start, end);
+        if needle.is_empty() || needle.contains('\n') {
+            return None;
+        }
+        let taken: Vec<usize> = self.carets().iter().map(|c| c.start()).collect();
+        let matcher = super::find::Matcher::exact(&needle);
+        matcher.next(doc.buffer.rope(), start + 1, None, |h| !taken.contains(&h))
     }
 
     /// Selects every place the selection, or the word at the cursor,
@@ -214,9 +219,9 @@ impl Editor {
         let Some((start, end)) = self.occurrence() else {
             return;
         };
-        let needle: Vec<char> = self.doc().slice(start, end).chars().collect();
+        let needle = self.doc().slice(start, end);
         let hits = self.exact_matches(&needle);
-        let len = needle.len();
+        let len = needle.chars().count();
         self.save_cursors();
         let doc = self.doc_mut();
         doc.extra = hits
@@ -235,11 +240,13 @@ impl Editor {
     }
 
     /// Where `needle` appears, case and all, left to right.
-    pub(crate) fn exact_matches(&self, needle: &[char]) -> Vec<usize> {
-        if needle.is_empty() || needle.contains(&'\n') {
+    pub(crate) fn exact_matches(&self, needle: &str) -> Vec<usize> {
+        if needle.is_empty() || needle.contains('\n') {
             return Vec::new();
         }
-        self.all_matches(&super::find::Matcher::exact(needle))
+        let doc = self.doc();
+        super::find::Matcher::exact(needle)
+            .all(doc.buffer.rope(), None)
             .into_iter()
             .map(|(at, _)| at)
             .collect()

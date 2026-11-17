@@ -17,6 +17,9 @@ pub struct Change {
     pub removed: usize,
     pub inserted: usize,
     pub edit: TextEdit,
+    /// The lines as the rope counts them, where a lone `\r` ends one too:
+    /// the first line touched, the last before and the last after.
+    pub lines: (usize, usize, usize),
 }
 
 impl Change {
@@ -246,9 +249,15 @@ impl Buffer {
                 self.log_from = version;
             }
         }
+        let removed = edit.removed.chars().count();
+        let old_last = rope.char_to_line(edit.at + removed);
+        let total = rope.len_lines();
+        edit.apply(&mut self.rope);
+        let new_last = old_last + self.rope.len_lines() - total;
         self.changes.push(Change {
+            lines: (row, old_last, new_last),
             at: edit.at,
-            removed: edit.removed.chars().count(),
+            removed,
             inserted: edit.inserted.chars().count(),
             edit: TextEdit {
                 start_byte,
@@ -259,7 +268,6 @@ impl Buffer {
                 new_end: end(&edit.inserted),
             },
         });
-        edit.apply(&mut self.rope);
     }
 
     /// How many undo steps there are, for [`Buffer::join_undo`].

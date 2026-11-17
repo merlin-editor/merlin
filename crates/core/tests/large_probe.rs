@@ -74,13 +74,15 @@ fn probe(name: &str, path: &str, text: String) {
     time("type over 4 carets", || s.run("type Z"));
     time("escape + undo", || s.run("key esc ctrl+z"));
     time("find open + type", || s.run("key ctrl+f; type quick"));
-    frame(
-        &s,
-        "frame with find",
-        Some("step 2: search keeps lists"),
-        &mut slow,
-    );
+    frame(&s, "frame with find", None, &mut slow);
     time("find next", || s.run("key enter"));
+    frame(&s, "frame after find next", None, &mut slow);
+    time("find previous", || s.run("key up up"));
+    time("find a rare word", || s.run("type zq"));
+    time("find next, wrapping", || s.run("key enter"));
+    time("find no word", || {
+        s.run("key backspace backspace; type QQQ")
+    });
     time("close find", || s.run("key esc"));
     time("paste 1MB", || {
         s.send(Event::Paste("pasted text\n".repeat(1 << 16)))
