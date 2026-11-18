@@ -190,7 +190,7 @@ passing.
    **Left for later steps:**
    - Saving: built in step 3. Quitting with edits still asks, even with
      hot exit on, until step 6.
-   - The Find count starts again after each edit (step 4).
+   - The Find count starts again after each edit: fixed in step 4.
    - With edits, a file that grows on disk is left as opened. One that
      was cut short gives a warning (step 6).
    - A window left with things to redo goes on the undo stack. Redo then
@@ -224,7 +224,29 @@ passing.
      4.8 s, all three edits in the file. Memory stayed at 146 MB. Cancel
      part-way left the file as it was, with nothing beside it.
 4. **Counts after edits**: lines and Find over the pieces, counting only
-   the `Text` pieces again.
+   the `Text` pieces again. Done.
+   - **Lines** have come from each piece's own count since step 2.
+   - **Find counts in three kinds of part** (`bigfile::Part`):
+     - blocks of the file as opened, which edits never move;
+     - the matches before each place a range of the file is cut, in its
+       block. Cuts are always at a line's start, so a match never spans
+       one.
+     - pieces of text in memory.
+
+     A range of the file has the matches before its end less those
+     before its start.
+   - **After an edit**, the pieces kept whole keep their counts
+     (`FileText::splice_keeping`). Only the window's new text, and any new
+     cut, are counted again, in the background. Jobs for more of the same
+     search add to the one under way rather than stopping it.
+   - **Searching past the window** skips blocks of the text that lie in
+     the file where its blocks, and those either side, have no match.
+   - **In the app**, on the 360 MB log: "72 found", the same as `grep`.
+     Typing another match with Find open read "73 found" within 0.15 s,
+     with the CPU idle.
+   - **Left**: after a save the count starts again, over the new file. A
+     line an edit joins across a window's edge could be counted in two
+     parts.
 5. **Large edits on the pieces**: cut, copy and delete past the window.
 6. **Hot exit** as a journal, and the file changing on disk.
 7. **The memory budget**: folding the oldest parked windows.

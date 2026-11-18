@@ -304,3 +304,42 @@ fn a_file_with_nothing_changed_isnt_written() {
             .any(|e| matches!(e, Effect::SaveLarge { .. }))
     );
 }
+
+#[test]
+fn find_counts_only_whats_new_after_an_edit() {
+    use merlin_core::Effect;
+    use merlin_core::bigfile::Part;
+    use merlin_core::work::Kind;
+    let (_dir, mut s, text) = edit(600_000);
+    s.run("key ctrl+f; type line 4242");
+    let find = s.editor.window_view().find.unwrap();
+    let expected = text.matches("line 4242").count();
+    assert_eq!(find.total, expected);
+    // Back in the text, with Find still open: typing one more match.
+    s.run("click 20 5");
+    s.effects.clear();
+    s.run("type line 4242");
+    let parts: Vec<Part> = s
+        .effects
+        .iter()
+        .filter_map(|e| match e {
+            Effect::Work(job) => match &job.kind {
+                Kind::FileCount { parts, .. } => Some(parts.clone()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    assert!(!parts.is_empty(), "the new text counted");
+    assert!(
+        !parts.iter().any(|p| matches!(p, Part::Block(_))),
+        "the file's blocks not again: {parts:?}"
+    );
+    let find = s.editor.window_view().find.unwrap();
+    assert_eq!(find.total, expected + 1);
+    assert_eq!(find.counting, None);
+    // Away and back, and a jump past the window: still right.
+    s.run("key ctrl+end");
+    assert_eq!(s.editor.window_view().find.unwrap().total, expected + 1);
+}

@@ -198,28 +198,40 @@ impl FileText {
     /// The text with bytes `from..to` replaced by `with`: the pieces
     /// either side are cut there.
     pub fn splice(&self, from: u64, to: u64, with: Rope) -> Self {
-        let mut out = Vec::new();
+        self.splice_keeping(from, to, with).0
+    }
+
+    /// As [`FileText::splice`], and for each of the new pieces, the old
+    /// piece it is if it's kept whole: what was counted of it still holds.
+    pub fn splice_keeping(&self, from: u64, to: u64, with: Rope) -> (Self, Vec<Option<usize>>) {
+        let mut out: Vec<(Piece, Option<usize>)> = Vec::new();
         let mut start = 0;
         let mut placed = false;
-        for piece in self.pieces.iter() {
+        for (i, piece) in self.pieces.iter().enumerate() {
             let stop = start + piece.len();
             // What of it is before `from`, and after `to`.
             if start < from {
-                out.push(cut(piece, 0, (from - start).min(piece.len())));
+                let b = (from - start).min(piece.len());
+                let whole = b == piece.len();
+                out.push((cut(piece, 0, b), whole.then_some(i)));
             }
             if !placed && stop >= from {
-                out.push(Piece::Text(with.clone()));
+                out.push((Piece::Text(with.clone()), None));
                 placed = true;
             }
             if stop > to {
-                out.push(cut(piece, to.max(start) - start, piece.len()));
+                let a = to.max(start) - start;
+                out.push((cut(piece, a, piece.len()), (a == 0).then_some(i)));
             }
             start = stop;
         }
         if !placed {
-            out.push(Piece::Text(with));
+            out.push((Piece::Text(with), None));
         }
-        self.with_pieces(out)
+        out.retain(|(p, _)| !p.is_empty());
+        let kept = out.iter().map(|(_, k)| *k).collect();
+        let pieces = out.into_iter().map(|(p, _)| p).collect();
+        (self.with_pieces(pieces), kept)
     }
 
     /// Bytes `at..at + len` of the text, or fewer at its end, read from
@@ -464,6 +476,61 @@ pub fn count_matches(text: &FileText, matcher: &Matcher, block: usize) -> io::Re
         ControlFlow::Continue(())
     });
     Ok(count)
+}
+
+/// The matches in the lines of the file that start in the block `cut` is
+/// in, before `cut`: what the file's ranges cut there leave of the block's
+/// count. `cut` is a line's start.
+pub fn count_before(file: &FileText, matcher: &Matcher, cut: u64) -> io::Result<u32> {
+    let start = line_start(file, cut / BLOCK * BLOCK)?;
+    if cut <= start {
+        return Ok(0);
+    }
+    let lines = text_of(file.read(start, cut - start)?);
+    let mut count = 0u32;
+    let _ = each_match(matcher, &lines, |_| {
+        count += 1;
+        ControlFlow::Continue(())
+    });
+    Ok(count)
+}
+
+/// The matches in text in memory.
+pub fn count_rope(matcher: &Matcher, rope: &Rope) -> u32 {
+    let text = rope.to_string();
+    let mut count = 0u32;
+    let _ = each_match(matcher, &text, |_| {
+        count += 1;
+        ControlFlow::Continue(())
+    });
+    count
+}
+
+/// What a count of a search in a large file is done by: a block of the
+/// file as opened, what's before a place its ranges are cut, or a piece
+/// of text in memory, for the text's version.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Part {
+    Block(usize),
+    Cut(u64),
+    Text { piece: usize, generation: u64 },
+}
+
+/// Counts one part of a search in a large file.
+pub fn count_part(
+    file: &FileText,
+    text: &FileText,
+    matcher: &Matcher,
+    part: Part,
+) -> io::Result<u32> {
+    match part {
+        Part::Block(block) => count_matches(file, matcher, block),
+        Part::Cut(at) => count_before(file, matcher, at),
+        Part::Text { piece, .. } => Ok(match text.pieces().get(piece) {
+            Some(Piece::Text(rope)) => count_rope(matcher, rope),
+            _ => 0,
+        }),
+    }
 }
 
 /// The nearest match to `from` in `text`, as the byte it starts at: the
@@ -877,26 +944,199 @@ pub struct Large {
     pub found: Option<FileFound>,
 }
 
-/// A search's matches in a large file, counted by block.
+/// A search's matches in a large file: by block of the file as opened,
+/// which edits never move, by what's before each place its ranges are cut,
+/// and by piece of text in memory. After an edit only the new text is
+/// counted again.
 #[derive(Clone, Debug)]
 pub struct FileFound {
     pub matcher: Matcher,
-    pub counts: Vec<Option<u32>>,
-    pub job: Option<u64>,
+    pub blocks: Vec<Option<u32>>,
+    pub blocks_asked: bool,
+    /// By the place in the file: asked for, and counted.
+    pub cuts: std::collections::BTreeMap<u64, Option<u32>>,
+    /// By piece of the text: `None` not asked for yet, `Some(None)` asked.
+    pub texts: Vec<Option<Option<u32>>>,
+    /// The jobs counting it.
+    pub jobs: Vec<u64>,
 }
 
 impl FileFound {
-    pub fn total(&self) -> u64 {
-        self.counts.iter().flatten().map(|&c| c as u64).sum()
+    pub fn new(matcher: Matcher, file: &FileText, text: &FileText) -> Self {
+        Self {
+            matcher,
+            blocks: vec![None; blocks(file.len())],
+            blocks_asked: false,
+            cuts: Default::default(),
+            texts: vec![None; text.pieces().len()],
+            jobs: Vec::new(),
+        }
     }
 
-    pub fn complete(&self) -> bool {
-        self.counts.iter().all(Option::is_some)
+    /// The parts not yet asked for: the file's blocks, the places the
+    /// text cuts the file's ranges, and the text in memory.
+    pub fn wanted(&mut self, file: &FileText, text: &FileText, generation: u64) -> Vec<Part> {
+        let mut parts = Vec::new();
+        if !self.blocks_asked {
+            self.blocks_asked = true;
+            parts.extend((0..self.blocks.len()).map(Part::Block));
+        }
+        for (i, piece) in text.pieces().iter().enumerate() {
+            match piece {
+                Piece::File { from, to } => {
+                    for at in [*from, *to] {
+                        if at % BLOCK != 0 && at < file.len() && !self.cuts.contains_key(&at) {
+                            self.cuts.insert(at, None);
+                            parts.push(Part::Cut(at));
+                        }
+                    }
+                }
+                Piece::Text(_) => {
+                    if self.texts.get(i).copied().flatten().is_none() {
+                        if let Some(slot) = self.texts.get_mut(i) {
+                            *slot = Some(None);
+                        }
+                        parts.push(Part::Text {
+                            piece: i,
+                            generation,
+                        });
+                    }
+                }
+            }
+        }
+        parts
     }
 
+    /// A part counted.
+    pub fn fill(&mut self, part: Part, count: u32, generation: u64) {
+        match part {
+            Part::Block(b) => {
+                if let Some(slot) = self.blocks.get_mut(b) {
+                    *slot = Some(count);
+                }
+            }
+            Part::Cut(at) => {
+                self.cuts.insert(at, Some(count));
+            }
+            Part::Text {
+                piece,
+                generation: g,
+            } if g == generation => {
+                if let Some(slot) = self.texts.get_mut(piece) {
+                    *slot = Some(Some(count));
+                }
+            }
+            Part::Text { .. } => {}
+        }
+    }
+
+    /// The text was spliced: the pieces kept whole keep their counts.
+    pub fn spliced(&mut self, kept: &[Option<usize>]) {
+        self.texts = kept
+            .iter()
+            .map(|k| k.and_then(|i| self.texts.get(i).copied().flatten()))
+            .collect();
+    }
+
+    /// The matches in the file before byte `at`, in lines that start
+    /// before it, once counted.
+    fn before(&self, at: u64, size: u64) -> Option<u64> {
+        let sum = |n: usize| -> Option<u64> {
+            self.blocks[..n.min(self.blocks.len())]
+                .iter()
+                .map(|c| c.map(u64::from))
+                .sum()
+        };
+        if at == 0 {
+            return Some(0);
+        }
+        if at >= size {
+            return sum(self.blocks.len());
+        }
+        let block = (at / BLOCK) as usize;
+        match at % BLOCK {
+            0 => sum(block),
+            _ => Some(sum(block)? + u64::from((*self.cuts.get(&at)?)?)),
+        }
+    }
+
+    /// The matches in all of `text`, and whether that's all of them: until
+    /// it is, those counted so far.
+    pub fn total(&self, file: &FileText, text: &FileText) -> (u64, bool) {
+        let mut exact = Some(0u64);
+        for (i, piece) in text.pieces().iter().enumerate() {
+            let count = match piece {
+                Piece::File { from, to } => {
+                    (|| Some(self.before(*to, file.len())? - self.before(*from, file.len())?))()
+                }
+                Piece::Text(_) => self
+                    .texts
+                    .get(i)
+                    .copied()
+                    .flatten()
+                    .flatten()
+                    .map(u64::from),
+            };
+            exact = exact.zip(count).map(|(a, b)| a + b);
+        }
+        match exact {
+            Some(total) => (total, true),
+            None => {
+                let blocks: u64 = self.blocks.iter().flatten().map(|&c| c as u64).sum();
+                let texts: u64 = self
+                    .texts
+                    .iter()
+                    .flatten()
+                    .flatten()
+                    .map(|&c| c as u64)
+                    .sum();
+                (blocks + texts, false)
+            }
+        }
+    }
+
+    /// How far the count has got, from 0 to 1.
     pub fn progress(&self) -> f32 {
-        let done = self.counts.iter().filter(|c| c.is_some()).count();
-        done as f32 / self.counts.len().max(1) as f32
+        let all = self.blocks.len() + self.cuts.len() + self.texts.len();
+        let done = self.blocks.iter().filter(|c| c.is_some()).count()
+            + self.cuts.values().filter(|c| c.is_some()).count()
+            + self
+                .texts
+                .iter()
+                .filter(|c| matches!(c, Some(Some(_))))
+                .count();
+        done as f32 / all.max(1) as f32
+    }
+
+    /// For each block of `text`, `Some(0)` when it's known to have no
+    /// match: in the file, in blocks counted none. A search past the
+    /// window skips those without reading them.
+    pub fn empty_blocks(&self, file: &FileText, text: &FileText) -> Vec<Option<u32>> {
+        let n = blocks(text.len());
+        let mut out = vec![None; n];
+        let mut start = 0;
+        for piece in text.pieces() {
+            let stop = start + piece.len();
+            if let Piece::File { from, .. } = piece {
+                // Text blocks wholly in this range, with no match in the
+                // file's blocks under them, or either side.
+                let first = start.div_ceil(BLOCK);
+                let mut k = first;
+                while (k + 1) * BLOCK <= stop {
+                    let (a, b) = (from + (k * BLOCK - start), from + ((k + 1) * BLOCK - start));
+                    let (fa, fb) = ((a / BLOCK).saturating_sub(1), (b / BLOCK + 1) as usize);
+                    let none =
+                        (fa as usize..fb.min(self.blocks.len())).all(|j| self.blocks[j] == Some(0));
+                    if none && let Some(slot) = out.get_mut(k as usize) {
+                        *slot = Some(0);
+                    }
+                    k += 1;
+                }
+                let _ = file;
+            }
+            start = stop;
+        }
+        out
     }
 }
 

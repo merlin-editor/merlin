@@ -83,23 +83,33 @@ impl Editor {
             }));
         }
         match matcher {
-            Some(matcher) if large.found.as_ref().is_none_or(|f| f.matcher != matcher) => {
-                next += 1;
-                large.found = Some(crate::bigfile::FileFound {
-                    matcher: matcher.clone(),
-                    counts: vec![None; crate::bigfile::blocks(large.size)],
-                    job: Some(next),
-                });
-                fx.push(Effect::Work(crate::work::Job {
-                    id: next,
-                    kind: crate::work::Kind::FileCount {
-                        text: large.text.clone(),
-                        matcher,
-                    },
-                    text: Default::default(),
-                }));
+            Some(matcher) => {
+                if large.found.as_ref().is_none_or(|f| f.matcher != matcher) {
+                    large.found = Some(crate::bigfile::FileFound::new(
+                        matcher.clone(),
+                        &large.file,
+                        &large.text,
+                    ));
+                }
+                // What's new since: at first all of it; after an edit, the
+                // window's text and the places it cuts the file.
+                let found = large.found.as_mut().expect("set");
+                let parts = found.wanted(&large.file, &large.text, large.generation);
+                if !parts.is_empty() {
+                    next += 1;
+                    found.jobs.push(next);
+                    fx.push(Effect::Work(crate::work::Job {
+                        id: next,
+                        kind: crate::work::Kind::FileCount {
+                            file: large.file.clone(),
+                            text: large.text.clone(),
+                            matcher,
+                            parts,
+                        },
+                        text: Default::default(),
+                    }));
+                }
             }
-            Some(_) => {}
             None => large.found = None,
         }
         self.next_job = next;
@@ -125,7 +135,7 @@ impl Editor {
                 matcher: found.matcher.clone(),
                 from,
                 forward,
-                counts: found.counts.clone(),
+                counts: found.empty_blocks(&large.file, &large.text),
             });
             let large = self.large_mut().expect("checked");
             large.seek = None;
@@ -919,12 +929,8 @@ impl Editor {
             .blocks
             .resize(crate::bigfile::blocks(size), None);
         large.lines_job = None;
-        if let Some(found) = &mut large.found {
-            found.counts.truncate(old.saturating_sub(1));
-            found.counts.resize(crate::bigfile::blocks(size), None);
-            found.job = None;
-            found.matcher = crate::search::Matcher::exact("\u{0}stale");
-        }
+        // Counted again, over the file as it is now.
+        large.found = None;
         // Shown to the end: the window reads on, and the view follows.
         let at_end = large.end + grew == size && {
             let rope = doc.buffer.rope();
@@ -1055,11 +1061,17 @@ impl Doc {
         };
         if large.synced != version && large.has_window() {
             let rope = self.buffer.rope().clone();
-            large.text = large.text.splice(large.start, large.end, rope.clone());
+            let (text, kept) = large
+                .text
+                .splice_keeping(large.start, large.end, rope.clone());
+            large.text = text;
             large.end = large.start + rope.len_bytes() as u64;
             large.size = large.text.len();
             large.generation += 1;
-            large.found = None;
+            // The search's counts of what's kept whole hold.
+            if let Some(found) = &mut large.found {
+                found.spliced(&kept);
+            }
             large.settled = None;
             // A new edit: what was undone can't be redone.
             if !std::mem::take(&mut large.undoing) {

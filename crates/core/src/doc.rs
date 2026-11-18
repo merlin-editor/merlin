@@ -615,12 +615,14 @@ impl Doc {
                 }
                 _ => false,
             },
-            crate::work::Done::FileCount { piece, count } => {
-                match self.large.as_mut().and_then(|l| l.found.as_mut()) {
-                    Some(found) if found.job == Some(id) => {
-                        if let Some(c) = found.counts.get_mut(*piece) {
-                            *c = Some(count.unwrap_or(0));
-                        }
+            crate::work::Done::FileCount { part, count } => {
+                let Some(large) = self.large.as_deref_mut() else {
+                    return false;
+                };
+                let generation = large.generation;
+                match large.found.as_mut() {
+                    Some(found) if found.jobs.contains(&id) => {
+                        found.fill(*part, count.unwrap_or(0), generation);
                         true
                     }
                     _ => false,

@@ -24,8 +24,14 @@ pub enum Kind {
     Wrap(usize),
     /// Counts the lines of a file too large to load, read from disk.
     Lines(FileText),
-    /// Counts a search's matches in a file too large to load.
-    FileCount { text: FileText, matcher: Matcher },
+    /// Counts a search's matches in a file too large to load: `parts` of
+    /// the file as opened, and of the text as it is now.
+    FileCount {
+        file: FileText,
+        text: FileText,
+        matcher: Matcher,
+        parts: Vec<crate::bigfile::Part>,
+    },
 }
 
 impl Kind {
@@ -34,6 +40,15 @@ impl Kind {
     pub fn replaces(&self, older: &Kind) -> bool {
         match (self, older) {
             (Kind::Lines(text), Kind::Lines(was)) => text.path == was.path,
+            // A count of more of the same search adds to the one before.
+            (
+                Kind::FileCount { matcher, file, .. },
+                Kind::FileCount {
+                    matcher: was,
+                    file: was_file,
+                    ..
+                },
+            ) => matcher != was || file.path != was_file.path,
             _ => std::mem::discriminant(self) == std::mem::discriminant(older),
         }
     }
@@ -65,8 +80,11 @@ pub enum Done {
     },
     /// A large file's line breaks in a piece; none if it couldn't be read.
     Lines { piece: usize, breaks: Option<u64> },
-    /// A search's matches in a piece of a large file.
-    FileCount { piece: usize, count: Option<u32> },
+    /// A search's matches in a part of a large file.
+    FileCount {
+        part: crate::bigfile::Part,
+        count: Option<u32>,
+    },
 }
 
 impl Job {
@@ -75,7 +93,8 @@ impl Job {
         match &self.kind {
             Kind::Count(_) => search::blocks_in(&self.text).div_ceil(search::PIECE_BLOCKS),
             Kind::Wrap(_) => self.text.len_lines().div_ceil(WRAP_PIECE),
-            Kind::Lines(text) | Kind::FileCount { text, .. } => crate::bigfile::blocks(text.len()),
+            Kind::Lines(text) => crate::bigfile::blocks(text.len()),
+            Kind::FileCount { parts, .. } => parts.len(),
         }
         .max(1)
     }
@@ -103,10 +122,18 @@ impl Job {
                 piece,
                 breaks: crate::bigfile::count_lines(text, piece).ok(),
             },
-            Kind::FileCount { text, matcher } => Done::FileCount {
-                piece,
-                count: crate::bigfile::count_matches(text, matcher, piece).ok(),
-            },
+            Kind::FileCount {
+                file,
+                text,
+                matcher,
+                parts,
+            } => {
+                let part = parts[piece];
+                Done::FileCount {
+                    part,
+                    count: crate::bigfile::count_part(file, text, matcher, part).ok(),
+                }
+            }
         }
     }
 

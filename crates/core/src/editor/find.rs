@@ -320,8 +320,10 @@ impl Editor {
             // A large file's count, read from disk in the background.
             Some(m) if doc.large.is_some() => match large.filter(|f| f.matcher == m) {
                 Some(found) => {
-                    let counting = (!found.complete()).then(|| (found.progress() * 100.0) as u8);
-                    (None, found.total() as usize, m.folds(), counting)
+                    let l = doc.large.as_deref().expect("checked");
+                    let (total, complete) = found.total(&l.file, &l.text);
+                    let counting = (!complete).then(|| (found.progress() * 100.0) as u8);
+                    (None, total as usize, m.folds(), counting)
                 }
                 None => (None, 0, m.folds(), Some(0)),
             },
