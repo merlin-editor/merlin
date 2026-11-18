@@ -1,0 +1,190 @@
+# Editing files too large to load, in place
+
+A plan, 2026-11-18. It follows step 8 of `docs/buffer-redesign.md`, where a
+file too large to load opens read-only: the editor holds about 4 MB of it
+at a time, as a rope, and reads the next part from disk as the view moves.
+Here, such a file can be edited where it is, without loading it, at the
+memory its edits take. The mock-up is `docs/mockups/LargeFileEdit.html`.
+
+## In short
+
+- **The text becomes pieces.** Each piece is either a range of the file on
+  disk or text in memory. The rope the editor holds stays a window of
+  about 4 MB, read through the pieces.
+- **Editing happens in the window**, with everything that works in any
+  file: typing, multiple cursors, undo. When the view moves on, the edited
+  window is kept in memory with its undo, and the next is read.
+- **Large edits never load the text.** Deleting a million lines, or
+  everything above the cursor, cuts the list of pieces.
+- **Saving streams the pieces** to a new file next to the old one and
+  swaps it in, as merlin saves now. On this machine that writes 1 GB a
+  second: about 15 s for 14 GB, with progress in the bar.
+- **Memory stays small:** the window, the edited windows up to a budget,
+  and the text typed. Past the budget, the oldest edited windows are
+  folded into pieces, which keeps their changes and drops their undo.
+- **Still off:** colours, the git gutter, blame, word wrap, language
+  servers and plugins. They need the whole text.
+
+## How others do it
+
+- **VS Code, Sublime, Zed, Helix and Vim** load the whole file. VS Code
+  turns colours and other features off for large files.
+- **EmEditor and UltraEdit** are known for opening files of many GB,
+  keeping much of the file on disk, with temporary files.
+- **Hex editors** (HxD, 010 Editor) keep the file on disk and the changes
+  as a piece table. Saving rewrites the file, or writes in place when no
+  length changed.
+
+What's planned here is the hex editors' way under a text editor's view.
+
+## The design
+
+### Pieces
+
+```text
+Large {
+    file:    the file, kept open while edits refer to it
+    pieces:  [Piece]                         in order, end to end
+    window:  bytes start..end of the text    the rope the editor holds
+    parked:  [Parked]                        edited windows kept whole
+}
+Piece = File { from, to } | Text(Rope)       each with its bytes and lines
+```
+
+- **Places become bytes of the text**, not of the file: from the start of
+  the first piece. Before any edit they're the same, so step 8's code is
+  the case of one `File` piece. Lines are counted per piece, so a window's
+  first line is the sum of the lines in the pieces before it.
+- **The window is read through the pieces**, on a background thread as
+  now. `Effect::ReadWindow` carries the pieces, which are cheap to copy,
+  since the ropes in them are shared.
+- **The counts by piece** that step 8 keeps for the file stay as they are.
+  A `File` piece's lines are the counts it covers, and its ends are counted
+  when it's cut. Only the text typed is counted again.
+
+### Editing in the window
+
+The window's rope is a normal `Buffer`, so every edit works as it does
+in any file, with undo.
+
+- **Leaving an edited window** parks it: its `Buffer`, undo and all, takes
+  the place of the pieces it covered, as one `Text` piece. Coming back to
+  it reads it back with its undo.
+- **Undo past the window** goes to the last edited window, reads it back
+  and undoes there. Undo goes in the order of the edits, across the file.
+- **The memory budget**, about 256 MB by default, covers the parked
+  windows. Past it, the oldest parked window is folded. What it changed is
+  worked out from its buffer's history and kept as `Text` pieces. The rest
+  is cut back to `File` pieces. Its undo goes, and the notice says so the
+  first time.
+- **An edit across the window's edge**, such as a selection reaching past
+  it or Delete at its end, first reads a window that covers both sides.
+
+### Large edits without the text
+
+These work on the list of pieces, at any size:
+
+- Deleting a selection that reaches past the window: Shift+Ctrl+End then
+  Delete, or lines selected from Go to Line.
+- Cut and copy of such a selection. Past 64 MB they ask first, since the
+  clipboard holds it in memory.
+- Select All, then Delete or typing over it.
+
+Replace All across the file is planned for later, as a change applied to
+the pieces as they're read.
+
+### Saving
+
+1. **Disk space**: saving needs room for the whole new file. If there
+   isn't room, it says so before starting, and nothing is written.
+2. **Streamed to a new file** beside the old one, read through the pieces
+   a few MB at a time on the disk thread, flushed to disk, then renamed
+   over the old file. This is how saves work now, so the file is whole
+   whatever happens.
+3. **Progress shows** in the bar: "Saving 41%… 5.8 of 14.2 GB". The text
+   is read-only until the save is done: edits made while it's written
+   would land on text that's moving. Cancel stops the save, deletes the
+   new file, and leaves the old one as it was.
+4. **After saving**, the pieces become the new file's. Undo still works
+   across the save:
+   - On Linux and macOS, the old file stays readable through the handle
+     merlin keeps open, even after the rename.
+   - On Windows, the old file is opened so it can be renamed while open.
+   - Undo to before the save gives back the edits; the file on disk is
+     as saved.
+
+### Quitting with changes
+
+- **Hot exit** keeps a journal, not the text: the `Text` pieces, where
+  each `File` piece points, and the file's size, change time and inode.
+  That is a few KB for most edits.
+- **The next start** checks that the file is the same and brings back the
+  edits. If it isn't, it says so and opens the file as it is.
+
+### The file changing on disk while edited
+
+- **Replaced**, as most programs and git save: the edits are safe, since
+  the handle still reads the old file. merlin asks: Keep My Changes, which
+  overwrites on save, or Reload, which drops them.
+- **Grown at the end**, as a log grows: the edits are safe. The new lines
+  show past the last piece.
+- **Cut short or rewritten in place**: the `File` pieces may now read other
+  bytes. merlin stops editing and asks to Save As a new file from what
+  it still holds, which is all of the edits.
+  - On Windows, opening the file without allowing writes stops this
+    happening.
+  - On Linux and macOS, nothing can stop it. merlin notices from the size
+    and change time when the window is read next.
+
+### What changes on screen
+
+From the mock-up:
+
+- **The bar**: "14.2 GB, edited from disk. Colours, git and plugins are
+  off; saving writes the whole file (about 15 s)." There's no Load to
+  Edit…, which stays in the menu for files that fit.
+- **Unsaved edits** put the dot on the tab, as for any file. The status
+  bar says "Edited from disk".
+- **Saving** shows progress in the bar with a progress line. If it fails,
+  the bar says why, with Retry and Save As….
+- **Notices** for: no room on disk, undo dropped from old edits, the file
+  replaced, the file cut short, and copying past 64 MB.
+- **The read-only view stays** as an option: Settings › Files › Large
+  files gets "Edit in place" (the default) or "Read-only".
+
+## Order
+
+Each step ships on its own, with tests, and keeps the step 8 tests
+passing.
+
+1. **Pieces under the read-only view.** No change on screen: one `File`
+   piece, windows read through the list, places in bytes of the text.
+   This is the base for everything else.
+2. **Editing in the window**, parking and undo across windows. The bar,
+   the tab's dot and the notices change here, so the mock-up must be
+   approved before this step.
+3. **Saving**: streamed to a new file, the disk space check, progress,
+   undo kept after saving.
+4. **Counts after edits**: lines and Find over the pieces, counting only
+   the `Text` pieces again.
+5. **Large edits on the pieces**: cut, copy and delete past the window.
+6. **Hot exit** as a journal, and the file changing on disk.
+7. **The memory budget**: folding the oldest parked windows.
+
+Later: Replace All across the file, and in-place writes for edits that
+keep every length, which would save a 14 GB file in milliseconds.
+
+## Risks
+
+- **A file rewritten in place by another program** while it has edits
+  here: on Linux and macOS nothing prevents it, so merlin can only notice
+  and stop. This is the one case where edits could read the wrong bytes.
+  Saving them is refused.
+- **Undo across many windows** holds those windows in memory until the
+  budget folds them. Typing a character in each of 1 000 places 4 MB
+  apart parks 1 000 windows. That costs about 256 MB and then folds,
+  keeping the edits.
+- **Saving takes as long as writing the file.** On a slow or network
+  disk, 14 GB may take minutes, during which the text can't be edited.
+- **Windows**: renaming over a file merlin has open, and the share modes,
+  need checking on a real Windows machine.
