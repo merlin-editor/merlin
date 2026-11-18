@@ -11,6 +11,7 @@ pub mod editor;
 pub mod exclude;
 mod fuzzy;
 pub mod git;
+pub mod gitbase;
 pub mod history;
 mod icons;
 pub use icons::file_icon;

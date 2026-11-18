@@ -166,7 +166,7 @@ pub fn signs_rope(old: &str, new: &ropey::Rope) -> Vec<Option<Sign>> {
 
 /// How many bytes `a` and `b` start with in common: compared a block at a
 /// time, which the compiler makes a memcmp.
-fn common_prefix(a: &[u8], b: &[u8]) -> usize {
+pub(crate) fn common_prefix(a: &[u8], b: &[u8]) -> usize {
     let n = a.len().min(b.len());
     let mut i = 0;
     while i + 64 <= n && a[i..i + 64] == b[i..i + 64] {
@@ -180,7 +180,7 @@ fn common_prefix(a: &[u8], b: &[u8]) -> usize {
 }
 
 /// How many bytes `a` and `b` end with in common.
-fn common_suffix(a: &[u8], b: &[u8]) -> usize {
+pub(crate) fn common_suffix(a: &[u8], b: &[u8]) -> usize {
     let n = a.len().min(b.len());
     let (a, b) = (&a[a.len() - n..], &b[b.len() - n..]);
     let mut i = 0;

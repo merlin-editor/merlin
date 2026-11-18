@@ -99,16 +99,16 @@ impl Editor {
     pub fn changed_lines(&self) -> Option<Vec<(u32, u32)>> {
         use crate::diff::Sign;
         let doc = self.doc();
-        doc.git_base.as_ref()?;
+        let git = doc.git.as_ref()?;
         let mut ranges: Vec<(u32, u32)> = Vec::new();
-        for (line, sign) in doc.git_signs.iter().enumerate() {
-            if !matches!(sign, Some(Sign::Added | Sign::Changed)) {
+        for (r, sign) in git.marks() {
+            if !matches!(sign, Sign::Added | Sign::Changed) {
                 continue;
             }
-            let line = line as u32;
+            let (first, last) = (r.start as u32, r.end as u32 - 1);
             match ranges.last_mut() {
-                Some((_, end)) if *end + 1 == line => *end = line,
-                _ => ranges.push((line, line)),
+                Some((_, end)) if *end + 1 == first => *end = last,
+                _ => ranges.push((first, last)),
             }
         }
         Some(ranges)

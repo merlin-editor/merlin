@@ -513,7 +513,7 @@ impl Editor {
             } = line_marks(doc, start, end);
 
             let review = doc.review.as_ref().and_then(|r| r.lines.get(line)).copied();
-            let git = doc.git_signs.get(line).copied().flatten();
+            let git = doc.git_sign(line);
             let agent_added = hunks.as_ref().is_some_and(|h| Self::agent_added(h, line));
             let current = highlight_line && line == cur_line && review.is_none();
             let plain = if current {

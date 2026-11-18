@@ -75,7 +75,7 @@ impl Editor {
     /// Whether the gutter has a column for git signs or a review's + and -.
     pub(crate) fn has_signs(&self) -> bool {
         let doc = self.doc();
-        doc.review.is_some() || doc.git_base.is_some()
+        doc.review.is_some() || doc.git.is_some()
     }
 
     /// The gutter's width: signs, room for the lightbulb, line numbers and

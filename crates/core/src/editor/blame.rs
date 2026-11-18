@@ -8,7 +8,7 @@ impl Editor {
     /// it was last asked for. The host waits for a pause before it runs.
     pub(crate) fn ask_blame(&mut self, fx: &mut Vec<Effect>) {
         let doc = self.doc();
-        if doc.review.is_some() || doc.page.is_some() || doc.git_base.is_none() {
+        if doc.review.is_some() || doc.page.is_some() || doc.git.is_none() {
             return;
         }
         let Some(path) = doc.buffer.path.clone() else {
@@ -119,7 +119,7 @@ impl Editor {
             self.blame_card = None;
             return;
         }
-        if self.doc().git_base.is_none() {
+        if self.doc().git.is_none() {
             return self.notify("This file isn't in git".into());
         }
         self.blame_column = Some(id);

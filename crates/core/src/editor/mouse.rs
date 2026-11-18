@@ -94,12 +94,7 @@ impl Editor {
         let text = self.layout().text;
         let pos = self.pos_at_screen(text.x + self.gutter() as u16, y);
         let line = self.doc().line_col(pos).0;
-        self.doc()
-            .git_signs
-            .get(line)
-            .copied()
-            .flatten()
-            .map(|_| line)
+        self.doc().git_sign(line).map(|_| line)
     }
 
     /// Whether cell (`x`, `y`) is the lightbulb: its room in the gutter,

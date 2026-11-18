@@ -90,13 +90,10 @@ pub struct Doc {
     /// Inlay hints from plugins, in order.
     pub inlays: Vec<Inlay>,
     pub review: Option<Review>,
-    /// The file as of the last commit, for gutter signs. `None` outside git.
-    pub git_base: Option<String>,
-    /// A sign for each line, from comparing the text with `git_base`.
-    pub git_signs: Vec<Option<Sign>>,
-    /// Runs of lines with the same sign, in order, for what draws all of
-    /// them, such as the scrollbar, every frame.
-    pub git_marks: Vec<(std::ops::Range<usize>, Sign)>,
+    /// The file as of the last commit, sharing the text's unchanged
+    /// pieces, and which lines differ: for the gutter, the change peek and
+    /// reverting. `None` outside git.
+    pub git: Option<crate::gitbase::GitBase>,
     /// More cursors, for editing in several places at once.
     pub extra: Vec<Caret>,
     /// The text version `extra` was last placed for. Edits after it, such
@@ -188,9 +185,7 @@ impl Doc {
             marks: Vec::new(),
             inlays: Vec::new(),
             review: None,
-            git_base: None,
-            git_signs: Vec::new(),
-            git_marks: Vec::new(),
+            git: None,
             extra: Vec::new(),
             extra_version: 0,
             folds: Vec::new(),
@@ -259,26 +254,18 @@ impl Doc {
 
     /// Sets the committed text to compare against, and updates the signs.
     pub fn set_git_base(&mut self, base: Option<String>) {
-        self.git_base = base;
-        self.update_signs();
+        let pending = self.buffer.pending_changes().len();
+        self.git = base.map(|b| crate::gitbase::GitBase::new(&b, self.buffer.rope(), pending));
     }
 
-    fn update_signs(&mut self) {
-        self.git_signs = match &self.git_base {
-            Some(base) => diff::signs_rope(base, self.buffer.rope()),
-            None => Vec::new(),
-        };
-        // Runs of lines with the same sign: one for a file marked all
-        // through, not a mark a line.
-        let mut runs: Vec<(std::ops::Range<usize>, Sign)> = Vec::new();
-        for (line, sign) in self.git_signs.iter().enumerate() {
-            let Some(sign) = *sign else { continue };
-            match runs.last_mut() {
-                Some((r, s)) if r.end == line && *s == sign => r.end += 1,
-                _ => runs.push((line..line + 1, sign)),
-            }
-        }
-        self.git_marks = runs;
+    /// Runs of lines with the same git sign, in order.
+    pub fn git_marks(&self) -> &[(std::ops::Range<usize>, Sign)] {
+        self.git.as_ref().map_or(&[], |g| g.marks())
+    }
+
+    /// The git sign on `line`, if it has one.
+    pub fn git_sign(&self, line: usize) -> Option<Sign> {
+        self.git.as_ref()?.sign(line)
     }
 
     /// Brings marks and the syntax tree up to date with the text, and
@@ -329,8 +316,9 @@ impl Doc {
             .retain(|&f| f == 0 || self.buffer.rope().char(f - 1) == '\n');
         self.folds.sort_unstable();
         self.folds.dedup();
-        if self.git_base.is_some() {
-            self.update_signs();
+        if let Some(git) = &mut self.git {
+            git.update(&changes);
+            git.refresh(self.buffer.rope());
         }
         changes
     }

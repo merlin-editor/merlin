@@ -719,8 +719,8 @@ impl Editor {
                 .map_or_else(|| new_text(&self.docs[tab]), |d| d.buffer.text());
             (edited, right)
         } else {
-            let old = match doc.git_base.clone() {
-                Some(base) if !compare => base,
+            let old = match &doc.git {
+                Some(git) if !compare => git.rope().to_string(),
                 _ => old_text(&self.docs[tab]),
             };
             (old, edited)

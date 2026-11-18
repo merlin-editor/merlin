@@ -58,10 +58,7 @@ impl Editor {
     /// The current file's changes since the last commit.
     fn file_changes(&self) -> Vec<(Range<usize>, Range<usize>)> {
         let doc = self.doc();
-        match &doc.git_base {
-            Some(base) => crate::diff::runs(base, &doc.buffer.text()),
-            None => Vec::new(),
-        }
+        doc.git.as_ref().map_or_else(Vec::new, |g| g.runs())
     }
 
     /// Opens the change at `line`, or closes it if it's the one open.
@@ -117,10 +114,14 @@ impl Editor {
         let p = self.change_peek.as_ref()?;
         let (old, new) = p.changes.get(p.index)?;
         let doc = self.doc();
-        let base: Vec<&str> = doc.git_base.as_deref()?.split('\n').collect();
+        let base = doc.git.as_ref()?.rope();
         let mut lines: Vec<(char, String)> = old
             .clone()
-            .map(|l| ('-', base.get(l).copied().unwrap_or_default().to_string()))
+            .filter(|&l| l < base.len_lines())
+            .map(|l| {
+                let line: String = base.line(l).chunks().collect();
+                ('-', line.trim_end_matches(['\n', '\r']).to_string())
+            })
             .collect();
         lines.extend(new.clone().map(|l| {
             let text: String = doc
@@ -169,10 +170,7 @@ impl Editor {
         if doc.buffer.version() == p.version {
             return;
         }
-        let changes = match &doc.git_base {
-            Some(base) => crate::diff::runs(base, &doc.buffer.text()),
-            None => Vec::new(),
-        };
+        let changes = doc.git.as_ref().map_or_else(Vec::new, |g| g.runs());
         let version = doc.buffer.version();
         if changes.is_empty() {
             self.change_peek = None;
@@ -290,18 +288,18 @@ impl Editor {
         let Some(p) = &self.change_peek else { return };
         let (old, new) = p.changes[p.index].clone();
         let doc = self.doc();
-        let Some(base) = doc.git_base.clone() else {
+        let Some(git) = &doc.git else {
             return;
         };
-        let text = doc.buffer.text();
-        let base_lines: Vec<&str> = base.split('\n').collect();
-        let lines: Vec<&str> = text.split('\n').collect();
-        let mut out: Vec<&str> = lines[..new.start.min(lines.len())].to_vec();
-        out.extend(&base_lines[old.start.min(base_lines.len())..old.end.min(base_lines.len())]);
-        out.extend(&lines[new.end.min(lines.len())..]);
-        let reverted = out.join("\n");
-        let doc = self.doc_mut();
-        super::replace_text(doc, &text, &reverted);
+        // Git's lines in place of those now, breaks and all.
+        let (base, now) = (git.rope(), doc.buffer.rope());
+        let at = |r: &ropey::Rope, l: usize| r.line_to_char(l.min(r.len_lines()));
+        let was: String = base
+            .slice(at(base, old.start)..at(base, old.end))
+            .chunks()
+            .collect();
+        let (a, b) = (at(now, new.start), at(now, new.end));
+        self.replace(a, b, &was, crate::history::Kind::Other);
         self.change_peek = None;
     }
 }

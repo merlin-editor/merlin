@@ -88,7 +88,7 @@ impl Editor {
             let r = r.start.max(lines.start)..r.end.min(lines.end);
             marks.extend(r.step_by(step).map(|l| (l, style)));
         };
-        for (r, sign) in &doc.git_marks {
+        for (r, sign) in doc.git_marks() {
             let style = match sign {
                 Sign::Added => Style::GitAdded,
                 Sign::Changed => Style::GitChanged,
