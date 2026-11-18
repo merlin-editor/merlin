@@ -287,6 +287,47 @@ impl Backups {
         }
     }
 
+    /// Where a hot exit keeps large files' edits, as journals of their
+    /// pieces rather than their whole text.
+    pub(crate) fn journal_dir(&self) -> Option<PathBuf> {
+        self.dir.as_ref().map(|d| d.join(".large"))
+    }
+
+    /// The large files' journals the last run kept, by path.
+    pub(crate) fn journals(&self) -> HashMap<PathBuf, merlin_core::bigfile::Journal> {
+        let Some(dir) = self.journal_dir() else {
+            return HashMap::new();
+        };
+        let Ok(entries) = fs::read_dir(&dir) else {
+            return HashMap::new();
+        };
+        let found = entries
+            .flatten()
+            .filter_map(|e| merlin_core::bigfile::Journal::read(&e.path()).ok())
+            .map(|j| (j.path.clone(), j))
+            .collect();
+        let _ = fs::remove_dir_all(&dir);
+        found
+    }
+
+    /// A hot exit: each large file's edits, as a journal.
+    pub(crate) fn keep_journals(&self, journals: &[merlin_core::bigfile::Journal]) {
+        let Some(dir) = self.journal_dir() else {
+            return;
+        };
+        if journals.is_empty() {
+            return;
+        }
+        let _ = fs::create_dir_all(&dir);
+        for journal in journals {
+            let name = crate::safe_name(&journal.path.display().to_string());
+            let _ = journal.write(&dir.join(name));
+        }
+        if let Some(parent) = dir.parent() {
+            let _ = fs::write(parent.join(HOT), "");
+        }
+    }
+
     /// The editor exited cleanly: nothing to keep.
     pub(crate) fn clear(&self) {
         if let Some(dir) = &self.dir {

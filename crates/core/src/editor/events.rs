@@ -593,6 +593,8 @@ pub enum Event {
         free: Option<u64>,
         /// Edited in place, rather than read-only.
         editable: bool,
+        /// Edits a hot exit kept, to put back if the file's the same.
+        journal: Option<Box<crate::bigfile::Journal>>,
     },
     /// A window of a large file, asked for with [`Effect::ReadWindow`].
     WindowRead {

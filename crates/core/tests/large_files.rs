@@ -27,6 +27,7 @@ fn open_as(lines: usize, editable: bool) -> (tempfile::TempDir, Session, String)
         size: text.len() as u64,
         free: None,
         editable,
+        journal: None,
     });
     (dir, s, text)
 }
@@ -413,4 +414,106 @@ fn copying_past_the_window_reads_it_and_cut_takes_it_out() {
     s.run("cmd edit.cut");
     s.run("key ctrl+home");
     assert!(s.screen().contains(" 1 line 599997"), "{}", s.screen());
+}
+
+/// Opens `dir`'s big.log again in a new session, with a journal.
+fn reopen(dir: &tempfile::TempDir, journal: Option<merlin_core::bigfile::Journal>) -> Session {
+    let full = dir.path().join("big.log");
+    let size = std::fs::metadata(&full).unwrap().len();
+    let mut s = Session::new("", None, 100, 20);
+    s.send(Event::OpenedLarge {
+        path: "big.log".into(),
+        full,
+        size,
+        free: None,
+        editable: true,
+        journal: journal.map(Box::new),
+    });
+    s
+}
+
+#[test]
+fn a_hot_exit_keeps_the_edits_for_the_next_start() {
+    let (dir, mut s, _) = edit(600_000);
+    s.run("type KEPT");
+    s.run("key ctrl+end; type END");
+    let journals = s.editor.large_journals();
+    assert_eq!(journals.len(), 1);
+    drop(s);
+    let mut s = reopen(&dir, journals.into_iter().next());
+    assert!(s.screen().contains("KEPTline 0"), "{}", s.screen());
+    assert!(tab_dirty(&s));
+    s.run("key ctrl+end");
+    assert!(s.screen().contains("END"), "{}", s.screen());
+}
+
+#[test]
+fn edits_arent_put_back_on_a_file_that_changed() {
+    let (dir, mut s, _) = edit(600_000);
+    s.run("type KEPT");
+    let journal = s.editor.large_journals().pop();
+    drop(s);
+    // Saved over by something else meanwhile.
+    let full = dir.path().join("big.log");
+    let other = dir.path().join("other.log");
+    std::fs::write(&other, "something else\n".repeat(400_000)).unwrap();
+    std::fs::rename(&other, &full).unwrap();
+    let s = reopen(&dir, journal);
+    assert!(!s.screen().contains("KEPT"), "{}", s.screen());
+    let toast = s.editor.window_view().toast.expect("a notice");
+    assert!(
+        toast.text.contains("couldn't be put back"),
+        "{}",
+        toast.text
+    );
+}
+
+#[test]
+fn a_file_saved_over_keeps_the_edits_until_asked() {
+    let (dir, mut s, _) = edit(600_000);
+    s.run("type MINE");
+    let full = dir.path().join("big.log");
+    let other = dir.path().join("other.log");
+    std::fs::write(&other, "theirs\n".repeat(700_000)).unwrap();
+    std::fs::rename(&other, &full).unwrap();
+    s.send(Event::LargeResized {
+        path: "big.log".into(),
+        size: 7 * 700_000,
+    });
+    let toast = s.editor.window_view().toast.expect("asked");
+    assert!(toast.text.contains("saved over it"), "{}", toast.text);
+    // The edits stay, reading the old file, until Reload.
+    s.run("key ctrl+end; key ctrl+home");
+    assert!(s.screen().contains("MINEline 0"), "{}", s.screen());
+    s.run("cmd large.reload");
+    assert!(s.screen().contains("theirs"), "{}", s.screen());
+    assert!(!tab_dirty(&s));
+}
+
+#[test]
+fn a_file_cut_short_stops_editing_and_saving_over_it() {
+    use merlin_core::Effect;
+    let (dir, mut s, text) = edit(600_000);
+    s.run("type MINE");
+    let full = dir.path().join("big.log");
+    let file = std::fs::OpenOptions::new().write(true).open(&full).unwrap();
+    file.set_len(text.len() as u64 / 2).unwrap();
+    s.send(Event::LargeResized {
+        path: "big.log".into(),
+        size: text.len() as u64 / 2,
+    });
+    let bar = s.editor.window_view().groups[0]
+        .bar
+        .clone()
+        .expect("the bar");
+    assert!(bar.text.contains("Cut short"), "{}", bar.text);
+    s.run("type more");
+    assert!(!s.screen().contains("MINEmore"), "{}", s.screen());
+    s.effects.clear();
+    s.run("key ctrl+s");
+    assert!(
+        !s.effects
+            .iter()
+            .any(|e| matches!(e, Effect::SaveLarge { .. }))
+    );
 }

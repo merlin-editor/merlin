@@ -594,6 +594,149 @@ pub fn seek_round(
     seek(text, matcher, other, forward, counts)
 }
 
+/// Which file a large file's pieces read: its size, when it last changed
+/// and, on Unix, its inode, which another program saving over it changes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Identity {
+    pub size: u64,
+    pub modified: u128,
+    pub inode: u64,
+}
+
+impl Identity {
+    fn from_meta(meta: &std::fs::Metadata) -> Self {
+        #[cfg(unix)]
+        let inode = std::os::unix::fs::MetadataExt::ino(meta);
+        #[cfg(not(unix))]
+        let inode = 0;
+        Self {
+            size: meta.len(),
+            modified: meta
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0, |d| d.as_nanos()),
+            inode,
+        }
+    }
+
+    /// The file at `path` now.
+    pub fn of(path: &Path) -> Option<Self> {
+        std::fs::metadata(path).ok().map(|m| Self::from_meta(&m))
+    }
+}
+
+impl FileText {
+    /// The file the pieces read, through the handle kept: as opened, even
+    /// if another file has since taken its name.
+    pub fn identity(&self) -> Option<Identity> {
+        self.file.metadata().ok().map(|m| Identity::from_meta(&m))
+    }
+
+    /// Whether the file at its path is still the one it reads, not one
+    /// saved over it.
+    pub fn same_file(&self) -> bool {
+        match (self.identity(), Identity::of(&self.path)) {
+            (Some(a), Some(b)) => a.inode == b.inode,
+            _ => false,
+        }
+    }
+}
+
+/// A large file's unsaved edits, kept by a hot exit for the next start:
+/// its pieces, the text in memory written out, and which file the rest
+/// reads, so they're put back only on the same file.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Journal {
+    /// The file, as the document names it.
+    pub path: PathBuf,
+    pub identity: Identity,
+    pub pieces: Vec<Piece>,
+}
+
+const JOURNAL: &str = "merlin large-file journal 1";
+
+impl Journal {
+    /// Writes it, a few lines and then the text in memory as it is.
+    pub fn write(&self, to: &Path) -> io::Result<()> {
+        use std::io::Write;
+        let mut out = io::BufWriter::new(File::create(to)?);
+        let id = &self.identity;
+        writeln!(out, "{JOURNAL}")?;
+        writeln!(out, "{}", self.path.display())?;
+        writeln!(
+            out,
+            "{} {} {} {}",
+            id.size,
+            id.modified,
+            id.inode,
+            self.pieces.len()
+        )?;
+        for piece in &self.pieces {
+            match piece {
+                Piece::File { from, to } => writeln!(out, "F {from} {to}")?,
+                Piece::Text(rope) => {
+                    writeln!(out, "T {}", rope.len_bytes())?;
+                    for chunk in rope.chunks() {
+                        out.write_all(chunk.as_bytes())?;
+                    }
+                }
+            }
+        }
+        out.flush()
+    }
+
+    /// Reads one written by [`Journal::write`].
+    pub fn read(from: &Path) -> io::Result<Self> {
+        use std::io::BufRead;
+        let bad = || io::Error::new(io::ErrorKind::InvalidData, "not a large-file journal");
+        let mut input = io::BufReader::new(File::open(from)?);
+        let mut line = String::new();
+        let mut next = |input: &mut io::BufReader<File>| -> io::Result<String> {
+            line.clear();
+            input.read_line(&mut line)?;
+            Ok(line.trim_end_matches('\n').to_string())
+        };
+        if next(&mut input)? != JOURNAL {
+            return Err(bad());
+        }
+        let path = PathBuf::from(next(&mut input)?);
+        let head = next(&mut input)?;
+        let nums: Vec<u128> = head.split(' ').filter_map(|n| n.parse().ok()).collect();
+        let [size, modified, inode, count] = nums[..] else {
+            return Err(bad());
+        };
+        let mut pieces = Vec::new();
+        for _ in 0..count {
+            let piece = next(&mut input)?;
+            let mut parts = piece.split(' ');
+            let kind = parts.next();
+            let nums: Vec<u64> = parts.filter_map(|n| n.parse().ok()).collect();
+            match (kind, &nums[..]) {
+                (Some("F"), [from, to]) => pieces.push(Piece::File {
+                    from: *from,
+                    to: *to,
+                }),
+                (Some("T"), [len]) => {
+                    let mut bytes = vec![0; *len as usize];
+                    io::Read::read_exact(&mut input, &mut bytes)?;
+                    pieces.push(Piece::Text(Rope::from_str(&text_of(bytes))));
+                }
+                _ => return Err(bad()),
+            }
+        }
+        Ok(Self {
+            path,
+            identity: Identity {
+                size: size as u64,
+                modified,
+                inode: inode as u64,
+            },
+            pieces,
+        })
+    }
+}
+
 /// Why a large file's save didn't happen.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SaveError {
@@ -941,6 +1084,12 @@ pub struct Large {
     /// The window held is gone, after an edit on the pieces: one is read
     /// around this byte, and until then nothing is edited.
     pub stale: Option<u64>,
+    /// Another program saved over the file while it had edits here: asked
+    /// once whether to keep them.
+    pub replaced: bool,
+    /// The file was cut short on disk while it had edits here: the parts
+    /// not edited may read wrong, so it's not edited or saved over.
+    pub broken: bool,
     /// Memory free when it opened, for what loading it would take.
     pub free: Option<u64>,
     /// Edits go into the text; otherwise it's read-only.
@@ -1190,6 +1339,8 @@ impl Large {
             tries: 0,
             anchor: None,
             stale: None,
+            replaced: false,
+            broken: false,
             free,
             editable,
             undos: Vec::new(),
@@ -1491,5 +1642,21 @@ mod tests {
         let counts = save(&edited, &path, None, &|_| {}, &go).unwrap();
         assert_eq!(counts.iter().sum::<u64>(), 1_000_001);
         assert!(std::fs::read_to_string(&path).unwrap() == format!("new\n{text}"));
+    }
+
+    #[test]
+    fn a_journal_reads_back_as_written() {
+        let text = numbered(1000);
+        let (dir, file) = file(&text);
+        let edited = file.splice(10, 20, Rope::from_str("typed\ntext with a newline\n"));
+        let journal = Journal {
+            path: "logs/big.log".into(),
+            identity: edited.identity().unwrap(),
+            pieces: edited.pieces().to_vec(),
+        };
+        let at = dir.path().join("journal");
+        journal.write(&at).unwrap();
+        assert_eq!(Journal::read(&at).unwrap(), journal);
+        assert!(edited.same_file());
     }
 }

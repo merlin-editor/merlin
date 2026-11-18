@@ -123,8 +123,14 @@ impl Editor {
                 full,
                 free,
                 editable,
+                journal,
                 ..
-            } => self.opened_large(path, full, free, editable),
+            } => {
+                self.opened_large(path.clone(), full, free, editable);
+                if let Some(journal) = journal {
+                    self.put_back_large(&path, *journal);
+                }
+            }
             Event::WindowRead { doc, window } => self.window_read(doc, window),
             Event::FileSought { doc, at } => self.file_sought(doc, at),
             Event::LargeResized { path, size } => self.large_resized(&path, size),

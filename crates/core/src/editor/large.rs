@@ -49,11 +49,14 @@ impl Editor {
         let mut large = Box::new(Large::new(text, free, editable));
         large.saved_as = Some(path.clone());
         // Open already, as after it changed on disk: read again from the
-        // same place.
+        // same place. Never over edits.
         if let Some(i) = self.docs.iter().position(|d| {
             d.review.is_none() && d.large.is_some() && d.buffer.path.as_ref() == Some(&path)
         }) {
             let doc = &mut self.docs[i];
+            if doc.buffer.is_dirty() || doc.large.as_deref().is_some_and(|l| !l.untouched()) {
+                return;
+            }
             let top = doc
                 .large
                 .as_ref()
@@ -66,6 +69,37 @@ impl Editor {
             return;
         }
         self.opened_doc(path, ropey::Rope::new(), Some(large));
+    }
+
+    /// Edits a hot exit kept, put back in the large file just opened, if
+    /// it's the file they were made to.
+    pub(super) fn put_back_large(
+        &mut self,
+        path: &std::path::Path,
+        journal: crate::bigfile::Journal,
+    ) {
+        let Some(i) = self
+            .docs
+            .iter()
+            .position(|d| d.large.is_some() && d.buffer.path.as_deref() == Some(path))
+        else {
+            return;
+        };
+        let doc = &mut self.docs[i];
+        let name = doc.name();
+        let large = doc.large.as_deref_mut().expect("checked");
+        let now = crate::bigfile::Identity::of(&large.file.path);
+        if now != Some(journal.identity) || large.file.len() != journal.identity.size {
+            return self.notify_warning(format!(
+                "{name} changed on disk since merlin quit: its unsaved changes couldn't be put back"
+            ));
+        }
+        let text = large.file.with_pieces(journal.pieces);
+        let at = large.start;
+        large.changed = true;
+        self.current = i;
+        self.swap_text(text, at, false);
+        self.notify(format!("Put back the unsaved changes to {name}"));
     }
 
     /// The background work a large file waits on: its lines, and the
@@ -504,6 +538,36 @@ impl Editor {
         true
     }
 
+    /// Reload after another program saved over a large file: the edits
+    /// go, and the new file is read from the same place.
+    fn reload_large(&mut self) {
+        self.message = None;
+        let top = self.large_byte(self.doc().line_start(self.doc().scroll));
+        let doc = self.doc_mut();
+        let Some(old) = doc.large.as_deref() else {
+            return;
+        };
+        let (path, free, editable, saved_as) = (
+            old.text.path.clone(),
+            old.free,
+            old.editable,
+            old.saved_as.clone(),
+        );
+        let text = match crate::bigfile::FileText::open(&path) {
+            Ok(text) => text,
+            Err(err) => return self.error(format!("Can't reload: {err}")),
+        };
+        let size = text.len();
+        let mut large = Large::new(text, free, editable);
+        large.saved_as = saved_as;
+        large.pending = Some(Then::Top(top.min(size)));
+        let mut new = Doc::from_rope(doc.id, ropey::Rope::new(), doc.buffer.path.clone());
+        new.config = doc.config.clone();
+        large.synced = new.buffer.version();
+        new.large = Some(Box::new(large));
+        *doc = new;
+    }
+
     /// Saves a large file: its text, edits and all, streamed to a new file
     /// that takes the old one's place. With nothing changed, only a Save
     /// As elsewhere writes.
@@ -522,6 +586,14 @@ impl Editor {
         }
         if !dirty && large.saved_as.as_ref() == Some(&path) {
             return;
+        }
+        // Cut short on disk: only a new file is safe to write.
+        if large.broken && large.saved_as.as_ref() == Some(&path) {
+            let name = path.display().to_string();
+            self.quitting = false;
+            return self.error(format!(
+                "{name} was cut short on disk: save it with Save As… instead"
+            ));
         }
         large.saving = Some(0);
         large.save_error = None;
@@ -608,6 +680,8 @@ impl Editor {
         large.generation += 1;
         large.found = None;
         large.changed = false;
+        large.broken = false;
+        large.replaced = false;
         large.save_error = None;
         large.saved_as = Some(path);
         for (kept, undone) in large
@@ -948,6 +1022,13 @@ impl Editor {
         if self.large().is_some_and(|l| l.stale.is_some()) {
             return true;
         }
+        if self.large().is_some_and(|l| l.broken) {
+            let name = self.doc().name();
+            self.notify(format!(
+                "{name} was cut short on disk: it can't be edited, but Save As… keeps your edits"
+            ));
+            return true;
+        }
         // Being written: an edit would land on text that's moving.
         if self.large().is_some_and(|l| l.saving.is_some()) {
             let name = self.doc().name();
@@ -1007,6 +1088,7 @@ impl Editor {
                 self.large_copy(id == "large.cut", true, fx);
             }
             "large.cancel" => fx.push(Effect::CancelSave(self.doc().id)),
+            "large.reload" => self.reload_large(),
             "large.retry" => self.run("file.save", fx),
             "large.why" => self.large_why(),
             "large.end" => {
@@ -1046,6 +1128,16 @@ impl Editor {
                 ),
                 buttons: vec![(2, "Cancel".into())],
                 progress: Some((written * 1000 / large.size.max(1)) as u16),
+            });
+        }
+        if large.broken {
+            return Some(super::bars::FileBarView {
+                index: LARGE_BAR,
+                badge: Some("CHANGED".into()),
+                calm: false,
+                text: "Cut short on disk while edited here: the parts not edited may now read wrong. Save your edits as a new file.".into(),
+                progress: None,
+                buttons: vec![(4, "Save As…".into())],
             });
         }
         match &large.save_error {
@@ -1116,6 +1208,22 @@ impl Editor {
         })
     }
 
+    /// What a hot exit keeps of each large file with unsaved edits.
+    pub fn large_journals(&self) -> Vec<crate::bigfile::Journal> {
+        self.docs
+            .iter()
+            .filter(|d| d.buffer.is_dirty())
+            .filter_map(|d| {
+                let large = d.large.as_deref()?;
+                Some(crate::bigfile::Journal {
+                    path: d.buffer.path.clone()?,
+                    identity: large.text.identity()?,
+                    pieces: large.text.pieces().to_vec(),
+                })
+            })
+            .collect()
+    }
+
     /// A press on the large file's bar.
     pub(crate) fn large_bar_press(&mut self, what: &str, fx: &mut Vec<Effect>) {
         match what {
@@ -1152,16 +1260,36 @@ impl Editor {
         };
         let height = self.text_height();
         let doc = &mut self.docs[i];
+        let name = doc.name();
         let large = doc.large.as_deref_mut().expect("checked");
+        // Its own save, swapping the new file in.
+        if large.saving.is_some() {
+            return;
+        }
         // Edited: the pieces read the file as it was opened, through the
-        // handle kept, so the edits stay right as a log grows.
+        // handle kept.
         if !large.untouched() || doc.buffer.is_dirty() {
-            if size < large.file.len() {
-                let name = doc.name();
+            // Saved over by another program: the handle still reads the
+            // old file, so the edits are safe. Asked once.
+            if !large.text.same_file() {
+                if !std::mem::replace(&mut large.replaced, true) {
+                    self.notify(format!(
+                        "{name} changed on disk: another program saved over it. Your edits are safe, as the old file is still read until you choose."
+                    ));
+                    self.add_action("Reload", "large.reload");
+                    self.add_action("Keep My Changes", "large.keep");
+                }
+                return;
+            }
+            // Cut short in place: what wasn't edited may now read wrong.
+            if size < large.file.len() && !large.broken {
+                large.broken = true;
+                large.bar_hidden = false;
                 self.notify_warning(format!(
-                    "{name} was cut short on disk, while edited here: parts not edited may read wrong"
+                    "{name} was cut short on disk while edited here: save your edits as a new file"
                 ));
             }
+            // Grown, as a log grows: what's edited stays right.
             return;
         }
         if size < large.size {

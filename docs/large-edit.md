@@ -188,11 +188,9 @@ passing.
      the end of the file in turn.
 
    **Left for later steps:**
-   - Saving: built in step 3. Quitting with edits still asks, even with
-     hot exit on, until step 6.
+   - Saving: built in step 3. Hot exit keeps the edits: step 6.
    - The Find count starts again after each edit: fixed in step 4.
-   - With edits, a file that grows on disk is left as opened. One that
-     was cut short gives a warning (step 6).
+   - A file changing on disk while edited: handled in step 6.
    - A window left with things to redo goes on the undo stack. Redo then
      takes the windows undone past first.
 3. **Saving**: streamed to a new file, the disk space check, progress,
@@ -271,7 +269,34 @@ passing.
      its place rather than around it. The Find count can be off by
      matches on the two lines a cut in the middle of a line joins, until
      saved. The copy question is a notice, not a dialog.
-6. **Hot exit** as a journal, and the file changing on disk.
+6. **Hot exit** as a journal, and the file changing on disk. Done.
+   - **A hot exit** no longer asks about large files. Each one with edits
+     is kept as a `bigfile::Journal`: its pieces, the text in memory
+     written out, and which file the rest reads (its size, change time
+     and inode). Journals go in `.large/` among the backups.
+   - **At the next start** the file opens again, even when the workspace
+     opened it already, and the edits go back in if the file is the same.
+     If it changed meanwhile, a notice says the changes couldn't be put
+     back.
+   - **The journal holds whole edited windows**: 4.2 MB for one line
+     edited in a 360 MB log, not a few KB. Step 7's folding would bring
+     it down to the changes. It's written at a hot exit only, not
+     after a crash.
+   - **Saved over by another program** (a new inode at its path): the
+     edits are safe, as the handle kept reads the old file. A notice asks
+     once: Reload, which drops them and reads the new file from the same
+     place, or Keep My Changes, which overwrites it on save.
+   - **Grown in place:** what's edited stays right, and nothing is asked.
+   - **Cut short in place:** the bar says "CHANGED" with Save As…. Editing,
+     undo and saving over the file are refused; Save As… writes what's
+     still there to a new file.
+   - **A reopen never drops edits:** opening a file that's already open
+     with edits leaves it as it is.
+   - **In the app**: an edit at line 3 000 000 of a copy of the 360 MB
+     log, then closing the window, then starting again. The edit came
+     back, with "Put back the unsaved changes to edit.log".
+   - **Left**: on Windows, opening the file so others can't write it, and
+     renaming over it while it's open, aren't done yet.
 7. **The memory budget**: folding the oldest parked windows.
 
 Later: Replace All across the file, and in-place writes for edits that

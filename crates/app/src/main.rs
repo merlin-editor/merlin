@@ -220,6 +220,8 @@ struct App {
     large_files: merlin_core::bigfile::LargeFiles,
     /// Large files being saved, by document: how far each has got.
     large_saves: HashMap<u64, LargeSave>,
+    /// Large files' edits the last run kept, by path, until they open.
+    large_journals: HashMap<PathBuf, merlin_core::bigfile::Journal>,
     /// They're edited in place, rather than read-only.
     large_edit: bool,
     /// What the watched folders were last worked out from.
@@ -468,12 +470,14 @@ impl App {
         let size = fs::metadata(&full).map(|m| m.len()).unwrap_or(0);
         let free = memory_free();
         if self.large_files.read_only(size, free) {
+            let journal = self.large_journals.remove(&path).map(Box::new);
             return vec![Event::OpenedLarge {
                 path,
                 full,
                 size,
                 free,
                 editable: self.large_edit,
+                journal,
             }];
         }
         match read_file(&full) {
@@ -508,12 +512,14 @@ impl App {
             if !whole && rule.read_only(size, free) {
                 return Box::new(move |app: &mut App| {
                     app.disk.insert(path.clone(), when);
+                    let journal = app.large_journals.remove(&path).map(Box::new);
                     vec![Event::OpenedLarge {
                         path,
                         full,
                         size,
                         free,
                         editable,
+                        journal,
                     }]
                 });
             }
@@ -1575,6 +1581,7 @@ fn main() -> Result<()> {
         show_excluded: false,
         large_files: Default::default(),
         large_saves: HashMap::new(),
+        large_journals: HashMap::new(),
         large_edit: true,
         watch_for: None,
         backups: Backups::new(backups_dir),
@@ -1662,6 +1669,16 @@ fn main() -> Result<()> {
     } else if args.exec.is_none() {
         let ws = Workspace::parse(&fs::read_to_string(&workspace_path).unwrap_or_default());
         app.dispatch(Event::RestoreBreakpoints(ws));
+    }
+    // Large files' edits a hot exit kept: their files open again, and the
+    // edits go back in.
+    app.large_journals = app.backups.journals();
+    let large: Vec<PathBuf> = app.large_journals.keys().cloned().collect();
+    // Open already, from the workspace: opened again, with its journal.
+    for path in large {
+        for event in app.open(&path) {
+            app.dispatch(event);
+        }
     }
     // Unsaved changes the last run kept, with a hot exit or a crash, open
     // again, unsaved.
@@ -1757,6 +1774,7 @@ fn main() -> Result<()> {
             .backups
             .plan(editor.unsaved(), |id| editor.rope_of_doc(id), seen);
         app.backups.keep(plan);
+        app.backups.keep_journals(&app.editor.large_journals());
     } else if result.is_ok() {
         app.backups.clear();
     }

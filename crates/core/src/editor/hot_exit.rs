@@ -81,12 +81,8 @@ impl Editor {
     /// rather than asked about.
     pub(crate) fn quit_asked(&mut self, fx: &mut Vec<Effect>) {
         let dirty = self.docs.iter().any(|d| d.buffer.is_dirty());
-        // A large file's edits aren't kept by hot exit: always asked.
-        let large = self
-            .docs
-            .iter()
-            .any(|d| d.large.is_some() && d.buffer.is_dirty());
-        if dirty && (!self.hot_exit || large) {
+        // A large file's edits are kept as a journal of its pieces.
+        if dirty && !self.hot_exit {
             self.ask(Ask::Quit);
         } else {
             self.keep_unsaved = dirty;
