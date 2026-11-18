@@ -440,10 +440,14 @@ a tiny Rust file, and uses 1.1 s of CPU over 20 s.
   rust-analyzer use 6.3 GB and eight cores. A server for large files
   is better left off, perhaps above a size; VS Code turns off most
   features for large files.
-- **Windows from the left edge.** A window parsed from a line at the left
-  edge can still start inside something tree-sitter can't tell, such as
-  a multi-line string. Its first lines may be coloured wrongly until the
-  view moves.
+- ~~**Windows from the left edge.**~~ Fixed after step 6. A window's
+  parse starts at a line at the left edge after a blank line. Starting
+  inside a multi-line string or comment turns what follows inside out,
+  which leaves errors in the tree; tree-sitter marks the branches that
+  hold one, so counting them is cheap. A parse with errors is tried
+  again from further up, twice at most, keeping the one with the fewest
+  errors. A clean window still takes one parse (44 ms); one that started
+  in a string takes 117 ms.
 
 ### Fixed on this branch so far
 

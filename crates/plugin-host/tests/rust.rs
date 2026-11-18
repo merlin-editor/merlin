@@ -154,3 +154,45 @@ fn typing_in_a_small_file_colours_from_the_changes() {
     assert!(a <= 500 && b <= 510, "{a}..{b}");
     assert!(lines.contains(&500));
 }
+
+#[test]
+fn a_window_that_would_start_inside_a_string_starts_before_it() {
+    // A string of 1 200 lines that look like code, the window's first
+    // line falling in it, then code in the view.
+    let before = rust(1 << 20);
+    let string: String =
+        "const S: &str = \"\n".to_string() + &"\nfn fake() {}\n".repeat(600) + "\";\n";
+    // Code with strings of its own, which a parse from inside the string
+    // above would turn inside out.
+    let item =
+        "pub fn name(a: u32) -> &'static str {\n    if a > 1 { \"many\" } else { \"one\" }\n}\n\n";
+    let after = item.repeat((1 << 20) / item.len());
+    let text = format!("{before}{string}{after}");
+    let end = (before.matches('\n').count() + string.matches('\n').count()) as u32;
+    let view = (end + 200, end + 240);
+    let mut host = host();
+    let buffer = merlin_core::buffer::Buffer::new(&text, None);
+    let events = host.buffer_event(&BufferEvent::Switched, &at(buffer.snapshot(), view));
+    let tokens = events
+        .iter()
+        .find_map(|e| match e {
+            Event::SetTokens { tokens, .. } => Some(tokens.clone()),
+            _ => None,
+        })
+        .expect("coloured");
+    // Each `pub fn add` in the view: `fn` a keyword, not inside a string.
+    let lines: Vec<u32> = (view.0..view.1)
+        .filter(|&l| {
+            buffer
+                .rope()
+                .line(l as usize)
+                .to_string()
+                .starts_with("pub fn")
+        })
+        .collect();
+    assert!(!lines.is_empty());
+    for line in lines {
+        let kind = tokens.iter().find(|t| t.start == (line, 4)).map(|t| t.kind);
+        assert_eq!(kind, Some(merlin_core::Syntax::Keyword), "line {line}");
+    }
+}

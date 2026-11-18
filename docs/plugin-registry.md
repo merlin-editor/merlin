@@ -1117,7 +1117,9 @@ step 6).
   - A file up to 512 KB is parsed whole. The SDK keeps its text and
     follows `active-changes`, so a key typed doesn't copy the file.
   - A larger file is parsed as a window of about 1 000 lines either side
-    of the view, from a line at its left edge. Edits inside the window
+    of the view, from a line at its left edge after a blank line. If the
+    parse has errors, as one started inside a multi-line string does, it
+    tries again from further up, twice at most. Edits inside the window
     are followed, and an edit above it moves it. Once the view comes
     within 250 lines of the window's edge, the lines around the view are
     read again. A new window takes about 40 ms for the Rust grammar.

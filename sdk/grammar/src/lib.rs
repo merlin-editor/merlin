@@ -52,9 +52,11 @@ const MAX_BYTES: usize = 512 * 1024;
 const REACH: u32 = 1_000;
 /// A window moves once the view comes this near its edge.
 const MARGIN: u32 = 250;
-/// How far into a window to look for a line that starts at its left edge,
-/// where a parse can start without being inside something.
-const SETTLE: usize = 300;
+/// Lines read above a window's start, for starting further up when a
+/// parse from there doesn't fit.
+const EARLIER: u32 = 1_200;
+/// How many places a window's parse may start from, each further up.
+const TRIES: usize = 3;
 
 pub struct Grammar {
     parser: Parser,
@@ -72,6 +74,30 @@ struct Coloured {
     tree: Tree,
     /// For a window, its first line in the file and how many it has.
     window: Option<(u32, u32)>,
+}
+
+/// How many errors tree-sitter found in `tree`, up to a hundred: only the
+/// branches it marks as holding one are walked.
+fn errors(tree: &Tree) -> usize {
+    let mut cursor = tree.walk();
+    let mut found = 0;
+    loop {
+        let node = cursor.node();
+        if node.is_error() || node.is_missing() {
+            found += 1;
+            if found >= 100 {
+                return found;
+            }
+        }
+        if node.has_error() && !node.is_error() && cursor.goto_first_child() {
+            continue;
+        }
+        while !cursor.goto_next_sibling() {
+            if !cursor.goto_parent() {
+                return found;
+            }
+        }
+    }
 }
 
 /// The colour of a highlight query's capture, such as `function.method`.
@@ -327,27 +353,15 @@ impl Grammar {
             }
         }
         let start = view.start.saturating_sub(REACH);
+        let earliest = start.saturating_sub(EARLIER);
         let end = (view.end + REACH).min(count);
-        let Ok(mut text) = host::active_lines(LineRange { start, end }) else {
+        let Ok(mut text) = host::active_lines(LineRange {
+            start: earliest,
+            end,
+        }) else {
             return;
         };
-        // From a line at the left edge, so the parse doesn't start inside
-        // a comment or a block: the first in the window's first lines.
-        let mut first = start;
-        if start > 0 {
-            let mut at = 0;
-            for (i, line) in text.split_inclusive('\n').take(SETTLE).enumerate() {
-                if line.starts_with(|c: char| !c.is_whitespace()) {
-                    first += i as u32;
-                    break;
-                }
-                at += line.len();
-            }
-            if first > start {
-                text.drain(..at);
-            }
-        }
-        let Some(tree) = self.parser.parse(&text, None) else {
+        let Some((first, tree)) = self.parse_window(&mut text, earliest, start) else {
             return;
         };
         let tokens = self.tokens(&text, &tree, None, first);
@@ -364,6 +378,66 @@ impl Grammar {
             tree,
             window: Some((first, lines)),
         });
+    }
+
+    /// Parses `text`, a large file's lines from `earliest`, from a line near
+    /// `goal` where a parse can start: at the left edge, after a blank line
+    /// if there's one. Starting inside a multi-line string or comment
+    /// turns what follows inside out, which leaves errors in the tree; a
+    /// parse with errors is tried again from further up, keeping the one
+    /// with the fewest. Clean code is parsed once. Leaves `text` from the
+    /// start taken, and gives its line.
+    fn parse_window(&mut self, text: &mut String, earliest: u32, goal: u32) -> Option<(u32, Tree)> {
+        // Each line's start, and whether a parse may start there.
+        let mut starts: Vec<(usize, bool, bool)> = Vec::new();
+        let mut at = 0;
+        let mut blank_before = true;
+        let limit = (goal - earliest) as usize + 1;
+        for line in text.split_inclusive('\n').take(limit) {
+            let edge = line.starts_with(|c: char| !c.is_whitespace() && !"}])".contains(c));
+            starts.push((at, edge, edge && blank_before));
+            blank_before = line.trim().is_empty();
+            at += line.len();
+        }
+        let goal = (goal - earliest) as usize;
+        // The best place at or above each try's line: after a blank line,
+        // else at the left edge, else the line itself.
+        let pick = |want: usize| -> usize {
+            let want = want.min(starts.len().saturating_sub(1));
+            let reach = want.saturating_sub(EARLIER as usize / TRIES);
+            (reach..=want)
+                .rev()
+                .find(|&l| starts[l].2)
+                .or_else(|| (reach..=want).rev().find(|&l| starts[l].1))
+                .unwrap_or(want)
+        };
+        let step = EARLIER as usize / TRIES;
+        let mut best: Option<(usize, usize, Tree)> = None;
+        let mut tried = Vec::new();
+        for n in 0..TRIES {
+            // The file's start is always a right place to begin.
+            let line = match earliest == 0 && goal <= n * step {
+                true => 0,
+                false => pick(goal.saturating_sub(n * step)),
+            };
+            if tried.contains(&line) {
+                continue;
+            }
+            tried.push(line);
+            let from = starts.get(line).map_or(0, |s| s.0);
+            let tree = self.parser.parse(&text[from..], None)?;
+            let errors = errors(&tree);
+            if best.as_ref().is_none_or(|b| errors < b.1) {
+                best = Some((line, errors, tree));
+            }
+            if errors == 0 || (earliest == 0 && line == 0) {
+                break;
+            }
+        }
+        let (line, _, tree) = best?;
+        let from = starts.get(line).map_or(0, |s| s.0);
+        text.drain(..from);
+        Some((earliest + line as u32, tree))
     }
 
     /// Colours a piece of text, such as a diff or a code block, apart from
