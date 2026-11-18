@@ -4,7 +4,7 @@ A plan, 2026-11-18. It follows step 8 of `docs/buffer-redesign.md`, where a
 file too large to load opens read-only: the editor holds about 4 MB of it
 at a time, as a rope, and reads the next part from disk as the view moves.
 Here, such a file can be edited where it is, without loading it, at the
-memory its edits take. The mock-up is `docs/mockups/LargeFileEdit.html`.
+memory its edits take. The mock-up is `docs/mockups/LargeFileEdit.html`, approved 2026-11-18.
 
 ## In short
 
@@ -157,9 +157,14 @@ From the mock-up:
 Each step ships on its own, with tests, and keeps the step 8 tests
 passing.
 
-1. **Pieces under the read-only view.** No change on screen: one `File`
-   piece, windows read through the list, places in bytes of the text.
-   This is the base for everything else.
+1. **Pieces under the read-only view.** Done. Nothing changes on screen.
+   `bigfile::FileText` is the file, opened once and kept, with its list
+   of pieces. Windows, line counts, match counts and Find's search all
+   read through it, using positional reads that threads can share. Places
+   are bytes of the text. Read-only, the text is one piece, the whole
+   file. A test edits the list by hand, with text between two ranges of
+   the file and a line split across two pieces. Windows, line numbers,
+   counts and search all read it as one text.
 2. **Editing in the window**, parking and undo across windows. The bar,
    the tab's dot and the notices change here, so the mock-up must be
    approved before this step.

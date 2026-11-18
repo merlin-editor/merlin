@@ -255,22 +255,22 @@ impl Session {
                 }
                 Effect::ReadLaunch => self.send(Event::LaunchConfigs(Ok(Vec::new()))),
                 // Large files are read from disk, as the window does.
-                Effect::ReadWindow { doc, path, from } => self.send(Event::WindowRead {
+                Effect::ReadWindow { doc, text, from } => self.send(Event::WindowRead {
                     doc,
-                    window: crate::bigfile::read_window(&path, from)
+                    window: crate::bigfile::read_window(&text, from)
                         .map(Box::new)
                         .map_err(|e| e.to_string()),
                 }),
                 Effect::SeekFile {
                     doc,
-                    path,
+                    text,
                     matcher,
                     from,
                     forward,
                     counts,
                 } => self.send(Event::FileSought {
                     doc,
-                    at: crate::bigfile::seek_round(&path, &matcher, from, forward, &counts)
+                    at: crate::bigfile::seek_round(&text, &matcher, from, forward, &counts)
                         .ok()
                         .flatten(),
                 }),

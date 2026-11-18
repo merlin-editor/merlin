@@ -26,14 +26,14 @@ impl Editor {
 
     /// A file too large to load: opened as its first window, read-only,
     /// with its lines counted in the background.
-    pub(super) fn opened_large(
-        &mut self,
-        path: PathBuf,
-        full: PathBuf,
-        size: u64,
-        free: Option<u64>,
-    ) {
-        let large = Box::new(Large::new(full, size, free));
+    pub(super) fn opened_large(&mut self, path: PathBuf, full: PathBuf, free: Option<u64>) {
+        // Kept open: the pieces read the file as it was opened.
+        let text = match crate::bigfile::FileText::open(&full) {
+            Ok(text) => text,
+            Err(err) => return self.error(format!("Can't open {}: {err}", path.display())),
+        };
+        let size = text.len();
+        let large = Box::new(Large::new(text, free));
         // Open already, as after it changed on disk: read again from the
         // same place.
         if let Some(i) = self.docs.iter().position(|d| {
@@ -67,10 +67,7 @@ impl Editor {
             large.lines_job = Some(next);
             fx.push(Effect::Work(crate::work::Job {
                 id: next,
-                kind: crate::work::Kind::Lines {
-                    path: large.path.clone(),
-                    size: large.size,
-                },
+                kind: crate::work::Kind::Lines(large.text.clone()),
                 text: Default::default(),
             }));
         }
@@ -85,8 +82,7 @@ impl Editor {
                 fx.push(Effect::Work(crate::work::Job {
                     id: next,
                     kind: crate::work::Kind::FileCount {
-                        path: large.path.clone(),
-                        size: large.size,
+                        text: large.text.clone(),
                         matcher,
                     },
                     text: Default::default(),
@@ -114,7 +110,7 @@ impl Editor {
         {
             fx.push(Effect::SeekFile {
                 doc: id,
-                path: large.path.clone(),
+                text: large.text.clone(),
                 matcher: found.matcher.clone(),
                 from,
                 forward,
@@ -158,7 +154,7 @@ impl Editor {
         large.asked = Some((around, then));
         fx.push(Effect::ReadWindow {
             doc: id,
-            path: large.path.clone(),
+            text: large.text.clone(),
             from,
         });
     }
@@ -191,7 +187,7 @@ impl Editor {
             return self.land(then);
         }
         let around = match &then {
-            Then::Line(line, _) | Then::TopLine(line) => match large.piece_of_line(*line) {
+            Then::Line(line, _) | Then::TopLine(line) => match large.block_of_line(*line) {
                 // A little into the piece, so its start is in the window.
                 Some((at, _)) => at + WINDOW / 2 - WINDOW / 8,
                 None => {
@@ -587,23 +583,29 @@ impl Editor {
         let doc = &mut self.docs[i];
         let large = doc.large.as_deref_mut().expect("checked");
         if size < large.size {
-            let full = large.path.clone();
+            let full = large.text.path.clone();
             let free = large.free;
-            return self.opened_large(path.to_path_buf(), full, size, free);
+            return self.opened_large(path.to_path_buf(), full, free);
         }
         let grew = size - large.size;
         if grew == 0 {
             return;
         }
+        // The file as it is now: one piece, as it's read-only.
+        match crate::bigfile::FileText::open(&large.text.path) {
+            Ok(text) if text.len() >= large.size => large.text = text,
+            _ => return,
+        }
+        let (size, grew) = (large.text.len(), large.text.len() - large.size);
         // The last piece and the new ones are counted again.
         let old = large.lines.len();
         large.size = size;
         large.lines.truncate(old.saturating_sub(1));
-        large.lines.resize(crate::bigfile::pieces(size), None);
+        large.lines.resize(crate::bigfile::blocks(size), None);
         large.lines_job = None;
         if let Some(found) = &mut large.found {
             found.counts.truncate(old.saturating_sub(1));
-            found.counts.resize(crate::bigfile::pieces(size), None);
+            found.counts.resize(crate::bigfile::blocks(size), None);
             found.job = None;
             found.matcher = crate::search::Matcher::exact("\u{0}stale");
         }

@@ -823,7 +823,7 @@ pub enum Effect {
     /// [`Event::WindowRead`].
     ReadWindow {
         doc: u64,
-        path: PathBuf,
+        text: crate::bigfile::FileText,
         from: crate::bigfile::From,
     },
     /// Finds the match nearest `from` in a file too large to load, going
@@ -831,7 +831,7 @@ pub enum Effect {
     /// [`Event::FileSought`]. Pieces `counts` says have none are skipped.
     SeekFile {
         doc: u64,
-        path: PathBuf,
+        text: crate::bigfile::FileText,
         matcher: crate::search::Matcher,
         from: u64,
         forward: bool,

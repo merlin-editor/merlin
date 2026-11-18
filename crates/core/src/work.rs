@@ -5,9 +5,9 @@
 //! event. A job for text or a query since changed is answered for
 //! nothing, as its id is no longer wanted.
 
-use std::path::PathBuf;
-
 use ropey::Rope;
+
+use crate::bigfile::FileText;
 
 use crate::search::{self, Counted, Matcher};
 
@@ -23,13 +23,9 @@ pub enum Kind {
     /// Wraps every line at a width.
     Wrap(usize),
     /// Counts the lines of a file too large to load, read from disk.
-    Lines { path: PathBuf, size: u64 },
+    Lines(FileText),
     /// Counts a search's matches in a file too large to load.
-    FileCount {
-        path: PathBuf,
-        size: u64,
-        matcher: Matcher,
-    },
+    FileCount { text: FileText, matcher: Matcher },
 }
 
 impl Kind {
@@ -37,7 +33,7 @@ impl Kind {
     /// wrap at a time, but each large file's lines.
     pub fn replaces(&self, older: &Kind) -> bool {
         match (self, older) {
-            (Kind::Lines { path, .. }, Kind::Lines { path: was, .. }) => path == was,
+            (Kind::Lines(text), Kind::Lines(was)) => text.path == was.path,
             _ => std::mem::discriminant(self) == std::mem::discriminant(older),
         }
     }
@@ -79,9 +75,7 @@ impl Job {
         match &self.kind {
             Kind::Count(_) => search::blocks_in(&self.text).div_ceil(search::PIECE_BLOCKS),
             Kind::Wrap(_) => self.text.len_lines().div_ceil(WRAP_PIECE),
-            Kind::Lines { size, .. } | Kind::FileCount { size, .. } => {
-                crate::bigfile::pieces(*size)
-            }
+            Kind::Lines(text) | Kind::FileCount { text, .. } => crate::bigfile::blocks(text.len()),
         }
         .max(1)
     }
@@ -105,13 +99,13 @@ impl Job {
                 let (rows, tall) = crate::rows::wrap_lines(&self.text, *width, first..end);
                 Done::Wrap { first, rows, tall }
             }
-            Kind::Lines { path, .. } => Done::Lines {
+            Kind::Lines(text) => Done::Lines {
                 piece,
-                breaks: crate::bigfile::count_lines(path, piece).ok(),
+                breaks: crate::bigfile::count_lines(text, piece).ok(),
             },
-            Kind::FileCount { path, matcher, .. } => Done::FileCount {
+            Kind::FileCount { text, matcher } => Done::FileCount {
                 piece,
-                count: crate::bigfile::count_matches(path, matcher, piece).ok(),
+                count: crate::bigfile::count_matches(text, matcher, piece).ok(),
             },
         }
     }

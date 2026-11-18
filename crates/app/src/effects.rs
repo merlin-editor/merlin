@@ -52,9 +52,9 @@ impl App {
             }
             Effect::Open(path) => self.open_later(&path, false),
             Effect::OpenWhole(path) => self.open_later(&path, true),
-            Effect::ReadWindow { doc, path, from } => {
+            Effect::ReadWindow { doc, text, from } => {
                 self.jobs.run(Lane::Disk, move || {
-                    let window = merlin_core::bigfile::read_window(&path, from)
+                    let window = merlin_core::bigfile::read_window(&text, from)
                         .map(Box::new)
                         .map_err(|e| e.to_string());
                     jobs::events(vec![Event::WindowRead { doc, window }])
@@ -62,7 +62,7 @@ impl App {
             }
             Effect::SeekFile {
                 doc,
-                path,
+                text,
                 matcher,
                 from,
                 forward,
@@ -70,7 +70,7 @@ impl App {
             } => {
                 self.jobs.run(Lane::Scan, move || {
                     let at =
-                        merlin_core::bigfile::seek_round(&path, &matcher, from, forward, &counts)
+                        merlin_core::bigfile::seek_round(&text, &matcher, from, forward, &counts)
                             .ok()
                             .flatten();
                     jobs::events(vec![Event::FileSought { doc, at }])

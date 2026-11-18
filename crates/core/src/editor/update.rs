@@ -119,11 +119,8 @@ impl Editor {
             }
             Event::Opened { path, text } if self.loaded_whole(&path, &text) => {}
             Event::OpenedLarge {
-                path,
-                full,
-                size,
-                free,
-            } => self.opened_large(path, full, size, free),
+                path, full, free, ..
+            } => self.opened_large(path, full, free),
             Event::WindowRead { doc, window } => self.window_read(doc, window),
             Event::FileSought { doc, at } => self.file_sought(doc, at),
             Event::LargeResized { path, size } => self.large_resized(&path, size),
