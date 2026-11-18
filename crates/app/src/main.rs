@@ -218,6 +218,8 @@ struct App {
     show_excluded: bool,
     /// Which files open read-only from disk rather than loaded.
     large_files: merlin_core::bigfile::LargeFiles,
+    /// They're edited in place, rather than read-only.
+    large_edit: bool,
     /// What the watched folders were last worked out from.
     watch_for: Option<(Vec<Option<PathBuf>>, usize)>,
     backups: Backups,
@@ -400,6 +402,7 @@ impl App {
         self.choice.icons = settings::editor_text(&table, "icon_theme").map(str::to_string);
         self.choice.packs = settings::editor_list(&table, "packs");
         self.large_files = settings::large_files(&table);
+        self.large_edit = settings::large_edit(&table);
         let mut events = vec![Event::Settings(editor)];
         events.extend(toggled);
         events.extend(heard);
@@ -468,6 +471,7 @@ impl App {
                 full,
                 size,
                 free,
+                editable: self.large_edit,
             }];
         }
         match read_file(&full) {
@@ -494,6 +498,7 @@ impl App {
         let path = relative_to(&self.root, path);
         let full = self.root.join(&path);
         let rule = self.large_files;
+        let editable = self.large_edit;
         self.jobs.run(Lane::Disk, move || {
             let when = modified(&full);
             let size = fs::metadata(&full).map(|m| m.len()).unwrap_or(0);
@@ -506,6 +511,7 @@ impl App {
                         full,
                         size,
                         free,
+                        editable,
                     }]
                 });
             }
@@ -1479,6 +1485,7 @@ fn main() -> Result<()> {
         exclusions: Default::default(),
         show_excluded: false,
         large_files: Default::default(),
+        large_edit: true,
         watch_for: None,
         backups: Backups::new(backups_dir),
         auto_save: None,

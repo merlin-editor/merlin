@@ -490,6 +490,7 @@ impl Editor {
                 let title = menu.strip_prefix("menu.").filter(|t| *t != "open");
                 self.open_menu(title);
             }
+            "edit.undo" | "edit.redo" if self.undo_large(id == "edit.redo") => {}
             "edit.undo" => match self.doc_mut().buffer.undo() {
                 Some(cursors) => self.put_cursors(&cursors),
                 None => self.notify("Nothing to undo".into()),

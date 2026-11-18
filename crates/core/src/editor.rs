@@ -953,7 +953,8 @@ impl Editor {
     pub fn unsaved(&self) -> Vec<(u64, Option<PathBuf>, u64)> {
         self.docs
             .iter()
-            .filter(|d| d.buffer.is_dirty() && d.page.is_none())
+            // A large file's text is only a window: not backed up whole.
+            .filter(|d| d.buffer.is_dirty() && d.page.is_none() && d.large.is_none())
             .map(|d| (d.id, d.buffer.path.clone(), d.buffer.version()))
             .collect()
     }
@@ -963,7 +964,7 @@ impl Editor {
     pub fn rope_of_doc(&self, doc: u64) -> Option<ropey::Rope> {
         self.docs
             .iter()
-            .find(|d| d.id == doc)
+            .find(|d| d.id == doc && d.large.is_none())
             .map(|d| d.buffer.rope().clone())
     }
 

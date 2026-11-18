@@ -99,6 +99,11 @@ impl History {
         self.undo.len()
     }
 
+    /// How many undone steps there are to redo.
+    pub fn redo_steps(&self) -> usize {
+        self.redo.len()
+    }
+
     /// Makes the steps from `from` on one, as Vim's undo takes back a
     /// whole change typed in Insert mode. Never across `saved`, or the
     /// buffer would look clean while it differs from the file.

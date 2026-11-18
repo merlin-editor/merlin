@@ -165,9 +165,37 @@ passing.
    file. A test edits the list by hand, with text between two ranges of
    the file and a line split across two pieces. Windows, line numbers,
    counts and search all read it as one text.
-2. **Editing in the window**, parking and undo across windows. The bar,
-   the tab's dot and the notices change here, so the mock-up must be
-   approved before this step.
+2. **Editing in the window**, parking and undo across windows. Done.
+   - **Every edit goes into the text.** After each event that changed
+     the window, its rope takes its place in the pieces, so reading,
+     counting and searching see the edits. Copies of the rope share its
+     nodes, so this costs little.
+   - **Undo across windows.** A window left with undo or redo is kept,
+     with its buffer. Undo past the window brings back the one edited
+     before, and undoes there. Redo goes the other way.
+   - **Line numbers** come from each piece's lines. A range of the file
+     counts from the background count of the file as opened, plus the
+     breaks from a block's start to each place a window started or ended.
+     Those places are the only ones the file's ranges are cut at.
+   - **On screen**: the FROM DISK bar in the accent colour, the tab's dot,
+     and "Edited from disk" in the status bar. Settings › Files gains
+     `large_file_mode`, "edit" (the default) or "read_only".
+   - **Jumps** read again closer, up to three times, when the window read
+     doesn't hold the line: a line's place in the file is known only to a
+     block.
+   - **In the app**, on a copy of the 360 MB log: typing 1 200 characters
+     added 0.5 MB, at 0% CPU when idle. Undo went from the top window to
+     the end of the file in turn.
+
+   **Left for later steps:**
+   - Saving (step 3). Until then, Ctrl+S says it isn't built. Quitting
+     with edits asks, even with hot exit on. Save All in that question
+     says so and doesn't quit.
+   - The Find count starts again after each edit (step 4).
+   - With edits, a file that grows on disk is left as opened. One that
+     was cut short gives a warning (step 6).
+   - A window left with things to redo goes on the undo stack. Redo then
+     takes the windows undone past first.
 3. **Saving**: streamed to a new file, the disk space check, progress,
    undo kept after saving.
 4. **Counts after edits**: lines and Find over the pieces, counting only

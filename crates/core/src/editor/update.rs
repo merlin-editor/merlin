@@ -119,8 +119,12 @@ impl Editor {
             }
             Event::Opened { path, text } if self.loaded_whole(&path, &text) => {}
             Event::OpenedLarge {
-                path, full, free, ..
-            } => self.opened_large(path, full, free),
+                path,
+                full,
+                free,
+                editable,
+                ..
+            } => self.opened_large(path, full, free, editable),
             Event::WindowRead { doc, window } => self.window_read(doc, window),
             Event::FileSought { doc, at } => self.file_sought(doc, at),
             Event::LargeResized { path, size } => self.large_resized(&path, size),
@@ -614,6 +618,7 @@ impl Editor {
         self.follow_merges();
         self.ask_blame(fx);
         self.ask_work(fx);
+        self.sync_large();
         self.large_jobs(fx);
         self.ask_window(fx);
         self.ask_highlights(fx);

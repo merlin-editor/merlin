@@ -19,6 +19,9 @@ pub struct FileBarView {
     pub index: usize,
     /// A word in a box before the text, in place of the warning sign.
     pub badge: Option<String>,
+    /// Says what the file is rather than that something's wrong: drawn in
+    /// the accent.
+    pub calm: bool,
     pub text: String,
     /// The buttons there are commands for, by their place.
     pub buttons: Vec<(usize, String)>,
@@ -69,6 +72,7 @@ impl Editor {
         Some(FileBarView {
             index,
             badge: None,
+            calm: false,
             text: bar.text.clone(),
             buttons,
         })

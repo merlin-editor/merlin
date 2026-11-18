@@ -1,11 +1,21 @@
-//! Files too large to load: shown read-only, a window at a time read from
-//! disk, numbered, searched and gone through as one file.
+//! Files too large to load: a window at a time read from disk, numbered,
+//! searched and gone through as one file; read-only, or edited in place.
 
 use merlin_core::Event;
 use merlin_core::script::Session;
 
-/// A file of `lines` numbered lines, "line 0" first, open as a large file.
+/// A file of `lines` numbered lines, "line 0" first, open read-only as a
+/// large file.
 fn open(lines: usize) -> (tempfile::TempDir, Session, String) {
+    open_as(lines, false)
+}
+
+/// The same, edited in place.
+fn edit(lines: usize) -> (tempfile::TempDir, Session, String) {
+    open_as(lines, true)
+}
+
+fn open_as(lines: usize, editable: bool) -> (tempfile::TempDir, Session, String) {
     let dir = tempfile::tempdir().unwrap();
     let full = dir.path().join("big.log");
     let text: String = (0..lines).map(|n| format!("line {n}\n")).collect();
@@ -16,6 +26,7 @@ fn open(lines: usize) -> (tempfile::TempDir, Session, String) {
         full,
         size: text.len() as u64,
         free: None,
+        editable,
     });
     (dir, s, text)
 }
@@ -167,4 +178,86 @@ fn a_log_that_grows_away_from_the_end_says_so() {
     // Go to End goes there, the new line and all.
     s.run("cmd large.end");
     assert!(s.screen().contains("line 600000"), "{}", s.screen());
+}
+
+fn tab_dirty(s: &Session) -> bool {
+    s.editor
+        .window_view()
+        .tabs
+        .iter()
+        .any(|t| t.active && t.dirty)
+}
+
+#[test]
+fn typing_edits_it_in_place() {
+    let (_dir, mut s, _) = edit(600_000);
+    s.run("type hello");
+    assert!(s.screen().contains("helloline 0"), "{}", s.screen());
+    assert!(s.editor.window_view().toast.is_none(), "no question");
+    assert!(tab_dirty(&s));
+    assert!(status(&s).contains("Edited from disk"), "{}", status(&s));
+}
+
+#[test]
+fn an_edit_stays_when_the_view_goes_away_and_back() {
+    let (_dir, mut s, _) = edit(600_000);
+    s.run("type EDIT");
+    s.run("key ctrl+end");
+    assert!(s.screen().contains("line 599999"), "{}", s.screen());
+    assert!(tab_dirty(&s), "still unsaved past the window");
+    s.run("key ctrl+home");
+    assert!(s.screen().contains("EDITline 0"), "{}", s.screen());
+}
+
+#[test]
+fn lines_added_number_the_rest_of_the_file() {
+    let (_dir, mut s, _) = edit(600_000);
+    s.run("key enter; key enter; key enter");
+    s.run("key ctrl+end");
+    assert!(s.screen().contains("600003"), "{}", s.screen());
+    s.run("cmd go.line; type 300004; key enter");
+    assert!(s.screen().contains("line 300000"), "{}", s.screen());
+    assert!(status(&s).contains("Ln 300,004"), "{}", status(&s));
+}
+
+#[test]
+fn undo_goes_back_through_windows_in_turn() {
+    let (_dir, mut s, _) = edit(600_000);
+    s.run("type A");
+    s.run("key ctrl+end; type Z");
+    assert!(s.screen().contains("Z"), "{}", s.screen());
+    // The last edit first, at the end, then the one at the top.
+    s.run("cmd edit.undo");
+    assert!(!s.screen().contains("Z"), "{}", s.screen());
+    s.run("cmd edit.undo");
+    assert!(s.screen().contains("line 0"), "{}", s.screen());
+    assert!(!s.screen().contains("Aline 0"), "{}", s.screen());
+    assert!(!tab_dirty(&s), "back as it was");
+    s.run("cmd edit.redo");
+    assert!(s.screen().contains("Aline 0"), "{}", s.screen());
+    s.run("cmd edit.redo");
+    s.run("key ctrl+end");
+    assert!(s.screen().contains("Z"), "{}", s.screen());
+}
+
+#[test]
+fn find_finds_what_was_typed_from_anywhere() {
+    let (_dir, mut s, _) = edit(600_000);
+    s.run("type needle ");
+    s.run("key ctrl+end");
+    s.run("key ctrl+f; type needle; key enter");
+    assert!(status(&s).contains("Ln 1,"), "{}", status(&s));
+    assert_eq!(s.editor.window_view().find.unwrap().total, 1);
+}
+
+#[test]
+fn the_file_on_disk_is_untouched() {
+    use merlin_core::Effect;
+    let (dir, mut s, text) = edit(600_000);
+    s.run("type hello ");
+    s.effects.clear();
+    s.run("key ctrl+s");
+    assert!(!s.effects.iter().any(|e| matches!(e, Effect::Save { .. })));
+    let on_disk = std::fs::read_to_string(dir.path().join("big.log")).unwrap();
+    assert!(on_disk == text);
 }

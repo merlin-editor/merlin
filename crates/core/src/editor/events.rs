@@ -591,6 +591,8 @@ pub enum Event {
         full: PathBuf,
         size: u64,
         free: Option<u64>,
+        /// Edited in place, rather than read-only.
+        editable: bool,
     },
     /// A window of a large file, asked for with [`Effect::ReadWindow`].
     WindowRead {

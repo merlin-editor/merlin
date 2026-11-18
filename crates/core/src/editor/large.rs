@@ -1,11 +1,15 @@
-//! Files too large to load, shown read-only from disk (see
-//! [`crate::bigfile`]): which window of the file to hold as the view
-//! moves, where to go once one comes, the lines and a search counted in
-//! the background, and what the bar, the gutter, the status bar and the
-//! scrollbar say. Editing asks to load the file first.
+//! Files too large to load, read from disk a window at a time (see
+//! [`crate::bigfile`]): which window to hold as the view moves, where to go
+//! once one comes, the lines and a search counted in the background, and
+//! what the bar, the gutter, the status bar and the scrollbar say.
+//!
+//! Edited in place (`docs/large-edit.md`), each edit goes into the window,
+//! which is put back in the text's pieces after it. A window left with
+//! undo is kept, so undo goes back through the windows in turn. Read-only,
+//! editing asks to load the file first.
 
 use super::*;
-use crate::bigfile::{Large, Then, WINDOW};
+use crate::bigfile::{Edited, Large, Then, WINDOW};
 
 /// The bar over a large file, among the bars: past any plugin's.
 pub(crate) const LARGE_BAR: usize = usize::MAX;
@@ -26,14 +30,20 @@ impl Editor {
 
     /// A file too large to load: opened as its first window, read-only,
     /// with its lines counted in the background.
-    pub(super) fn opened_large(&mut self, path: PathBuf, full: PathBuf, free: Option<u64>) {
+    pub(super) fn opened_large(
+        &mut self,
+        path: PathBuf,
+        full: PathBuf,
+        free: Option<u64>,
+        editable: bool,
+    ) {
         // Kept open: the pieces read the file as it was opened.
         let text = match crate::bigfile::FileText::open(&full) {
             Ok(text) => text,
             Err(err) => return self.error(format!("Can't open {}: {err}", path.display())),
         };
         let size = text.len();
-        let large = Box::new(Large::new(text, free));
+        let large = Box::new(Large::new(text, free, editable));
         // Open already, as after it changed on disk: read again from the
         // same place.
         if let Some(i) = self.docs.iter().position(|d| {
@@ -67,7 +77,7 @@ impl Editor {
             large.lines_job = Some(next);
             fx.push(Effect::Work(crate::work::Job {
                 id: next,
-                kind: crate::work::Kind::Lines(large.text.clone()),
+                kind: crate::work::Kind::Lines(large.file.clone()),
                 text: Default::default(),
             }));
         }
@@ -76,7 +86,7 @@ impl Editor {
                 next += 1;
                 large.found = Some(crate::bigfile::FileFound {
                     matcher: matcher.clone(),
-                    counts: vec![None; large.lines.len()],
+                    counts: vec![None; crate::bigfile::blocks(large.size)],
                     job: Some(next),
                 });
                 fx.push(Effect::Work(crate::work::Job {
@@ -137,10 +147,7 @@ impl Editor {
         let (top_byte, bottom_byte) = (byte(top), byte(top + height));
         let near_top = large.start > 0 && top_byte < large.start + WINDOW / 4;
         let near_end = large.end < large.size && bottom_byte + WINDOW / 4 > large.end;
-        // The count has reached the window: read it again to number it.
-        let numbered =
-            large.first_line.is_none() && large.from(top_byte).anchor.is_some() && large.start > 0;
-        if (near_top || near_end || numbered) && large.settled != Some(top_byte) {
+        if (near_top || near_end) && large.settled != Some(top_byte) {
             self.ask_large(top_byte, Then::Stay, fx);
         }
     }
@@ -182,14 +189,37 @@ impl Editor {
             }),
             Then::Byte(b) | Then::Top(b) | Then::Match(b) => held(*b),
         };
-        if here {
-            self.large_mut().expect("checked").pending = None;
+        // Read again closer at most a few times, as the place of a line in
+        // the file is known only to a block.
+        if here || large.tries >= 3 {
+            let large = self.large_mut().expect("checked");
+            large.pending = None;
+            large.tries = 0;
             return self.land(then);
         }
+        let per_line = large.bytes_per_line(lines as usize);
+        let near = match (&then, large.first_line) {
+            // Past the window held: on from its edge, by the lines between.
+            (Then::Line(line, _) | Then::TopLine(line), Some(f)) if large.tries > 0 => {
+                if *line >= f + lines {
+                    Some(large.end + ((*line - (f + lines)) as f64 * per_line) as u64 + WINDOW / 4)
+                } else if *line < f {
+                    Some(
+                        large
+                            .start
+                            .saturating_sub(((f - *line) as f64 * per_line) as u64 + WINDOW / 4),
+                    )
+                } else {
+                    Some(large.start + ((*line - f) as f64 * per_line) as u64)
+                }
+            }
+            _ => None,
+        };
         let around = match &then {
-            Then::Line(line, _) | Then::TopLine(line) => match large.block_of_line(*line) {
-                // A little into the piece, so its start is in the window.
-                Some((at, _)) => at + WINDOW / 2 - WINDOW / 8,
+            Then::Line(..) | Then::TopLine(..) if near.is_some() => near.expect("checked"),
+            Then::Line(line, _) | Then::TopLine(line) => match large.place_of_line(*line) {
+                // A little past it, as it's a block or so before the line.
+                Some(at) => at + WINDOW / 2 - WINDOW / 8,
                 None => {
                     // Not counted that far yet: it waits.
                     self.large_mut().expect("checked").pending = Some(then);
@@ -199,7 +229,9 @@ impl Editor {
             Then::Byte(b) | Then::Top(b) | Then::Match(b) => *b,
             Then::Stay => return,
         };
-        self.large_mut().expect("checked").pending = None;
+        let large = self.large_mut().expect("checked");
+        large.pending = None;
+        large.tries += 1;
         self.ask_large(around, then, fx);
     }
 
@@ -258,7 +290,8 @@ impl Editor {
 
     /// A window of a large file came: it takes the place of the one held,
     /// keeping the cursor, the selection and the view on the same text,
-    /// then goes where it was asked for.
+    /// then goes where it was asked for. One read from text since edited
+    /// is read again. The window left, if it has undo, is kept for it.
     pub(super) fn window_read(
         &mut self,
         id: u64,
@@ -280,22 +313,20 @@ impl Editor {
                 return self.error(format!("Can't read {name}: {err}"));
             }
         };
+        if w.generation != large.generation {
+            if then != Then::Stay {
+                large.pending = Some(then);
+            }
+            large.settled = None;
+            doc.large = Some(large);
+            return;
+        }
+        large.lines.edges.extend(w.edges.iter().copied());
         let old = doc.buffer.rope();
         let byte_of = |pos: usize| large.start + old.char_to_byte(pos.min(old.len_chars())) as u64;
         let top = large.start + old.line_to_byte(doc.scroll.min(old.len_lines() - 1)) as u64;
         let cursor = byte_of(doc.cursor);
         let anchor = doc.anchor.map(byte_of);
-        // The window's first line, from the old one's where they overlap.
-        let first = w.first_line.or_else(|| {
-            let f = large.first_line?;
-            if w.start >= large.start && w.start <= large.end {
-                Some(f + old.byte_to_line((w.start - large.start) as usize) as u64)
-            } else if w.start < large.start && large.start <= w.end {
-                f.checked_sub(w.text.byte_to_line((large.start - w.start) as usize) as u64)
-            } else {
-                None
-            }
-        });
         let rope = w.text.clone();
         let inside = |b: u64| b >= w.start && b <= w.end;
         let local = |b: u64| rope.byte_to_char((b.clamp(w.start, w.end) - w.start) as usize);
@@ -318,18 +349,91 @@ impl Editor {
                 frac: doc.scroll_sub.frac,
             };
         }
+        large.synced = new.buffer.version();
+        let left = std::mem::replace(doc, new);
+        keep_undo(&mut large, left.buffer, false);
         large.start = w.start;
         large.end = w.end;
-        large.first_line = first;
+        large.size = w.size;
         large.settled = Some(top);
-        if w.size != large.size {
-            large.size = w.size;
+        large.renumber();
+        doc.large = Some(large);
+        doc.sync_large();
+        // Where it was going: there now if this window has it, or read
+        // again closer.
+        if then != Then::Stay
+            && let Some(large) = self.docs[i].large.as_deref_mut()
+        {
+            large.pending = Some(then);
         }
-        new.large = Some(large);
-        *doc = new;
-        if i == self.current && then != Then::Stay {
-            self.land(then);
+    }
+
+    /// Puts what's been typed in the window into the text, once per
+    /// change, so what's read and counted from the text has it.
+    pub(super) fn sync_large(&mut self) {
+        self.doc_mut().sync_large();
+    }
+
+    /// Undo or redo in a large file edited in place: in the window, or
+    /// past it, in the window edited before, brought back with its undo.
+    /// Whether it was one.
+    pub(crate) fn undo_large(&mut self, redo: bool) -> bool {
+        if self.large().is_none() {
+            return false;
         }
+        for _ in 0..2 {
+            let doc = self.doc_mut();
+            let done = if redo {
+                doc.buffer.redo()
+            } else {
+                doc.buffer.undo()
+            };
+            if let Some(cursors) = done {
+                self.put_cursors(&cursors);
+                let doc = self.doc_mut();
+                if let Some(large) = doc.large.as_deref_mut() {
+                    large.undoing = true;
+                }
+                doc.sync_large();
+                return true;
+            }
+            // Past this window: the one edited before, or undone after.
+            let doc = self.doc_mut();
+            doc.sync_large();
+            let large = doc.large.as_deref_mut().expect("checked");
+            let Some(next) = (if redo {
+                large.redos.pop()
+            } else {
+                large.undos.pop()
+            }) else {
+                break;
+            };
+            let mut new = Doc::from_rope(doc.id, ropey::Rope::new(), doc.buffer.path.clone());
+            new.config = doc.config.clone();
+            new.buffer = next.buffer;
+            let _ = new.buffer.take_changes();
+            let len = new.buffer.rope().len_bytes() as u64;
+            let mut large = doc.large.take().expect("checked");
+            large.synced = new.buffer.version();
+            let left = std::mem::replace(doc, new);
+            // The window left goes on the other stack, to come back to.
+            keep_undo(&mut large, left.buffer, !redo);
+            large.start = next.start;
+            large.end = next.start + len;
+            large.settled = None;
+            large.renumber();
+            doc.large = Some(large);
+            doc.sync_large();
+        }
+        self.notify(
+            if redo {
+                "Nothing to redo"
+            } else {
+                "Nothing to undo"
+            }
+            .into(),
+        );
+        true
     }
 
     /// A search past the window found its match, or none in the file.
@@ -456,7 +560,7 @@ impl Editor {
     /// Whether the current file can't be edited as it is: a large file
     /// read from disk. Says so, offering to load it.
     pub(crate) fn refuse_large_edit(&mut self) -> bool {
-        let Some(large) = self.large() else {
+        let Some(large) = self.large().filter(|l| !l.editable) else {
             return false;
         };
         let name = self.doc().name();
@@ -502,9 +606,7 @@ impl Editor {
                 fx.push(Effect::OpenWhole(path));
             }
             "large.keep" => self.message = None,
-            "large.why" => {
-                self.refuse_large_edit();
-            }
+            "large.why" => self.large_why(),
             "large.end" => {
                 if let Some(large) = self.large_mut() {
                     large.grew = None;
@@ -524,6 +626,7 @@ impl Editor {
             return Some(super::bars::FileBarView {
                 index: LARGE_BAR,
                 badge: Some("LOADING".into()),
+                calm: true,
                 text: format!("Loading {} to edit…", size_label(large.size)),
                 buttons: Vec::new(),
             });
@@ -532,6 +635,7 @@ impl Editor {
             return Some(super::bars::FileBarView {
                 index: LARGE_BAR,
                 badge: Some("READ-ONLY".into()),
+                calm: false,
                 text: format!("The file grew on disk: +{}", size_label(grew)),
                 buttons: vec![(1, "Go to End".into())],
             });
@@ -539,9 +643,24 @@ impl Editor {
         if large.bar_hidden {
             return None;
         }
+        if large.editable {
+            // About a second a GB, on an SSD.
+            let secs = (large.size as f64 / 1e9).ceil().max(1.0);
+            return Some(super::bars::FileBarView {
+                index: LARGE_BAR,
+                badge: Some("FROM DISK".into()),
+                calm: true,
+                text: format!(
+                    "{}, edited from disk. Colours, git and plugins are off; saving writes the whole file (about {secs} s).",
+                    size_label(large.size)
+                ),
+                buttons: Vec::new(),
+            });
+        }
         Some(super::bars::FileBarView {
             index: LARGE_BAR,
             badge: Some("READ-ONLY".into()),
+            calm: false,
             text: format!(
                 "{} is too large to load. Scrolling, Find, Go to Line and copying work here; editing needs it loaded.",
                 size_label(large.size)
@@ -582,10 +701,21 @@ impl Editor {
         let height = self.text_height();
         let doc = &mut self.docs[i];
         let large = doc.large.as_deref_mut().expect("checked");
+        // Edited: the pieces read the file as it was opened, through the
+        // handle kept, so the edits stay right as a log grows.
+        if !large.untouched() || doc.buffer.is_dirty() {
+            if size < large.file.len() {
+                let name = doc.name();
+                self.notify_warning(format!(
+                    "{name} was cut short on disk, while edited here: parts not edited may read wrong"
+                ));
+            }
+            return;
+        }
         if size < large.size {
             let full = large.text.path.clone();
-            let free = large.free;
-            return self.opened_large(path.to_path_buf(), full, free);
+            let (free, editable) = (large.free, large.editable);
+            return self.opened_large(path.to_path_buf(), full, free, editable);
         }
         let grew = size - large.size;
         if grew == 0 {
@@ -598,10 +728,15 @@ impl Editor {
         }
         let (size, grew) = (large.text.len(), large.text.len() - large.size);
         // The last piece and the new ones are counted again.
-        let old = large.lines.len();
+        let old = large.lines.blocks.len();
         large.size = size;
-        large.lines.truncate(old.saturating_sub(1));
-        large.lines.resize(crate::bigfile::blocks(size), None);
+        large.file = large.text.clone();
+        large.lines.size = size;
+        large.lines.blocks.truncate(old.saturating_sub(1));
+        large
+            .lines
+            .blocks
+            .resize(crate::bigfile::blocks(size), None);
         large.lines_job = None;
         if let Some(found) = &mut large.found {
             found.counts.truncate(old.saturating_sub(1));
@@ -667,6 +802,28 @@ impl Editor {
         })
     }
 
+    /// The status bar's note of how the large file is open.
+    pub(crate) fn large_mode(&self) -> Option<&'static str> {
+        let large = self.large()?;
+        Some(if large.editable {
+            "Edited from disk"
+        } else {
+            "Read-only"
+        })
+    }
+
+    /// What the status bar's note says when clicked.
+    fn large_why(&mut self) {
+        if !self.large().is_some_and(|l| l.editable) {
+            self.refuse_large_edit();
+            return;
+        }
+        let name = self.doc().name();
+        self.notify(format!(
+            "{name} is too large to load, so it's read from disk a part at a time and edited there. Colours, git and plugins are off for it."
+        ));
+    }
+
     /// The status bar's note of the lines being counted.
     pub(crate) fn large_counting(&self) -> Option<String> {
         let large = self.large()?;
@@ -682,6 +839,51 @@ impl Editor {
     /// gutter's width and Go to Line.
     pub(crate) fn large_lines(&self) -> Option<u64> {
         self.large_rows().map(|(_, total)| total as u64)
+    }
+}
+
+/// Keeps a window's buffer when it has undo or redo to give: on the undo
+/// stack, or with `redo`, the redo stack.
+fn keep_undo(large: &mut Large, mut buffer: crate::buffer::Buffer, redo: bool) {
+    if buffer.undo_steps() == 0 && buffer.redo_steps() == 0 {
+        return;
+    }
+    let _ = buffer.take_changes();
+    buffer.elsewhere = false;
+    let kept = Edited {
+        start: large.start,
+        buffer,
+    };
+    if redo {
+        large.redos.push(kept);
+    } else {
+        large.undos.push(kept);
+    }
+}
+
+impl Doc {
+    /// Puts the window's text into a large file's pieces when it's changed
+    /// since, and says whether the file has changes anywhere.
+    pub(crate) fn sync_large(&mut self) {
+        let version = self.buffer.version();
+        let Some(large) = self.large.as_deref_mut() else {
+            return;
+        };
+        if large.synced != version && large.has_window() {
+            let rope = self.buffer.rope().clone();
+            large.text = large.text.splice(large.start, large.end, rope.clone());
+            large.end = large.start + rope.len_bytes() as u64;
+            large.size = large.text.len();
+            large.generation += 1;
+            large.found = None;
+            large.settled = None;
+            // A new edit: what was undone can't be redone.
+            if !std::mem::take(&mut large.undoing) {
+                large.redos.clear();
+            }
+        }
+        large.synced = version;
+        self.buffer.elsewhere = large.changed || large.undos.iter().any(|e| e.buffer.is_dirty());
     }
 }
 

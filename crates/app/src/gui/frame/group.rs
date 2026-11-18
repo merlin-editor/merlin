@@ -399,12 +399,13 @@ impl Frame<'_> {
                 let small = Face::ui(10.5).medium();
                 let w = self.text.width(badge, small) + 12.0;
                 let chip = Rect::new(text_r.x, r.y + (r.h - 18.0) / 2.0, w, 18.0);
+                let hue = if bar.calm { p.accent } else { p.warning };
                 self.canvas.outline(
                     chip,
                     4.0,
                     1.0,
-                    mix(p.warning, p.island, 0.45),
-                    mix(p.warning, p.island, 0.12),
+                    mix(hue, p.island, 0.45),
+                    mix(hue, p.island, 0.12),
                 );
                 self.text.draw_in_row(
                     &mut self.canvas,
@@ -413,7 +414,7 @@ impl Frame<'_> {
                     chip.x + 6.0,
                     chip.y,
                     chip.h,
-                    p.warning,
+                    hue,
                     chip,
                 );
                 w + 10.0

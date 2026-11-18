@@ -133,6 +133,9 @@ pub struct Buffer {
     log: Arc<VecDeque<(u64, Arc<TextChange>)>>,
     log_from: u64,
     log_bytes: usize,
+    /// Changed somewhere this buffer doesn't hold: another window of a
+    /// large file, edited in place.
+    pub elsewhere: bool,
 }
 
 impl Buffer {
@@ -157,6 +160,7 @@ impl Buffer {
             log: Arc::default(),
             log_from: start,
             log_bytes: 0,
+            elsewhere: false,
         }
     }
 
@@ -199,7 +203,7 @@ impl Buffer {
     }
 
     pub fn is_dirty(&self) -> bool {
-        self.revision() != self.saved
+        self.revision() != self.saved || self.elsewhere
     }
 
     /// Records that `revision` is what's on disk. Saving is asynchronous, so
@@ -278,6 +282,11 @@ impl Buffer {
     /// How many undo steps there are, for [`Buffer::join_undo`].
     pub fn undo_steps(&self) -> usize {
         self.history.steps()
+    }
+
+    /// How many undone steps there are to redo.
+    pub fn redo_steps(&self) -> usize {
+        self.history.redo_steps()
     }
 
     /// Makes the undo steps from `from` on one.

@@ -73,7 +73,7 @@ impl Editor {
                     preview: self.preview == Some(doc.id),
                     pinned: self.groups[self.pane()].pinned.contains(&doc.id),
                     merging: self.merges.iter().any(|m| m.doc == doc.id),
-                    read_only: doc.large.is_some(),
+                    read_only: doc.large.as_deref().is_some_and(|l| !l.editable),
                 }
             })
             .collect()

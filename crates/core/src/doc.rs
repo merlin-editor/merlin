@@ -607,9 +607,10 @@ impl Doc {
         match done {
             crate::work::Done::Lines { piece, breaks } => match self.large.as_mut() {
                 Some(large) if large.lines_job == Some(id) => {
-                    if let Some(count) = large.lines.get_mut(*piece) {
+                    if let Some(count) = large.lines.blocks.get_mut(*piece) {
                         *count = Some(breaks.unwrap_or(0));
                     }
+                    large.renumber();
                     true
                 }
                 _ => false,

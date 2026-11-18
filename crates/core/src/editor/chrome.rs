@@ -313,8 +313,8 @@ impl Editor {
         if let Some(text) = &counting {
             right.push((text.clone(), None));
         }
-        if self.large().is_some() {
-            right.push(("Read-only".into(), Some(Action::Run("large.why"))));
+        if let Some(mode) = self.large_mode() {
+            right.push((mode.into(), Some(Action::Run("large.why"))));
         }
         right.push((self.language(), card));
         let left_w: usize = left.iter().map(|(t, ..)| str_width(t)).sum();

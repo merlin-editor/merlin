@@ -160,6 +160,68 @@ impl FileText {
         &self.pieces
     }
 
+    /// The byte of the file that byte `at` of the text is, if it's in a
+    /// range of the file: at a piece's end, the next piece's start.
+    pub fn file_pos(&self, at: u64) -> Option<u64> {
+        let mut start = 0;
+        let mut last = None;
+        for piece in self.pieces.iter() {
+            let stop = start + piece.len();
+            if at < stop {
+                return match piece {
+                    Piece::File { from, .. } => Some(from + (at - start)),
+                    Piece::Text(_) => None,
+                };
+            }
+            last = Some((piece, stop));
+            start = stop;
+        }
+        // The text's end: the last piece's end, if it's the file's.
+        match last {
+            Some((Piece::File { to, .. }, stop)) if stop == at => Some(*to),
+            None if at == 0 => Some(0),
+            _ => None,
+        }
+    }
+
+    /// The line breaks in the file from the start of the block `at` is in
+    /// up to `at`: what a cut of the file's ranges there needs to count its
+    /// lines.
+    fn file_breaks(&self, at: u64) -> io::Result<u64> {
+        let from = at / BLOCK * BLOCK;
+        let mut bytes = Vec::new();
+        read_file_at(&self.file, from, at - from + 1, &mut bytes)?;
+        let len = ((at - from) as usize).min(bytes.len());
+        Ok(breaks(&bytes[..len], bytes.get(len).copied()))
+    }
+
+    /// The text with bytes `from..to` replaced by `with`: the pieces
+    /// either side are cut there.
+    pub fn splice(&self, from: u64, to: u64, with: Rope) -> Self {
+        let mut out = Vec::new();
+        let mut start = 0;
+        let mut placed = false;
+        for piece in self.pieces.iter() {
+            let stop = start + piece.len();
+            // What of it is before `from`, and after `to`.
+            if start < from {
+                out.push(cut(piece, 0, (from - start).min(piece.len())));
+            }
+            if !placed && stop >= from {
+                out.push(Piece::Text(with.clone()));
+                placed = true;
+            }
+            if stop > to {
+                out.push(cut(piece, to.max(start) - start, piece.len()));
+            }
+            start = stop;
+        }
+        if !placed {
+            out.push(Piece::Text(with));
+        }
+        self.with_pieces(out)
+    }
+
     /// Bytes `at..at + len` of the text, or fewer at its end, read from
     /// the pieces they're in.
     pub fn read(&self, at: u64, len: u64) -> io::Result<Vec<u8>> {
@@ -188,6 +250,17 @@ impl FileText {
             start = stop;
         }
         Ok(out)
+    }
+}
+
+/// Bytes `a..b` of a piece, as a piece.
+fn cut(piece: &Piece, a: u64, b: u64) -> Piece {
+    match piece {
+        Piece::File { from, .. } => Piece::File {
+            from: from + a,
+            to: from + b,
+        },
+        Piece::Text(rope) => Piece::Text(Rope::from(rope.byte_slice(a as usize..b as usize))),
     }
 }
 
@@ -262,20 +335,21 @@ pub struct Window {
     pub end: u64,
     /// The text's size when read.
     pub size: u64,
-    /// The line it starts on, when the lines before it are counted.
-    pub first_line: Option<u64>,
+    /// Which version of the text it was read from.
+    pub generation: u64,
+    /// The file's breaks before its ends, where they're in the file: see
+    /// [`FileLines::edges`].
+    pub edges: Vec<(u64, u64)>,
     pub text: Rope,
 }
 
-/// What a window is read from: about where, and a line start at or
-/// before it with its line, if known.
+/// What a window is read from: about where, and which version of the text
+/// it was asked of, which comes back with it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct From {
     /// The window's middle is wanted about here.
     pub around: u64,
-    /// A line start at or before the window's start, and its line: the
-    /// lines between are counted as it's read.
-    pub anchor: Option<(u64, u64)>,
+    pub generation: u64,
 }
 
 /// Where a window around `around` starts, before it's moved on to a
@@ -314,16 +388,24 @@ pub fn read_window(text: &FileText, from: From) -> io::Result<Window> {
         e if e >= size => size,
         e => line_start(text, e)?.max(start + 1).min(size),
     };
-    let first_line = match from.anchor {
-        Some((at, line)) if at <= start => Some(line + breaks_in(text, at, start)?),
-        _ => None,
-    };
     let bytes = text.read(start, end - start)?;
+    let end = start + bytes.len() as u64;
+    // Its ends where they're in the file, for the lines either side once
+    // it's edited.
+    let mut edges = Vec::new();
+    for at in [start, end] {
+        if let Some(f) = text.file_pos(at)
+            && f % BLOCK != 0
+        {
+            edges.push((f, text.file_breaks(f)?));
+        }
+    }
     Ok(Window {
         start,
-        end: start + bytes.len() as u64,
+        end,
         size,
-        first_line,
+        generation: from.generation,
+        edges,
         text: Rope::from_str(&text_of(bytes)),
     })
 }
@@ -514,19 +596,164 @@ pub enum Then {
     Match(u64),
 }
 
+/// The file's lines, as the background count finds them by block, and the
+/// breaks before each place the file's ranges are cut, so a range's lines
+/// are known wherever it starts and ends.
+#[derive(Clone, Debug, Default)]
+pub struct FileLines {
+    /// The file's size: its end needs no edge.
+    pub size: u64,
+    pub blocks: Vec<Option<u64>>,
+    /// The line breaks from the start of a block up to a byte of the file,
+    /// by that byte: where windows started and ended.
+    pub edges: std::collections::BTreeMap<u64, u64>,
+}
+
+impl FileLines {
+    pub fn new(size: u64) -> Self {
+        Self {
+            size,
+            blocks: vec![None; blocks(size)],
+            edges: Default::default(),
+        }
+    }
+
+    /// Blocks counted from the top without a gap.
+    pub fn counted(&self) -> usize {
+        self.blocks.iter().take_while(|c| c.is_some()).count()
+    }
+
+    pub fn done(&self) -> bool {
+        self.counted() == self.blocks.len()
+    }
+
+    pub fn progress(&self) -> f32 {
+        let done = self.blocks.iter().filter(|c| c.is_some()).count();
+        done as f32 / self.blocks.len().max(1) as f32
+    }
+
+    /// The line breaks in the file before byte `at`, once counted.
+    pub fn before(&self, at: u64) -> Option<u64> {
+        if at >= self.size {
+            return self.done().then(|| self.blocks.iter().flatten().sum());
+        }
+        let block = (at / BLOCK) as usize;
+        if block > self.counted() {
+            return None;
+        }
+        let whole: u64 = self.blocks[..block.min(self.blocks.len())]
+            .iter()
+            .flatten()
+            .sum();
+        match at % BLOCK {
+            0 => Some(whole),
+            _ => Some(whole + self.edges.get(&at)?),
+        }
+    }
+
+    /// The breaks in bytes `from..to` of the file.
+    fn between(&self, from: u64, to: u64) -> Option<u64> {
+        Some(self.before(to)? - self.before(from)?)
+    }
+
+    /// Where the file's break number `breaks` is, give or take a block:
+    /// the start of the block it's in, or `from` if that's later.
+    fn place(&self, from: u64, breaks: u64) -> Option<u64> {
+        if self.before(from)? >= breaks {
+            return Some(from);
+        }
+        let mut block = (from / BLOCK) as usize;
+        let mut before: u64 = self.blocks[..block].iter().flatten().sum();
+        loop {
+            let count = (*self.blocks.get(block)?)?;
+            if before + count >= breaks {
+                return Some((block as u64 * BLOCK).max(from));
+            }
+            before += count;
+            block += 1;
+        }
+    }
+}
+
+/// The line breaks in a piece, once the file's are counted.
+fn piece_breaks(piece: &Piece, lines: &FileLines) -> Option<u64> {
+    match piece {
+        Piece::File { from, to } => lines.between(*from, *to),
+        Piece::Text(rope) => Some(rope.len_lines() as u64 - 1),
+    }
+}
+
+impl FileText {
+    /// The line byte `at` of the text is on, once counted that far.
+    pub fn line_of(&self, at: u64, lines: &FileLines) -> Option<u64> {
+        let mut start = 0;
+        let mut line = 0;
+        for piece in self.pieces.iter() {
+            let stop = start + piece.len();
+            if at < stop {
+                return Some(
+                    line + match piece {
+                        Piece::File { from, .. } => lines.between(*from, from + (at - start))?,
+                        Piece::Text(rope) => rope.byte_to_line((at - start) as usize) as u64,
+                    },
+                );
+            }
+            line += piece_breaks(piece, lines)?;
+            start = stop;
+        }
+        Some(line)
+    }
+
+    /// About where line `line` of the text is, to read a window around:
+    /// exactly in text in memory, a block or so before in the file.
+    pub fn place_of_line(&self, line: u64, lines: &FileLines) -> Option<u64> {
+        let mut start = 0;
+        let mut seen = 0;
+        for piece in self.pieces.iter() {
+            let breaks = piece_breaks(piece, lines)?;
+            if seen + breaks >= line {
+                return Some(match piece {
+                    Piece::Text(rope) => start + rope.line_to_byte((line - seen) as usize) as u64,
+                    Piece::File { from, .. } => {
+                        let file = lines.place(*from, lines.before(*from)? + (line - seen))?;
+                        start + (file - from)
+                    }
+                });
+            }
+            seen += breaks;
+            start += piece.len();
+        }
+        None
+    }
+}
+
+/// A window left with its undo, to come back to.
+pub struct Edited {
+    /// Its first byte in the text, as it was when left.
+    pub start: u64,
+    pub buffer: crate::buffer::Buffer,
+}
+
 /// A file too large to load, as an open document keeps it.
-#[derive(Clone, Debug)]
 pub struct Large {
-    /// The text: pieces of the file, and of text in memory.
+    /// The file as opened, which the line count reads.
+    pub file: FileText,
+    /// The text: pieces of the file, and of text in memory, with the
+    /// window's edits in it.
     pub text: FileText,
     /// Its bytes in all.
     pub size: u64,
+    /// Bumped with each change to the text, so a window read from an older
+    /// one is read again.
+    pub generation: u64,
     /// The window held, in bytes of the text, and its first line if known.
     pub start: u64,
     pub end: u64,
     pub first_line: Option<u64>,
-    /// Line breaks in each block of the text, once counted.
-    pub lines: Vec<Option<u64>>,
+    /// The window's version last put in the text.
+    pub synced: u64,
+    /// The file's lines, counted.
+    pub lines: FileLines,
     /// The count's job, while it's under way.
     pub lines_job: Option<u64>,
     /// A window asked for and not yet come, and what to do when it does.
@@ -541,8 +768,22 @@ pub struct Large {
     pub seek: Option<(u64, bool)>,
     /// A search past the window is under way.
     pub seeking: bool,
+    /// Windows read for the place pending, so far.
+    pub tries: u8,
     /// Memory free when it opened, for what loading it would take.
     pub free: Option<u64>,
+    /// Edits go into the text; otherwise it's read-only.
+    pub editable: bool,
+    /// Windows left with undo to give, the last left last; and those
+    /// undone past, to redo, the next to redo last.
+    pub undos: Vec<Edited>,
+    pub redos: Vec<Edited>,
+    /// Edits whose undo was let go: the text is changed, whatever undo
+    /// says.
+    pub changed: bool,
+    /// The window's last change was an undo or redo, which leaves what can
+    /// be redone.
+    pub undoing: bool,
     /// The bar over it was closed.
     pub bar_hidden: bool,
     /// Loading it to edit was asked for.
@@ -577,22 +818,31 @@ impl FileFound {
 }
 
 impl Large {
-    pub fn new(text: FileText, free: Option<u64>) -> Self {
-        let size = text.len();
+    pub fn new(file: FileText, free: Option<u64>, editable: bool) -> Self {
+        let size = file.len();
         Self {
-            text,
+            text: file.clone(),
+            lines: FileLines::new(size),
+            file,
             size,
+            generation: 0,
             start: 0,
             end: 0,
             first_line: None,
-            lines: vec![None; blocks(size)],
+            synced: 0,
             lines_job: None,
             asked: None,
             settled: None,
             pending: None,
             seek: None,
             seeking: false,
+            tries: 0,
             free,
+            editable,
+            undos: Vec::new(),
+            redos: Vec::new(),
+            changed: false,
+            undoing: false,
             bar_hidden: false,
             loading: false,
             grew: None,
@@ -605,68 +855,54 @@ impl Large {
         self.end > self.start || self.size == 0
     }
 
-    /// Blocks counted from the top without a gap.
-    fn counted(&self) -> usize {
-        self.lines.iter().take_while(|c| c.is_some()).count()
+    /// Whether the text is the file as opened: nothing in it edited.
+    pub fn untouched(&self) -> bool {
+        matches!(self.text.pieces(), [Piece::File { from: 0, to }] if *to == self.file.len())
+            || self.text.pieces().is_empty()
     }
 
     /// Whether every line is counted.
     pub fn lines_done(&self) -> bool {
-        self.counted() == self.lines.len()
+        self.lines.done()
     }
 
     /// How far the line count has got.
     pub fn lines_progress(&self) -> f32 {
-        let done = self.lines.iter().filter(|c| c.is_some()).count();
-        done as f32 / self.lines.len().max(1) as f32
+        self.lines.progress()
     }
 
-    /// The file's lines, once counted.
+    /// The text's lines, once counted.
     pub fn total_lines(&self) -> Option<u64> {
-        self.lines_done()
-            .then(|| self.lines.iter().flatten().sum::<u64>() + 1)
+        Some(self.text.line_of(self.size, &self.lines)? + 1)
     }
 
-    /// The last block start at or before `at` whose line is counted, and
-    /// that line.
-    pub fn anchor(&self, at: u64) -> Option<(u64, u64)> {
-        // Only from a counted block: counting from further back would
-        // read what the count hasn't reached.
-        let block = (at / BLOCK) as usize;
-        (block <= self.counted()).then_some(())?;
-        let line: u64 = self.lines[..block].iter().flatten().sum();
-        Some((block as u64 * BLOCK, line))
+    /// The window's first line, worked out again: after it's read, after
+    /// an edit before it, and as the count comes in.
+    pub fn renumber(&mut self) {
+        self.first_line = self.text.line_of(self.start, &self.lines);
     }
 
-    /// Where to read a window from to show the file around `at`.
+    /// Where to read a window from to show the text around `at`.
     pub fn from(&self, at: u64) -> From {
         From {
             around: at,
-            anchor: self.anchor(window_start(at, self.size)),
+            generation: self.generation,
         }
     }
 
-    /// The block line `line` starts in, and the line breaks before that
-    /// block, once the count has got that far.
-    pub fn block_of_line(&self, line: u64) -> Option<(u64, u64)> {
-        let mut before = 0;
-        for (i, count) in self.lines.iter().enumerate() {
-            let count = (*count)?;
-            if before + count >= line {
-                return Some((i as u64 * BLOCK, before));
-            }
-            before += count;
-        }
-        None
+    /// About where line `line` of the text is, once the count has got
+    /// that far.
+    pub fn place_of_line(&self, line: u64) -> Option<u64> {
+        self.text.place_of_line(line, &self.lines)
     }
 
     /// About how many bytes a line takes, from what's been counted or
     /// read.
     pub fn bytes_per_line(&self, window_lines: usize) -> f64 {
-        let counted = self.counted();
-        let lines: u64 = self.lines[..counted].iter().flatten().sum();
+        let counted = self.lines.counted();
+        let lines: u64 = self.lines.blocks[..counted].iter().flatten().sum();
         if counted > 0 && lines > 0 {
-            return (counted as u64 * BLOCK).min(self.size) as f64 / lines as f64;
+            return (counted as u64 * BLOCK).min(self.file.len()) as f64 / lines as f64;
         }
         if window_lines > 1 && self.end > self.start {
             return (self.end - self.start) as f64 / window_lines as f64;
@@ -725,34 +961,41 @@ mod tests {
         (0..lines).map(|n| format!("line {n}\n")).collect()
     }
 
+    /// The file's lines, all counted.
+    fn counted(file: &FileText) -> FileLines {
+        let mut lines = FileLines::new(file.len());
+        for b in 0..lines.blocks.len() {
+            lines.blocks[b] = Some(count_lines(file, b).unwrap());
+        }
+        lines
+    }
+
+    fn at(around: u64) -> From {
+        From {
+            around,
+            generation: 0,
+        }
+    }
+
     #[test]
     fn a_window_is_whole_lines_with_its_first_line() {
         let text = numbered(1_000_000);
         let (_dir, file) = file(&text);
-        let w = read_window(
-            &file,
-            From {
-                around: text.len() as u64 / 2,
-                anchor: Some((0, 0)),
-            },
-        )
-        .unwrap();
+        let w = read_window(&file, at(text.len() as u64 / 2)).unwrap();
         assert!(w.start > 0 && w.end < text.len() as u64);
         assert_eq!(&text[w.start as usize - 1..w.start as usize], "\n");
         assert_eq!(w.text.to_string(), text[w.start as usize..w.end as usize]);
-        let first = w.first_line.unwrap();
+        // Its first line, from the count and the breaks before its start.
+        let mut lines = FileLines::new(file.len());
+        assert_eq!(file.line_of(w.start, &lines), None, "not counted yet");
+        lines = FileLines {
+            edges: lines.edges,
+            ..counted(&file)
+        };
+        lines.edges.extend(w.edges.iter().copied());
+        let first = file.line_of(w.start, &lines).unwrap();
         let line = w.text.line(0).to_string();
         assert_eq!(line, format!("line {first}\n"));
-        // Without an anchor, the line isn't known.
-        let w = read_window(
-            &file,
-            From {
-                around: 0,
-                anchor: None,
-            },
-        )
-        .unwrap();
-        assert_eq!((w.start, w.first_line), (0, None));
     }
 
     #[test]
@@ -791,24 +1034,17 @@ mod tests {
     }
 
     #[test]
-    fn a_line_finds_its_block() {
+    fn a_line_finds_its_place() {
         let text = numbered(2_000_000);
         let (_dir, file) = file(&text);
-        let mut large = Large::new(file.clone(), None);
-        for p in 0..large.lines.len() {
-            large.lines[p] = Some(count_lines(&file, p).unwrap());
-        }
-        assert!(large.lines_done());
-        assert_eq!(large.total_lines(), Some(2_000_001));
-        let (at, line) = large.block_of_line(1_500_000).unwrap();
-        assert!(line <= 1_500_000);
-        let w = read_window(&file, large.from(at)).unwrap();
-        let first = w.first_line.unwrap();
-        assert!(first <= 1_500_000);
-        let local = (1_500_000 - first) as usize;
-        if local < w.text.len_lines() {
-            assert_eq!(w.text.line(local).to_string(), "line 1500000\n");
-        }
+        let lines = counted(&file);
+        assert_eq!(file.line_of(file.len(), &lines), Some(2_000_000));
+        let place = file.place_of_line(1_500_000, &lines).unwrap();
+        let line_at = text.find("line 1500000\n").unwrap() as u64;
+        assert!(
+            place <= line_at && line_at - place < BLOCK,
+            "{place} {line_at}"
+        );
     }
 
     #[test]
@@ -843,24 +1079,25 @@ mod tests {
             .sum();
         assert_eq!(total, 1_000_001);
         // A window around the typed text starts on a line, numbered.
-        let w = read_window(
-            &edited,
-            From {
-                around: ten,
-                anchor: Some((0, 0)),
-            },
-        )
-        .unwrap();
-        let first = w.first_line.unwrap() as usize;
+        let w = read_window(&edited, at(ten)).unwrap();
+        let mut lines = counted(&file);
+        lines.edges.extend(w.edges.iter().copied());
+        // The cuts the pieces make, as windows' ends would give.
+        for cut in [ten, ten + 8, mid] {
+            let breaks = file.file_breaks(cut).unwrap();
+            lines.edges.insert(cut, breaks);
+        }
+        let first = edited.line_of(w.start, &lines).unwrap() as usize;
+        assert_eq!(edited.line_of(edited.len(), &lines), Some(1_000_001));
         let typed_line = (first..)
             .zip(w.text.lines())
             .find(|(_, l)| *l == "typed two\n");
         assert_eq!(typed_line.map(|(n, _)| n), Some(11));
         // Search finds the typed text, and a line cut across two pieces.
-        let at = seek(&edited, &Matcher::exact("typed two"), 0, true, &[]).unwrap();
-        assert_eq!(at, Some(ten + 10));
-        let at = seek(&edited, &Matcher::exact("line 500000"), 0, true, &[]).unwrap();
-        assert_eq!(at, Some(expected.find("line 500000").unwrap() as u64));
+        let found = seek(&edited, &Matcher::exact("typed two"), 0, true, &[]).unwrap();
+        assert_eq!(found, Some(ten + 10));
+        let found = seek(&edited, &Matcher::exact("line 500000"), 0, true, &[]).unwrap();
+        assert_eq!(found, Some(expected.find("line 500000").unwrap() as u64));
         let count: u32 = (0..blocks(edited.len()))
             .map(|b| count_matches(&edited, &Matcher::exact("typed"), b).unwrap())
             .sum();
