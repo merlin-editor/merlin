@@ -14,6 +14,9 @@ use crate::bigfile::{Edited, Large, Then, WINDOW};
 /// The bar over a large file, among the bars: past any plugin's.
 pub(crate) const LARGE_BAR: usize = usize::MAX;
 
+/// Cut and copy of more than this, past a large file's window, ask first.
+const COPY_ASKS: u64 = 64 << 20;
+
 /// How much of the file loading it takes in memory, against its size: the
 /// rope's own share, and a little for what the editor keeps beside it.
 const LOADED: f64 = 1.15;
@@ -144,6 +147,15 @@ impl Editor {
         }
         if large.asked.is_some() {
             return;
+        }
+        // The window went with an edit on the pieces: read where it was.
+        if let Some(at) = large.stale {
+            return self.ask_large(at, Then::Byte(at), fx);
+        }
+        // A selection past the window ends when the one in it does.
+        if doc.anchor.is_none() && large.anchor.is_some() {
+            self.large_mut().expect("checked").anchor = None;
+            return self.ask_window(fx);
         }
         if !large.has_window() {
             return self.ask_large(0, Then::Stay, fx);
@@ -285,6 +297,15 @@ impl Editor {
                 self.keep_cursor_in_view();
             }
         }
+        // A selection past the window shows from its edge.
+        let doc = self.doc_mut();
+        if let Some(large) = doc.large.as_deref()
+            && let Some(a) = large.anchor
+        {
+            let rope = doc.buffer.rope();
+            let at = (a.clamp(large.start, large.end) - large.start) as usize;
+            doc.anchor = Some(rope.byte_to_char(at.min(rope.len_bytes())));
+        }
     }
 
     /// The cursor onto the view, when the view moved away from it.
@@ -351,6 +372,10 @@ impl Editor {
             // Scrolled away from it, past the window: the view's top.
             new.cursor = local(top);
         }
+        // A selection past the window shows from its edge.
+        if let Some(a) = large.anchor {
+            new.anchor = Some(local(a));
+        }
         if inside(top) {
             let line = rope.char_to_line(local(top));
             new.scroll = line;
@@ -366,6 +391,7 @@ impl Editor {
         large.start = w.start;
         large.end = w.end;
         large.size = w.size;
+        large.stale = None;
         large.settled = Some(top);
         large.renumber();
         doc.large = Some(large);
@@ -422,9 +448,37 @@ impl Editor {
             }) else {
                 break;
             };
+            let (start, buffer) = match next {
+                Edited::Window { start, buffer } => (start, buffer),
+                Edited::Pieces {
+                    at,
+                    before,
+                    after,
+                    saved,
+                } => {
+                    // The text as it was before it, or after: the window
+                    // read again there.
+                    let text = if redo { after.clone() } else { before.clone() };
+                    let back = Edited::Pieces {
+                        at,
+                        before,
+                        after,
+                        saved,
+                    };
+                    self.swap_text(text, at, !redo);
+                    let large = self.large_mut().expect("checked");
+                    if redo {
+                        large.undos.push(back);
+                    } else {
+                        large.redos.push(back);
+                    }
+                    self.sync_large();
+                    return true;
+                }
+            };
             let mut new = Doc::from_rope(doc.id, ropey::Rope::new(), doc.buffer.path.clone());
             new.config = doc.config.clone();
-            new.buffer = next.buffer;
+            new.buffer = buffer;
             let _ = new.buffer.take_changes();
             let len = new.buffer.rope().len_bytes() as u64;
             let mut large = doc.large.take().expect("checked");
@@ -432,8 +486,8 @@ impl Editor {
             let left = std::mem::replace(doc, new);
             // The window left goes on the other stack, to come back to.
             keep_undo(&mut large, left.buffer, !redo);
-            large.start = next.start;
-            large.end = next.start + len;
+            large.start = start;
+            large.end = start + len;
             large.settled = None;
             large.renumber();
             doc.large = Some(large);
@@ -556,9 +610,19 @@ impl Editor {
         large.changed = false;
         large.save_error = None;
         large.saved_as = Some(path);
-        for kept in large.undos.iter_mut().chain(large.redos.iter_mut()) {
-            let revision = kept.buffer.revision();
-            kept.buffer.mark_saved(revision);
+        for (kept, undone) in large
+            .undos
+            .iter_mut()
+            .map(|k| (k, false))
+            .chain(large.redos.iter_mut().map(|k| (k, true)))
+        {
+            match kept {
+                Edited::Window { buffer, .. } => {
+                    let revision = buffer.revision();
+                    buffer.mark_saved(revision);
+                }
+                Edited::Pieces { saved, .. } => *saved = !undone,
+            }
         }
         large.renumber();
         let revision = doc.buffer.revision();
@@ -680,17 +744,210 @@ impl Editor {
 
     /// Ctrl+Home and Ctrl+End in a large file: the file's ends, not the
     /// window's.
-    pub(crate) fn large_end(&mut self, end: bool) -> bool {
+    /// With Shift, the selection reaches there, past the window.
+    pub(crate) fn large_end(&mut self, end: bool, shift: bool) -> bool {
+        let here = self.large_cursor();
+        let anchor = self.doc().anchor.map(|a| self.large_byte(a));
         let Some(large) = self.large_mut() else {
             return false;
         };
+        large.anchor = match shift {
+            true => large.anchor.or(anchor).or(here),
+            false => None,
+        };
         large.pending = Some(Then::Byte(if end { large.size } else { 0 }));
+        // The selection starts in the window too, until the window moves.
+        if shift {
+            let doc = self.doc_mut();
+            doc.anchor.get_or_insert(doc.cursor);
+        }
         true
+    }
+
+    /// Select All in a large file: from its start to its end, past the
+    /// window.
+    pub(crate) fn select_all_large(&mut self) -> bool {
+        let Some(large) = self.large_mut() else {
+            return false;
+        };
+        large.anchor = Some(0);
+        large.pending = Some(Then::Byte(large.size));
+        let doc = self.doc_mut();
+        doc.anchor.get_or_insert(doc.cursor);
+        true
+    }
+
+    /// A place in the window as a byte of the text.
+    fn large_byte(&self, pos: usize) -> u64 {
+        let doc = self.doc();
+        let rope = doc.buffer.rope();
+        let start = doc.large.as_deref().map_or(0, |l| l.start);
+        start + rope.char_to_byte(pos.min(rope.len_chars())) as u64
+    }
+
+    fn large_cursor(&self) -> Option<u64> {
+        self.large().map(|_| self.large_byte(self.doc().cursor))
+    }
+
+    /// The selection, as bytes of the text, when it reaches past the
+    /// window.
+    pub(crate) fn large_selection(&self) -> Option<(u64, u64)> {
+        let anchor = self.large()?.anchor?;
+        let cursor = self.large_cursor()?;
+        Some((anchor.min(cursor), anchor.max(cursor)))
+    }
+
+    /// Typing, pasting or deleting over a selection that reaches past the
+    /// window: done on the pieces, without reading what's between. Whether
+    /// it was such a selection.
+    pub(crate) fn large_replace(&mut self, inserted: &str) -> bool {
+        let Some((a, b)) = self.large_selection() else {
+            return false;
+        };
+        if self.refuse_large_edit() {
+            return true;
+        }
+        self.large_splice(a, b, inserted);
+        true
+    }
+
+    /// Bytes `a..b` of the text replaced by `inserted`, as one step undo
+    /// takes back: the window's edits kept with their undo first, then
+    /// the window read again after it.
+    fn large_splice(&mut self, a: u64, b: u64, inserted: &str) {
+        self.sync_large();
+        let doc = self.doc_mut();
+        let path = doc.buffer.path.clone();
+        let mut new = Doc::from_rope(doc.id, ropey::Rope::new(), path);
+        new.config = doc.config.clone();
+        let mut large = doc.large.take().expect("a large file");
+        let left = std::mem::replace(doc, new);
+        keep_undo(&mut large, left.buffer, false);
+        let before = large.text.clone();
+        let (after, kept) = before.splice_keeping(a, b, ropey::Rope::from_str(inserted));
+        if let Some(found) = &mut large.found {
+            found.spliced(&kept);
+        }
+        large.redos.clear();
+        large.anchor = None;
+        large.undos.push(Edited::Pieces {
+            at: a,
+            before,
+            after: after.clone(),
+            saved: false,
+        });
+        doc.large = Some(large);
+        self.swap_text(after, a + inserted.len() as u64, true);
+    }
+
+    /// Cut or copy of a selection reaching past the window: read from the
+    /// text in the background, asking first past 64 MB, as the clipboard
+    /// holds it in memory. Whether it was such a selection.
+    pub(crate) fn large_copy(&mut self, cut: bool, sure: bool, fx: &mut Vec<Effect>) -> bool {
+        let Some((a, b)) = self.large_selection() else {
+            return false;
+        };
+        if cut && self.refuse_large_edit() {
+            return true;
+        }
+        if b - a > COPY_ASKS && !sure {
+            let what = if cut { "Cut" } else { "Copy" };
+            self.notify(format!(
+                "{what} {}? The clipboard holds what's copied in memory.",
+                size_label(b - a)
+            ));
+            self.add_action("Cancel", "large.keep");
+            self.add_action(what, if cut { "large.cut" } else { "large.copy" });
+            return true;
+        }
+        let doc = self.doc();
+        let large = doc.large.as_deref().expect("checked");
+        fx.push(Effect::ReadRange {
+            doc: doc.id,
+            text: large.text.clone(),
+            from: a,
+            to: b,
+            cut,
+            generation: large.generation,
+        });
+        true
+    }
+
+    /// What a cut or copy past the window read: on the clipboard, and for
+    /// a cut, taken out, if the text hasn't changed since.
+    pub(super) fn range_read(
+        &mut self,
+        id: u64,
+        (from, to): (u64, u64),
+        cut: bool,
+        generation: u64,
+        text: Result<String, String>,
+        fx: &mut Vec<Effect>,
+    ) {
+        if self.doc().id != id {
+            return;
+        }
+        let text = match text {
+            Ok(text) => text,
+            Err(err) => return self.error(format!("Can't read the selection: {err}")),
+        };
+        self.clipboard = text.clone();
+        fx.push(Effect::Copy(text));
+        if cut {
+            if self.large().is_some_and(|l| l.generation == generation) {
+                self.large_splice(from, to, "");
+            } else {
+                self.notify("Copied, but not cut: the text changed meanwhile".into());
+            }
+        }
+    }
+
+    /// The text becomes `text`, the window to be read again around `at`:
+    /// after an edit on the pieces, or its undo or redo. The places the
+    /// file's ranges are cut get their lines counted, and `keep_found`
+    /// keeps the search's counts, which the caller has kept up to date.
+    fn swap_text(&mut self, text: crate::bigfile::FileText, at: u64, keep_found: bool) {
+        let doc = self.doc_mut();
+        let Some(large) = doc.large.as_deref_mut() else {
+            return;
+        };
+        for piece in text.pieces() {
+            if let crate::bigfile::Piece::File { from, to } = piece {
+                for cut in [*from, *to] {
+                    if cut % crate::bigfile::BLOCK != 0
+                        && cut < large.file.len()
+                        && !large.lines.edges.contains_key(&cut)
+                        && let Ok(breaks) = large.file.file_breaks(cut)
+                    {
+                        large.lines.edges.insert(cut, breaks);
+                    }
+                }
+            }
+        }
+        large.text = text;
+        large.size = large.text.len();
+        large.generation += 1;
+        if !keep_found {
+            large.found = None;
+        }
+        large.anchor = None;
+        large.stale = Some(at.min(large.size));
+        large.start = 0;
+        large.end = 0;
+        large.settled = None;
+        large.pending = None;
+        large.synced = doc.buffer.version();
+        doc.cursor = 0;
+        doc.anchor = None;
     }
 
     /// Whether the current file can't be edited as it is: a large file
     /// read from disk. Says so, offering to load it.
     pub(crate) fn refuse_large_edit(&mut self) -> bool {
+        // The window is being read again after an edit on the pieces.
+        if self.large().is_some_and(|l| l.stale.is_some()) {
+            return true;
+        }
         // Being written: an edit would land on text that's moving.
         if self.large().is_some_and(|l| l.saving.is_some()) {
             let name = self.doc().name();
@@ -745,6 +1002,10 @@ impl Editor {
                 fx.push(Effect::OpenWhole(path));
             }
             "large.keep" => self.message = None,
+            "large.copy" | "large.cut" => {
+                self.message = None;
+                self.large_copy(id == "large.cut", true, fx);
+            }
             "large.cancel" => fx.push(Effect::CancelSave(self.doc().id)),
             "large.retry" => self.run("file.save", fx),
             "large.why" => self.large_why(),
@@ -752,7 +1013,7 @@ impl Editor {
                 if let Some(large) = self.large_mut() {
                     large.grew = None;
                 }
-                self.large_end(true);
+                self.large_end(true, false);
             }
             _ => {}
         }
@@ -1040,7 +1301,7 @@ fn keep_undo(large: &mut Large, mut buffer: crate::buffer::Buffer, redo: bool) {
     }
     let _ = buffer.take_changes();
     buffer.elsewhere = false;
-    let kept = Edited {
+    let kept = Edited::Window {
         start: large.start,
         buffer,
     };
@@ -1059,7 +1320,7 @@ impl Doc {
         let Some(large) = self.large.as_deref_mut() else {
             return;
         };
-        if large.synced != version && large.has_window() {
+        if large.synced != version && large.has_window() && large.stale.is_none() {
             let rope = self.buffer.rope().clone();
             let (text, kept) = large
                 .text
@@ -1079,7 +1340,9 @@ impl Doc {
             }
         }
         large.synced = version;
-        self.buffer.elsewhere = large.changed || large.undos.iter().any(|e| e.buffer.is_dirty());
+        self.buffer.elsewhere = large.changed
+            || large.undos.iter().any(|e| e.unsaved(false))
+            || large.redos.iter().any(|e| e.unsaved(true));
     }
 }
 

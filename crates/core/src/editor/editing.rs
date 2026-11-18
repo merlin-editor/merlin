@@ -81,8 +81,13 @@ impl Editor {
             Left | Right | Up | Down | Home | End | PageUp | PageDown
         ) {
             // A large file's ends, past the window held.
-            if key.ctrl && matches!(key.code, Home | End) && self.large_end(key.code == End) {
-                self.doc_mut().anchor = None;
+            if key.ctrl
+                && matches!(key.code, Home | End)
+                && self.large_end(key.code == End, key.shift)
+            {
+                if !key.shift {
+                    self.doc_mut().anchor = None;
+                }
                 return;
             }
             let doc = self.doc_mut();
@@ -190,6 +195,10 @@ impl Editor {
     }
 
     pub(crate) fn replace(&mut self, start: usize, end: usize, text: &str, kind: Kind) {
+        // Over a selection reaching past a large file's window.
+        if self.doc().selection() == Some((start, end)) && self.large_replace(text) {
+            return;
+        }
         if self.refuse_large_edit() {
             return;
         }
@@ -361,6 +370,9 @@ impl Editor {
         if self.focus != Focus::Editor {
             return;
         }
+        if self.large_copy(cut, false, fx) {
+            return;
+        }
         if self.has_carets() {
             // Each cursor's piece, top to bottom: selections a line each,
             // or whole lines.
@@ -506,6 +518,11 @@ impl Editor {
     /// Types `c`, closing brackets and quotes, typing over closers and
     /// putting a closing bracket back to its opener's indent.
     fn type_char(&mut self, c: char) {
+        // Over a selection reaching past a large file's window: in its
+        // place, without pairs, which would need what's between.
+        if self.large_replace(&c.to_string()) {
+            return;
+        }
         let doc = self.doc();
         let cursor = doc.cursor;
         let selection = doc.selection();

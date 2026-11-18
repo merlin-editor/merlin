@@ -343,3 +343,74 @@ fn find_counts_only_whats_new_after_an_edit() {
     s.run("key ctrl+end");
     assert_eq!(s.editor.window_view().find.unwrap().total, expected + 1);
 }
+
+fn on_disk(dir: &tempfile::TempDir) -> String {
+    std::fs::read_to_string(dir.path().join("big.log")).unwrap()
+}
+
+#[test]
+fn deleting_to_the_end_cuts_the_text_without_reading_it() {
+    let (dir, mut s, text) = edit(600_000);
+    s.run("cmd go.line; type 1001; key enter");
+    s.run("key shift+ctrl+end");
+    assert!(status(&s).contains("selected"), "{}", status(&s));
+    s.run("key delete");
+    s.run("key ctrl+end");
+    assert!(s.screen().contains("1001 "), "{}", s.screen());
+    assert!(!s.screen().contains("line 1000\n"), "{}", s.screen());
+    s.run("key ctrl+s");
+    let kept: String = text.lines().take(1000).map(|l| format!("{l}\n")).collect();
+    assert!(on_disk(&dir) == kept, "{} bytes", on_disk(&dir).len());
+}
+
+#[test]
+fn a_large_delete_undoes_and_redoes() {
+    let (_dir, mut s, _) = edit(600_000);
+    s.run("type A");
+    s.run("key shift+ctrl+end; key delete");
+    s.run("key ctrl+end");
+    assert!(
+        s.screen().contains(" 1 A"),
+        "only the A left: {}",
+        s.screen()
+    );
+    s.run("cmd edit.undo");
+    s.run("key ctrl+end");
+    assert!(s.screen().contains("line 599999"), "{}", s.screen());
+    s.run("cmd edit.undo");
+    s.run("key ctrl+home");
+    assert!(!s.screen().contains("Aline 0"), "{}", s.screen());
+    assert!(!tab_dirty(&s));
+    s.run("cmd edit.redo; cmd edit.redo");
+    s.run("key ctrl+end");
+    assert!(s.screen().contains(" 1 A"), "{}", s.screen());
+}
+
+#[test]
+fn select_all_and_type_replaces_the_whole_file() {
+    let (dir, mut s, _) = edit(600_000);
+    s.run("cmd edit.select_all; type x");
+    assert!(s.screen().contains(" 1 x"), "{}", s.screen());
+    s.run("key ctrl+s");
+    assert!(on_disk(&dir) == "x");
+}
+
+#[test]
+fn copying_past_the_window_reads_it_and_cut_takes_it_out() {
+    use merlin_core::Effect;
+    let (_dir, mut s, text) = edit(600_000);
+    s.run("cmd go.line; type 599998; key enter");
+    s.run("key shift+ctrl+home");
+    s.effects.clear();
+    s.run("cmd edit.copy");
+    let copied = s.effects.iter().find_map(|e| match e {
+        Effect::Copy(t) => Some(t.len()),
+        _ => None,
+    });
+    let line = text.find("line 599997").unwrap();
+    assert_eq!(copied, Some(line), "everything above the cursor");
+    // Cut asks first past 64 MB; this is under it.
+    s.run("cmd edit.cut");
+    s.run("key ctrl+home");
+    assert!(s.screen().contains(" 1 line 599997"), "{}", s.screen());
+}

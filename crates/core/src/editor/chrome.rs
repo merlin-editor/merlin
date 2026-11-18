@@ -252,6 +252,8 @@ impl Editor {
             .unwrap_or_else(|| format!("Ln {}, Col {}", line + 1, col + 1));
         if !doc.extra.is_empty() {
             position.push_str(&format!(" ({} selections)", doc.extra.len() + 1));
+        } else if let Some((a, b)) = self.large_selection() {
+            position.push_str(&format!(" ({} selected)", super::large::size_label(b - a)));
         } else if let Some((a, b)) = doc.selection() {
             position.push_str(&format!(" ({} selected)", b - a));
         }

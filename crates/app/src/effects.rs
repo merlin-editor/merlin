@@ -53,6 +53,29 @@ impl App {
             Effect::Open(path) => self.open_later(&path, false),
             Effect::OpenWhole(path) => self.open_later(&path, true),
             Effect::SaveLarge { doc, path, text } => self.save_large(doc, path, text),
+            Effect::ReadRange {
+                doc,
+                text,
+                from,
+                to,
+                cut,
+                generation,
+            } => {
+                self.jobs.run(Lane::Disk, move || {
+                    let text = text
+                        .read(from, to - from)
+                        .map(|b| String::from_utf8_lossy(&b).into_owned())
+                        .map_err(|e| e.to_string());
+                    jobs::events(vec![Event::RangeRead {
+                        doc,
+                        from,
+                        to,
+                        cut,
+                        generation,
+                        text,
+                    }])
+                });
+            }
             Effect::CancelSave(doc) => {
                 if let Some(save) = self.large_saves.get(&doc) {
                     save.stop.store(true, std::sync::atomic::Ordering::Relaxed);

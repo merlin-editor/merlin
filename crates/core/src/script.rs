@@ -290,6 +290,24 @@ impl Session {
                     });
                 }
                 Effect::CancelSave(_) => {}
+                Effect::ReadRange {
+                    doc,
+                    text,
+                    from,
+                    to,
+                    cut,
+                    generation,
+                } => self.send(Event::RangeRead {
+                    doc,
+                    from,
+                    to,
+                    cut,
+                    generation,
+                    text: text
+                        .read(from, to - from)
+                        .map(|b| String::from_utf8_lossy(&b).into_owned())
+                        .map_err(|e| e.to_string()),
+                }),
                 Effect::OpenWhole(path) => self.send(Event::Error(format!(
                     "can't load {} in a script",
                     path.display()

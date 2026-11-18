@@ -248,6 +248,29 @@ passing.
      line an edit joins across a window's edge could be counted in two
      parts.
 5. **Large edits on the pieces**: cut, copy and delete past the window.
+   Done.
+   - **A selection past the window** keeps its far end as a byte of the
+     text (`Large::anchor`). In the window it shows from the window's
+     edge. Shift+Ctrl+End, Shift+Ctrl+Home and Select All make one. The
+     status bar gives its size: "(2.4 GB selected)".
+   - **Deleting it, or typing or pasting over it,** splices the pieces
+     without reading what's between. The window's edits are kept with
+     their undo first. The cut goes on the undo stack as one step, with
+     the text before and after (`Edited::Pieces`), and the window is read
+     again where it was. Undo and redo swap the text back and forth. A
+     save marks those steps saved, as it does windows.
+   - **Lines stay numbered:** each new place a range of the file is cut
+     has its breaks counted at once, from at most a block of the file.
+   - **Cut and copy** read the range on the disk thread, asking first past
+     64 MB. A cut takes the text out only if nothing changed while it was
+     read.
+   - **In the app**, on a 2.5 GB log: from line 1 000 001 to the end
+     selected as 2.4 GB, deleted at once, leaving 74.3 MB. Saving wrote
+     its 1 000 000 lines. Memory stayed at 152 MB.
+   - **Left**: typing a bracket over such a selection puts the bracket in
+     its place rather than around it. The Find count can be off by
+     matches on the two lines a cut in the middle of a line joins, until
+     saved. The copy question is a notice, not a dialog.
 6. **Hot exit** as a journal, and the file changing on disk.
 7. **The memory budget**: folding the oldest parked windows.
 

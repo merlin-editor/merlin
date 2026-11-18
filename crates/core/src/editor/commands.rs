@@ -499,6 +499,7 @@ impl Editor {
                 Some(cursors) => self.put_cursors(&cursors),
                 None => self.notify("Nothing to redo".into()),
             },
+            "edit.select_all" if self.select_all_large() => self.focus = Focus::Editor,
             "edit.select_all" => {
                 let doc = self.doc_mut();
                 doc.anchor = Some(0);

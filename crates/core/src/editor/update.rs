@@ -129,6 +129,14 @@ impl Editor {
             Event::FileSought { doc, at } => self.file_sought(doc, at),
             Event::LargeResized { path, size } => self.large_resized(&path, size),
             Event::LargeSaving { doc, written } => self.large_saving(doc, written),
+            Event::RangeRead {
+                doc,
+                from,
+                to,
+                cut,
+                generation,
+                text,
+            } => self.range_read(doc, (from, to), cut, generation, text, &mut fx),
             Event::LargeSaved {
                 doc,
                 path,

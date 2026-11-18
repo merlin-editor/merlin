@@ -619,6 +619,15 @@ pub enum Event {
         full: PathBuf,
         result: crate::bigfile::Saved,
     },
+    /// Bytes of a large file's text, asked for with [`Effect::ReadRange`].
+    RangeRead {
+        doc: u64,
+        from: u64,
+        to: u64,
+        cut: bool,
+        generation: u64,
+        text: Result<String, String>,
+    },
     /// A large file open read-only is a new size on disk.
     LargeResized {
         path: PathBuf,
@@ -863,6 +872,16 @@ pub enum Effect {
     },
     /// Stops a large file's save, leaving the file as it was.
     CancelSave(u64),
+    /// Reads bytes `from..to` of a large file's text, for a cut or copy
+    /// past its window, answered with [`Event::RangeRead`].
+    ReadRange {
+        doc: u64,
+        text: crate::bigfile::FileText,
+        from: u64,
+        to: u64,
+        cut: bool,
+        generation: u64,
+    },
     /// Opens a file to edit, loading it whatever its size: Load to Edit
     /// on a large file shown read-only.
     OpenWhole(PathBuf),

@@ -871,10 +871,33 @@ impl FileText {
 }
 
 /// A window left with its undo, to come back to.
-pub struct Edited {
-    /// Its first byte in the text, as it was when left.
-    pub start: u64,
-    pub buffer: crate::buffer::Buffer,
+pub enum Edited {
+    /// A window left with its undo: its first byte in the text, as it was
+    /// when left.
+    Window {
+        start: u64,
+        buffer: crate::buffer::Buffer,
+    },
+    /// An edit made on the pieces, such as deleting a selection that
+    /// reaches past the window: the text before and after, where it was,
+    /// and whether what's saved has it.
+    Pieces {
+        at: u64,
+        before: FileText,
+        after: FileText,
+        saved: bool,
+    },
+}
+
+impl Edited {
+    /// Whether the text differs from what's saved because of it, where it
+    /// is: on the undo stack, or with `undone`, the redo stack.
+    pub fn unsaved(&self, undone: bool) -> bool {
+        match self {
+            Edited::Window { buffer, .. } => buffer.is_dirty(),
+            Edited::Pieces { saved, .. } => *saved == undone,
+        }
+    }
 }
 
 /// A file too large to load, as an open document keeps it.
@@ -913,6 +936,11 @@ pub struct Large {
     pub seeking: bool,
     /// Windows read for the place pending, so far.
     pub tries: u8,
+    /// The far end of a selection past the window, as a byte of the text.
+    pub anchor: Option<u64>,
+    /// The window held is gone, after an edit on the pieces: one is read
+    /// around this byte, and until then nothing is edited.
+    pub stale: Option<u64>,
     /// Memory free when it opened, for what loading it would take.
     pub free: Option<u64>,
     /// Edits go into the text; otherwise it's read-only.
@@ -1160,6 +1188,8 @@ impl Large {
             seek: None,
             seeking: false,
             tries: 0,
+            anchor: None,
+            stale: None,
             free,
             editable,
             undos: Vec::new(),
