@@ -123,6 +123,12 @@ impl Matcher {
         }
     }
 
+    /// Whether its matches never reach past a line's end, so many lines
+    /// can be searched at once.
+    pub fn is_plain(&self) -> bool {
+        self.plain
+    }
+
     /// Whether case is ignored.
     pub fn folds(&self) -> bool {
         match &self.pattern {

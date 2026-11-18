@@ -493,6 +493,81 @@ gutter costs what the edits touched. The outline still finds symbols
 over the whole file after each edit while it shows; it can move the same
 way.
 
+### Step 8: files too large to load, done
+
+Built from `docs/mockups/LargeFileView.html`, approved 2026-11-18.
+
+**The idea**: the editor works on a rope, so a file too large to load is
+shown as a window of it, about 4 MB of whole lines, read from disk. As the
+view nears the window's edge, the window there is read and takes its
+place. The cursor, the selection and the view stay on the same text: they
+go by their byte in the file. What's kept besides the window costs a few
+bytes for each 4 MB piece, so the file's size doesn't matter.
+
+**What changed:**
+- **`bigfile.rs`**: what reads the file, on any thread.
+  - Line breaks counted as the rope counts them, a lone `\r` and LS and
+    the rest included.
+  - Windows read from a line's start, with the line they start on when
+    the count has got there.
+  - A search's matches counted by piece, and the nearest match to a byte,
+    going round the end.
+- **Background work**: `Kind::Lines` counts the lines by piece and
+  `Kind::FileCount` counts a search's matches, both on the workers from
+  step 7.
+- **Opening** (`crates/app/src/main.rs`): before reading, the size is
+  compared with Settings › Files, `large_file_read_only`.
+  - Auto opens read-only above a quarter of the memory free. On Linux that
+    comes from `/proc/meminfo`; elsewhere the limit is 2 GB.
+  - It can also be "never" or a size such as "2 GB".
+  - A file too large opens with `Event::OpenedLarge`, and nothing is
+    read but its first window.
+- **In the editor** (`editor/large.rs`):
+  - The bar over the text says why the file is read-only, with Load to
+    Edit…. The tab has a lock. The status bar shows "Read-only", and
+    "Counting lines 38%" while the lines are counted.
+  - The gutter and the status bar number lines as the file does. Before
+    the count reaches a window, the numbers show as · and the status bar
+    gives the byte.
+  - The scrollbar shows the whole file. Dragging it, Go to Line,
+    Ctrl+Home and Ctrl+End read the window where they go. Go to Line
+    waits for the count when it hasn't reached that line yet.
+  - Find counts every match in the background. Next and previous search
+    the window, then the file past it, skipping pieces the count says have
+    none.
+  - Typing, pasting or any other edit asks first. The notice gives the
+    memory loading takes (1.15× the file) against what's free, and Load to
+    Edit is offered only when it fits. Loading keeps the place.
+  - A log that grows: with the view at the end, the new lines are read
+    and followed. Elsewhere, the bar says how much it grew, with Go to
+    End. A file that shrank is read again.
+  - Plain text only: no colours, git gutter, blame, word wrap, language
+    servers or plugins, which see no file while it's shown.
+- **Never saved over**: a large file's text is only a window, so the
+  core makes no save for it. The app refuses one too. Agents, formatting
+  and putting back changes treat it as not open.
+
+**In the app**, release build:
+
+| | 360 MB log | 2.5 GB log |
+|---|---|---|
+| Memory, all told | 132 MB (540 MB loaded) | 142 MB |
+| Lines counted | under 1.5 s | about 3 s |
+| Typing a query | 0.05 s | |
+
+The count agreed with `grep`: 72 matches of `id=0000`. Ctrl+End reached
+line 33 761 680, Go to Line 2 400 000 went straight there, and Find from
+line 3 000 000 went to the next match in a later window. Load to Edit
+loaded the file at the same line and column.
+
+**Left from the mock-up:**
+- Loading to edit shows "Loading… to edit" without how far it has got,
+  and has no Cancel.
+- Selecting and copying work within the window, about 4 MB, so Select All
+  selects the window only. The 64 MB question never comes up.
+- The tab row doesn't show the size and the lines. The bar says the size.
+- Positions in bytes, the other half of step 8, weren't needed.
+
 ### Fixed on this branch so far
 
 Committed (8181070) and covered by tests:
@@ -790,10 +865,11 @@ and the manifests together.
 
 ### Files too large to load
 
-This is optional, and needs a mock-up. Above a share of memory, the file
-opens read-only over the mapped file, with line starts every 1 024 lines
-(122 ms for 342 MB). Search runs over the mapping. Editing means loading
-it, with a notice saying so.
+Built in step 8. Above a share of memory, the file opens read-only, read
+from disk a window at a time rather than mapped: if another program cut a
+mapped file short, reading it would crash the editor. The lines are
+counted in pieces of 4 MB. Search runs over the file a piece at a time.
+Editing means loading it, with a notice saying so.
 
 ## Order
 
@@ -843,8 +919,9 @@ comparison with VS Code.
 7. **Background jobs and their UI.** Done; see "Step 7" above. Search
    counts and the wrap off the window's thread, with the count that fills
    in, as `docs/mockups/BackgroundWork.html` shows.
-8. **Later, if wanted:** positions in bytes; a read-only view for files
-   too large to load.
+8. **Files too large to load.** Done; see "Step 8" above. Read-only, a
+   window at a time from disk, as `docs/mockups/LargeFileView.html`
+   shows. Positions in bytes were left.
 
 ## Looked at and left
 

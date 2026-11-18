@@ -424,10 +424,14 @@ impl Editor {
         let mut depth = guides.depth;
         let wrapping = self.wrapping();
         let signs = self.has_signs();
+        // A large file's place in the whole file, for the scrollbar.
+        let (top_row, total_rows) = self
+            .large_rows()
+            .unwrap_or_else(|| (self.top_row(), self.row_index().total()));
         let mut view = TextView {
             group: self.pane(),
-            top_row: self.top_row(),
-            total_rows: self.row_index().total(),
+            top_row,
+            total_rows,
             area,
             gutter,
             columns: self.text_columns(),
@@ -536,7 +540,10 @@ impl Editor {
                 Some((LineKind::Gap, _)) => String::new(),
                 Some((_, n)) => (n + 1).to_string(),
                 None if relative && line != number_line => line.abs_diff(number_line).to_string(),
-                None => (line + 1).to_string(),
+                // A large file's lines before the count reaches them.
+                None => self
+                    .file_line(line)
+                    .map_or_else(|| "·".into(), |l| (l + 1).to_string()),
             };
             let number = format!("{number:>w$} ", w = gutter - 1 - signs as usize);
             let number_style = match worst {

@@ -317,6 +317,9 @@ impl Editor {
     /// The open file's text replaced as one edit, which Undo takes back,
     /// and saved.
     fn replace_open_text(&mut self, text: String, fx: &mut Vec<Effect>) {
+        if self.large().is_some() {
+            return;
+        }
         let doc = self.doc_mut();
         let now = doc.buffer.text();
         if now == text {

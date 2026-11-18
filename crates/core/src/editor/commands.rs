@@ -220,6 +220,9 @@ impl Editor {
         if id.starts_with("task.") {
             return self.task_command(id, fx);
         }
+        if id.starts_with("large.") {
+            return self.large_command(id, fx);
+        }
         if let Some(url) = id.strip_prefix("open.url:") {
             if url.starts_with("https://") {
                 fx.push(Effect::OpenUrl(url.to_string()));

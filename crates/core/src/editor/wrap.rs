@@ -77,7 +77,7 @@ impl Editor {
     /// Whether long lines wrap: when it's on, and not in a side-by-side
     /// review.
     pub(crate) fn wrapping(&self) -> bool {
-        self.wrap && self.split_rows().is_none()
+        self.wrap && self.split_rows().is_none() && self.doc().large.is_none()
     }
 
     /// Whether lines can take other than one row each: when they wrap, or

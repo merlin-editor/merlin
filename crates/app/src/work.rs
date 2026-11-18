@@ -15,7 +15,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 
 use merlin_core::Event;
-use merlin_core::work::{Job, Kind};
+use merlin_core::work::Job;
 
 use crate::jobs::Waker;
 
@@ -89,9 +89,8 @@ impl Workers {
             }
             return;
         };
-        let same = |a: &Kind, b: &Kind| std::mem::discriminant(a) == std::mem::discriminant(b);
         self.latest.retain(|t| {
-            let older = same(&t.job.kind, &job.kind);
+            let older = job.kind.replaces(&t.job.kind);
             if older {
                 t.stop.store(true, Ordering::Relaxed);
             }

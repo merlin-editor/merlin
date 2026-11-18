@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Large File View</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#08090a;padding:24px 0}
+.w{width:1280px;height:800px;background:#0f1012;font-family:Inter,sans-serif;color:#d4d5da;display:flex;flex-direction:column;font-size:13px;overflow:hidden;position:relative;margin:0 auto 24px}
+.bar{height:40px;display:flex;align-items:center;gap:10px;padding:0 12px;flex-shrink:0}
+.logo{width:20px;height:20px;border-radius:5px;background:#7c9cff;color:#0f1012;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
+.search{margin:0 auto;width:400px;height:26px;border-radius:7px;background:#1c1d21;border:1px solid #2c2d33;color:#8e9099;display:flex;align-items:center;gap:8px;padding:0 10px;font-size:12.5px;box-sizing:border-box}
+.kbd{font-size:11px;background:#26272c;border-radius:4px;padding:1px 6px;color:#b4b6bd;font-family:Inter,sans-serif}
+.mid{flex:1;display:flex;gap:6px;padding-right:6px;min-height:0}
+.rail{width:44px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:6px;padding-top:6px}
+.ri{width:30px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:#7a7d86;font-size:14px;position:relative}
+.ri.on{background:#1c1d21;color:#eef0f3}
+.ri .cm{font:700 9px Inter,sans-serif;letter-spacing:.02em}
+.rline{width:22px;height:1px;background:#2c2d33;margin:2px 0}
+.island{background:#17181b;border-radius:10px;display:flex;flex-direction:column;min-width:0;overflow:hidden;position:relative}
+.tabs{height:32px;display:flex;align-items:center;gap:3px;padding:0 6px;flex-shrink:0}
+.tab{height:24px;padding:0 10px;border-radius:6px;display:flex;align-items:center;gap:6px;color:#8e9099;font-size:12.5px}
+.tab.on{background:#26272c;color:#eef0f3;box-shadow:inset 0 0 0 1px #2c2d33}
+.ic{width:14px;height:14px;border-radius:3px;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;background:#1e2a3a;color:#7cb7ff}
+.ic.cm{background:#1f3324;color:#a6d189}
+.code{font-family:'JetBrains Mono',monospace;font-size:13px;line-height:22px;white-space:pre;padding:4px 0}
+.ln{display:inline-block;width:40px;text-align:right;padding-right:20px;color:#7a7d86}
+.k{color:#c4a7e7}.s{color:#a6d189}.f{color:#f0c674}.t{color:#9ccfd8}.c{color:#7f8794}.n{color:#f5a97f}.v{color:#e5c890}
+.card{position:absolute;background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.45);font-family:Inter,sans-serif;overflow:hidden}
+.head{display:flex;align-items:center;gap:8px;padding:10px 12px 8px}
+.title{font-size:13px;font-weight:600;color:#eef0f3}
+.from{font-size:11.5px;color:#7a7d86}
+.item{display:flex;align-items:center;gap:9px;padding:7px 12px;min-height:22px}
+.dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.what{font-size:12.5px;color:#eef0f3;white-space:nowrap}
+.detail{font-size:12px;color:#8e9099;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+.mono{font-family:'JetBrains Mono',monospace;font-size:12px}
+.link{color:#7c9cff;font-size:12px;white-space:nowrap}
+.btn{height:22px;white-space:nowrap;flex-shrink:0;display:flex;align-items:center;gap:6px;padding:0 8px;border-radius:5px;font-size:12px;color:#d4d5da;background:#26272c}
+.btn.pri{background:#262b3d;color:#eef0f3;box-shadow:inset 0 0 0 1px #3a4466}
+.btn.icon{width:22px;padding:0;justify-content:center}
+.sep{height:1px;background:#2c2d33}
+.status{height:24px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px;color:#8e9099;flex-shrink:0;position:relative}
+.si{display:flex;align-items:center;gap:5px;white-space:nowrap}
+.si.hot{background:#1f2024;border-radius:4px;padding:2px 6px;margin:0 -6px;color:#eef0f3}
+.chip{display:flex;align-items:center;gap:5px;white-space:nowrap;border-radius:4px;padding:2px 6px;margin:0 -4px}
+.chip.on{background:#1f2024;color:#eef0f3}
+.sb{color:#8e9099;font-size:12px;padding:0 2px}
+.spin{width:9px;height:9px;border-radius:50%;border:1.5px solid #3a3b42;border-top-color:#7c9cff;display:inline-block}
+.label{position:absolute;font-family:Inter,sans-serif;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#7c9cff}
+.note{position:absolute;font-family:Inter,sans-serif;font-size:11.5px;color:#8e9099;line-height:16px}
+.note b{color:#d4d5da;font-weight:600}
+.panel{background:#0f1012;border:1px solid #2c2d33;border-radius:8px;position:absolute;overflow:hidden}
+.strip{height:24px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px;color:#8e9099;background:#0f1012}
+.pick{padding:6px}
+.ptitle{height:28px;display:flex;align-items:center;padding:0 8px;font-size:12.5px;color:#eef0f3;border-bottom:1px solid #2c2d33;margin-bottom:4px;gap:8px}
+.prow{display:flex;align-items:center;gap:8px;height:26px;padding:0 8px;border-radius:5px;font-size:12.5px;color:#d4d5da}
+.prow.on{background:#262b3d;color:#eef0f3}
+.prow .detail{flex:0 1 auto;margin-left:auto}
+.psec{font-size:10.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#7a7d86;padding:6px 8px 2px}
+.view{display:flex;flex-direction:column;font-size:12.5px}
+.vhead{height:32px;display:flex;align-items:center;gap:6px;padding:0 10px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#8e9099}
+.sec{display:flex;align-items:center;gap:6px;height:26px;padding:0 10px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#8e9099}
+.row{display:flex;align-items:center;gap:7px;height:24px;padding:0 10px;color:#d4d5da;white-space:nowrap}
+.row.on{background:#262b3d}
+.row .detail{flex:0 1 auto}
+.row .acts{margin-left:auto;display:flex;gap:4px;color:#8e9099}
+.tw{color:#7a7d86;width:10px;font-size:10px}
+.kind{font-size:10px;font-weight:700;border-radius:3px;padding:0 4px;height:14px;line-height:14px}
+.exe{background:#262b3d;color:#9db4ff}
+.lib{background:#26272c;color:#b4b6bd}
+.var{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#d4d5da;width:200px;overflow:hidden;text-overflow:ellipsis}
+.val{height:22px;border-radius:5px;background:#1c1d21;border:1px solid #2c2d33;display:flex;align-items:center;padding:0 7px;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#d4d5da;box-sizing:border-box;flex:1}
+.sw{width:26px;height:14px;border-radius:7px;background:#3a4466;position:relative;flex-shrink:0}
+.sw i{position:absolute;top:2px;left:14px;width:10px;height:10px;border-radius:50%;background:#eef0f3}
+.sw.off{background:#3a3b42}.sw.off i{left:2px;background:#8e9099}
+.mod{font-size:10px;color:#e3b341;border:1px solid #5a4a1e;border-radius:3px;padding:0 4px}
+.banner{display:flex;align-items:center;gap:8px;padding:7px 10px;background:#1f2a40;color:#c9d6ff;font-size:12px}
+.box{height:24px;border-radius:6px;background:#1c1d21;border:1px solid #2c2d33;display:flex;align-items:center;padding:0 8px;color:#7a7d86;font-size:12px;margin:4px 10px;box-sizing:border-box}
+.term{font-family:'JetBrains Mono',monospace;font-size:12px;line-height:19px;white-space:pre;padding:8px 12px;color:#b4b6bd}
+.err{color:#f0807a}.ok{color:#a6d189}.dim{color:#7a7d86}
+.cc{position:absolute;background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.45);overflow:hidden;font-family:'JetBrains Mono',monospace;font-size:12.5px}
+.ci{display:flex;align-items:center;gap:8px;height:24px;padding:0 8px 0 6px;color:#9a9ca4;white-space:nowrap}
+.ci.on{background:#262b3d;color:#d4d5da}
+.km{width:16px;height:16px;border-radius:4px;font:700 9.5px Inter,sans-serif;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.km.fn{background:#3a3320;color:#f0c674}.km.ty{background:#1f3236;color:#9ccfd8}.km.va{background:#2a2b31;color:#d4d5da}
+.km.kw{background:#2f2840;color:#c4a7e7}.km.co{background:#3a2a20;color:#f5a97f}.km.fi{background:#2a2b31;color:#b4b6bd}
+.km.mo{background:#1f3236;color:#9ccfd8}.km.ma{background:#1f3236;color:#9ccfd8}
+.nm{flex-shrink:0}
+.mt{font-weight:600;text-decoration:underline;text-decoration-color:#7c9cff;text-underline-offset:3px}
+.dt{margin-left:auto;padding-left:14px;font-size:11.5px;opacity:.55;overflow:hidden;text-overflow:ellipsis}
+.ci.on .dt{opacity:.9}
+.cdoc{border-top:1px solid #2c2d33;padding:8px 10px;font-size:12px;line-height:18px;color:#d4d5da;white-space:normal}
+.cdoc .p{font-family:Inter,sans-serif;color:#8e9099;font-size:12px;margin-top:4px}
+.ed{font-family:'JetBrains Mono',monospace;font-size:13px;line-height:22px;white-space:pre;color:#d4d5da}
+.cur{display:inline-block;width:2px;height:16px;background:#7c9cff;vertical-align:-3px}
+.old{position:absolute;background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;overflow:hidden;font-family:'JetBrains Mono',monospace;font-size:12.5px}
+.old .ci{color:#d4d5da}
+h2{font:600 12px Inter,sans-serif;letter-spacing:.04em;text-transform:uppercase;color:#7c9cff;margin:0 0 6px}
+.proj{display:flex;align-items:center;gap:8px;height:30px;padding:0 10px;white-space:nowrap}
+.proj.on{background:#262b3d}
+.pi{width:16px;height:16px;border-radius:4px;background:#1f3324;color:#a6d189;font:700 8px Inter,sans-serif;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.tree{font-size:12.5px;color:#b4b6bd}
+.tree .row{height:22px}
+.hit{font-family:'JetBrains Mono',monospace;font-size:12px;color:#8e9099;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hit b{color:#eef0f3;font-weight:600;background:#3a3320;border-radius:2px}
+.scopes{display:flex;gap:4px;padding:6px 8px;border-bottom:1px solid #2c2d33}
+.sc{height:22px;padding:0 8px;border-radius:5px;display:flex;align-items:center;gap:5px;font-size:12px;color:#8e9099}
+.sc.on{background:#26272c;color:#eef0f3;box-shadow:inset 0 0 0 1px #2c2d33}
+.sc .kbd{font-size:10px;padding:0 4px}
+.foot{display:flex;gap:14px;padding:6px 10px;border-top:1px solid #2c2d33;font-size:11.5px;color:#7a7d86}
+.foot b{color:#b4b6bd;font-weight:600}
+.state{display:flex;align-items:center;gap:8px;padding:7px 10px;font-size:12px;color:#b4b6bd;border-top:1px solid #2c2d33}
+.state .link{margin-left:auto}
+.amber{color:#e3b341}
+.scan{font-size:9.5px;font-weight:700;border-radius:3px;padding:0 4px;height:14px;line-height:14px;background:#2a2b31;color:#8e9099;letter-spacing:.02em}
+.ex{color:#6a6d75}
+.ex .ic{opacity:.45}
+.exm{font-size:10px;color:#7a7d86;border:1px solid #3a3b42;border-radius:3px;padding:0 4px;line-height:13px}
+.menu{position:absolute;background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.45);padding:4px;font-size:12.5px;width:250px}
+.mi{display:flex;align-items:center;height:26px;padding:0 10px;border-radius:5px;color:#d4d5da;white-space:nowrap}
+.mi.on{background:#262b3d;color:#eef0f3}
+.mi .kbd{margin-left:auto;background:none;color:#7a7d86}
+.msep{height:1px;background:#2c2d33;margin:4px 6px}
+.vbtns{margin-left:auto;display:flex;gap:6px;color:#8e9099;font-size:13px;text-transform:none;letter-spacing:0}
+.vbtns .on{color:#7c9cff}
+.tog{display:flex;align-items:center;gap:8px;padding:4px 10px;font-size:12px;color:#b4b6bd}
+.glob{display:flex;align-items:center;gap:8px;height:28px;padding:0 10px;border-radius:5px;font-family:'JetBrains Mono',monospace;font-size:12px;color:#d4d5da}
+.glob:nth-child(odd){background:#1a1b1e}
+.glob .why{font-family:Inter,sans-serif;font-size:11.5px;color:#7a7d86;margin-left:auto}
+.glob .x{color:#7a7d86;font-family:Inter,sans-serif}
+.sp{padding:16px 22px}
+.shead{font-size:15px;font-weight:600;color:#eef0f3;margin-bottom:2px}
+.ssub{font-size:12px;color:#8e9099;margin-bottom:14px}
+.set{border-top:1px solid #2c2d33;padding:12px 0}
+.set .sn{font-size:12.5px;color:#eef0f3;font-weight:500;display:flex;align-items:center;gap:8px}
+.set .sd{font-size:12px;color:#8e9099;margin:3px 0 8px;line-height:17px}
+.set .key{font-family:'JetBrains Mono',monospace;font-size:11px;color:#7a7d86;margin-left:auto;font-weight:400}
+.seg{display:flex;background:#1c1d21;border:1px solid #2c2d33;border-radius:6px;padding:2px;gap:2px;width:max-content}
+.seg span{padding:2px 10px;border-radius:4px;font-size:12px;color:#8e9099}
+.seg span.on{background:#26272c;color:#eef0f3}
+.nav{width:200px;flex-shrink:0;padding:10px 6px;font-size:12.5px}
+.nav .row{border-radius:5px}
+
+.find{position:absolute;right:30px;top:4px;width:440px;background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.45);padding:4px;box-sizing:border-box;display:flex;align-items:center;gap:4px;overflow:hidden}
+.find .chev{width:20px;color:#7a7d86;text-align:center;font-size:11px}
+.field{flex:1;height:26px;border:1px solid #7c9cff;border-radius:5px;background:#202126;display:flex;align-items:center;padding:0 8px;gap:6px;box-sizing:border-box;font-size:13px;color:#eef0f3;min-width:0}
+.field .q{white-space:nowrap}
+.field .caret{width:1.5px;height:14px;background:#7c9cff;margin-left:-5px}
+.count{margin-left:auto;font-size:12px;color:#8e9099;white-space:nowrap;display:flex;align-items:center;gap:5px}
+.count.none{color:#e78284}
+.tg{font-size:11px;color:#7a7d86;padding:1px 3px;border-radius:3px}
+.fb{width:26px;height:26px;display:flex;align-items:center;justify-content:center;color:#b4b6bd;border-radius:5px;font-size:13px}
+.prog{position:absolute;left:0;bottom:0;height:2px;background:#7c9cff;border-radius:0 2px 2px 0}
+.spin{display:inline-block;width:10px;height:10px;border:1.5px solid #3a3c44;border-top-color:#7c9cff;border-radius:50%}
+.m{background:rgba(240,198,116,.22);border-radius:2px}
+.m.mc{background:rgba(240,198,116,.55);box-shadow:0 0 0 1px #f0c674}
+.bar2{position:absolute;right:4px;top:40px;bottom:6px;width:10px}
+.mk{position:absolute;right:3px;width:4px;height:2px;background:#f0c674;opacity:.8}
+.thumb{position:absolute;right:0;width:10px;background:rgba(142,144,153,.18);border-radius:4px}
+.cap{position:absolute;left:0;right:0;top:0;height:2px}
+.hd{margin:0 0 4px;font-size:15px;color:#eef0f3;font-weight:600}
+.code .ln{width:84px}
+.wnote{position:static;width:auto}
+.note{font-size:12.5px;color:#b4b6bd;line-height:1.55}
+.note b{color:#eef0f3;font-weight:600}
+.states{display:flex;flex-direction:column;gap:10px}
+.state-row{display:flex;align-items:center;gap:14px}
+.state-row .lbl{width:300px;font-size:12px;color:#8e9099;line-height:1.4}
+.mini{position:relative;width:440px;background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;padding:4px;box-sizing:border-box;display:flex;align-items:center;gap:4px;overflow:hidden}
+.unw{color:#7a7d86}
+.wrapped{padding-left:60px}
+
+.lock{font-size:10px;color:#e3b341}
+.ro{display:flex;align-items:center;gap:10px;padding:6px 12px;background:#1d1f27;border-bottom:1px solid #2c2d33;font-size:12px;color:#b4b6bd;flex-shrink:0}
+.ro b{color:#eef0f3;font-weight:600}
+.ro .btn{margin-left:auto}
+.badge{white-space:nowrap;flex-shrink:0;font-size:10.5px;font-weight:600;color:#e3b341;background:#2a2516;border:1px solid #4a3d1e;border-radius:4px;padding:1px 6px;letter-spacing:.02em}
+.code .ln{width:96px}
+.code .ln.unk{color:#4a4b52}
+.toast{position:absolute;width:420px;background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.5);padding:12px 14px;font-size:12.5px;color:#b4b6bd;line-height:1.5}
+.toast .tt{color:#eef0f3;font-weight:600;font-size:13px;margin-bottom:4px;display:flex;gap:8px;align-items:center}
+.toast .acts{display:flex;gap:6px;margin-top:10px}
+.toast .btn.off{opacity:.45}
+.toast .warn{color:#e3b341}
+.bytes{position:absolute;right:16px;font-size:10.5px;color:#7a7d86;background:#1c1d21;border:1px solid #2c2d33;border-radius:4px;padding:1px 6px}
+.setrow{display:flex;align-items:center;gap:10px}
+.dd{height:24px;border-radius:5px;background:#1c1d21;border:1px solid #2c2d33;display:flex;align-items:center;gap:8px;padding:0 8px;font-size:12px;color:#d4d5da}
+</style>
+</head>
+<body>
+<div class="w">
+  <div class="bar"><div class="logo">m</div><div class="search">⌕ Search files, commands, symbols and text <span class="kbd" style="margin-left:auto">Ctrl Shift P</span></div></div>
+  <div class="mid">
+    <div class="rail"><div class="ri on">❐</div><div class="ri">⌕</div><div class="ri">⑂</div><div class="ri">⚗</div><div class="ri">▷</div><div class="ri">☰</div></div>
+    <div class="island" style="flex:1">
+      <div class="tabs"><div class="tab on"><span class="ic" style="background:#2a2a1e;color:#e5c890">LG</span>server-2026.log<span class="lock">🔒</span></div><span style="margin-left:auto;color:#7a7d86;font-size:11.5px;padding-right:8px">14.2 GB · counting lines…</span></div>
+      <div class="ro"><span class="badge">READ-ONLY</span><span><b>14.2 GB</b> is too large to load. Scrolling, Find, Go to Line and copying work here; editing needs it loaded.</span><span class="btn pri">Load to Edit…</span><span class="btn icon">✕</span></div>
+      <div style="position:relative;flex:1;overflow:hidden">
+      <div class="code" style="color:#d4d5da"><span class="ln">1</span>2026-11-03T10:00:01Z INFO request path=/login status=304 took=229ms
+<span class="ln">2</span>2026-11-03T10:00:02Z INFO request path=/api/orders/21165 status=200 took=353ms
+<span class="ln">3</span>2026-11-03T10:00:03Z INFO request path=/health status=304 took=757ms
+<span class="ln">4</span>2026-11-03T10:00:04Z INFO request path=/api/users status=304 took=564ms
+<span class="ln">5</span>2026-11-03T10:00:05Z INFO request path=/api/users status=404 took=296ms
+<span class="ln">6</span>2026-11-03T10:00:06Z INFO request path=/api/orders/73582 status=200 took=877ms
+<span class="ln">7</span>2026-11-03T10:00:07Z INFO request path=/login status=404 took=517ms
+<span class="ln">8</span>2026-11-03T10:00:08Z INFO request path=/api/users status=500 took=216ms
+<span class="ln">9</span>2026-11-03T10:00:09Z WARN request path=/login status=200 took=164ms
+<span class="ln">10</span>2026-11-03T10:00:10Z INFO request path=/static/app.js status=304 took=210ms
+<span class="ln">11</span>2026-11-03T10:00:11Z WARN request path=/api/orders/54359 status=200 took=807ms
+<span class="ln">12</span>2026-11-03T10:00:12Z INFO request path=/api/users status=500 took=629ms
+<span class="ln">13</span>2026-11-03T10:00:13Z INFO request path=/static/app.js status=200 took=721ms
+<span class="ln">14</span>2026-11-03T10:00:14Z INFO request path=/static/app.js status=200 took=600ms
+<span class="ln">15</span>2026-11-03T10:00:15Z WARN request path=/health status=200 took=692ms
+<span class="ln">16</span>2026-11-03T10:00:16Z INFO request path=/static/app.js status=304 took=392ms
+<span class="ln">17</span>2026-11-03T10:00:17Z INFO request path=/login status=304 took=238ms
+<span class="ln">18</span>2026-11-03T10:00:18Z INFO request path=/static/app.js status=200 took=644ms
+<span class="ln">19</span>2026-11-03T10:00:19Z WARN request path=/login status=500 took=465ms
+<span class="ln">20</span>2026-11-03T10:00:20Z WARN request path=/api/users status=404 took=738ms
+<span class="ln">21</span>2026-11-03T10:00:21Z INFO request path=/login status=200 took=464ms
+<span class="ln">22</span>2026-11-03T10:00:22Z INFO request path=/login status=404 took=772ms
+<span class="ln">23</span>2026-11-03T10:00:23Z INFO request path=/static/app.js status=500 took=658ms
+<span class="ln">24</span>2026-11-03T10:00:24Z INFO request path=/login status=200 took=112ms
+<span class="ln">25</span>2026-11-03T10:00:25Z INFO request path=/login status=200 took=373ms
+<span class="ln">26</span>2026-11-03T10:00:26Z INFO request path=/api/users status=200 took=485ms
+<span class="ln">27</span>2026-11-03T10:00:27Z INFO request path=/api/users status=200 took=773ms</div>
+      
+      <div class="bar2" style="top:6px"><div class="thumb" style="top:0%;height:1%"></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="status"><span class="si">⑂ main</span><span class="si">⊗ 0</span><span class="si">⚠ 0</span><span class="si" style="margin-left:auto">Ln 1, Col 1</span><span class="si">UTF-8</span><span class="si">LF</span><span class="si"><span class="spin"></span> Counting lines 38%</span><span class="chip on">Read-only</span><span class="si">Plain Text</span></div>
+</div>
+<div class="w" style="height:auto;padding:22px 28px;gap:10px"><div class="hd">1 · A file too large to load opens read-only</div><div class="note wnote">Above a share of memory (by default, a file larger than a quarter of the memory free when it opens), merlin reads the file straight from disk instead of loading it: a 14.2 GB log shows in about a tenth of a second and costs a few MB, whatever its size. The tab has a lock and a band says why, with <b>Load to Edit…</b> for when you need to change it; ✕ hides the band for this file. The lines are counted in the background (about 5 s for 14 GB): the status bar shows <b>Counting lines 38%</b>, and until then the scrollbar goes by bytes and the tab shows the size only. Plain text only: no colours, git gutter, blame, word wrap, language servers or plugins in this view. The minimap still works, from the lines on screen.</div></div>
+<div class="w">
+  <div class="bar"><div class="logo">m</div><div class="search">⌕ Search files, commands, symbols and text <span class="kbd" style="margin-left:auto">Ctrl Shift P</span></div></div>
+  <div class="mid">
+    <div class="rail"><div class="ri on">❐</div><div class="ri">⌕</div><div class="ri">⑂</div><div class="ri">⚗</div><div class="ri">▷</div><div class="ri">☰</div></div>
+    <div class="island" style="flex:1">
+      <div class="tabs"><div class="tab on"><span class="ic" style="background:#2a2a1e;color:#e5c890">LG</span>server-2026.log<span class="lock">🔒</span></div><span style="margin-left:auto;color:#7a7d86;font-size:11.5px;padding-right:8px">14.2 GB · 203,118,450 lines</span></div>
+      <div class="ro"><span class="badge">READ-ONLY</span><span><b>14.2 GB</b> is too large to load. Scrolling, Find, Go to Line and copying work here; editing needs it loaded.</span><span class="btn pri">Load to Edit…</span><span class="btn icon">✕</span></div>
+      <div style="position:relative;flex:1;overflow:hidden">
+      <div class="code" style="color:#d4d5da"><span class="ln">141,602,300</span>2026-11-18T10:38:20Z INFO request path=/api/orders/31781 status=500 took=126ms
+<span class="ln">141,602,301</span>2026-11-18T10:38:21Z INFO request path=/health status=200 took=219ms
+<span class="ln">141,602,302</span>2026-11-18T10:38:22Z INFO request path=/api/users status=200 took=274ms
+<span class="ln">141,602,303</span>2026-11-18T10:38:23Z INFO request path=/api/users status=200 took=242ms
+<span class="ln">141,602,304</span>2026-11-18T10:38:24Z INFO request path=/static/app.js status=304 <span class="m">timeout</span> after took=516ms
+<span class="ln">141,602,305</span>2026-11-18T10:38:25Z INFO request path=/api/orders/87137 status=200 took=395ms
+<span class="ln">141,602,306</span>2026-11-18T10:38:26Z WARN request path=/api/orders/14460 status=200 took=779ms
+<span class="ln">141,602,307</span>2026-11-18T10:38:27Z INFO request path=/static/app.js status=404 took=468ms
+<span class="ln">141,602,308</span>2026-11-18T10:38:28Z INFO request path=/static/app.js status=304 took=825ms
+<span class="ln">141,602,309</span>2026-11-18T10:38:29Z INFO request path=/static/app.js status=200 took=294ms
+<span class="ln">141,602,310</span>2026-11-18T10:38:30Z INFO request path=/health status=200 took=495ms
+<span class="ln">141,602,311</span>2026-11-18T10:38:31Z WARN request path=/static/app.js status=200 <span class="m mc">timeout</span> after took=861ms
+<span class="ln">141,602,312</span>2026-11-18T10:38:32Z INFO request path=/login status=200 took=474ms
+<span class="ln">141,602,313</span>2026-11-18T10:38:33Z INFO request path=/api/users status=200 took=162ms
+<span class="ln">141,602,314</span>2026-11-18T10:38:34Z INFO request path=/api/orders/86022 status=200 took=282ms
+<span class="ln">141,602,315</span>2026-11-18T10:38:35Z INFO request path=/api/users status=304 took=223ms
+<span class="ln">141,602,316</span>2026-11-18T10:38:36Z INFO request path=/health status=404 took=329ms
+<span class="ln">141,602,317</span>2026-11-18T10:38:37Z INFO request path=/api/users status=200 <span class="m">timeout</span> after took=490ms
+<span class="ln">141,602,318</span>2026-11-18T10:38:38Z INFO request path=/api/orders/86118 status=500 took=563ms
+<span class="ln">141,602,319</span>2026-11-18T10:38:39Z WARN request path=/health status=500 took=550ms
+<span class="ln">141,602,320</span>2026-11-18T10:38:40Z INFO request path=/api/orders/71773 status=404 took=503ms
+<span class="ln">141,602,321</span>2026-11-18T10:38:41Z INFO request path=/api/users status=200 took=152ms
+<span class="ln">141,602,322</span>2026-11-18T10:38:42Z INFO request path=/api/orders/68487 status=200 took=210ms
+<span class="ln">141,602,323</span>2026-11-18T10:38:43Z INFO request path=/api/orders/88727 status=404 took=123ms
+<span class="ln">141,602,324</span>2026-11-18T10:38:44Z WARN request path=/login status=304 took=640ms
+<span class="ln">141,602,325</span>2026-11-18T10:38:45Z INFO request path=/static/app.js status=404 took=822ms
+<span class="ln">141,602,326</span>2026-11-18T10:38:46Z INFO request path=/health status=404 took=334ms</div>
+      <div class="find" style="top:4px"><span class="chev">›</span><div class="field"><span class="q">timeout</span><span class="caret"></span><span class="count"><span class="spin"></span>88,412 so far</span><span class="tg">Aa</span><span class="tg">ab</span><span class="tg">.*</span></div><span class="fb">↑</span><span class="fb">↓</span><span class="fb">⊟</span><span class="fb">✕</span><div class="prog" style="width:52%"></div></div>
+      <div class="bar2" style="top:6px"><div class="thumb" style="top:69.5%;height:1%"></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="status"><span class="si">⑂ main</span><span class="si">⊗ 0</span><span class="si">⚠ 0</span><span class="si" style="margin-left:auto">Ln 141,602,311, Col 64</span><span class="si">UTF-8</span><span class="si">LF</span><span class="chip on">Read-only</span><span class="si">Plain Text</span></div>
+</div>
+<div class="w" style="height:auto;padding:22px 28px;gap:10px"><div class="hd">2 · Find and Go to Line work as in any large file</div><div class="note wnote">Find counts in the background as step 7 does, reading the file from disk a piece at a time instead of from memory: <b>88,412 so far</b>, ↑ ↓ and Enter going to the next match at once. Go to Line jumps straight there once the lines are counted. Before then, a jump or a drag of the scrollbar past the counted part lands by bytes, and the line numbers there show as <b>·</b> until the count reaches them (below). Selecting and copying work; a copy of more than 64 MB asks first.</div></div>
+<div class="w">
+  <div class="bar"><div class="logo">m</div><div class="search">⌕ Search files, commands, symbols and text <span class="kbd" style="margin-left:auto">Ctrl Shift P</span></div></div>
+  <div class="mid">
+    <div class="rail"><div class="ri on">❐</div><div class="ri">⌕</div><div class="ri">⑂</div><div class="ri">⚗</div><div class="ri">▷</div><div class="ri">☰</div></div>
+    <div class="island" style="flex:1">
+      <div class="tabs"><div class="tab on"><span class="ic" style="background:#2a2a1e;color:#e5c890">LG</span>server-2026.log<span class="lock">🔒</span></div><span style="margin-left:auto;color:#7a7d86;font-size:11.5px;padding-right:8px">14.2 GB · counting lines…</span></div>
+      <div class="ro"><span class="badge">READ-ONLY</span><span><b>14.2 GB</b> is too large to load. Scrolling, Find, Go to Line and copying work here; editing needs it loaded.</span><span class="btn pri">Load to Edit…</span><span class="btn icon">✕</span></div>
+      <div style="position:relative;flex:1;overflow:hidden">
+      <div class="code" style="color:#d4d5da"><span class="ln unk">·</span>2026-11-20T10:00:00Z INFO request path=/static/app.js status=304 took=861ms
+<span class="ln unk">·</span>2026-11-20T10:00:01Z INFO request path=/health status=200 took=396ms
+<span class="ln unk">·</span>2026-11-20T10:00:02Z INFO request path=/login status=200 took=861ms
+<span class="ln unk">·</span>2026-11-20T10:00:03Z INFO request path=/api/users status=200 took=747ms
+<span class="ln unk">·</span>2026-11-20T10:00:04Z INFO request path=/api/orders/81740 status=304 took=862ms
+<span class="ln unk">·</span>2026-11-20T10:00:05Z INFO request path=/login status=404 took=409ms
+<span class="ln unk">·</span>2026-11-20T10:00:06Z WARN request path=/login status=200 took=767ms
+<span class="ln unk">·</span>2026-11-20T10:00:07Z INFO request path=/health status=304 took=478ms
+<span class="ln unk">·</span>2026-11-20T10:00:08Z INFO request path=/static/app.js status=200 took=310ms
+<span class="ln unk">·</span>2026-11-20T10:00:09Z INFO request path=/api/users status=404 took=492ms
+<span class="ln unk">·</span>2026-11-20T10:00:10Z WARN request path=/static/app.js status=500 took=845ms
+<span class="ln unk">·</span>2026-11-20T10:00:11Z INFO request path=/static/app.js status=404 took=470ms
+<span class="ln unk">·</span>2026-11-20T10:00:12Z WARN request path=/api/users status=200 took=601ms
+<span class="ln unk">·</span>2026-11-20T10:00:13Z INFO request path=/static/app.js status=200 took=375ms
+<span class="ln unk">·</span>2026-11-20T10:00:14Z INFO request path=/api/orders/75305 status=500 took=377ms
+<span class="ln unk">·</span>2026-11-20T10:00:15Z INFO request path=/api/orders/91861 status=200 took=398ms
+<span class="ln unk">·</span>2026-11-20T10:00:16Z INFO request path=/static/app.js status=200 took=383ms
+<span class="ln unk">·</span>2026-11-20T10:00:17Z WARN request path=/api/users status=200 took=470ms
+<span class="ln unk">·</span>2026-11-20T10:00:18Z INFO request path=/health status=404 took=865ms
+<span class="ln unk">·</span>2026-11-20T10:00:19Z INFO request path=/health status=200 took=710ms
+<span class="ln unk">·</span>2026-11-20T10:00:20Z INFO request path=/health status=200 took=608ms
+<span class="ln unk">·</span>2026-11-20T10:00:21Z INFO request path=/api/orders/60848 status=200 took=770ms
+<span class="ln unk">·</span>2026-11-20T10:00:22Z INFO request path=/static/app.js status=304 took=146ms
+<span class="ln unk">·</span>2026-11-20T10:00:23Z INFO request path=/api/orders/89991 status=200 took=801ms
+<span class="ln unk">·</span>2026-11-20T10:00:24Z INFO request path=/api/orders/22508 status=304 took=570ms
+<span class="ln unk">·</span>2026-11-20T10:00:25Z WARN request path=/login status=404 took=194ms
+<span class="ln unk">·</span>2026-11-20T10:00:26Z INFO request path=/static/app.js status=200 took=768ms</div>
+      
+      <div class="bar2" style="top:6px"><div class="thumb" style="top:78.9%;height:1%"></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="status"><span class="si">⑂ main</span><span class="si">⊗ 0</span><span class="si">⚠ 0</span><span class="si" style="margin-left:auto">Ln ·, Col 1 · byte 11,203,557,120</span><span class="si">UTF-8</span><span class="si">LF</span><span class="si"><span class="spin"></span> Counting lines 41%</span><span class="chip on">Read-only</span><span class="si">Plain Text</span></div>
+</div>
+<div class="w" style="height:auto;padding:22px 28px;gap:10px"><div class="hd">3 · Past the counted part, for a few seconds</div><div class="note wnote">Dragged to near the end before the count got there: the text shows at once, but which line it is isn't known yet, so the numbers are <b>·</b> and the status bar gives the byte. They fill in when the count passes.</div></div>
+<div class="w">
+  <div class="bar"><div class="logo">m</div><div class="search">⌕ Search files, commands, symbols and text <span class="kbd" style="margin-left:auto">Ctrl Shift P</span></div></div>
+  <div class="mid">
+    <div class="rail"><div class="ri on">❐</div><div class="ri">⌕</div><div class="ri">⑂</div><div class="ri">⚗</div><div class="ri">▷</div><div class="ri">☰</div></div>
+    <div class="island" style="flex:1">
+      <div class="tabs"><div class="tab on"><span class="ic" style="background:#2a2a1e;color:#e5c890">LG</span>server-2026.log<span class="lock">🔒</span></div><span style="margin-left:auto;color:#7a7d86;font-size:11.5px;padding-right:8px">14.2 GB · 203,118,450 lines</span></div>
+      <div class="ro"><span class="badge">READ-ONLY</span><span><b>14.2 GB</b> is too large to load. Scrolling, Find, Go to Line and copying work here; editing needs it loaded.</span><span class="btn pri">Load to Edit…</span><span class="btn icon">✕</span></div>
+      <div style="position:relative;flex:1;overflow:hidden">
+      <div class="code" style="color:#d4d5da"><span class="ln">141,602,300</span>2026-11-18T10:38:20Z INFO request path=/login status=200 took=185ms
+<span class="ln">141,602,301</span>2026-11-18T10:38:21Z INFO request path=/login status=200 took=336ms
+<span class="ln">141,602,302</span>2026-11-18T10:38:22Z WARN request path=/api/orders/88608 status=200 took=327ms
+<span class="ln">141,602,303</span>2026-11-18T10:38:23Z INFO request path=/login status=200 took=167ms
+<span class="ln">141,602,304</span>2026-11-18T10:38:24Z INFO request path=/api/orders/89892 status=200 took=544ms
+<span class="ln">141,602,305</span>2026-11-18T10:38:25Z INFO request path=/health status=200 took=498ms
+<span class="ln">141,602,306</span>2026-11-18T10:38:26Z INFO request path=/api/users status=500 took=900ms
+<span class="ln">141,602,307</span>2026-11-18T10:38:27Z INFO request path=/api/orders/80053 status=200 took=184ms
+<span class="ln">141,602,308</span>2026-11-18T10:38:28Z INFO request path=/health status=200 took=867ms
+<span class="ln">141,602,309</span>2026-11-18T10:38:29Z INFO request path=/api/orders/16668 status=200 took=669ms
+<span class="ln">141,602,310</span>2026-11-18T10:38:30Z WARN request path=/health status=200 took=672ms
+<span class="ln">141,602,311</span>2026-11-18T10:38:31Z WARN request path=/login status=200 <span class="m mc">timeout</span> after took=348ms
+<span class="ln">141,602,312</span>2026-11-18T10:38:32Z WARN request path=/static/app.js status=304 took=213ms
+<span class="ln">141,602,313</span>2026-11-18T10:38:33Z INFO request path=/api/orders/28021 status=500 took=235ms
+<span class="ln">141,602,314</span>2026-11-18T10:38:34Z INFO request path=/login status=200 took=517ms
+<span class="ln">141,602,315</span>2026-11-18T10:38:35Z INFO request path=/health status=200 took=880ms
+<span class="ln">141,602,316</span>2026-11-18T10:38:36Z INFO request path=/api/orders/68767 status=404 took=783ms
+<span class="ln">141,602,317</span>2026-11-18T10:38:37Z INFO request path=/login status=304 took=547ms
+<span class="ln">141,602,318</span>2026-11-18T10:38:38Z INFO request path=/login status=500 took=677ms
+<span class="ln">141,602,319</span>2026-11-18T10:38:39Z WARN request path=/api/users status=200 took=852ms
+<span class="ln">141,602,320</span>2026-11-18T10:38:40Z INFO request path=/health status=200 took=372ms
+<span class="ln">141,602,321</span>2026-11-18T10:38:41Z WARN request path=/api/users status=200 took=383ms
+<span class="ln">141,602,322</span>2026-11-18T10:38:42Z INFO request path=/static/app.js status=404 took=624ms
+<span class="ln">141,602,323</span>2026-11-18T10:38:43Z INFO request path=/health status=404 took=639ms
+<span class="ln">141,602,324</span>2026-11-18T10:38:44Z INFO request path=/health status=304 took=762ms
+<span class="ln">141,602,325</span>2026-11-18T10:38:45Z INFO request path=/api/orders/48168 status=304 took=132ms
+<span class="ln">141,602,326</span>2026-11-18T10:38:46Z INFO request path=/login status=404 took=403ms</div>
+      <div class="toast" style="right:24px;top:14px"><div class="tt">🔒 server-2026.log is open read-only</div>Loading it to edit takes about <b style="color:#eef0f3">16.3 GB</b> of memory (22 GB is free) and about 40 s. It opens where you are, with colours and git as usual for a large file.<div class="acts"><span class="btn pri">Load to Edit</span><span class="btn">Keep Read-only</span></div></div>
+      <div class="bar2" style="top:6px"><div class="thumb" style="top:69.5%;height:1%"></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="status"><span class="si">⑂ main</span><span class="si">⊗ 0</span><span class="si">⚠ 0</span><span class="si" style="margin-left:auto">Ln 141,602,311, Col 64</span><span class="si">UTF-8</span><span class="si">LF</span><span class="chip on">Read-only</span><span class="si">Plain Text</span></div>
+</div>
+<div class="w" style="height:auto;padding:22px 28px;gap:10px"><div class="hd">4 · Typing, pasting or Load to Edit…</div><div class="note wnote">Any edit asks first, saying what loading costs: the memory (about 1.15× the file) against what's free, and roughly how long. <b>Load to Edit</b> streams it in, with progress in the band, and keeps your place; nothing typed is lost, it applies once loaded. Keep Read-only, or Escape, drops the edit.</div></div>
+<div class="w" style="height:auto;padding:22px 28px;gap:16px"><div class="hd">5 · Each state</div><div class="states"><div class="state-row"><div style="width:560px;position:relative"><div class="ro" style="border-radius:6px"><span class="badge">READ-ONLY</span><span><b>14.2 GB</b> is too large to load. Scrolling, Find, Go to Line and copying work here; editing needs it loaded.</span><span class="btn pri">Load to Edit…</span><span class="btn icon">✕</span></div></div><div class="lbl" style="width:420px">Opened: why it is read-only, and the way out.</div></div><div class="state-row"><div style="width:560px;position:relative"><div class="ro" style="border-radius:6px"><span class="badge">LOADING</span><span>Loading to edit… <b>6.1 of 14.2 GB</b></span><span class="btn" style="margin-left:auto">Cancel</span></div></div><div class="lbl" style="width:420px">Loading: scrolling and Find carry on in the read-only view meanwhile; Cancel stays read-only.</div></div><div class="state-row"><div style="width:560px;position:relative"><div class="toast" style="position:static;width:auto"><div class="tt">🔒 server-2026.log is open read-only</div>Editing needs it loaded: about <b style="color:#eef0f3">16.3 GB</b>, but <span class="warn">only 9.8 GB is free</span>.<div class="acts"><span class="btn pri off">Load to Edit</span><span class="btn">Keep Read-only</span></div></div></div><div class="lbl" style="width:420px">Too large even to load: the button is off and the notice says why. Close other files or programs and try again.</div></div><div class="state-row"><div style="width:560px;position:relative"><div class="ro" style="border-radius:6px"><span class="badge">READ-ONLY</span><span>The file grew on disk: <b>+3.4 MB</b>, 41,206 new lines.</span><span class="btn" style="margin-left:auto">Go to End</span></div></div><div class="lbl" style="width:420px">A log still being written: new lines are added as it grows (Go to End jumps there), and a view left at the end follows them, like <span class="mono">tail -f</span>. If it is cut short or replaced, it opens again from the top, where you were if that line is still there.</div></div><div class="state-row"><div style="width:560px;position:relative"><div class="set" style="border-top:none;padding:0"><div class="sn">Large Files: Open Read-only Above<span class="key">editor.largeFileReadOnly</span></div><div class="sd">Files larger than this open read-only from disk instead of loading.</div><div class="setrow"><div class="dd">Auto (a quarter of free memory) ▾</div></div></div></div><div class="lbl" style="width:420px">The setting: Auto, a size such as 2 GB, or Never (always load, and ask first if it won't fit).</div></div></div></div>
+</body>
+</html>

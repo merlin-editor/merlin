@@ -375,6 +375,8 @@ pub struct TabView {
     pub pinned: bool,
     /// Open in the merge editor: "Merging" follows its name.
     pub merging: bool,
+    /// A file too large to load, shown read-only: a lock follows its name.
+    pub read_only: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

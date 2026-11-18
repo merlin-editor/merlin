@@ -216,6 +216,8 @@ struct App {
     exclusions: std::sync::Arc<merlin_core::exclude::Matcher>,
     /// The Explorer shows what's left out, dimmed.
     show_excluded: bool,
+    /// Which files open read-only from disk rather than loaded.
+    large_files: merlin_core::bigfile::LargeFiles,
     /// What the watched folders were last worked out from.
     watch_for: Option<(Vec<Option<PathBuf>>, usize)>,
     backups: Backups,
@@ -397,6 +399,7 @@ impl App {
         self.choice.colours = self.chosen_colours();
         self.choice.icons = settings::editor_text(&table, "icon_theme").map(str::to_string);
         self.choice.packs = settings::editor_list(&table, "packs");
+        self.large_files = settings::large_files(&table);
         let mut events = vec![Event::Settings(editor)];
         events.extend(toggled);
         events.extend(heard);
@@ -439,7 +442,7 @@ impl App {
             let event = Event::Error(format!("{} is a folder", path.display()));
             self.dispatch(event);
         } else {
-            self.open_later(path);
+            self.open_later(path, false);
         }
     }
 
@@ -454,6 +457,17 @@ impl App {
             return vec![Event::Opened {
                 path,
                 text: Default::default(),
+            }];
+        }
+        // Too large to load: read-only from disk.
+        let size = fs::metadata(&full).map(|m| m.len()).unwrap_or(0);
+        let free = memory_free();
+        if self.large_files.read_only(size, free) {
+            return vec![Event::OpenedLarge {
+                path,
+                full,
+                size,
+                free,
             }];
         }
         match read_file(&full) {
@@ -474,12 +488,27 @@ impl App {
         }
     }
 
-    /// Reads a file to open, then its text as of the last commit.
-    fn open_later(&mut self, path: &Path) {
+    /// Reads a file to open, then its text as of the last commit; or for
+    /// a file too large to load, unless `whole`, opens it read-only.
+    fn open_later(&mut self, path: &Path, whole: bool) {
         let path = relative_to(&self.root, path);
         let full = self.root.join(&path);
+        let rule = self.large_files;
         self.jobs.run(Lane::Disk, move || {
             let when = modified(&full);
+            let size = fs::metadata(&full).map(|m| m.len()).unwrap_or(0);
+            let free = memory_free();
+            if !whole && rule.read_only(size, free) {
+                return Box::new(move |app: &mut App| {
+                    app.disk.insert(path.clone(), when);
+                    vec![Event::OpenedLarge {
+                        path,
+                        full,
+                        size,
+                        free,
+                    }]
+                });
+            }
             let read = read_file(&full);
             let config = editorconfig::for_file(&full);
             Box::new(move |app: &mut App| match read {
@@ -502,9 +531,14 @@ impl App {
         });
     }
 
-    /// Reads an open file again that changed on disk.
+    /// Reads an open file again that changed on disk; for a large file
+    /// shown from disk, only its new size.
     fn reload_later(&mut self, path: PathBuf) {
         let full = self.root.join(&path);
+        if self.editor.is_large(&path) {
+            let size = fs::metadata(&full).map(|m| m.len()).unwrap_or(0);
+            return self.dispatch(Event::LargeResized { path, size });
+        }
         self.jobs.run(Lane::Disk, move || {
             let read = fs::read_to_string(&full);
             jobs::events(match read {
@@ -866,6 +900,21 @@ impl App {
 /// A file to edit, read whole. One that isn't there yet opens empty.
 /// Reads a file straight into a rope, a piece at a time, so it's never
 /// held whole twice.
+/// The memory free for a file to load into, if the system says.
+fn memory_free() -> Option<u64> {
+    #[cfg(target_os = "linux")]
+    {
+        let info = fs::read_to_string("/proc/meminfo").ok()?;
+        let line = info.lines().find(|l| l.starts_with("MemAvailable:"))?;
+        let kb: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
+        Some(kb * 1024)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
+    }
+}
+
 fn read_file(path: &Path) -> io::Result<merlin_core::ropey::Rope> {
     match fs::File::open(path) {
         Ok(file) => {
@@ -1264,9 +1313,20 @@ fn snapshot(
     exclusions: &std::sync::Arc<merlin_core::exclude::Matcher>,
 ) -> Snapshot {
     let buffer = editor.buffer();
+    // A large file shown from disk is only a window here: plugins see no
+    // file.
+    let large = editor.shows_large();
     Snapshot {
-        path: buffer.path.as_ref().map(|p| p.display().to_string()),
-        text: buffer.snapshot(),
+        path: buffer
+            .path
+            .as_ref()
+            .filter(|_| !large)
+            .map(|p| p.display().to_string()),
+        text: if large {
+            Default::default()
+        } else {
+            buffer.snapshot()
+        },
         root: root.to_path_buf(),
         cursor: editor.cursor_utf16(),
         selection: editor
@@ -1418,6 +1478,7 @@ fn main() -> Result<()> {
         tree_hash: None,
         exclusions: Default::default(),
         show_excluded: false,
+        large_files: Default::default(),
         watch_for: None,
         backups: Backups::new(backups_dir),
         auto_save: None,

@@ -3,6 +3,7 @@
 //! back (writing files, calling plugins). What it shows is plain data for
 //! the window to draw, so the same code drives the window and the tests.
 
+pub mod bigfile;
 pub mod buffer;
 /// The rope the text is kept in, for hosts that read files into one.
 pub use ropey;

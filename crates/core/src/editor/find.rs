@@ -211,6 +211,9 @@ impl Editor {
     /// counted yet is searched at once, so typing never waits on a query
     /// that matches nothing: it's tried again as the count comes in.
     fn seek(&mut self, at: usize, forward: bool) {
+        if self.large().is_some() {
+            return self.seek_large(at, forward);
+        }
         let Some(matcher) = self.query() else {
             return;
         };
@@ -312,7 +315,16 @@ impl Editor {
         let invalid = matcher.is_err();
         let doc = self.doc();
         let at = doc.selection().map(|(start, _)| start);
+        let large = doc.large.as_deref().and_then(|l| l.found.as_ref());
         let (current, total, ignore_case, counting) = match matcher.ok().flatten() {
+            // A large file's count, read from disk in the background.
+            Some(m) if doc.large.is_some() => match large.filter(|f| f.matcher == m) {
+                Some(found) => {
+                    let counting = (!found.complete()).then(|| (found.progress() * 100.0) as u8);
+                    (None, found.total() as usize, m.folds(), counting)
+                }
+                None => (None, 0, m.folds(), Some(0)),
+            },
             Some(m) => match doc.found(&m) {
                 Some(found) => {
                     let rope = doc.buffer.rope();

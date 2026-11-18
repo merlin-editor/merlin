@@ -3,6 +3,9 @@
 
 use super::*;
 
+/// Room a read-only tab's lock takes after its name.
+const LOCK_W: f32 = 15.0;
+
 impl Frame<'_> {
     /// A strip of tabs in `row`, for group `group` when there are several.
     /// With more tabs than fit, it starts late enough for the active one to
@@ -45,7 +48,8 @@ impl Frame<'_> {
                     PINNED_W
                 } else {
                     let nw = self.text.width(&t.name, face_of(t))
-                        + if t.merging { merging_w } else { 0.0 };
+                        + if t.merging { merging_w } else { 0.0 }
+                        + if t.read_only { LOCK_W } else { 0.0 };
                     TAB_PAD + 14.0 + 7.0 + nw + 5.0 + 18.0 + 6.0
                 }
             })
@@ -186,6 +190,22 @@ impl Frame<'_> {
                 );
                 nw += merging_w;
             }
+            if tab.read_only {
+                // A small padlock: its shackle, then its body.
+                let lx = x + TAB_PAD + 21.0 + nw + 6.0;
+                let mid = r.y + r.h / 2.0;
+                let colour = p.warning;
+                self.canvas.frame(
+                    Rect::new(lx + 1.5, mid - 5.5, 6.0, 7.0),
+                    3.0,
+                    1.3,
+                    colour,
+                    255,
+                );
+                self.canvas
+                    .round(Rect::new(lx, mid - 1.5, 9.0, 6.5), 1.5, colour);
+                nw += LOCK_W;
+            }
             let close = Rect::new(
                 x + TAB_PAD + 21.0 + nw + 5.0,
                 r.y + (r.h - 18.0) / 2.0,
@@ -307,10 +327,22 @@ impl Frame<'_> {
     pub(super) fn plugin_bar(&mut self, bar: &merlin_core::FileBarView, r: Rect) {
         let p = self.p;
         let face = Face::ui(12.5);
-        self.canvas.fill(r, mix(p.warning, p.island, 0.12));
+        // A bar with a badge says what the file is, not that something's
+        // wrong: quieter.
+        let tint = if bar.badge.is_some() {
+            p.accent
+        } else {
+            p.warning
+        };
+        let (fill, rule) = if bar.badge.is_some() {
+            (0.06, 0.16)
+        } else {
+            (0.12, 0.22)
+        };
+        self.canvas.fill(r, mix(tint, p.island, fill));
         self.canvas.fill(
             Rect::new(r.x, r.bottom() - 1.0, r.w, 1.0),
-            mix(p.warning, p.island, 0.22),
+            mix(tint, p.island, rule),
         );
         let (h, y) = (26.0, r.y + (r.h - 26.0) / 2.0);
         let mut x = r.right() - 8.0;
@@ -334,7 +366,12 @@ impl Frame<'_> {
             close,
             Hit::Ui(UiEvent::Press(format!("bar:{}:x", bar.index))),
         );
-        self.tips.push((close, "Hide for This Project".into()));
+        let tip = if bar.badge.is_some() {
+            "Hide"
+        } else {
+            "Hide for This Project"
+        };
+        self.tips.push((close, tip.into()));
         x = close.x - 8.0;
         for (n, (i, label)) in bar.buttons.iter().enumerate().rev() {
             let primary = n == 0;
@@ -356,22 +393,51 @@ impl Frame<'_> {
             x -= 8.0;
         }
         let text_r = Rect::new(r.x + 12.0, r.y, (x - r.x - 12.0).max(0.0), r.h);
-        self.text.draw_in_row(
-            &mut self.canvas,
-            "⚠",
-            face,
-            text_r.x,
-            r.y,
-            r.h,
-            p.warning,
-            text_r,
-        );
-        let text = self.text.fit(&bar.text, face, (text_r.w - 22.0).max(0.0));
+        // The badge in its box, or the warning sign.
+        let lead = match &bar.badge {
+            Some(badge) => {
+                let small = Face::ui(10.5).medium();
+                let w = self.text.width(badge, small) + 12.0;
+                let chip = Rect::new(text_r.x, r.y + (r.h - 18.0) / 2.0, w, 18.0);
+                self.canvas.outline(
+                    chip,
+                    4.0,
+                    1.0,
+                    mix(p.warning, p.island, 0.45),
+                    mix(p.warning, p.island, 0.12),
+                );
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    badge,
+                    small,
+                    chip.x + 6.0,
+                    chip.y,
+                    chip.h,
+                    p.warning,
+                    chip,
+                );
+                w + 10.0
+            }
+            None => {
+                self.text.draw_in_row(
+                    &mut self.canvas,
+                    "⚠",
+                    face,
+                    text_r.x,
+                    r.y,
+                    r.h,
+                    p.warning,
+                    text_r,
+                );
+                22.0
+            }
+        };
+        let text = self.text.fit(&bar.text, face, (text_r.w - lead).max(0.0));
         self.text.draw_in_row(
             &mut self.canvas,
             &text,
             face,
-            text_r.x + 22.0,
+            text_r.x + lead,
             r.y,
             r.h,
             p.text,

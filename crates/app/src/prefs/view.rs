@@ -205,6 +205,7 @@ impl App {
                     row("Trim trailing whitespace", "Remove spaces and tabs at the end of lines when saving. Markdown files are skipped, where trailing spaces mean a line break.", "files.trim_trailing_whitespace", on(false)),
                     row("Insert final newline", "Make sure the file ends with a newline when saving.", "files.insert_final_newline", on(false)),
                     row("Hot exit", "Quit without asking to save. Unsaved files reopen next time.", "files.hot_exit", on(true)),
+                    row("Open large files read-only", "Files larger than this open read-only, read from disk a part at a time instead of loaded: scrolling, Find, Go to Line and copying work, and editing asks to load the file first. Auto is a quarter of the memory free when the file opens.", "files.large_file_read_only", pick(vec!["auto", "1 GB", "2 GB", "4 GB", "never"], "auto")),
                 ],
             },
             Section {

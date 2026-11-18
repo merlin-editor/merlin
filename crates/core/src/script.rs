@@ -254,6 +254,30 @@ impl Session {
                     }
                 }
                 Effect::ReadLaunch => self.send(Event::LaunchConfigs(Ok(Vec::new()))),
+                // Large files are read from disk, as the window does.
+                Effect::ReadWindow { doc, path, from } => self.send(Event::WindowRead {
+                    doc,
+                    window: crate::bigfile::read_window(&path, from)
+                        .map(Box::new)
+                        .map_err(|e| e.to_string()),
+                }),
+                Effect::SeekFile {
+                    doc,
+                    path,
+                    matcher,
+                    from,
+                    forward,
+                    counts,
+                } => self.send(Event::FileSought {
+                    doc,
+                    at: crate::bigfile::seek_round(&path, &matcher, from, forward, &counts)
+                        .ok()
+                        .flatten(),
+                }),
+                Effect::OpenWhole(path) => self.send(Event::Error(format!(
+                    "can't load {} in a script",
+                    path.display()
+                ))),
                 Effect::Open(path) => {
                     let event = match self.files.get(&path.display().to_string()) {
                         Some(text) => Event::Opened {

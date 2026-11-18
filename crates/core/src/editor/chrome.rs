@@ -247,7 +247,9 @@ impl Editor {
             .vim_visual_cursor()
             .map_or(doc.cursor, |p| p.min(doc.buffer.len()));
         let (line, col) = doc.line_col(at);
-        let mut position = format!("Ln {}, Col {}", line + 1, col + 1);
+        let mut position = self
+            .large_position(line, col)
+            .unwrap_or_else(|| format!("Ln {}, Col {}", line + 1, col + 1));
         if !doc.extra.is_empty() {
             position.push_str(&format!(" ({} selections)", doc.extra.len() + 1));
         } else if let Some((a, b)) = doc.selection() {
@@ -306,6 +308,14 @@ impl Editor {
         if let Some(text) = &wrapping {
             right.push((text.clone(), None));
         }
+        // A large file's lines being counted, and that it's read-only.
+        let counting = self.large_counting();
+        if let Some(text) = &counting {
+            right.push((text.clone(), None));
+        }
+        if self.large().is_some() {
+            right.push(("Read-only".into(), Some(Action::Run("large.why"))));
+        }
         right.push((self.language(), card));
         let left_w: usize = left.iter().map(|(t, ..)| str_width(t)).sum();
         // A diagnostic under the cursor needs room more than the encoding.
@@ -344,7 +354,8 @@ impl Editor {
             let mark = match i {
                 _ if i == last => state.map(super::StatusMark::Braces),
                 _ if busy.as_deref() == Some(text.as_str())
-                    || wrapping.as_deref() == Some(text.as_str()) =>
+                    || wrapping.as_deref() == Some(text.as_str())
+                    || counting.as_deref() == Some(text.as_str()) =>
                 {
                     Some(super::StatusMark::Spinner)
                 }

@@ -36,6 +36,11 @@ impl App {
                 text,
                 revision,
             } => {
+                // A large file shown from disk holds only a window of it:
+                // never written over the file.
+                if self.editor.is_large(&path) {
+                    return;
+                }
                 let full = self.root.join(&path);
                 self.jobs.run(Lane::Disk, move || {
                     let written = disk::write_atomic(&full, &text).map(|()| modified(&full));
@@ -45,7 +50,32 @@ impl App {
                     })
                 });
             }
-            Effect::Open(path) => self.open_later(&path),
+            Effect::Open(path) => self.open_later(&path, false),
+            Effect::OpenWhole(path) => self.open_later(&path, true),
+            Effect::ReadWindow { doc, path, from } => {
+                self.jobs.run(Lane::Disk, move || {
+                    let window = merlin_core::bigfile::read_window(&path, from)
+                        .map(Box::new)
+                        .map_err(|e| e.to_string());
+                    jobs::events(vec![Event::WindowRead { doc, window }])
+                });
+            }
+            Effect::SeekFile {
+                doc,
+                path,
+                matcher,
+                from,
+                forward,
+                counts,
+            } => {
+                self.jobs.run(Lane::Scan, move || {
+                    let at =
+                        merlin_core::bigfile::seek_round(&path, &matcher, from, forward, &counts)
+                            .ok()
+                            .flatten();
+                    jobs::events(vec![Event::FileSought { doc, at }])
+                });
+            }
             Effect::ListFiles => {
                 let root = self.root.clone();
                 let rules = self.exclusions.clone();
@@ -395,7 +425,7 @@ impl App {
             }
             Effect::SetTheme(kind, name) => queue.extend(self.choose(kind, name)),
             Effect::OpenSettings { workspace } => match self.settings.ensure(workspace) {
-                Ok(path) => self.open_later(&path),
+                Ok(path) => self.open_later(&path, false),
                 Err(err) => queue.push_back(Event::Error(format!("Can't open settings: {err}"))),
             },
             Effect::Zoom(step) => {

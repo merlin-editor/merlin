@@ -13,3 +13,6 @@ similar.workspace = true
 regex.workspace = true
 memchr.workspace = true
 globset = "0.4"
+
+[dev-dependencies]
+tempfile = "3"

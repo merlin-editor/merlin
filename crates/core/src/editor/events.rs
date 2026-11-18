@@ -583,6 +583,31 @@ pub enum Event {
         path: PathBuf,
         text: String,
     },
+    /// A file too large to load, to show read-only from disk: `full` is
+    /// where it is to read, and `free` the memory free, for what loading
+    /// it would take.
+    OpenedLarge {
+        path: PathBuf,
+        full: PathBuf,
+        size: u64,
+        free: Option<u64>,
+    },
+    /// A window of a large file, asked for with [`Effect::ReadWindow`].
+    WindowRead {
+        doc: u64,
+        window: Result<Box<crate::bigfile::Window>, String>,
+    },
+    /// The match nearest a place in a large file, asked for with
+    /// [`Effect::SeekFile`]: the byte it starts at, or none in the file.
+    FileSought {
+        doc: u64,
+        at: Option<u64>,
+    },
+    /// A large file open read-only is a new size on disk.
+    LargeResized {
+        path: PathBuf,
+        size: u64,
+    },
     /// A piece of background work, asked for with [`Effect::Work`], done.
     Worked {
         id: u64,
@@ -794,6 +819,27 @@ pub enum Effect {
     /// any order, each answered with [`Event::Worked`]. A newer job of
     /// the same kind for the same document stops this one.
     Work(crate::work::Job),
+    /// Reads a window of a file too large to load, answered with
+    /// [`Event::WindowRead`].
+    ReadWindow {
+        doc: u64,
+        path: PathBuf,
+        from: crate::bigfile::From,
+    },
+    /// Finds the match nearest `from` in a file too large to load, going
+    /// round from the other end if there's none that way; answered with
+    /// [`Event::FileSought`]. Pieces `counts` says have none are skipped.
+    SeekFile {
+        doc: u64,
+        path: PathBuf,
+        matcher: crate::search::Matcher,
+        from: u64,
+        forward: bool,
+        counts: Vec<Option<u32>>,
+    },
+    /// Opens a file to edit, loading it whatever its size: Load to Edit
+    /// on a large file shown read-only.
+    OpenWhole(PathBuf),
     /// The user changed a setting from a menu, such as View › Minimap: save
     /// it in their settings, as a TOML value.
     SetSetting {

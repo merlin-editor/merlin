@@ -80,6 +80,11 @@ impl Editor {
             key.code,
             Left | Right | Up | Down | Home | End | PageUp | PageDown
         ) {
+            // A large file's ends, past the window held.
+            if key.ctrl && matches!(key.code, Home | End) && self.large_end(key.code == End) {
+                self.doc_mut().anchor = None;
+                return;
+            }
             let doc = self.doc_mut();
             let selection = doc.selection();
             if key.shift {
@@ -185,6 +190,9 @@ impl Editor {
     }
 
     pub(crate) fn replace(&mut self, start: usize, end: usize, text: &str, kind: Kind) {
+        if self.refuse_large_edit() {
+            return;
+        }
         if self.in_review() {
             return self.notify("A review is read-only: y accepts, n rejects".into());
         }
@@ -213,6 +221,9 @@ impl Editor {
     /// Applies `edits`, given left to right, as one undo step, keeping the
     /// cursor and selection on the same text.
     pub(crate) fn apply_all(&mut self, edits: Vec<Edit>) {
+        if self.refuse_large_edit() {
+            return;
+        }
         let doc = self.doc_mut();
         doc.buffer.begin(doc.cursor, Kind::Other);
         // Right to left, so each edit's offset is still right.

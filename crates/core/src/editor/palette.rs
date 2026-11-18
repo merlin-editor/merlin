@@ -42,7 +42,9 @@ impl Editor {
         };
         let items = match palette.source {
             Source::Line => {
-                let lines = self.doc().last_line() + 1;
+                let lines = self
+                    .large_lines()
+                    .map_or(self.doc().last_line() + 1, |l| l as usize);
                 let item = match palette.query.trim().parse::<usize>() {
                     Ok(n) if (1..=lines).contains(&n) => (n.to_string(), format!("Go to line {n}")),
                     _ => (

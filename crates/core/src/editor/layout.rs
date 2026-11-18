@@ -84,7 +84,9 @@ impl Editor {
         let doc = self.doc();
         let biggest = match &doc.review {
             Some(review) => review.lines.iter().map(|(_, n)| n + 1).max().unwrap_or(1),
-            None => doc.buffer.rope().len_lines(),
+            None => self
+                .large_lines()
+                .map_or(doc.buffer.rope().len_lines(), |l| l as usize),
         };
         biggest.to_string().len().max(3)
             + 1

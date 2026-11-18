@@ -17,6 +17,8 @@ pub(crate) struct FileBar {
 pub struct FileBarView {
     /// Its place among the bars, which its presses carry.
     pub index: usize,
+    /// A word in a box before the text, in place of the warning sign.
+    pub badge: Option<String>,
     pub text: String,
     /// The buttons there are commands for, by their place.
     pub buttons: Vec<(usize, String)>,
@@ -44,6 +46,9 @@ impl Editor {
         if self.away_bar().is_some() {
             return None;
         }
+        if self.docs[self.pane_doc()].large.is_some() {
+            return self.large_bar();
+        }
         let doc = &self.docs[self.pane_doc()];
         let path = doc.buffer.path.as_ref()?;
         let (index, bar) = self.file_bars.iter().enumerate().find(|(_, b)| {
@@ -63,6 +68,7 @@ impl Editor {
             .collect();
         Some(FileBarView {
             index,
+            badge: None,
             text: bar.text.clone(),
             buttons,
         })
@@ -77,6 +83,9 @@ impl Editor {
         else {
             return;
         };
+        if index == super::large::LARGE_BAR {
+            return self.large_bar_press(what, fx);
+        }
         let Some(bar) = self.file_bars.get(index) else {
             return;
         };

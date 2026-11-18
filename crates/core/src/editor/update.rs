@@ -86,7 +86,11 @@ impl Editor {
             Event::Viewports(sizes) => self.viewports = sizes,
             Event::Pointer(p) => self.pointer(p, &mut fx),
             Event::Scroll { group, rows, cols } => self.scroll_group(group, rows, cols),
-            Event::ScrollTo { group, row } => self.in_group(group, |e| e.set_top_row(row)),
+            Event::ScrollTo { group, row } => self.in_group(group, |e| {
+                if !e.scroll_large(row) {
+                    e.set_top_row(row)
+                }
+            }),
             Event::Command(id) => self.run(&id, &mut fx),
             Event::Saved {
                 doc,
@@ -113,6 +117,16 @@ impl Editor {
                 let editor = self.doc_editor_for(&path).expect("checked");
                 self.open_surface(path, editor, &mut fx);
             }
+            Event::Opened { path, text } if self.loaded_whole(&path, &text) => {}
+            Event::OpenedLarge {
+                path,
+                full,
+                size,
+                free,
+            } => self.opened_large(path, full, size, free),
+            Event::WindowRead { doc, window } => self.window_read(doc, window),
+            Event::FileSought { doc, at } => self.file_sought(doc, at),
+            Event::LargeResized { path, size } => self.large_resized(&path, size),
             Event::Opened { path, text } => {
                 self.opened(path.clone(), text);
                 self.split_opened(&path);
@@ -603,6 +617,8 @@ impl Editor {
         self.follow_merges();
         self.ask_blame(fx);
         self.ask_work(fx);
+        self.large_jobs(fx);
+        self.ask_window(fx);
         self.ask_highlights(fx);
         self.scroll_out_of_folds();
         // An edited preview stays open.

@@ -52,6 +52,7 @@ const USER_TEMPLATE: &str = r#"# merlin settings. Saving this file applies them.
 # auto_save = "off"   # after_delay, on_focus_change, on_window_change
 # auto_save_delay = 1000   # milliseconds, with after_delay
 # hot_exit = true     # quit without asking; unsaved files come back next time
+# large_file_read_only = "auto"   # larger than a quarter of free memory opens read-only from disk; "never", or a size such as "2 GB"
 # exclude = ["third_party/", "*.o"]   # left out of the Explorer, Quick Open, Search and symbols
 # use_gitignore = true   # what git ignores is left out too
 # show_hidden = false    # names starting with a dot
@@ -609,6 +610,17 @@ pub fn plugins(table: &toml::Table) -> toml::Table {
         .get("plugins")
         .and_then(|p| p.as_table())
         .cloned()
+        .unwrap_or_default()
+}
+
+/// Which files open read-only from disk rather than loaded: `[files]
+/// large_file_read_only`, "auto" unless set.
+pub fn large_files(table: &toml::Table) -> merlin_core::bigfile::LargeFiles {
+    table
+        .get("files")
+        .and_then(|f| f.get("large_file_read_only"))
+        .and_then(|v| v.as_str())
+        .and_then(merlin_core::bigfile::LargeFiles::parse)
         .unwrap_or_default()
 }
 

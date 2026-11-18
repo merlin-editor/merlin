@@ -102,6 +102,10 @@ impl Editor {
     }
 
     fn push_save(&mut self, fx: &mut Vec<Effect>) {
+        // A large file's text here is only a window of it.
+        if self.large().is_some() {
+            return;
+        }
         let doc = self.doc();
         if let Some(path) = &doc.buffer.path {
             fx.push(Effect::Save {

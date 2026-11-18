@@ -120,6 +120,8 @@ pub struct Doc {
     pub inlays_version: u64,
     /// Each line's rows when wrapped, for the widths last drawn.
     wrapped: std::cell::RefCell<Wrapped>,
+    /// A file too large to load: the text is a window of it, read-only.
+    pub large: Option<Box<crate::bigfile::Large>>,
 }
 
 /// The rows lines take when wrapped, for a width or two: two groups side
@@ -203,6 +205,7 @@ impl Doc {
             found: Default::default(),
             inlays_version: 0,
             wrapped: Default::default(),
+            large: None,
         }
     }
 
@@ -602,6 +605,26 @@ impl Doc {
     /// Whether it was.
     pub fn worked(&mut self, id: u64, done: &crate::work::Done) -> bool {
         match done {
+            crate::work::Done::Lines { piece, breaks } => match self.large.as_mut() {
+                Some(large) if large.lines_job == Some(id) => {
+                    if let Some(count) = large.lines.get_mut(*piece) {
+                        *count = Some(breaks.unwrap_or(0));
+                    }
+                    true
+                }
+                _ => false,
+            },
+            crate::work::Done::FileCount { piece, count } => {
+                match self.large.as_mut().and_then(|l| l.found.as_mut()) {
+                    Some(found) if found.job == Some(id) => {
+                        if let Some(c) = found.counts.get_mut(*piece) {
+                            *c = Some(count.unwrap_or(0));
+                        }
+                        true
+                    }
+                    _ => false,
+                }
+            }
             crate::work::Done::Count { first, counts } => match self.found.get_mut() {
                 Some(found) if found.job.get() == Some(id) => {
                     found.fill(*first, counts);

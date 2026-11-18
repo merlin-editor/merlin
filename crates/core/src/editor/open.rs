@@ -5,10 +5,11 @@ use super::*;
 
 impl Editor {
     /// The open document of `path`, if any.
+    /// A large file shown from disk isn't one: its text is only a window.
     pub(super) fn doc_at(&mut self, path: &std::path::Path) -> Option<&mut Doc> {
-        self.docs
-            .iter_mut()
-            .find(|d| d.review.is_none() && d.buffer.path.as_deref() == Some(path))
+        self.docs.iter_mut().find(|d| {
+            d.review.is_none() && d.large.is_none() && d.buffer.path.as_deref() == Some(path)
+        })
     }
 
     /// Switches to `path` if it's open, or asks the host to read it.
@@ -51,6 +52,17 @@ impl Editor {
     }
 
     pub(super) fn opened(&mut self, path: PathBuf, text: ropey::Rope) {
+        self.opened_doc(path, text, None);
+    }
+
+    /// Opens a document of `text`, or for a file too large to load, of its
+    /// window, read later.
+    pub(super) fn opened_doc(
+        &mut self,
+        path: PathBuf,
+        text: ropey::Rope,
+        large: Option<Box<crate::bigfile::Large>>,
+    ) {
         // A changes tab's file opens as the tab after it, and the changes
         // tab stays shown.
         if self.opening_beside.as_ref() == Some(&path) {
@@ -60,7 +72,8 @@ impl Editor {
                 .iter()
                 .any(|d| d.buffer.path.as_ref() == Some(&path))
             {
-                let doc = Doc::from_rope(self.new_id(), text.clone(), Some(path.clone()));
+                let mut doc = Doc::from_rope(self.new_id(), text.clone(), Some(path.clone()));
+                doc.large = large;
                 self.docs.insert(self.current + 1, doc);
                 self.place_marks(&path);
             }
@@ -79,7 +92,8 @@ impl Editor {
             self.current = i;
             return;
         }
-        let doc = Doc::from_rope(self.new_id(), text.clone(), Some(path.clone()));
+        let mut doc = Doc::from_rope(self.new_id(), text.clone(), Some(path.clone()));
+        doc.large = large;
         let id = doc.id;
         // The new preview takes the old one's place, if this group has it.
         let old = self
@@ -183,6 +197,9 @@ impl Editor {
     /// Moves to an LSP-style position in the current file, with it in the
     /// middle of the view.
     pub(super) fn go_to(&mut self, line: u32, column: u32) {
+        if self.go_to_large(line as u64, column as usize) {
+            return;
+        }
         let pos = self.doc().pos_at_utf16(line, column);
         self.set_cursor(pos);
         let half = self.text_height() / 2;

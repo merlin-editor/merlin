@@ -166,7 +166,7 @@ impl Editor {
         if self.doc().id == doc {
             return self.save_current(fx);
         }
-        if let Some(d) = self.docs.iter().find(|d| d.id == doc)
+        if let Some(d) = self.docs.iter().find(|d| d.id == doc && d.large.is_none())
             && let Some(path) = &d.buffer.path
         {
             fx.push(Effect::Save {

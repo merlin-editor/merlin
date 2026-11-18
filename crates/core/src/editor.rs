@@ -40,6 +40,7 @@ pub(crate) mod guides;
 mod keymap;
 mod keys;
 mod language;
+mod large;
 mod layout;
 mod link;
 mod macros;
@@ -893,7 +894,22 @@ impl Editor {
         self.docs
             .iter()
             .find(|d| d.review.is_none() && d.buffer.path.as_deref() == Some(path))
+            .filter(|d| d.large.is_none())
             .map(|d| d.buffer.rope().clone())
+    }
+
+    /// Whether `path` is open as a file too large to load, its text read
+    /// from disk a window at a time: never to be saved from here.
+    pub fn is_large(&self, path: &std::path::Path) -> bool {
+        self.docs
+            .iter()
+            .any(|d| d.large.is_some() && d.buffer.path.as_deref() == Some(path))
+    }
+
+    /// Whether the file shown is one too large to load: plugins don't see
+    /// it.
+    pub fn shows_large(&self) -> bool {
+        self.doc().large.is_some()
     }
 
     /// Identifies the open file being edited, for as long as it's open.
@@ -999,10 +1015,20 @@ impl Editor {
     /// What decides whether the view must scroll to the cursor.
     fn view_key(&self) -> (u64, usize, u64, u16, u16, bool, bool) {
         let doc = self.doc();
+        // A large file's cursor by its place in the file, which a new
+        // window doesn't move, and its text never changes.
+        let (cursor, version) = match doc.large.as_deref() {
+            Some(large) => {
+                let rope = doc.buffer.rope();
+                let byte = rope.char_to_byte(doc.cursor.min(rope.len_chars()));
+                ((large.start + byte as u64) as usize, 0)
+            }
+            None => (doc.cursor, doc.buffer.version()),
+        };
         (
             doc.id,
-            doc.cursor,
-            doc.buffer.version(),
+            cursor,
+            version,
             self.width,
             self.height,
             self.side_bar_visible(),
@@ -1019,6 +1045,10 @@ impl Editor {
 
     /// The language a plugin added for the document drawn, if any.
     pub(crate) fn plugin_language(&self) -> Option<&Language> {
+        // A large file shown from disk is plain text, out of plugins' way.
+        if self.doc().large.is_some() {
+            return None;
+        }
         let path = self.doc().buffer.path.as_ref()?;
         self.languages
             .iter()
