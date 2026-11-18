@@ -950,6 +950,13 @@ impl Editor {
     }
 
     /// The cursor's line and UTF-16 column, as LSP counts them.
+    /// The lines the current view shows, from and up to.
+    pub fn view_lines(&self) -> (u32, u32) {
+        let top = self.view().scroll;
+        let end = (top + self.text_height() + 1).min(self.doc().last_line() + 1);
+        (top as u32, end as u32)
+    }
+
     pub fn cursor_utf16(&self) -> (u32, u32) {
         let doc = self.doc();
         let (line, col) = doc.line_col(self.plugin_cursor());

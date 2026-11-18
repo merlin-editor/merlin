@@ -394,6 +394,57 @@ holds the file twice however few lines are asked for.
 - A key on the 20 MB one-line file takes 26–41 ms, from other work on
   that line.
 
+### Step 6: colours for large files, done
+
+Files over 512 KB had no colours: the grammar SDK read the whole text,
+and a tree-sitter tree costs 20–80× the file. Small files paid too. On
+every key, each grammar plugin copied the whole text into its own memory
+and compared it with the last copy to find what changed. The Rust, C++
+and Catch2 plugins copied it again, to look for tests, even when the file
+was too large to use.
+
+**What changed** (plugin API 0.17; `docs/plugin-registry.md` section 14):
+- **New host calls**: `active-lines`, `active-size` and `active-view`,
+  and a `viewed` buffer event once the view moves 256 lines or more.
+- **Grammar SDK, files up to 512 KB**: they're parsed whole. The SDK keeps
+  the text and follows `active-changes`, so a key typed costs the change,
+  not a copy of the file.
+- **Grammar SDK, larger files**: a window of about 1 000 lines either side
+  of the view is parsed, from a line at its left edge. Edits in it are
+  followed and an edit above it moves it. Once the view comes within 250
+  lines of its edge, the lines around the view are read and parsed again.
+  A new window takes about 40 ms for the Rust grammar.
+- **What the editor keeps**: a large file's colours within 3 000 lines of
+  the latest window. Colours further away go, so scrolling through a
+  large file doesn't build up colours for all of it.
+- **`pos_at_utf16`**, which places every token, diagnostic and edit a
+  plugin sends, counts UTF-16 with the rope rather than copying the line.
+- **Plugins** check `active-size` before reading the whole text.
+
+**The effect, in the app.** A 20 MB Rust file is coloured wherever the
+view is. With the plugins loaded it settles at 171 MB, against 87 MB for
+a tiny Rust file, and uses 1.1 s of CPU over 20 s.
+
+**Looked at and left:**
+- **`RangeMap`.** Diagnostics, inlays, folds and tokens are still lists
+  that each edit goes through. For a large file the tokens are now only
+  those near the view, and the others are few, so each edit moves a few
+  thousand at most. That's about a tenth of a millisecond.
+- **Colours on request.** The editor doesn't ask for a range of lines;
+  the plugin hears where the view is and colours around it. That's the
+  same result with one call fewer per window.
+
+**Still to do from it:**
+- **Language servers.** The LSP SDK still sends the whole text when a
+  file opens, as the protocol asks. The 20 MB Rust file made
+  rust-analyzer use 6.3 GB and eight cores. A server for large files
+  is better left off, perhaps above a size; VS Code turns off most
+  features for large files.
+- **Windows from the left edge.** A window parsed from a line at the left
+  edge can still start inside something tree-sitter can't tell, such as
+  a multi-line string. Its first lines may be coloured wrongly until the
+  view moves.
+
 ### Fixed on this branch so far
 
 Committed (8181070) and covered by tests:
@@ -429,7 +480,7 @@ On the 85 MB / 342 MB files:
 | Git gutter after many edits | ~~wrong~~ fixed in step 5 | The diff gives up after 100 ms and marks 4.3 million lines (prototype 9) |
 | Backups of unsaved files | ~~copied twice on the window's thread~~ shared since step 5; the whole file still written each pause | `Backups::plan` asks `text_of` for each file |
 | Undo of a large delete | the removed text as a String; left, see step 5 | `Edit` keeps `removed: String` |
-| Colours | none above 512 KB | Kept for every token at 24 B, placed by copying lines (prototype 3) |
+| Colours | ~~none above 512 KB~~ fixed in step 6 | Kept for every token at 24 B, placed by copying lines (prototype 3) |
 
 ## What the prototypes show
 
@@ -732,7 +783,8 @@ comparison with VS Code.
 
    This takes merlin's own memory to its 78 MB plus about 1.14× the file,
    and makes the gutter correct.
-6. **`RangeMap`, and colours on request.**
+6. **`RangeMap`, and colours on request.** Done as colours around the
+   view; see "Step 6" above. `RangeMap` was left.
    - Diagnostics, inlays and folds move to `RangeMap`.
    - `pos_at_utf16` uses the rope's count.
    - The grammar SDK syncs by changes, answers ranges in bytes, and parses

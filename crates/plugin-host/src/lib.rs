@@ -61,7 +61,7 @@ use bindings::merlin::plugin::{host, types};
 
 /// The API version this host implements. A manifest names the version it was
 /// built for and loads only on an exact match while the API is 0.x.
-pub const API_VERSION: &str = "0.16";
+pub const API_VERSION: &str = "0.17";
 
 /// Roughly six billion instructions per call, about a second. It stops a
 /// plugin stuck in a loop, and leaves room for a language plugin to colour
@@ -199,6 +199,8 @@ impl Config {
 pub enum BufferEvent {
     Switched,
     Changed,
+    /// The view moved a good way, to other lines.
+    Viewed,
     Saved(String),
 }
 
@@ -221,6 +223,8 @@ pub struct Snapshot {
     /// The active file's indentation: tabs or not, and the width. None
     /// when no file is open.
     pub indent: Option<(bool, u32)>,
+    /// The lines the active file's view shows, from and up to.
+    pub view: (u32, u32),
     /// What the project leaves out, for `list-files` and `is-excluded`.
     pub exclusions: std::sync::Arc<merlin_core::exclude::Matcher>,
 }
@@ -1277,6 +1281,7 @@ impl PluginHost {
         let event = match event {
             BufferEvent::Switched => types::BufferEvent::Switched,
             BufferEvent::Changed => types::BufferEvent::Changed,
+            BufferEvent::Viewed => types::BufferEvent::Viewed,
             BufferEvent::Saved(path) => types::BufferEvent::Saved(path.clone()),
         };
         let mut events = Vec::new();
@@ -1289,8 +1294,18 @@ impl PluginHost {
             // hears every file switched to or saved while the project has
             // that file, not only its own language's; typing, only in its
             // own, so each key doesn't call every such plugin.
-            let project =
-                !matches!(event, types::BufferEvent::Changed) && self.for_this_project(i, snapshot);
+            let own = matches!(
+                event,
+                types::BufferEvent::Changed | types::BufferEvent::Viewed
+            );
+            // The view moving is for the file's own language only.
+            if matches!(event, types::BufferEvent::Viewed)
+                && (self.plugins[i].manifest.languages.is_empty()
+                    || !self.plugins[i].handles_path(snapshot.path.as_deref()))
+            {
+                continue;
+            }
+            let project = !own && self.for_this_project(i, snapshot);
             if !project
                 && self.plugins[i].pure_language
                 && (matches!(event, types::BufferEvent::Saved(_))
@@ -1305,8 +1320,13 @@ impl PluginHost {
             {
                 continue;
             }
-            // Typing on: a change not yet heard is replaced by the newer one.
-            let kind = matches!(event, types::BufferEvent::Changed).then(|| "changed".to_string());
+            // Typing or scrolling on: one not yet heard is replaced by the
+            // newer one.
+            let kind = match event {
+                types::BufferEvent::Changed => Some("changed".to_string()),
+                types::BufferEvent::Viewed => Some("viewed".to_string()),
+                _ => None,
+            };
             let event = event.clone();
             events.extend(self.post(
                 i,

@@ -158,6 +158,8 @@ struct App {
     panels_for: Option<((u64, u64), Vec<String>, bool)>,
     /// The file and buffer version plugins last heard about.
     buffer_seen: Option<(u64, u64)>,
+    /// The file and the stretch of lines its view was last told at.
+    view_seen: Option<(u64, u32)>,
     /// Paths saved since plugins last heard.
     saved: Vec<String>,
     /// The desktop's clipboards, once the window is open. Scripts have
@@ -303,6 +305,13 @@ impl App {
             _ => Vec::new(),
         };
         self.buffer_seen = Some(now);
+        // The view moving a good way: a plugin colouring a large file
+        // around the view colours where it is now.
+        let view = (now.0, self.editor.view_lines().0 / VIEW_STEP);
+        if changes.is_empty() && self.view_seen.is_some_and(|v| v != view) {
+            changes.push(BufferEvent::Viewed);
+        }
+        self.view_seen = Some(view);
         changes.extend(self.saved.drain(..).map(BufferEvent::Saved));
         let snapshot = self.snapshot();
         let mut events = Vec::new();
@@ -1263,9 +1272,13 @@ fn snapshot(
             let indent = editor.indent();
             (indent.tabs, indent.width as u32)
         }),
+        view: editor.view_lines(),
         exclusions: exclusions.clone(),
     }
 }
+
+/// Lines the view moves before plugins hear it moved.
+const VIEW_STEP: u32 = 256;
 
 /// glibc gives each thread that allocates a heap of its own, and keeps
 /// what's freed in it: wasmtime's threads compiling plugins left about
@@ -1358,6 +1371,7 @@ fn main() -> Result<()> {
         root,
         panels_for: None,
         buffer_seen: None,
+        view_seen: None,
         saved: Vec::new(),
         clipboard: None,
         terminals: terminal::Terminals::new(gui::waker()),

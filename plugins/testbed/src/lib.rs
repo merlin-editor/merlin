@@ -267,6 +267,7 @@ impl Plugin for Testbed {
         self.log.push(match event {
             BufferEvent::Switched => "switched".into(),
             BufferEvent::Changed => "changed".into(),
+            BufferEvent::Viewed => "viewed".into(),
             BufferEvent::Saved(path) => format!("saved {path}"),
         });
     }

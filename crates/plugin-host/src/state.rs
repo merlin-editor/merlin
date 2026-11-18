@@ -252,6 +252,29 @@ impl host::Host for State {
         Ok(self.snapshot.text.to_string())
     }
 
+    fn active_lines(&mut self, lines: types::LineRange) -> Result<String, String> {
+        self.need(self.permissions.editor_read, "editor-read")?;
+        let rope = self.snapshot.text.rope();
+        let at = |l: u32| rope.line_to_char((l as usize).min(rope.len_lines()));
+        let (a, b) = (at(lines.start), at(lines.end.max(lines.start)));
+        Ok(rope.slice(a..b).to_string())
+    }
+
+    fn active_size(&mut self) -> Result<types::TextSize, String> {
+        self.need(self.permissions.editor_read, "editor-read")?;
+        let rope = self.snapshot.text.rope();
+        Ok(types::TextSize {
+            bytes: rope.len_bytes() as u64,
+            lines: rope.len_lines() as u32,
+        })
+    }
+
+    fn active_view(&mut self) -> Result<types::LineRange, String> {
+        self.need(self.permissions.editor_read, "editor-read")?;
+        let (start, end) = self.snapshot.view;
+        Ok(types::LineRange { start, end })
+    }
+
     fn active_version(&mut self) -> Result<u64, String> {
         self.need(self.permissions.editor_read, "editor-read")?;
         self.snapshot

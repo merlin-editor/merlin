@@ -6,6 +6,11 @@ use std::path::Path;
 
 use super::*;
 
+/// Files up to this many bytes are coloured whole by their grammar.
+const COLOURED_WHOLE: usize = 512 * 1024;
+/// Lines of colours kept either side of a large file's latest.
+const COLOURS_KEPT: u32 = 3_000;
+
 impl Editor {
     pub fn update(&mut self, event: Event) -> Vec<Effect> {
         let mut fx = Vec::new();
@@ -680,7 +685,18 @@ impl Editor {
                 .filter(|t| t.start < t.end)
                 .collect();
             let within = lines.map(|(a, b)| place((a, 0))..place((b, 0)));
+            // A large file is coloured around the view: colours far from
+            // the latest go, so scrolling through it doesn't keep them all.
+            let keep = lines
+                .filter(|_| doc.buffer.rope().len_bytes() > COLOURED_WHOLE)
+                .map(|(a, b)| {
+                    place((a.saturating_sub(COLOURS_KEPT), 0))
+                        ..place((b.saturating_add(COLOURS_KEPT), 0))
+                });
             doc.layers.set(layer, within, tokens);
+            if let Some(keep) = keep {
+                doc.layers.keep(layer, keep);
+            }
         }
     }
 

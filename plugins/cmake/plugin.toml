@@ -4,7 +4,7 @@ description = "CMake colours, completion and hover, tasks and debugging for each
 badge = "CM"
 hue = "green"
 version = "0.1.0"
-api = "0.16"
+api = "0.17"
 component = "target/wasm32-wasip2/release/cmake.wasm"
 # Starts when the project has a CMakeLists.txt, at its top or in a folder
 # there, or one of its files opens.

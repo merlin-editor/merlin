@@ -1316,7 +1316,7 @@ mod tests {
     fn an_agents_own_view_must_be_one_of_its_views_on_the_right() {
         let parse = |extra: &str| {
             let text = format!(
-                "name = \"a\"\ntitle = \"A\"\nversion = \"0.1.0\"\napi = \"0.16\"\ncomponent = \"a.wasm\"\n\
+                "name = \"a\"\ntitle = \"A\"\nversion = \"0.1.0\"\napi = \"0.17\"\ncomponent = \"a.wasm\"\n\
                  [[agents]]\nid = \"x\"\nname = \"X\"\nview = \"board\"\n{extra}"
             );
             let manifest: Manifest = toml::from_str(&text).unwrap();

@@ -59,6 +59,9 @@ pub struct Rust {
     next_run: u64,
 }
 
+/// The largest file looked through for tests.
+const TESTS_MOST: usize = 2 << 20;
+
 impl Rust {
     fn new() -> Self {
         Self {
@@ -386,7 +389,10 @@ impl Plugin for Rust {
     fn buffer(&mut self, event: BufferEvent) {
         self.grammar.buffer(event.clone());
         // The shown file's tests, as it changes.
+        // Not for a file too large to hold tests: a copy would stay in this
+        // plugin's memory, which never shrinks.
         if matches!(event, BufferEvent::Switched | BufferEvent::Changed)
+            && host::active_size().is_ok_and(|s| s.bytes as usize <= TESTS_MOST)
             && let Some(path) = self.active_rust()
             && let Ok(text) = host::active_text()
         {

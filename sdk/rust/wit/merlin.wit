@@ -1,4 +1,4 @@
-package merlin:plugin@0.16.0;
+package merlin:plugin@0.17.0;
 
 interface types {
   /// What a run of text is, for its colour.
@@ -79,6 +79,12 @@ interface types {
   record line-range {
     start: u32,
     end: u32,
+  }
+
+  /// How large a text is.
+  record text-size {
+    bytes: u64,
+    lines: u32,
   }
 
   /// A block that folds: its first and last lines.
@@ -1017,6 +1023,10 @@ interface types {
     switched,
     /// The active file's text changed.
     changed,
+    /// The active file's view moved to other lines: `active-view` says
+    /// which. Heard by plugins for its language, as `changed` is, when the
+    /// view has moved a good way, not on every row.
+    viewed,
     /// A file was saved. Its path.
     saved(string),
   }
@@ -1025,10 +1035,22 @@ interface types {
 /// What the editor offers a plugin. Calls that need a permission check the
 /// plugin's manifest and return an error naming the permission if denied.
 interface host {
-  use types.{status-item, status-chip, framing, pick-item, choice, highlight, hierarchy-mode, hierarchy-item, disassembly-line, memory-view, position, indent, selection, text-change, diagnostic, detailed-diagnostic, code-action, file-edit, rename-info, location, project-symbol, symbols-note, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint, signature, task, test-item, test-result, debug-target, debug-launch, function-stop, breakpoint, debug-state, debug-thread, stack-frame, debug-variable, breakpoint-state, stop-filter, inline-value, output-kind, log-level, button, picture, fetch-request, agent-part, agent-request, agent-outcome, chip, agent-command, agent-mode};
+  use types.{text-size, status-item, status-chip, framing, pick-item, choice, highlight, hierarchy-mode, hierarchy-item, disassembly-line, memory-view, position, indent, selection, text-change, diagnostic, detailed-diagnostic, code-action, file-edit, rename-info, location, project-symbol, symbols-note, completion, setting, token, token-layer, doc-symbol, line-range, fold-range, inlay-hint, signature, task, test-item, test-result, debug-target, debug-launch, function-stop, breakpoint, debug-state, debug-thread, stack-frame, debug-variable, breakpoint-state, stop-filter, inline-value, output-kind, log-level, button, picture, fetch-request, agent-part, agent-request, agent-outcome, chip, agent-command, agent-mode};
 
-  /// Text of the active buffer. Needs `editor-read`.
+  /// Text of the active buffer. Needs `editor-read`. A large file is
+  /// better read in pieces with `active-lines`.
   active-text: func() -> result<string, string>;
+
+  /// The text of some of the active buffer's lines, their line breaks and
+  /// all. Lines past the end give what there is. Needs `editor-read`.
+  active-lines: func(lines: line-range) -> result<string, string>;
+
+  /// How large the active buffer's text is, without reading it. Needs
+  /// `editor-read`.
+  active-size: func() -> result<text-size, string>;
+
+  /// The lines of the active buffer its view shows. Needs `editor-read`.
+  active-view: func() -> result<line-range, string>;
 
   /// The active buffer's version, which every change moves on. Needs
   /// `editor-read`.

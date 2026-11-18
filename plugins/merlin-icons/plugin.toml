@@ -5,7 +5,7 @@ description = "File and UI icon themes"
 badge = "IC"
 hue = "purple"
 version = "0.2.0"
-api = "0.16"
+api = "0.17"
 
 # Icon themes, for Preferences: File Icon Theme.
 [[packs]]

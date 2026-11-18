@@ -367,9 +367,20 @@ impl Doc {
     /// The position of an LSP-style line and UTF-16 column, clamped to the
     /// text.
     pub fn pos_at_utf16(&self, line: u32, column: u32) -> usize {
+        // Counted by the rope, which knows each piece's UTF-16 length,
+        // not by copying the line: a long line costs the same.
+        let rope = self.buffer.rope();
         let line = (line as usize).min(self.last_line());
-        let text: String = self.line_chars(line).into_iter().collect();
-        self.line_start(line) + crate::lsp::utf16_to_char_col(&text, column as usize)
+        let start = rope.line_to_char(line);
+        let end = start + self.buffer.line_len(line);
+        let units = rope.char_to_utf16_cu(start) + column as usize;
+        if units >= rope.char_to_utf16_cu(end) {
+            return end;
+        }
+        let at = rope.utf16_cu_to_char(units);
+        // Inside a surrogate pair: the character after, as LSP's own
+        // count does.
+        at + usize::from(rope.char_to_utf16_cu(at) < units)
     }
 
     /// An empty file that was never named or edited, so opening a file can
@@ -1076,5 +1087,25 @@ mod tests {
         let gone: String = doc.buffer.rope().slice(at..at + 3).to_string();
         edit(&mut doc, at, &gone, "");
         check(&doc, 1);
+    }
+}
+
+#[cfg(test)]
+mod utf16_tests {
+    use super::*;
+
+    #[test]
+    fn utf16_columns_give_the_characters_a_line_walk_does() {
+        let text = "plain\nünï 😀x😀\r\nlast 😀";
+        let doc = Doc::new(1, text, None);
+        for line in 0..3u32 {
+            let chars: String = doc.line_chars(line as usize).into_iter().collect();
+            for column in 0..20u32 {
+                let want = doc.line_start(line as usize)
+                    + crate::lsp::utf16_to_char_col(&chars, column as usize);
+                assert_eq!(doc.pos_at_utf16(line, column), want, "{line}:{column}");
+            }
+        }
+        assert_eq!(doc.pos_at_utf16(9, 0), doc.line_start(2));
     }
 }

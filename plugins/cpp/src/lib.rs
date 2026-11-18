@@ -269,13 +269,15 @@ impl Plugin for Cpp {
         {
             return;
         }
-        let Ok(text) = host::active_text() else {
-            return;
-        };
-        if text.len() > MAX_BYTES {
+        // Too large, it isn't read at all: a copy would stay in this
+        // plugin's memory, which never shrinks.
+        if host::active_size().is_ok_and(|s| s.bytes as usize > MAX_BYTES) {
             self.last = None;
             return;
         }
+        let Ok(text) = host::active_text() else {
+            return;
+        };
         colour(&path, &text);
         self.last = Some((path, version));
     }

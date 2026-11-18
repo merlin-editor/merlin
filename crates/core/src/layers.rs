@@ -100,6 +100,23 @@ impl Layers {
         list.sort_by_key(|t| t.start);
     }
 
+    /// Keeps only a layer's tokens that touch `range`.
+    pub fn keep(&mut self, layer: Layer, range: Range<usize>) {
+        let list = match layer {
+            Layer::Base => match &mut self.base {
+                Some(list) => list,
+                None => return,
+            },
+            Layer::Semantic => &mut self.semantic,
+        };
+        let before = list.len();
+        list.retain(|t| t.end > range.start && t.start < range.end);
+        if list.len() != before {
+            list.shrink_to_fit();
+            self.colours += 1;
+        }
+    }
+
     /// The tokens of a layer that touch `range`, in order.
     fn touching(list: &[Token], range: &Range<usize>) -> impl Iterator<Item = Token> {
         let from = list.partition_point(|t| t.start < range.start.saturating_sub(4096));

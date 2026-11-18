@@ -1100,7 +1100,36 @@ requests, which always said 4 spaces before.
   `on-pick` with the choice's id, the buttons to `on-click`, and
   clicking the dropdown doesn't close the notice.
 
-## 14. Out of Scope
+## 14. Plugin API 0.17: Large Files (Built 2026-11-18)
+
+Large files are coloured around the view, and a grammar follows edits
+instead of reading the whole text each time (`docs/buffer-redesign.md`,
+step 6).
+
+- `active-lines(lines)` gives some of the active file's lines, breaks and
+  all, without the rest.
+- `active-size()` gives its size in bytes and lines, without reading it.
+- `active-view()` gives the lines its view shows.
+- A new `buffer-event`, `viewed`: the view moved a good way, 256 lines or
+  more. Only plugins for the file's language hear it, and only the
+  latest one waiting is kept, as with `changed`.
+- The grammar SDK (`merlin-grammar`):
+  - A file up to 512 KB is parsed whole. The SDK keeps its text and
+    follows `active-changes`, so a key typed doesn't copy the file.
+  - A larger file is parsed as a window of about 1 000 lines either side
+    of the view, from a line at its left edge. Edits inside the window
+    are followed, and an edit above it moves it. Once the view comes
+    within 250 lines of the window's edge, the lines around the view are
+    read again. A new window takes about 40 ms for the Rust grammar.
+  - Colours for a window are sent for its lines. The editor keeps a
+    large file's colours within 3 000 lines of the latest window, and
+    drops the rest.
+- Plugins should check `active-size` before `active-text`: a copy of a
+  large file stays in a plugin's memory, which never shrinks. The Rust,
+  C++ and Catch2 plugins now skip their test and colour passes over
+  large files without reading them.
+
+## 15. Out of Scope
 
 - **Paid plugins.**
 - **Private plugins**, beyond what a private source (7.4) already covers.
