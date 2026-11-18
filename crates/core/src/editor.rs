@@ -373,6 +373,10 @@ pub struct Editor {
     quitting: bool,
     /// Quitting keeps unsaved files for the next start, rather than asking.
     hot_exit: bool,
+    /// The memory a large file's windows kept for undo may take.
+    large_budget: u64,
+    /// Memory was let go that the host may give back to the system.
+    trim: bool,
     /// Vim's state, while the keymap is Vim's.
     vim: Option<vim::Vim>,
     vim_settings: VimSettings,
@@ -684,6 +688,8 @@ impl Editor {
             closing: Vec::new(),
             quitting: false,
             hot_exit: true,
+            large_budget: 256 << 20,
+            trim: false,
             vim: None,
             vim_settings: VimSettings::default(),
             relative_numbers: false,
@@ -900,6 +906,11 @@ impl Editor {
 
     /// Whether `path` is open as a file too large to load, its text read
     /// from disk a window at a time: never to be saved from here.
+    /// Whether memory was let go since asked, for the host to give back.
+    pub fn take_trim(&mut self) -> bool {
+        std::mem::take(&mut self.trim)
+    }
+
     pub fn is_large(&self, path: &std::path::Path) -> bool {
         self.docs
             .iter()

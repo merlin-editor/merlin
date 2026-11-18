@@ -234,6 +234,20 @@ impl FileText {
         (self.with_pieces(pieces), kept)
     }
 
+    /// The pieces bytes `a..b` of the text are, cut at both ends.
+    pub fn pieces_in(&self, a: u64, b: u64) -> Vec<Piece> {
+        let mut out = Vec::new();
+        let mut start = 0;
+        for piece in self.pieces.iter() {
+            let stop = start + piece.len();
+            if stop > a && start < b {
+                out.push(cut(piece, a.max(start) - start, b.min(stop) - start));
+            }
+            start = stop;
+        }
+        out
+    }
+
     /// Bytes `at..at + len` of the text, or fewer at its end, read from
     /// the pieces they're in.
     pub fn read(&self, at: u64, len: u64) -> io::Result<Vec<u8>> {
@@ -813,6 +827,155 @@ pub fn save(
     result
 }
 
+/// A window's text as pieces of what it was read from, `origin`, and only
+/// the lines it changed as text in memory: what a window kept whole for
+/// its undo is folded to, when its undo goes, or for a journal.
+pub fn fold(origin: &FileText, text: &Rope) -> io::Result<Vec<Piece>> {
+    let old = text_of(origin.read(0, origin.len())?);
+    let new = text.to_string();
+    let starts = |s: &str| -> Vec<usize> {
+        let mut at = vec![0];
+        at.extend(s.match_indices('\n').map(|(i, _)| i + 1));
+        if *at.last().expect("one") != s.len() {
+            at.push(s.len());
+        }
+        at
+    };
+    let (old_at, new_at) = (starts(&old), starts(&new));
+    let lines = |s: &str, at: &[usize]| -> Vec<u64> {
+        // Each line by a hash, to compare as numbers.
+        at.windows(2)
+            .map(|w| {
+                use std::hash::{Hash, Hasher};
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                s[w[0]..w[1]].hash(&mut h);
+                h.finish()
+            })
+            .collect()
+    };
+    let (a, b) = (lines(&old, &old_at), lines(&new, &new_at));
+    let mut out: Vec<Piece> = Vec::new();
+    let push_text = |out: &mut Vec<Piece>, s: &str| {
+        if s.is_empty() {
+            return;
+        }
+        if let Some(Piece::Text(last)) = out.last_mut() {
+            last.append(Rope::from_str(s));
+        } else {
+            out.push(Piece::Text(Rope::from_str(s)));
+        }
+    };
+    for op in similar::capture_diff_slices(similar::Algorithm::Myers, &a, &b) {
+        match op {
+            similar::DiffOp::Equal { old_index, len, .. } => {
+                let (x, y) = (old_at[old_index] as u64, old_at[old_index + len] as u64);
+                out.extend(origin.pieces_in(x, y));
+            }
+            similar::DiffOp::Delete { .. } => {}
+            similar::DiffOp::Insert {
+                new_index, new_len, ..
+            }
+            | similar::DiffOp::Replace {
+                new_index, new_len, ..
+            } => push_text(
+                &mut out,
+                &new[new_at[new_index]..new_at[new_index + new_len]],
+            ),
+        }
+    }
+    // Ranges of the file next to each other, one again.
+    let mut merged: Vec<Piece> = Vec::new();
+    for piece in out {
+        match (merged.last_mut(), &piece) {
+            (Some(Piece::File { to, .. }), Piece::File { from, to: end }) if *to == *from => {
+                *to = *end
+            }
+            _ => merged.push(piece),
+        }
+    }
+    Ok(merged)
+}
+
+/// Runs of text in memory longer than this, or standing for more of the
+/// file than this, aren't folded: comparing them would read too much.
+const FOLD_MOST: u64 = 64 << 20;
+
+impl FileText {
+    /// The same text with each run of text in memory folded to the lines
+    /// it changed. Ranges of the file only ever go forward, so a run
+    /// between two of them took the place of the file between them, which
+    /// is what it's compared with. The text reads the same.
+    pub fn folded(&self) -> Self {
+        let pieces = self.pieces();
+        let mut out = Vec::new();
+        let mut i = 0;
+        while i < pieces.len() {
+            let Piece::Text(_) = pieces[i] else {
+                out.push(pieces[i].clone());
+                i += 1;
+                continue;
+            };
+            let run_end = (i..pieces.len())
+                .find(|&j| matches!(pieces[j], Piece::File { .. }))
+                .unwrap_or(pieces.len());
+            let run = &pieces[i..run_end];
+            let from = match out.last() {
+                Some(Piece::File { to, .. }) => *to,
+                _ if i == 0 => 0,
+                _ => u64::MAX,
+            };
+            let to = match pieces.get(run_end) {
+                Some(Piece::File { from, .. }) => *from,
+                _ => self.file_len(),
+            };
+            let len: u64 = run.iter().map(Piece::len).sum();
+            let folded = (from <= to && to - from <= FOLD_MOST && len <= FOLD_MOST)
+                .then(|| {
+                    let mut rope = Rope::new();
+                    for piece in run {
+                        if let Piece::Text(r) = piece {
+                            rope.append(r.clone());
+                        }
+                    }
+                    let origin = self.with_pieces(vec![Piece::File { from, to }]);
+                    fold(&origin, &rope).ok()
+                })
+                .flatten();
+            match folded {
+                Some(f) => out.extend(f),
+                None => out.extend(run.iter().cloned()),
+            }
+            i = run_end;
+        }
+        // Ranges of the file next to each other, one again.
+        let mut merged: Vec<Piece> = Vec::new();
+        for piece in out {
+            match (merged.last_mut(), &piece) {
+                (Some(Piece::File { to, .. }), Piece::File { from, to: end }) if *to == *from => {
+                    *to = *end
+                }
+                (Some(Piece::Text(last)), Piece::Text(r)) => last.append(r.clone()),
+                _ => merged.push(piece),
+            }
+        }
+        self.with_pieces(merged)
+    }
+
+    /// The size of the file the text reads, through the handle kept.
+    fn file_len(&self) -> u64 {
+        self.file.metadata().map_or(0, |m| m.len())
+    }
+
+    /// Bytes of the text that are in memory.
+    pub fn in_memory(&self) -> u64 {
+        self.pieces
+            .iter()
+            .filter(|p| matches!(p, Piece::Text(_)))
+            .map(Piece::len)
+            .sum()
+    }
+}
+
 /// Which files open read-only from disk rather than loaded: Settings ›
 /// Files, `large_file_read_only`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -1081,6 +1244,9 @@ pub struct Large {
     pub tries: u8,
     /// The far end of a selection past the window, as a byte of the text.
     pub anchor: Option<u64>,
+    /// Undo for the oldest edits was let go, past the memory budget: said
+    /// once.
+    pub folded: bool,
     /// The window held is gone, after an edit on the pieces: one is read
     /// around this byte, and until then nothing is edited.
     pub stale: Option<u64>,
@@ -1338,6 +1504,7 @@ impl Large {
             seeking: false,
             tries: 0,
             anchor: None,
+            folded: false,
             stale: None,
             replaced: false,
             broken: false,
@@ -1386,7 +1553,38 @@ impl Large {
     /// The window's first line, worked out again: after it's read, after
     /// an edit before it, and as the count comes in.
     pub fn renumber(&mut self) {
+        // Its start in a range of the file needs that place counted too.
+        if let Some(at) = self.text.file_pos(self.start)
+            && at % BLOCK != 0
+            && at < self.file.len()
+            && !self.lines.edges.contains_key(&at)
+            && let Ok(breaks) = self.file.file_breaks(at)
+        {
+            self.lines.edges.insert(at, breaks);
+        }
         self.first_line = self.text.line_of(self.start, &self.lines);
+    }
+
+    /// Counts the line breaks before each place the text cuts the file's
+    /// ranges that isn't counted yet, from at most a block of the file
+    /// each: what numbering the lines past it needs. Most changes make
+    /// none new.
+    pub fn count_cuts(&mut self) {
+        let mut cuts = Vec::new();
+        for piece in self.text.pieces() {
+            if let Piece::File { from, to } = piece {
+                cuts.extend([*from, *to]);
+            }
+        }
+        for cut in cuts {
+            if cut % BLOCK != 0
+                && cut < self.file.len()
+                && !self.lines.edges.contains_key(&cut)
+                && let Ok(breaks) = self.file.file_breaks(cut)
+            {
+                self.lines.edges.insert(cut, breaks);
+            }
+        }
     }
 
     /// Where to read a window from to show the text around `at`.
@@ -1658,5 +1856,46 @@ mod tests {
         journal.write(&at).unwrap();
         assert_eq!(Journal::read(&at).unwrap(), journal);
         assert!(edited.same_file());
+    }
+
+    #[test]
+    fn a_window_folds_to_its_changes() {
+        let text = numbered(100_000);
+        let (_dir, file) = file(&text);
+        let (from, to) = (1000u64, 1_000_000u64);
+        let origin = file.with_pieces(file.pieces_in(from, to));
+        let mut window = Rope::from_str(&text[from as usize..to as usize]);
+        // Two lines changed, far apart.
+        let first = window.line_to_char(5);
+        window.insert(first, "typed ");
+        let later = window.line_to_char(40_000);
+        window.remove(later..window.line_to_char(40_001));
+        let folded = fold(&origin, &window).unwrap();
+        let texts: u64 = folded
+            .iter()
+            .filter(|p| matches!(p, Piece::Text(_)))
+            .map(Piece::len)
+            .sum();
+        assert!(texts < 100, "only the changed line kept: {texts} bytes");
+        let back = file.with_pieces(folded);
+        assert!(back.read(0, back.len()).unwrap() == window.to_string().as_bytes());
+    }
+
+    #[test]
+    fn the_text_folds_to_its_changes_and_reads_the_same() {
+        let text = numbered(1_000_000);
+        let (_dir, file) = file(&text);
+        // Two windows edited, as whole windows put in the pieces.
+        let mut edited = file.clone();
+        for (at, typed) in [(100_000u64, "one "), (5_000_000, "two ")] {
+            let end = at + 2_000_000;
+            let mut window = Rope::from_str(&text[at as usize..end as usize]);
+            window.insert(window.line_to_char(3), typed);
+            edited = edited.splice(at, end, window);
+        }
+        assert!(edited.in_memory() > 3_000_000);
+        let folded = edited.folded();
+        assert!(folded.in_memory() < 100, "{}", folded.in_memory());
+        assert!(folded.read(0, folded.len()).unwrap() == edited.read(0, edited.len()).unwrap());
     }
 }

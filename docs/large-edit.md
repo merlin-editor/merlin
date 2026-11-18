@@ -1,6 +1,7 @@
 # Editing files too large to load, in place
 
-A plan, 2026-11-18. It follows step 8 of `docs/buffer-redesign.md`, where a
+A plan, 2026-11-18; all seven steps built the same day, as the Order
+section says. It follows step 8 of `docs/buffer-redesign.md`, where a
 file too large to load opens read-only: the editor holds about 4 MB of it
 at a time, as a rope, and reads the next part from disk as the view moves.
 Here, such a file can be edited where it is, without loading it, at the
@@ -297,7 +298,38 @@ passing.
      back, with "Put back the unsaved changes to edit.log".
    - **Left**: on Windows, opening the file so others can't write it, and
      renaming over it while it's open, aren't done yet.
-7. **The memory budget**: folding the oldest parked windows.
+7. **The memory budget**: folding the oldest parked windows. Done.
+   - **Folding** (`bigfile::fold`, `FileText::folded`): ranges of the
+     file only ever go forward. So each run of text in memory between two
+     of them took the place of the file between them, and is compared
+     with it line by line (Myers, on hashes of lines). Lines that are the
+     same become ranges of the file again, and only the lines changed stay
+     in memory. The text reads the same, so the window and undo stay
+     right, and nothing has to be tracked as windows overlap. Runs, or
+     the file between, of more than 64 MB aren't folded.
+   - **The budget**, 256 MB by default (`Editor::set_large_budget`), is
+     what the windows kept for undo and the text in memory hold. Past it,
+     the oldest windows let their undo go, along with any older steps,
+     which can't be undone past them, until the rest is under half. Then
+     the text is folded. A notice says so once. What they changed is all
+     kept.
+   - **Journals** are folded too, so a hot exit keeps the lines changed:
+     8 KB for 70 edits across a 2.5 GB log, against 4.2 MB for one edit
+     before.
+   - **Every place a range of the file starts or ends** has its breaks
+     counted whenever the pieces change (`Large::count_cuts`), as does the
+     window's start. The window run caught this: folding turned typed text
+     back into ranges of the file, a later edit cut one at a place never
+     counted, and Go to Line then waited for a count that never came.
+   - **Freed memory is given back** to the system after folding
+     (`malloc_trim`, on Linux with glibc).
+   - **In the app**: 70 edits 480 000 lines apart in a 2.5 GB log.
+     Memory rose to about 340 MB by the 30th and stayed at 330–380 MB to
+     the 70th, where keeping every window would pass 480 MB. All 70 were
+     in the saved file, each on its own line.
+   - **Left**: the budget isn't in Settings yet. A run of typed text
+     standing for more than 64 MB of the file, as after typing over a
+     huge selection, stays whole.
 
 Later: Replace All across the file, and in-place writes for edits that
 keep every length, which would save a 14 GB file in milliseconds.

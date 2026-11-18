@@ -282,6 +282,9 @@ impl App {
         }
         self.refresh_panels();
         self.serve_colours();
+        if self.editor.take_trim() {
+            give_back();
+        }
         self.backups.touch(&self.editor.unsaved());
         self.touch_auto_save();
         self.touch_waits();
@@ -1466,6 +1469,22 @@ fn fewer_heaps() {
 
 #[cfg(not(all(target_os = "linux", target_env = "gnu")))]
 fn fewer_heaps() {}
+
+/// Gives back to the system what's freed and kept by the allocator, as
+/// after a large file's old windows are let go.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+fn give_back() {
+    unsafe extern "C" {
+        fn malloc_trim(pad: usize) -> i32;
+    }
+    // SAFETY: malloc_trim only returns free memory to the system.
+    unsafe {
+        malloc_trim(0);
+    }
+}
+
+#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+fn give_back() {}
 
 fn main() -> Result<()> {
     attach_console();

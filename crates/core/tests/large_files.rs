@@ -517,3 +517,82 @@ fn a_file_cut_short_stops_editing_and_saving_over_it() {
             .any(|e| matches!(e, Effect::SaveLarge { .. }))
     );
 }
+
+#[test]
+fn past_the_budget_old_windows_fold_to_their_changes() {
+    let (dir, mut s, text) = edit(600_000);
+    s.editor.set_large_budget(1);
+    s.run("type FOLDED");
+    s.run("key ctrl+end");
+    let toast = s.editor.window_view().toast.expect("said once");
+    assert!(toast.text.contains("let go"), "{}", toast.text);
+    s.run("type END");
+    // The edit stays, read back from the folded pieces.
+    s.run("key ctrl+home");
+    assert!(s.screen().contains("FOLDEDline 0"), "{}", s.screen());
+    assert!(tab_dirty(&s));
+    // With a budget this small, every window left lets its undo go.
+    s.run("cmd edit.undo; cmd edit.undo; cmd edit.undo");
+    assert!(s.screen().contains("FOLDEDline 0"), "{}", s.screen());
+    s.run("key ctrl+s");
+    let on_disk = std::fs::read_to_string(dir.path().join("big.log")).unwrap();
+    assert!(
+        on_disk == format!("FOLDED{text}END"),
+        "{:?} … {:?}, {} against {}",
+        &on_disk[..30],
+        &on_disk[on_disk.len() - 30..],
+        on_disk.len(),
+        text.len() + 9
+    );
+}
+
+#[test]
+fn a_journal_keeps_only_the_lines_changed() {
+    use merlin_core::bigfile::Piece;
+    let (dir, mut s, _) = edit(600_000);
+    s.run("type KEPT");
+    s.run("key ctrl+end; type END");
+    let journal = s.editor.large_journals().pop().unwrap();
+    let text: u64 = journal
+        .pieces
+        .iter()
+        .filter(|p| matches!(p, Piece::Text(_)))
+        .map(Piece::len)
+        .sum();
+    assert!(text < 100, "{text} bytes of text kept");
+    drop(s);
+    let mut s = reopen(&dir, Some(journal));
+    assert!(s.screen().contains("KEPTline 0"), "{}", s.screen());
+    s.run("key ctrl+end");
+    assert!(s.screen().contains("END"), "{}", s.screen());
+}
+
+#[test]
+fn going_to_lines_works_after_folding() {
+    let (_dir, mut s, _) = edit(1_500_000);
+    s.editor.set_large_budget(1);
+    for k in 1..6 {
+        let line = k * 250_000;
+        s.run(&format!("cmd go.line; type {line}; key enter; type E{k}"));
+        assert!(
+            status(&s).contains(&format!("Ln {},", thousands(line))),
+            "{k}: {}",
+            status(&s)
+        );
+    }
+    // Each edit where it was typed.
+    s.run("cmd go.line; type 1000000; key enter");
+    assert!(s.screen().contains("E4line 999999"), "{}", s.screen());
+}
+
+fn thousands(n: usize) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}

@@ -430,6 +430,9 @@ impl Editor {
         large.renumber();
         doc.large = Some(large);
         doc.sync_large();
+        if i == self.current {
+            self.fold_large();
+        }
         // Where it was going: there now if this window has it, or read
         // again closer.
         if then != Then::Stay
@@ -985,20 +988,8 @@ impl Editor {
         let Some(large) = doc.large.as_deref_mut() else {
             return;
         };
-        for piece in text.pieces() {
-            if let crate::bigfile::Piece::File { from, to } = piece {
-                for cut in [*from, *to] {
-                    if cut % crate::bigfile::BLOCK != 0
-                        && cut < large.file.len()
-                        && !large.lines.edges.contains_key(&cut)
-                        && let Ok(breaks) = large.file.file_breaks(cut)
-                    {
-                        large.lines.edges.insert(cut, breaks);
-                    }
-                }
-            }
-        }
         large.text = text;
+        large.count_cuts();
         large.size = large.text.len();
         large.generation += 1;
         if !keep_found {
@@ -1208,20 +1199,86 @@ impl Editor {
         })
     }
 
-    /// What a hot exit keeps of each large file with unsaved edits.
+    /// What a hot exit keeps of each large file with unsaved edits: the
+    /// windows edited folded to their changes, so a line typed keeps a
+    /// line, not the window.
     pub fn large_journals(&self) -> Vec<crate::bigfile::Journal> {
         self.docs
             .iter()
             .filter(|d| d.buffer.is_dirty())
             .filter_map(|d| {
                 let large = d.large.as_deref()?;
+                let pieces = large.text.folded().pieces().to_vec();
                 Some(crate::bigfile::Journal {
                     path: d.buffer.path.clone()?,
                     identity: large.text.identity()?,
-                    pieces: large.text.pieces().to_vec(),
+                    pieces,
                 })
             })
             .collect()
+    }
+
+    /// Sets the memory the windows kept for undo may take in a large file,
+    /// past which the oldest are folded to their changes.
+    pub fn set_large_budget(&mut self, bytes: u64) {
+        self.large_budget = bytes;
+    }
+
+    /// Past the memory budget, the oldest windows kept for undo let it
+    /// go, and the text in memory is folded to the lines it changed: what
+    /// they changed is all kept.
+    pub(super) fn fold_large(&mut self) {
+        let budget = self.large_budget;
+        let doc = self.doc_mut();
+        let name = doc.name();
+        let Some(large) = doc.large.as_deref_mut() else {
+            return;
+        };
+        let kept = |large: &Large| -> u64 {
+            large
+                .undos
+                .iter()
+                .chain(&large.redos)
+                .map(|k| match k {
+                    Edited::Window { buffer, .. } => buffer.rope().len_bytes() as u64,
+                    Edited::Pieces { .. } => 0,
+                })
+                .sum()
+        };
+        if kept(large) + large.text.in_memory() <= budget {
+            return;
+        }
+        let mut dropped = false;
+        while kept(large) > budget / 2 {
+            let Some(at) = large
+                .undos
+                .iter()
+                .position(|k| matches!(k, Edited::Window { .. }))
+            else {
+                break;
+            };
+            // It, and older steps, which can't be undone past it.
+            let gone: Vec<Edited> = large.undos.drain(..=at).collect();
+            large.changed |= gone.iter().any(|k| k.unsaved(false));
+            dropped = true;
+        }
+        // The text in memory folded: the same text, so the window and its
+        // undo stay right, and the window's own goes back in at its next
+        // edit.
+        large.text = large.text.folded();
+        large.generation += 1;
+        large.found = None;
+        large.settled = None;
+        large.count_cuts();
+        large.renumber();
+        self.trim = true;
+        let doc = self.doc_mut();
+        let large = doc.large.as_deref_mut().expect("checked");
+        if dropped && !std::mem::replace(&mut large.folded, true) {
+            self.notify(format!(
+                "Undo for the oldest edits to {name} was let go, to keep memory down: what they changed is all kept"
+            ));
+        }
     }
 
     /// A press on the large file's bar.
@@ -1457,6 +1514,7 @@ impl Doc {
             large.end = large.start + rope.len_bytes() as u64;
             large.size = large.text.len();
             large.generation += 1;
+            large.count_cuts();
             // The search's counts of what's kept whole hold.
             if let Some(found) = &mut large.found {
                 found.spliced(&kept);
