@@ -15,8 +15,32 @@ impl Editor {
             return;
         };
         let version = doc.buffer.version();
-        let key = (path.clone(), version);
-        let known = self.blames.get(&path).is_some_and(|(v, _)| *v == version);
+        // A large file is blamed around the view: git's answer for every
+        // line is a few times the file, and only these are shown.
+        let count = doc.last_line() + usize::from(doc.buffer.line_len(doc.last_line()) > 0);
+        let lines = (count > BLAME_WHOLE).then(|| {
+            let v = self.view();
+            let cursor = doc.line_col(doc.cursor).0;
+            let (top, bottom) = (
+                v.scroll.min(cursor),
+                (v.scroll + self.text_height()).max(cursor + 1),
+            );
+            let start = top.saturating_sub(BLAME_REACH) / BLAME_STEP * BLAME_STEP;
+            start..(bottom + BLAME_REACH).min(count).max(start + 1)
+        });
+        let needed = match &lines {
+            Some(_) => {
+                let v = self.view();
+                let cursor = doc.line_col(doc.cursor).0;
+                v.scroll.min(cursor)..(v.scroll + self.text_height()).max(cursor + 1).min(count)
+            }
+            None => 0..0,
+        };
+        let known = self
+            .blames
+            .get(&path)
+            .is_some_and(|(v, b)| *v == version && (lines.is_none() || b.covers(&needed)));
+        let key = (path.clone(), version, lines.clone());
         if known || self.blame_asked.as_ref() == Some(&key) {
             return;
         }
@@ -28,6 +52,7 @@ impl Editor {
             version,
             text,
             ignore,
+            lines,
         });
     }
 
@@ -48,6 +73,14 @@ impl Editor {
 
 /// The review a commit's changes to a file show in.
 pub(crate) const COMMIT: &str = "merlin.commit";
+
+/// Files of more lines than this are blamed around the view only.
+const BLAME_WHOLE: usize = 20_000;
+/// Lines blamed above and below the view in a large file.
+const BLAME_REACH: usize = 2_000;
+/// The lines blamed start on a multiple of this, so scrolling asks again
+/// only now and then.
+const BLAME_STEP: usize = 1_000;
 
 /// Columns the blame column takes, before the line numbers.
 pub(crate) const BLAME_COLS: usize = 26;
@@ -148,9 +181,9 @@ impl Editor {
             return None;
         }
         let blame = self.current_blame()?;
-        let index = *blame.lines.get(line)?;
+        let index = blame.index(line)?;
         let commit = &blame.commits[index];
-        let first = line == 0 || blame.lines.get(line - 1) != Some(&index);
+        let first = line == 0 || blame.index(line - 1) != Some(index);
         let times: Vec<i64> = blame
             .commits
             .iter()
@@ -191,7 +224,7 @@ impl Editor {
         let Some(blame) = self.current_blame() else {
             return;
         };
-        let Some(&index) = blame.lines.get(line) else {
+        let Some(index) = blame.index(line) else {
             return;
         };
         let commit = &blame.commits[index];

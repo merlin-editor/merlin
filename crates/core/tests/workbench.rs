@@ -1113,7 +1113,7 @@ filename src/palette.rs
     s.send(Event::Blame {
         path: "src/palette.rs".into(),
         version,
-        blame: merlin_core::git::parse_blame(porcelain),
+        blame: merlin_core::git::parse_blame(porcelain, 0),
         now: 1000 + 3 * 86_400,
     });
     let blame_of = |s: &Session| {
@@ -1156,7 +1156,7 @@ fn git_blame_shows_who_changed_each_line_and_a_card_for_the_commit() {
     s.send(Event::Blame {
         path: "notes.txt".into(),
         version,
-        blame: merlin_core::git::parse_blame(&porcelain),
+        blame: merlin_core::git::parse_blame(&porcelain, 0),
         now: 9000 + 14 * 86_400,
     });
     s.run("key ctrl+shift+p; type Git: Blame; key enter");
@@ -1606,4 +1606,54 @@ fn compare_files_asks_for_two_files_and_shows_them_side_by_side() {
         !view.tabs.iter().any(|t| t.name == "main.rs ↔ old.rs"),
         "the swap takes the tab's place"
     );
+}
+
+#[test]
+fn a_large_file_is_blamed_around_the_view() {
+    let text: String = (0..50_000).map(|i| format!("line {i}\n")).collect();
+    let mut s = Session::new(&text, Some("big.txt"), 100, 20);
+    s.send(Event::GitBase {
+        path: "big.txt".into(),
+        text: Some(text.clone()),
+    });
+    let asked = |s: &Session| {
+        s.effects.iter().rev().find_map(|e| match e {
+            Effect::Blame { version, lines, .. } => Some((*version, lines.clone())),
+            _ => None,
+        })
+    };
+    let (version, lines) = asked(&s).expect("blame asked for");
+    let lines = lines.expect("only some lines");
+    assert!(lines.start == 0 && lines.len() < 5_000, "{lines:?}");
+    // Blamed, the view moving within those lines asks nothing more.
+    let porcelain: String = lines
+        .clone()
+        .map(|i| {
+            let head = if i == lines.start {
+                "author marc\nauthor-time 1000\nsummary Lines\nfilename big.txt\n"
+            } else {
+                ""
+            };
+            format!(
+                "{} {} {} 1\n{head}\tline {i}\n",
+                "1".repeat(40),
+                i + 1,
+                i + 1
+            )
+        })
+        .collect();
+    s.send(Event::Blame {
+        path: "big.txt".into(),
+        version,
+        blame: merlin_core::git::parse_blame(&porcelain, lines.start),
+        now: 1000,
+    });
+    s.effects.clear();
+    s.run("key pagedown pagedown");
+    assert_eq!(asked(&s), None);
+    // Far down, the lines there are asked for.
+    s.run("key ctrl+end");
+    let (_, far) = asked(&s).expect("asked again");
+    let far = far.unwrap();
+    assert!(far.contains(&49_999) && far.end == 50_000, "{far:?}");
 }

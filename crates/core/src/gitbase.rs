@@ -221,34 +221,67 @@ impl GitBase {
     /// Git's version `base` against the text `now`, which the buffer has
     /// with `pending` changes not yet synced.
     pub fn new(base: &str, now: &Rope, pending: usize) -> Self {
+        let (before, after) = common_ends(base, now);
+        Self::build(now, pending, base.len(), before, after, |r| base[r].into())
+    }
+
+    /// Git's version as the first `alike` bytes of the text now, then
+    /// `rest`: as a host reads it, comparing as it goes, so only what
+    /// follows the first difference is ever held apart from the text.
+    pub fn from_parts(alike: usize, rest: &str, now: &Rope, pending: usize) -> Self {
+        let alike = alike.min(now.len_bytes());
+        let tail = now.byte_slice(alike..);
+        let more = crate::diff::common_prefix_chunks(tail.chunks(), rest.as_bytes());
+        let before = alike + more;
+        let base_len = alike + rest.len();
+        let most = base_len.min(now.len_bytes()) - before;
+        let after = crate::diff::common_suffix_rope(now, rest.as_bytes(), most);
+        Self::build(now, pending, base_len, before, after, |r| {
+            // Git's bytes in `r`: the text's before `alike`, then the rest's.
+            let mut out = String::new();
+            if r.start < alike {
+                out.extend(now.byte_slice(r.start..r.end.min(alike)).chunks());
+            }
+            if r.end > alike {
+                out.push_str(&rest[r.start.max(alike) - alike..r.end - alike]);
+            }
+            out.into()
+        })
+    }
+
+    /// Git's version of `base_len` bytes, which starts with `before` and
+    /// ends with `after` bytes as the text `now` does; `between` gives its
+    /// bytes in a range of those between.
+    fn build<'a>(
+        now: &Rope,
+        pending: usize,
+        base_len: usize,
+        before: usize,
+        after: usize,
+        between: impl FnOnce(Range<usize>) -> std::borrow::Cow<'a, str>,
+    ) -> Self {
         let now_lines = counted(now);
         // The lines in the bytes both start and end with, less one for a
         // line break split between them.
-        let (bytes_before, bytes_after) = common_ends(base, now);
-        let first = now
-            .byte_to_line(bytes_before)
-            .saturating_sub(1)
-            .min(now_lines);
-        let tail = now.byte_to_line(now.len_bytes() - bytes_after) + 1;
+        let first = now.byte_to_line(before).saturating_sub(1).min(now_lines);
+        let tail = now.byte_to_line(now.len_bytes() - after) + 1;
         let last = now_lines
             .saturating_sub(tail)
             .saturating_sub(1)
             .min(now_lines - first);
-        // Git's lines between those, found in its text where they lie: its
-        // bytes before and after are the same as now's.
+        // Git's lines between those, alone: its bytes before and after are
+        // the same as now's.
         let from = now.line_to_byte(first);
-        let to = base.len() - (now.len_bytes() - now.line_to_byte(now_lines - last));
-        let mut starts: Vec<usize> = line_starts(&base[from..to])
-            .into_iter()
-            .map(|b| b + from)
-            .collect();
+        let to = base_len - (now.len_bytes() - now.line_to_byte(now_lines - last));
+        let mid = between(from..to);
+        let mut starts = line_starts(&mid);
         let mut middle = starts.len() - 1;
-        if starts[middle - 1] == to {
+        if starts[middle - 1] == mid.len() {
             middle -= 1;
             starts.truncate(middle + 1);
         }
         let base_lines = first + middle + last;
-        let line = |i: usize| &base[starts[i - first]..starts[i - first + 1]];
+        let line = |i: usize| &mid[starts[i - first]..starts[i - first + 1]];
         // Then the rest a line at a time.
         let mut prefix = first;
         while prefix < first + middle
@@ -294,7 +327,7 @@ impl GitBase {
         for (o, n) in ops.iter().rev() {
             let (a, b) = (rope.line_to_char(n.start), rope.line_to_char(n.end));
             rope.remove(a..b);
-            rope.insert(a, &base[starts[o.start - first]..starts[o.end - first]]);
+            rope.insert(a, &mid[starts[o.start - first]..starts[o.end - first]]);
         }
         let mut git = Self {
             rope,
@@ -591,6 +624,28 @@ mod tests {
                 diff::signs_rope(base, &rope),
                 "{new:?}"
             );
+        }
+    }
+
+    #[test]
+    fn git_s_version_from_the_bytes_alike_and_the_rest_is_the_same() {
+        let base = "one\ntwo\nthree\nfour\nfive\n";
+        for new in [
+            "one\ntwo\nTHREE\nfour\nfive\n",
+            base,
+            "one\ntwo\n",
+            "one\ntwo\nthree\nfour\nfive\nsix\n",
+            "zero\n",
+        ] {
+            let rope = Rope::from_str(new);
+            let whole = GitBase::new(base, &rope, 0);
+            let alike = crate::diff::common_prefix(base.as_bytes(), new.as_bytes());
+            for cut in 0..=alike {
+                let git = GitBase::from_parts(cut, &base[cut..], &rope, 0);
+                assert_eq!(git.rope().to_string(), base, "{new:?} {cut}");
+                assert_eq!(git.ops, whole.ops, "{new:?} {cut}");
+                assert_eq!(git.same, whole.same, "{new:?} {cut}");
+            }
         }
     }
 

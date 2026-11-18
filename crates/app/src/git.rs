@@ -15,6 +15,8 @@ pub(super) struct Blame {
     pub(super) version: u64,
     pub(super) text: merlin_core::buffer::TextSnapshot,
     pub(super) ignore: Vec<String>,
+    /// Only these lines, from 0.
+    pub(super) lines: Option<std::ops::Range<usize>>,
 }
 
 /// The push, pull or fetch running, shared with the window's thread so it
@@ -606,6 +608,10 @@ impl Git {
             args.push("--ignore-rev".into());
             args.push(rev.clone());
         }
+        if let Some(r) = &ask.lines {
+            args.push("-L".into());
+            args.push(format!("{},{}", r.start + 1, r.end));
+        }
         args.push("--".into());
         args.push(ask.path.display().to_string());
         let child = Command::new("git")
@@ -624,9 +630,10 @@ impl Git {
                 }
             }
             let o = child.wait_with_output().ok()?;
-            o.status
-                .success()
-                .then(|| String::from_utf8_lossy(&o.stdout).into_owned())
+            o.status.success().then(|| {
+                String::from_utf8(o.stdout)
+                    .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned())
+            })
         });
         let now = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -635,7 +642,9 @@ impl Git {
             path: ask.path,
             version: ask.version,
             blame: text
-                .map(|t| merlin_core::git::parse_blame(&t))
+                .map(|t| {
+                    merlin_core::git::parse_blame(&t, ask.lines.as_ref().map_or(0, |r| r.start))
+                })
                 .unwrap_or_default(),
             now,
         }
@@ -841,6 +850,78 @@ pub(super) fn git_prefix(root: &Path) -> String {
         .unwrap_or_default()
 }
 
+/// A file as of the last commit, read against `now`, the open text: how
+/// many bytes it starts with as `now` does, then the rest. Git's output is
+/// compared as it comes, so a file as committed is never held apart, and
+/// one changed is held from its first change. `None` if git doesn't track
+/// it.
+pub(super) fn git_base_against(
+    root: &Path,
+    path: &Path,
+    now: &merlin_core::ropey::Rope,
+) -> Option<(usize, String)> {
+    use std::io::Read;
+    let mut child = Command::new("git")
+        .arg("show")
+        .arg(format!("HEAD:./{}", path.display()))
+        .current_dir(root)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .ok()?;
+    let mut out = child.stdout.take()?;
+    let mut buf = vec![0u8; 64 << 10];
+    let mut chunks = now.chunks();
+    let mut here: &[u8] = &[];
+    let mut alike = 0;
+    let mut rest: Vec<u8> = Vec::new();
+    let mut differs = false;
+    loop {
+        let n = match out.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return None,
+        };
+        let mut data = &buf[..n];
+        while !differs && !data.is_empty() {
+            if here.is_empty() {
+                match chunks.next() {
+                    Some(c) => here = c.as_bytes(),
+                    None => differs = true,
+                }
+                continue;
+            }
+            // Whole pieces compare as memory does; only the piece that
+            // differs is gone through a byte at a time.
+            let len = here.len().min(data.len());
+            let same = match here[..len] == data[..len] {
+                true => len,
+                false => here.iter().zip(data).take_while(|(a, b)| a == b).count(),
+            };
+            alike += same;
+            here = &here[same..];
+            data = &data[same..];
+            differs = !data.is_empty() && !here.is_empty();
+        }
+        rest.extend_from_slice(data);
+    }
+    drop(out);
+    if !child.wait().ok()?.success() {
+        return None;
+    }
+    // Back to a character's start, the bytes between going with the rest.
+    let start = now.char_to_byte(now.byte_to_char(alike));
+    if start < alike {
+        let mut head: Vec<u8> = now.bytes_at(start).take(alike - start).collect();
+        head.append(&mut rest);
+        rest = head;
+    }
+    let rest = String::from_utf8(rest)
+        .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned());
+    Some((start, rest))
+}
+
 /// A file as of the last commit, or `None` if git doesn't track it.
 pub(super) fn git_base(root: &Path, path: &Path) -> Option<String> {
     let output = Command::new("git")
@@ -854,4 +935,68 @@ pub(super) fn git_base(root: &Path, path: &Path) -> Option<String> {
         .status
         .success()
         .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use merlin_core::ropey::Rope;
+
+    /// A repository holding `committed` as `f.txt`.
+    fn repo(committed: &str) -> tempfile::TempDir {
+        let dir = tempfile::Builder::new()
+            .prefix("merlin-git-base")
+            .tempdir()
+            .unwrap();
+        fs::write(dir.path().join("f.txt"), committed).unwrap();
+        for args in [
+            &["init", "-q"][..],
+            &["add", "f.txt"],
+            &[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-qm",
+                "f",
+            ],
+        ] {
+            let ok = Command::new("git")
+                .args(args)
+                .current_dir(dir.path())
+                .status()
+                .unwrap();
+            assert!(ok.success());
+        }
+        dir
+    }
+
+    #[test]
+    fn git_s_version_is_read_against_the_text_from_its_first_change() {
+        let committed = "one\ntwo é three\nfour\n";
+        let dir = repo(committed);
+        for now in [
+            committed,
+            "one\ntwo è three\nfour\n",
+            "one\n",
+            "one\ntwo é three\nfour\nmore\n",
+            "",
+        ] {
+            let rope = Rope::from_str(now);
+            let (alike, rest) = git_base_against(dir.path(), Path::new("f.txt"), &rope).unwrap();
+            assert_eq!(format!("{}{rest}", &now[..alike]), committed, "{now:?}");
+            assert!(now.is_char_boundary(alike), "{now:?}");
+            let differs = committed
+                .bytes()
+                .zip(now.bytes())
+                .take_while(|(a, b)| a == b)
+                .count();
+            assert!(alike <= differs && differs - alike < 4, "{now:?}: {alike}");
+        }
+        assert_eq!(
+            git_base_against(dir.path(), Path::new("none.txt"), &Rope::new()),
+            None
+        );
+    }
 }

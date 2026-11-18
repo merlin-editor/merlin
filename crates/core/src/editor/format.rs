@@ -172,7 +172,7 @@ impl Editor {
             fx.push(Effect::Save {
                 doc: d.id,
                 path: path.clone(),
-                text: d.buffer.text(),
+                text: d.buffer.rope().clone(),
                 revision: d.buffer.revision(),
             });
         }

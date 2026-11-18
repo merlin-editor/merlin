@@ -137,13 +137,18 @@ pub struct Buffer {
 
 impl Buffer {
     pub fn new(text: &str, path: Option<PathBuf>) -> Self {
+        Self::from_rope(Rope::from_str(text), path)
+    }
+
+    /// A buffer holding `rope`, as read.
+    pub fn from_rope(rope: Rope, path: Option<PathBuf>) -> Self {
         // Each buffer counts its versions from a start of its own, so a
         // version a plugin kept from a file closed since can't be taken
         // for one of this buffer's.
         static BUFFERS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let start = BUFFERS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) << 32;
         Self {
-            rope: Rope::from_str(text),
+            rope,
             path,
             history: History::default(),
             saved: 0,

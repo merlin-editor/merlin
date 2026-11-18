@@ -26,7 +26,10 @@ fn restored(ws: &Workspace) -> Session {
         } else {
             "bee\nbuzz\n".into()
         };
-        s.send(Event::Opened { path, text });
+        s.send(Event::Opened {
+            path,
+            text: text.as_str().into(),
+        });
     }
     s.send(Event::Restore(ws.clone()));
     s
@@ -64,7 +67,7 @@ fn missing_files_and_bad_lines_are_skipped() {
     let mut r = Session::new("", None, 100, 24);
     r.send(Event::Opened {
         path: "a.txt".into(),
-        text: text(),
+        text: text().as_str().into(),
     });
     r.send(Event::Restore(ws));
     assert_eq!(r.editor.open_files(), [Some(PathBuf::from("a.txt"))]);

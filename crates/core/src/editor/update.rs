@@ -93,7 +93,7 @@ impl Editor {
                 self.open_surface(path, editor, &mut fx);
             }
             Event::Opened { path, text } => {
-                self.opened(path.clone(), &text);
+                self.opened(path.clone(), text);
                 self.split_opened(&path);
                 self.opened_for_edits(&path);
                 self.agent_opened(&path, &mut fx);
@@ -424,6 +424,18 @@ impl Editor {
                 for doc in &mut self.docs {
                     if doc.buffer.path.as_ref() == Some(&path) {
                         doc.set_git_base(text.clone());
+                    }
+                }
+            }
+            Event::GitBaseRead {
+                path,
+                against,
+                alike,
+                rest,
+            } => {
+                for doc in &mut self.docs {
+                    if doc.buffer.path.as_ref() == Some(&path) {
+                        doc.set_git_parts(&against, alike, &rest);
                     }
                 }
             }

@@ -167,9 +167,9 @@ impl App {
             let editor = &self.editor;
             let disk = &self.disk;
             let seen = |path: &Path| disk.get(path).copied().flatten();
-            if let Some(plan) = self
-                .backups
-                .plan(editor.unsaved(), |id| editor.text_of(id), seen)
+            if let Some(plan) =
+                self.backups
+                    .plan(editor.unsaved(), |id| editor.rope_of_doc(id), seen)
             {
                 self.jobs.run(Lane::Disk, move || {
                     disk::write_backups(&plan);

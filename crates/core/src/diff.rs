@@ -166,6 +166,35 @@ pub fn signs_rope(old: &str, new: &ropey::Rope) -> Vec<Option<Sign>> {
 
 /// How many bytes `a` and `b` start with in common: compared a block at a
 /// time, which the compiler makes a memcmp.
+/// How many bytes `chunks`, taken in order, start with alike with `b`.
+pub(crate) fn common_prefix_chunks<'a>(chunks: impl Iterator<Item = &'a str>, b: &[u8]) -> usize {
+    let mut n = 0;
+    for chunk in chunks {
+        let same = common_prefix(chunk.as_bytes(), &b[n.min(b.len())..]);
+        n += same;
+        if same < chunk.len() {
+            break;
+        }
+    }
+    n
+}
+
+/// How many bytes, at most `most`, the rope and `b` end with alike.
+pub(crate) fn common_suffix_rope(rope: &ropey::Rope, b: &[u8], most: usize) -> usize {
+    let mut n = 0;
+    let (mut chunks, ..) = rope.chunks_at_byte(rope.len_bytes());
+    while n < most
+        && let Some(chunk) = chunks.prev()
+    {
+        let same = common_suffix(chunk.as_bytes(), &b[..b.len() - n]).min(most - n);
+        n += same;
+        if same < chunk.len() {
+            break;
+        }
+    }
+    n
+}
+
 pub(crate) fn common_prefix(a: &[u8], b: &[u8]) -> usize {
     let n = a.len().min(b.len());
     let mut i = 0;

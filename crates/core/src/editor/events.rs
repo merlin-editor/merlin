@@ -150,7 +150,8 @@ pub enum Event {
     /// A file asked for with [`Effect::Open`].
     Opened {
         path: PathBuf,
-        text: String,
+        /// Read straight into a rope, so the file is never held twice.
+        text: ropey::Rope,
     },
     /// What `.editorconfig` files say about an open file.
     FileConfig {
@@ -588,6 +589,15 @@ pub enum Event {
         path: PathBuf,
         text: Option<String>,
     },
+    /// A file's text as of the last commit, read against `against`, a copy
+    /// of the open text then: the bytes it starts with alike, then the
+    /// rest. Only what follows the first difference is held apart.
+    GitBaseRead {
+        path: PathBuf,
+        against: ropey::Rope,
+        alike: usize,
+        rest: String,
+    },
     /// The project's files for the Explorer, asked for with
     /// [`Effect::ListTree`]. Folders end in `/`, so empty ones show too.
     Tree(Vec<String>),
@@ -821,7 +831,8 @@ pub enum Effect {
     Save {
         doc: u64,
         path: PathBuf,
-        text: String,
+        /// Shared with the buffer: written a piece at a time, never copied.
+        text: ropey::Rope,
         revision: Revision,
     },
     Open(PathBuf),
@@ -996,6 +1007,8 @@ pub enum Effect {
         /// Shared with the buffer, so asking costs the same for any size.
         text: crate::buffer::TextSnapshot,
         ignore: Vec<String>,
+        /// Only these lines, counted from 0, for a large file.
+        lines: Option<std::ops::Range<usize>>,
     },
 }
 

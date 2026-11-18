@@ -16,15 +16,24 @@ use crate::jobs::Waker;
 /// Writes `text` to `path` through a file beside it that then takes its
 /// place, so a crash or a full disk leaves the old file whole. The new
 /// file keeps the old one's permissions, and a symlink stays a symlink.
-pub(crate) fn write_atomic(path: &Path, text: &str) -> io::Result<()> {
+pub(crate) fn write_atomic(path: &Path, text: &merlin_core::ropey::Rope) -> io::Result<()> {
     let path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    // The rope's pieces, written as they lie.
+    let write = |file: &mut File| -> io::Result<()> {
+        let mut out = io::BufWriter::with_capacity(64 << 10, file);
+        for chunk in text.chunks() {
+            out.write_all(chunk.as_bytes())?;
+        }
+        out.flush()
+    };
+    let in_place = |path: &Path| write(&mut File::create(path)?);
     let (Some(dir), Some(name)) = (path.parent(), path.file_name()) else {
-        return fs::write(&path, text);
+        return in_place(&path);
     };
     let temp = dir.join(format!(".{}.merlin-save", name.to_string_lossy()));
     let written = (|| {
         let mut file = File::create(&temp)?;
-        file.write_all(text.as_bytes())?;
+        write(&mut file)?;
         file.sync_all()?;
         if let Ok(meta) = fs::metadata(&path) {
             fs::set_permissions(&temp, meta.permissions())?;
@@ -36,7 +45,7 @@ pub(crate) fn write_atomic(path: &Path, text: &str) -> io::Result<()> {
         // A folder that can't take a new file, but whose file can be
         // written: write it in place, as before.
         if path.exists() {
-            return fs::write(&path, text);
+            return in_place(&path);
         }
     }
     written
@@ -142,8 +151,9 @@ pub(crate) struct Backups {
 /// What to do to keep the unsaved files as they are now.
 pub(crate) struct Plan {
     pub(crate) dir: PathBuf,
-    /// Each backup to write, by name, with its contents.
-    pub(crate) write: Vec<(String, String)>,
+    /// Each backup to write, by name, with its contents: the text's rope,
+    /// shared, with a line put first.
+    pub(crate) write: Vec<(String, merlin_core::ropey::Rope)>,
     /// Backups of files that are saved now, or closed.
     pub(crate) remove: Vec<String>,
 }
@@ -230,7 +240,7 @@ impl Backups {
     pub(crate) fn plan(
         &mut self,
         unsaved: Vec<(u64, Option<PathBuf>, u64)>,
-        text_of: impl Fn(u64) -> Option<String>,
+        text_of: impl Fn(u64) -> Option<merlin_core::ropey::Rope>,
         seen: impl Fn(&Path) -> Option<SystemTime>,
     ) -> Option<Plan> {
         self.due = None;
@@ -250,7 +260,11 @@ impl Backups {
                     },
                     None => String::new(),
                 };
-                write.push((name.clone(), format!("{head}\n{text}")));
+                // A clone shares the text; the line put first copies only
+                // the start.
+                let mut text = text;
+                text.insert(0, &format!("{head}\n"));
+                write.push((name.clone(), text));
             }
             keep.insert(name, version);
         }

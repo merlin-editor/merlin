@@ -237,6 +237,7 @@ impl Session {
                     text,
                     revision,
                 } => {
+                    let text = text.to_string();
                     self.files.insert(path.display().to_string(), text.clone());
                     self.saved.push((path.clone(), text));
                     self.send(Event::Saved {
@@ -250,7 +251,7 @@ impl Session {
                 Effect::Open(path) => {
                     let event = match self.files.get(&path.display().to_string()) {
                         Some(text) => Event::Opened {
-                            text: text.clone(),
+                            text: text.as_str().into(),
                             path,
                         },
                         None => Event::Error(format!("no such file: {}", path.display())),

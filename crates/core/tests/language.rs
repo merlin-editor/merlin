@@ -876,7 +876,7 @@ fn asked(s: &Session, command: &str) -> bool {
 
 fn saved(s: &Session) -> Option<String> {
     s.effects.iter().find_map(|e| match e {
-        Effect::Save { text, .. } => Some(text.clone()),
+        Effect::Save { text, .. } => Some(text.to_string()),
         _ => None,
     })
 }

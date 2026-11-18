@@ -171,7 +171,12 @@ const REMEASURE_BYTES: usize = 4 << 20;
 
 impl Doc {
     pub fn new(id: u64, text: &str, path: Option<PathBuf>) -> Self {
-        let buffer = Buffer::new(text, path);
+        Self::from_rope(id, ropey::Rope::from_str(text), path)
+    }
+
+    /// A document holding `rope`, as read.
+    pub fn from_rope(id: u64, rope: ropey::Rope, path: Option<PathBuf>) -> Self {
+        let buffer = Buffer::from_rope(rope, path);
         let indent = indent::detect(buffer.rope());
         Self {
             id,
@@ -256,6 +261,22 @@ impl Doc {
     pub fn set_git_base(&mut self, base: Option<String>) {
         let pending = self.buffer.pending_changes().len();
         self.git = base.map(|b| crate::gitbase::GitBase::new(&b, self.buffer.rope(), pending));
+    }
+
+    /// Sets the committed text from what a host read against `against`: its
+    /// first `alike` bytes, then `rest`. The text is usually still that,
+    /// and then nothing more is copied.
+    pub fn set_git_parts(&mut self, against: &ropey::Rope, alike: usize, rest: &str) {
+        let pending = self.buffer.pending_changes().len();
+        let now = self.buffer.rope();
+        self.git = Some(match now == against {
+            true => crate::gitbase::GitBase::from_parts(alike, rest, now, pending),
+            false => {
+                let mut base: String = against.byte_slice(..alike.min(against.len_bytes())).into();
+                base.push_str(rest);
+                crate::gitbase::GitBase::new(&base, now, pending)
+            }
+        });
     }
 
     /// Runs of lines with the same git sign, in order.

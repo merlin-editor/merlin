@@ -50,7 +50,7 @@ impl Editor {
         }
     }
 
-    pub(super) fn opened(&mut self, path: PathBuf, text: &str) {
+    pub(super) fn opened(&mut self, path: PathBuf, text: ropey::Rope) {
         // A changes tab's file opens as the tab after it, and the changes
         // tab stays shown.
         if self.opening_beside.as_ref() == Some(&path) {
@@ -60,7 +60,7 @@ impl Editor {
                 .iter()
                 .any(|d| d.buffer.path.as_ref() == Some(&path))
             {
-                let doc = Doc::new(self.new_id(), text, Some(path.clone()));
+                let doc = Doc::from_rope(self.new_id(), text.clone(), Some(path.clone()));
                 self.docs.insert(self.current + 1, doc);
                 self.place_marks(&path);
             }
@@ -79,7 +79,7 @@ impl Editor {
             self.current = i;
             return;
         }
-        let doc = Doc::new(self.new_id(), text, Some(path.clone()));
+        let doc = Doc::from_rope(self.new_id(), text.clone(), Some(path.clone()));
         let id = doc.id;
         // The new preview takes the old one's place, if this group has it.
         let old = self

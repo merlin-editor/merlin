@@ -336,7 +336,7 @@ fn three_tabs() -> Session {
         s.send(Event::Command("file.keep".into()));
         s.send(Event::Opened {
             path: file.into(),
-            text: s.files[file].clone(),
+            text: s.files[file].as_str().into(),
         });
     }
     s

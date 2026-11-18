@@ -41,7 +41,7 @@ fn a_pdf_opens_as_pages_with_its_words_to_find_and_copy() {
     });
     s.send(Event::Opened {
         path: PathBuf::from("docs/a.pdf"),
-        text: String::new(),
+        text: ropey::Rope::new(),
     });
     let surface = s
         .effects

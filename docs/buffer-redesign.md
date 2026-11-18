@@ -73,8 +73,8 @@ The redesign rests on six rules, each proven below:
 5. **Share, don't copy.** Plugins, saving, blame, backups and undo take
    snapshots of the rope (free) or its changes, never a String of the
    file.
-6. **Hold one copy of the file.** Git's version is kept as a hash a line,
-   undo as rope snapshots, and backups as a journal of edits.
+6. **Hold one copy of the file.** Git's version shares the text's rope,
+   and opening, saving and backups read the rope where it lies.
 
 ## How merlin and VS Code compare today
 
@@ -320,6 +320,80 @@ step excused.
 change to the last, gives up after 100 ms, and marks every line. Step 5's
 line hashes fix that.
 
+### Step 5: one copy of the file, done
+
+Measured in the app on files git tracks (`measure.py`, 20 s), an 85 MB
+file settled at 201 MB and peaked at 439 MB, 5.2× the file. The text was
+held whole up to four times over:
+- read as a String before the rope was made from it
+- git's version read whole, copied into a String, and kept beside the
+  text
+- `git blame`'s answer for every line, 181 MB for this file, read whole
+  and copied again
+- saving and backups copying it into Strings on the window's thread
+
+**What changed:**
+- **Git's version** (`gitbase.rs`) is a clone of the text's rope with
+  git's lines put back only where they differ. The two share every
+  unchanged piece, so a file as committed costs nothing more.
+  - Which lines are the same in both is kept as runs. An edit cuts the
+    runs it touches, and only the gaps between runs are diffed again.
+  - Lines with no match on the other side are left out before diffing,
+    as GNU diff does, so a paste of thousands of lines costs nothing to
+    diff. A line typed in is compared, not hashed.
+  - The gutter can't give up and mark the whole file any more, and the
+    sign for each line is gone: the signs are runs too.
+  - This replaced the plan of a hash a line: that costs 8 B a line, and
+    git's text would have to be read again to show or revert a change.
+- **Reading git's version**: the app streams `git show` and compares it
+  with the rope as it comes. It keeps only what follows the first
+  difference, which is nothing for a file as committed.
+- **Opening** reads the file straight into a rope (`Rope::from_reader`)
+  on the disk thread, and the event carries the rope.
+- **Saving** sends the rope and writes its pieces. **Backups** take each
+  unsaved file's rope, with their first line put in front, which copies
+  only the start.
+- **Blame** of a file over 20 000 lines asks git for the lines around the
+  view (`-L`), 2 000 each side, asked again when the view leaves them.
+  Git's answer for every line had been 2.1× the file. Each line's commit
+  is a `u32` now.
+
+**The effect, in the app** (settled / peak):
+
+| | Before | After |
+|---|---|---|
+| 85 MB prose | 201 / 439 MB | 186 / 359 MB |
+| 120 MB log, every line different | 237 / 547 MB | 225 / 346 MB |
+
+Merlin settles at its own 78 MB plus 1.14× the file. What's left of the
+peak is `git blame`'s own process, 185–257 MB for under a second: git
+holds the file twice however few lines are asked for.
+
+**In `large_probe`** (85 MB / 342 MB):
+
+| | Before | After |
+|---|---|---|
+| A key typed | 125 / 190 ms | 0.1 ms |
+| A key typed at the end of the file | 0.49 / 1.7 s | 0.1 ms |
+| Opening, with git's version | 0.3 / 0.9 s | 0.23 / 0.85 s |
+| Saving | 0.66 s (342 MB) | 0.46 s |
+
+**Looked at and left:**
+- **Undo as rope snapshots.** Prototype 8 counted only what an edit
+  allocates. Keeping the rope from before stops the removed text being
+  freed, so what's held after a large delete is about the same as the
+  String undo keeps now. What it would save is one copy of the removed
+  text while the delete runs, and that isn't worth changing every `Edit`.
+- **A journal for backups.** A pause in a large unsaved file still writes
+  the whole file, from the disk thread, without copying it first.
+
+**Still to do from it:**
+- `git blame` costs git twice the file for under a second. Above some
+  size it could be left off.
+- Saving trims trailing spaces by going through every line.
+- A key on the 20 MB one-line file takes 26–41 ms, from other work on
+  that line.
+
 ### Fixed on this branch so far
 
 Committed (8181070) and covered by tests:
@@ -351,10 +425,10 @@ On the 85 MB / 342 MB files:
 | A frame with the minimap on | ~~2.3 s / 7.7 s~~ fixed in step 4 | Built for every line; it shows a few hundred |
 | A frame with word wrap on | ~~2.6 s / 8.7 s~~ fixed in step 3 | Every line wrapped again after any change |
 | Idle | ~~a whole core~~ fixed in step 1 | Symbols for the breadcrumbs, each frame |
-| Opening | 3.2× the file at its peak | Read as a String, made a rope, git's copy kept beside it |
-| Git gutter after many edits | wrong | The diff gives up after 100 ms and marks 4.3 million lines (prototype 9) |
-| Backups of unsaved files | the whole file copied twice on the window's thread, then written, after each pause | `Backups::plan` asks `text_of` for each file |
-| Undo of a large delete | the removed text as a String | `Edit` keeps `removed: String` |
+| Opening | ~~3.2× the file at its peak~~ fixed in step 5 | Read as a String, made a rope, git's copy kept beside it |
+| Git gutter after many edits | ~~wrong~~ fixed in step 5 | The diff gives up after 100 ms and marks 4.3 million lines (prototype 9) |
+| Backups of unsaved files | ~~copied twice on the window's thread~~ shared since step 5; the whole file still written each pause | `Backups::plan` asks `text_of` for each file |
+| Undo of a large delete | the removed text as a String; left, see step 5 | `Edit` keeps `removed: String` |
 | Colours | none above 512 KB | Kept for every token at 24 B, placed by copying lines (prototype 3) |
 
 ## What the prototypes show
@@ -510,7 +584,10 @@ up at its 100 ms limit and marks 4.3 million lines that didn't change.
 | Undo of deleting half, the rope from before kept | under 0.1 MB | under 0.1 MB | under 0.1 MB |
 
 The rope from before shares nearly all its nodes with the text now, so
-keeping it costs only the nodes the edit replaced.
+keeping it costs only the nodes the edit replaced. But this counts what
+the edit allocates, not what stays held: the removed nodes, kept by the
+rope from before, aren't freed. Held afterwards, the two cost about the
+same (see step 5).
 
 ## The design
 
@@ -523,15 +600,14 @@ What changes around it:
   rope, not a String: 1.16× the file at its peak, against 3.2×.
 - **Saving, blame, plugins and backups** take a `TextSnapshot` and read
   its chunks. Blame does this already.
-- **Undo** keeps an edit's text while it's small. For a large one it keeps
-  the rope from before, which shares its memory with the text now.
-- **Git's version** is kept as a hash a line (8 B), not as the text. The
-  gutter diffs hashes in the background. When a hunk needs git's text, to
-  show or revert it, `git show` reads it then.
-- **Backups** become a journal. Each pause in typing appends the edits
-  since the last one, written from the disk lane. The journal is
-  rewritten as a whole only once it outgrows the file. A pause in a
-  342 MB file writes a few bytes, not 342 MB.
+- **Undo** keeps an edit's text, as it does. Keeping the rope from before
+  instead was looked at; see step 5.
+- **Git's version** is a clone of the text's rope with git's lines put
+  back where they differ, so the two share every unchanged piece. Built
+  in step 5, in place of the hash a line first planned: it costs nothing
+  for a file as committed, and git's text is there to show and revert.
+- **Backups** share the rope and write its pieces. A journal of edits,
+  so a pause in a 342 MB file writes a few bytes, is still to do.
 
 ### What's kept about the text
 
@@ -647,15 +723,15 @@ comparison with VS Code.
    kept by edits. This fixes word wrap (2.6–8.7 s a frame).
 4. **The minimap from its window only.** Done; see "Step 4" above. This
    fixes the minimap (2.3–7.7 s a frame).
-5. **One copy of the file.**
+5. **One copy of the file.** Done; see "Step 5" above.
    - Stream into the rope.
    - Send ropes, and save from a snapshot.
-   - Git's version as hashes.
-   - Undo keeps large edits as rope snapshots.
-   - Backups as a journal.
+   - Git's version shares the text's rope (in place of hashes).
+   - Blame around the view in large files.
+   - Undo snapshots and a backup journal were looked at and left.
 
-   This takes memory from 3.2× the file to about 1.2× and makes the gutter
-   correct.
+   This takes merlin's own memory to its 78 MB plus about 1.14× the file,
+   and makes the gutter correct.
 6. **`RangeMap`, and colours on request.**
    - Diagnostics, inlays and folds move to `RangeMap`.
    - `pos_at_utf16` uses the rope's count.

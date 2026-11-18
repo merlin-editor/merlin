@@ -492,7 +492,7 @@ pub struct Editor {
     /// Who last changed each line, by file, as of a version of its text,
     /// and what was last asked for. `now` is the time blame last came.
     blames: HashMap<PathBuf, (u64, crate::git::Blame)>,
-    blame_asked: Option<(PathBuf, u64)>,
+    blame_asked: Option<(PathBuf, u64, Option<std::ops::Range<usize>>)>,
     /// The name under the cursor's uses, from its language server, and the
     /// name last asked about.
     highlights: Option<highlights::Highlights>,
@@ -882,6 +882,14 @@ impl Editor {
         &self.doc().buffer
     }
 
+    /// The text of the open file at `path`, shared, not copied.
+    pub fn rope_of(&self, path: &std::path::Path) -> Option<ropey::Rope> {
+        self.docs
+            .iter()
+            .find(|d| d.review.is_none() && d.buffer.path.as_deref() == Some(path))
+            .map(|d| d.buffer.rope().clone())
+    }
+
     /// Identifies the open file being edited, for as long as it's open.
     pub fn doc_id(&self) -> u64 {
         self.doc().id
@@ -929,11 +937,12 @@ impl Editor {
     }
 
     /// The text of the open file with id `doc`.
-    pub fn text_of(&self, doc: u64) -> Option<String> {
+    /// A document's text, shared, not copied.
+    pub fn rope_of_doc(&self, doc: u64) -> Option<ropey::Rope> {
         self.docs
             .iter()
             .find(|d| d.id == doc)
-            .map(|d| d.buffer.text())
+            .map(|d| d.buffer.rope().clone())
     }
 
     pub fn open_files(&self) -> Vec<Option<PathBuf>> {

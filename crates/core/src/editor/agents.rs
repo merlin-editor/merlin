@@ -1222,7 +1222,7 @@ impl Editor {
         fx.push(Effect::Save {
             doc: doc.id,
             path: path.to_path_buf(),
-            text: text.clone(),
+            text: text.as_str().into(),
             revision: doc.buffer.revision(),
         });
         let first = crate::diff::runs(&before, &text)
@@ -1970,7 +1970,7 @@ impl Editor {
                     fx.push(Effect::Save {
                         doc: doc.id,
                         path: change.path.clone(),
-                        text: change.before.clone(),
+                        text: change.before.as_str().into(),
                         revision: doc.buffer.revision(),
                     });
                 }
@@ -2271,7 +2271,7 @@ impl Editor {
                 fx.push(Effect::Save {
                     doc: doc.id,
                     path: path.to_path_buf(),
-                    text: text.to_string(),
+                    text: text.into(),
                     revision: doc.buffer.revision(),
                 });
             }

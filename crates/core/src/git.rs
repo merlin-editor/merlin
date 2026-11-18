@@ -377,8 +377,10 @@ pub fn patch(file: &FileDiff, index: usize, chosen: Option<&[usize]>, reverse: b
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Blame {
     pub commits: Vec<BlameCommit>,
-    /// Each line's commit, as an index into `commits`.
-    pub lines: Vec<usize>,
+    /// The first line blamed: a large file is blamed around the view.
+    pub first: usize,
+    /// Each line's commit from `first`, as an index into `commits`.
+    pub lines: Vec<u32>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -395,20 +397,34 @@ pub struct BlameCommit {
 impl Blame {
     /// The commit that last changed `line` (from 0).
     pub fn at(&self, line: usize) -> Option<&BlameCommit> {
-        self.commits.get(*self.lines.get(line)?)
+        self.commits.get(self.index(line)?)
+    }
+
+    /// The index in `commits` of the commit that last changed `line`.
+    pub fn index(&self, line: usize) -> Option<usize> {
+        let i = *self.lines.get(line.checked_sub(self.first)?)?;
+        Some(i as usize)
+    }
+
+    /// Whether every line in `lines` is blamed.
+    pub fn covers(&self, lines: &std::ops::Range<usize>) -> bool {
+        lines.start >= self.first && lines.end <= self.first + self.lines.len()
     }
 }
 
 /// Parses `git blame --porcelain`: each line starts with its commit's
 /// hash and line numbers, a commit's details come the first time it does,
 /// and the line's text follows a tab.
-pub fn parse_blame(text: &str) -> Blame {
-    let mut blame = Blame::default();
+pub fn parse_blame(text: &str, first: usize) -> Blame {
+    let mut blame = Blame {
+        first,
+        ..Blame::default()
+    };
     let mut current: Option<usize> = None;
     for line in text.lines() {
         if line.starts_with('\t') {
             if let Some(c) = current {
-                blame.lines.push(c);
+                blame.lines.push(c as u32);
             }
             continue;
         }
@@ -604,8 +620,11 @@ summary Version of README.md from README.md
 filename README.md
 \tnew line
 ";
-        let blame = parse_blame(text);
+        let blame = parse_blame(text, 0);
         assert_eq!(blame.lines, [0, 0, 1]);
+        let later = parse_blame(text, 40);
+        assert_eq!(later.index(41), Some(0));
+        assert_eq!((later.index(39), later.index(43)), (None, None));
         assert_eq!(blame.at(0).unwrap().author, "marc");
         assert_eq!(blame.at(1).unwrap().summary, "Start merlin");
         assert!(!blame.at(2).unwrap().committed);

@@ -441,7 +441,7 @@ impl App {
         if self.editor.opens_as_document(&path) {
             return vec![Event::Opened {
                 path,
-                text: String::new(),
+                text: Default::default(),
             }];
         }
         match read_file(&full) {
@@ -473,7 +473,7 @@ impl App {
             Box::new(move |app: &mut App| match read {
                 Ok(text) => {
                     app.disk.insert(path.clone(), when);
-                    app.git_base_later(path.clone());
+                    app.git_base_against_later(path.clone(), text.clone());
                     vec![
                         Event::Opened {
                             path: path.clone(),
@@ -502,11 +502,28 @@ impl App {
         });
     }
 
+    /// Reads an open file's text as of the last commit again.
     fn git_base_later(&mut self, path: PathBuf) {
+        if let Some(now) = self.editor.rope_of(&path) {
+            self.git_base_against_later(path, now);
+        }
+    }
+
+    /// Reads a file's text as of the last commit, against `now`, the text
+    /// it has open, shared.
+    fn git_base_against_later(&mut self, path: PathBuf, now: merlin_core::ropey::Rope) {
         let root = self.root.clone();
         self.jobs.run(Lane::Git, move || {
-            let text = git_base(&root, &path);
-            jobs::events(vec![Event::GitBase { path, text }])
+            let event = match git_base_against(&root, &path, &now) {
+                Some((alike, rest)) => Event::GitBaseRead {
+                    path,
+                    against: now,
+                    alike,
+                    rest,
+                },
+                None => Event::GitBase { path, text: None },
+            };
+            jobs::events(vec![event])
         });
     }
 
@@ -831,15 +848,21 @@ impl App {
 }
 
 /// A file to edit, read whole. One that isn't there yet opens empty.
-fn read_file(path: &Path) -> io::Result<String> {
-    match fs::read(path) {
-        Ok(bytes) => String::from_utf8(bytes).map_err(|_| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                "it isn't UTF-8 text, so editing it could change it",
-            )
-        }),
-        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(String::new()),
+/// Reads a file straight into a rope, a piece at a time, so it's never
+/// held whole twice.
+fn read_file(path: &Path) -> io::Result<merlin_core::ropey::Rope> {
+    match fs::File::open(path) {
+        Ok(file) => {
+            merlin_core::ropey::Rope::from_reader(io::BufReader::with_capacity(64 << 10, file))
+                .map_err(|err| match err.kind() {
+                    io::ErrorKind::InvalidData => io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "it isn't UTF-8 text, so editing it could change it",
+                    ),
+                    _ => err,
+                })
+        }
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(Default::default()),
         Err(err) => Err(err),
     }
 }
@@ -867,7 +890,7 @@ fn file_op(root: &Path, op: FileOp) -> Vec<Event> {
             vec![
                 Event::Opened {
                     path: path.clone(),
-                    text: String::new(),
+                    text: Default::default(),
                 },
                 Event::FileConfig { path, config },
             ]
@@ -1548,7 +1571,7 @@ fn main() -> Result<()> {
         let seen = |path: &Path| disk.get(path).copied().flatten();
         let plan = app
             .backups
-            .plan(editor.unsaved(), |id| editor.text_of(id), seen);
+            .plan(editor.unsaved(), |id| editor.rope_of_doc(id), seen);
         app.backups.keep(plan);
     } else if result.is_ok() {
         app.backups.clear();

@@ -91,6 +91,7 @@ impl App {
                 version,
                 text,
                 ignore,
+                lines,
             } => {
                 let due = Instant::now() + BLAME_PAUSE;
                 self.blame_due = Some((
@@ -100,6 +101,7 @@ impl App {
                         version,
                         text,
                         ignore,
+                        lines,
                     },
                 ));
             }

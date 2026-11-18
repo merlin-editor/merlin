@@ -44,7 +44,7 @@ fn probe(name: &str, path: &str, text: String) {
         s.send(Event::Settings(merlin_core::Settings::default()));
         s.send(Event::Opened {
             path: path.into(),
-            text: text.clone(),
+            text: text.as_str().into(),
         });
         s.send(Event::GitBase {
             path: path.into(),
