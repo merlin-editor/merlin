@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Background Work</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#08090a;padding:24px 0}
+.w{width:1280px;height:800px;background:#0f1012;font-family:Inter,sans-serif;color:#d4d5da;display:flex;flex-direction:column;font-size:13px;overflow:hidden;position:relative;margin:0 auto 24px}
+.bar{height:40px;display:flex;align-items:center;gap:10px;padding:0 12px;flex-shrink:0}
+.logo{width:20px;height:20px;border-radius:5px;background:#7c9cff;color:#0f1012;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center}
+.search{margin:0 auto;width:400px;height:26px;border-radius:7px;background:#1c1d21;border:1px solid #2c2d33;color:#8e9099;display:flex;align-items:center;gap:8px;padding:0 10px;font-size:12.5px;box-sizing:border-box}
+.kbd{font-size:11px;background:#26272c;border-radius:4px;padding:1px 6px;color:#b4b6bd;font-family:Inter,sans-serif}
+.mid{flex:1;display:flex;gap:6px;padding-right:6px;min-height:0}
+.rail{width:44px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:6px;padding-top:6px}
+.ri{width:30px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:#7a7d86;font-size:14px;position:relative}
+.ri.on{background:#1c1d21;color:#eef0f3}
+.ri .cm{font:700 9px Inter,sans-serif;letter-spacing:.02em}
+.rline{width:22px;height:1px;background:#2c2d33;margin:2px 0}
+.island{background:#17181b;border-radius:10px;display:flex;flex-direction:column;min-width:0;overflow:hidden;position:relative}
+.tabs{height:32px;display:flex;align-items:center;gap:3px;padding:0 6px;flex-shrink:0}
+.tab{height:24px;padding:0 10px;border-radius:6px;display:flex;align-items:center;gap:6px;color:#8e9099;font-size:12.5px}
+.tab.on{background:#26272c;color:#eef0f3;box-shadow:inset 0 0 0 1px #2c2d33}
+.ic{width:14px;height:14px;border-radius:3px;font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;background:#1e2a3a;color:#7cb7ff}
+.ic.cm{background:#1f3324;color:#a6d189}
+.code{font-family:'JetBrains Mono',monospace;font-size:13px;line-height:22px;white-space:pre;padding:4px 0}
+.ln{display:inline-block;width:40px;text-align:right;padding-right:20px;color:#7a7d86}
+.k{color:#c4a7e7}.s{color:#a6d189}.f{color:#f0c674}.t{color:#9ccfd8}.c{color:#7f8794}.n{color:#f5a97f}.v{color:#e5c890}
+.card{position:absolute;background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.45);font-family:Inter,sans-serif;overflow:hidden}
+.head{display:flex;align-items:center;gap:8px;padding:10px 12px 8px}
+.title{font-size:13px;font-weight:600;color:#eef0f3}
+.from{font-size:11.5px;color:#7a7d86}
+.item{display:flex;align-items:center;gap:9px;padding:7px 12px;min-height:22px}
+.dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.what{font-size:12.5px;color:#eef0f3;white-space:nowrap}
+.detail{font-size:12px;color:#8e9099;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+.mono{font-family:'JetBrains Mono',monospace;font-size:12px}
+.link{color:#7c9cff;font-size:12px;white-space:nowrap}
+.btn{height:22px;white-space:nowrap;flex-shrink:0;display:flex;align-items:center;gap:6px;padding:0 8px;border-radius:5px;font-size:12px;color:#d4d5da;background:#26272c}
+.btn.pri{background:#262b3d;color:#eef0f3;box-shadow:inset 0 0 0 1px #3a4466}
+.btn.icon{width:22px;padding:0;justify-content:center}
+.sep{height:1px;background:#2c2d33}
+.status{height:24px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px;color:#8e9099;flex-shrink:0;position:relative}
+.si{display:flex;align-items:center;gap:5px;white-space:nowrap}
+.si.hot{background:#1f2024;border-radius:4px;padding:2px 6px;margin:0 -6px;color:#eef0f3}
+.chip{display:flex;align-items:center;gap:5px;white-space:nowrap;border-radius:4px;padding:2px 6px;margin:0 -4px}
+.chip.on{background:#1f2024;color:#eef0f3}
+.sb{color:#8e9099;font-size:12px;padding:0 2px}
+.spin{width:9px;height:9px;border-radius:50%;border:1.5px solid #3a3b42;border-top-color:#7c9cff;display:inline-block}
+.label{position:absolute;font-family:Inter,sans-serif;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#7c9cff}
+.note{position:absolute;font-family:Inter,sans-serif;font-size:11.5px;color:#8e9099;line-height:16px}
+.note b{color:#d4d5da;font-weight:600}
+.panel{background:#0f1012;border:1px solid #2c2d33;border-radius:8px;position:absolute;overflow:hidden}
+.strip{height:24px;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px;color:#8e9099;background:#0f1012}
+.pick{padding:6px}
+.ptitle{height:28px;display:flex;align-items:center;padding:0 8px;font-size:12.5px;color:#eef0f3;border-bottom:1px solid #2c2d33;margin-bottom:4px;gap:8px}
+.prow{display:flex;align-items:center;gap:8px;height:26px;padding:0 8px;border-radius:5px;font-size:12.5px;color:#d4d5da}
+.prow.on{background:#262b3d;color:#eef0f3}
+.prow .detail{flex:0 1 auto;margin-left:auto}
+.psec{font-size:10.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#7a7d86;padding:6px 8px 2px}
+.view{display:flex;flex-direction:column;font-size:12.5px}
+.vhead{height:32px;display:flex;align-items:center;gap:6px;padding:0 10px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:#8e9099}
+.sec{display:flex;align-items:center;gap:6px;height:26px;padding:0 10px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#8e9099}
+.row{display:flex;align-items:center;gap:7px;height:24px;padding:0 10px;color:#d4d5da;white-space:nowrap}
+.row.on{background:#262b3d}
+.row .detail{flex:0 1 auto}
+.row .acts{margin-left:auto;display:flex;gap:4px;color:#8e9099}
+.tw{color:#7a7d86;width:10px;font-size:10px}
+.kind{font-size:10px;font-weight:700;border-radius:3px;padding:0 4px;height:14px;line-height:14px}
+.exe{background:#262b3d;color:#9db4ff}
+.lib{background:#26272c;color:#b4b6bd}
+.var{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#d4d5da;width:200px;overflow:hidden;text-overflow:ellipsis}
+.val{height:22px;border-radius:5px;background:#1c1d21;border:1px solid #2c2d33;display:flex;align-items:center;padding:0 7px;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#d4d5da;box-sizing:border-box;flex:1}
+.sw{width:26px;height:14px;border-radius:7px;background:#3a4466;position:relative;flex-shrink:0}
+.sw i{position:absolute;top:2px;left:14px;width:10px;height:10px;border-radius:50%;background:#eef0f3}
+.sw.off{background:#3a3b42}.sw.off i{left:2px;background:#8e9099}
+.mod{font-size:10px;color:#e3b341;border:1px solid #5a4a1e;border-radius:3px;padding:0 4px}
+.banner{display:flex;align-items:center;gap:8px;padding:7px 10px;background:#1f2a40;color:#c9d6ff;font-size:12px}
+.box{height:24px;border-radius:6px;background:#1c1d21;border:1px solid #2c2d33;display:flex;align-items:center;padding:0 8px;color:#7a7d86;font-size:12px;margin:4px 10px;box-sizing:border-box}
+.term{font-family:'JetBrains Mono',monospace;font-size:12px;line-height:19px;white-space:pre;padding:8px 12px;color:#b4b6bd}
+.err{color:#f0807a}.ok{color:#a6d189}.dim{color:#7a7d86}
+.cc{position:absolute;background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.45);overflow:hidden;font-family:'JetBrains Mono',monospace;font-size:12.5px}
+.ci{display:flex;align-items:center;gap:8px;height:24px;padding:0 8px 0 6px;color:#9a9ca4;white-space:nowrap}
+.ci.on{background:#262b3d;color:#d4d5da}
+.km{width:16px;height:16px;border-radius:4px;font:700 9.5px Inter,sans-serif;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.km.fn{background:#3a3320;color:#f0c674}.km.ty{background:#1f3236;color:#9ccfd8}.km.va{background:#2a2b31;color:#d4d5da}
+.km.kw{background:#2f2840;color:#c4a7e7}.km.co{background:#3a2a20;color:#f5a97f}.km.fi{background:#2a2b31;color:#b4b6bd}
+.km.mo{background:#1f3236;color:#9ccfd8}.km.ma{background:#1f3236;color:#9ccfd8}
+.nm{flex-shrink:0}
+.mt{font-weight:600;text-decoration:underline;text-decoration-color:#7c9cff;text-underline-offset:3px}
+.dt{margin-left:auto;padding-left:14px;font-size:11.5px;opacity:.55;overflow:hidden;text-overflow:ellipsis}
+.ci.on .dt{opacity:.9}
+.cdoc{border-top:1px solid #2c2d33;padding:8px 10px;font-size:12px;line-height:18px;color:#d4d5da;white-space:normal}
+.cdoc .p{font-family:Inter,sans-serif;color:#8e9099;font-size:12px;margin-top:4px}
+.ed{font-family:'JetBrains Mono',monospace;font-size:13px;line-height:22px;white-space:pre;color:#d4d5da}
+.cur{display:inline-block;width:2px;height:16px;background:#7c9cff;vertical-align:-3px}
+.old{position:absolute;background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;overflow:hidden;font-family:'JetBrains Mono',monospace;font-size:12.5px}
+.old .ci{color:#d4d5da}
+h2{font:600 12px Inter,sans-serif;letter-spacing:.04em;text-transform:uppercase;color:#7c9cff;margin:0 0 6px}
+.proj{display:flex;align-items:center;gap:8px;height:30px;padding:0 10px;white-space:nowrap}
+.proj.on{background:#262b3d}
+.pi{width:16px;height:16px;border-radius:4px;background:#1f3324;color:#a6d189;font:700 8px Inter,sans-serif;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.tree{font-size:12.5px;color:#b4b6bd}
+.tree .row{height:22px}
+.hit{font-family:'JetBrains Mono',monospace;font-size:12px;color:#8e9099;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hit b{color:#eef0f3;font-weight:600;background:#3a3320;border-radius:2px}
+.scopes{display:flex;gap:4px;padding:6px 8px;border-bottom:1px solid #2c2d33}
+.sc{height:22px;padding:0 8px;border-radius:5px;display:flex;align-items:center;gap:5px;font-size:12px;color:#8e9099}
+.sc.on{background:#26272c;color:#eef0f3;box-shadow:inset 0 0 0 1px #2c2d33}
+.sc .kbd{font-size:10px;padding:0 4px}
+.foot{display:flex;gap:14px;padding:6px 10px;border-top:1px solid #2c2d33;font-size:11.5px;color:#7a7d86}
+.foot b{color:#b4b6bd;font-weight:600}
+.state{display:flex;align-items:center;gap:8px;padding:7px 10px;font-size:12px;color:#b4b6bd;border-top:1px solid #2c2d33}
+.state .link{margin-left:auto}
+.amber{color:#e3b341}
+.scan{font-size:9.5px;font-weight:700;border-radius:3px;padding:0 4px;height:14px;line-height:14px;background:#2a2b31;color:#8e9099;letter-spacing:.02em}
+.ex{color:#6a6d75}
+.ex .ic{opacity:.45}
+.exm{font-size:10px;color:#7a7d86;border:1px solid #3a3b42;border-radius:3px;padding:0 4px;line-height:13px}
+.menu{position:absolute;background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.45);padding:4px;font-size:12.5px;width:250px}
+.mi{display:flex;align-items:center;height:26px;padding:0 10px;border-radius:5px;color:#d4d5da;white-space:nowrap}
+.mi.on{background:#262b3d;color:#eef0f3}
+.mi .kbd{margin-left:auto;background:none;color:#7a7d86}
+.msep{height:1px;background:#2c2d33;margin:4px 6px}
+.vbtns{margin-left:auto;display:flex;gap:6px;color:#8e9099;font-size:13px;text-transform:none;letter-spacing:0}
+.vbtns .on{color:#7c9cff}
+.tog{display:flex;align-items:center;gap:8px;padding:4px 10px;font-size:12px;color:#b4b6bd}
+.glob{display:flex;align-items:center;gap:8px;height:28px;padding:0 10px;border-radius:5px;font-family:'JetBrains Mono',monospace;font-size:12px;color:#d4d5da}
+.glob:nth-child(odd){background:#1a1b1e}
+.glob .why{font-family:Inter,sans-serif;font-size:11.5px;color:#7a7d86;margin-left:auto}
+.glob .x{color:#7a7d86;font-family:Inter,sans-serif}
+.sp{padding:16px 22px}
+.shead{font-size:15px;font-weight:600;color:#eef0f3;margin-bottom:2px}
+.ssub{font-size:12px;color:#8e9099;margin-bottom:14px}
+.set{border-top:1px solid #2c2d33;padding:12px 0}
+.set .sn{font-size:12.5px;color:#eef0f3;font-weight:500;display:flex;align-items:center;gap:8px}
+.set .sd{font-size:12px;color:#8e9099;margin:3px 0 8px;line-height:17px}
+.set .key{font-family:'JetBrains Mono',monospace;font-size:11px;color:#7a7d86;margin-left:auto;font-weight:400}
+.seg{display:flex;background:#1c1d21;border:1px solid #2c2d33;border-radius:6px;padding:2px;gap:2px;width:max-content}
+.seg span{padding:2px 10px;border-radius:4px;font-size:12px;color:#8e9099}
+.seg span.on{background:#26272c;color:#eef0f3}
+.nav{width:200px;flex-shrink:0;padding:10px 6px;font-size:12.5px}
+.nav .row{border-radius:5px}
+
+.find{position:absolute;right:30px;top:4px;width:440px;background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.45);padding:4px;box-sizing:border-box;display:flex;align-items:center;gap:4px;overflow:hidden}
+.find .chev{width:20px;color:#7a7d86;text-align:center;font-size:11px}
+.field{flex:1;height:26px;border:1px solid #7c9cff;border-radius:5px;background:#202126;display:flex;align-items:center;padding:0 8px;gap:6px;box-sizing:border-box;font-size:13px;color:#eef0f3;min-width:0}
+.field .q{white-space:nowrap}
+.field .caret{width:1.5px;height:14px;background:#7c9cff;margin-left:-5px}
+.count{margin-left:auto;font-size:12px;color:#8e9099;white-space:nowrap;display:flex;align-items:center;gap:5px}
+.count.none{color:#e78284}
+.tg{font-size:11px;color:#7a7d86;padding:1px 3px;border-radius:3px}
+.fb{width:26px;height:26px;display:flex;align-items:center;justify-content:center;color:#b4b6bd;border-radius:5px;font-size:13px}
+.prog{position:absolute;left:0;bottom:0;height:2px;background:#7c9cff;border-radius:0 2px 2px 0}
+.spin{display:inline-block;width:10px;height:10px;border:1.5px solid #3a3c44;border-top-color:#7c9cff;border-radius:50%}
+.m{background:rgba(240,198,116,.22);border-radius:2px}
+.m.mc{background:rgba(240,198,116,.55);box-shadow:0 0 0 1px #f0c674}
+.bar2{position:absolute;right:4px;top:40px;bottom:6px;width:10px}
+.mk{position:absolute;right:3px;width:4px;height:2px;background:#f0c674;opacity:.8}
+.thumb{position:absolute;right:0;width:10px;background:rgba(142,144,153,.18);border-radius:4px}
+.cap{position:absolute;left:0;right:0;top:0;height:2px}
+.hd{margin:0 0 4px;font-size:15px;color:#eef0f3;font-weight:600}
+.code .ln{width:84px}
+.wnote{position:static;width:auto}
+.note{font-size:12.5px;color:#b4b6bd;line-height:1.55}
+.note b{color:#eef0f3;font-weight:600}
+.states{display:flex;flex-direction:column;gap:10px}
+.state-row{display:flex;align-items:center;gap:14px}
+.state-row .lbl{width:300px;font-size:12px;color:#8e9099;line-height:1.4}
+.mini{position:relative;width:440px;background:#1c1d21;border:1px solid #2c2d33;border-radius:8px;padding:4px;box-sizing:border-box;display:flex;align-items:center;gap:4px;overflow:hidden}
+.unw{color:#7a7d86}
+.wrapped{padding-left:60px}
+</style>
+</head>
+<body>
+<div class="w">
+  <div class="bar"><div class="logo">m</div><div class="search">⌕ Search files, commands, symbols and text <span class="kbd" style="margin-left:auto">Ctrl Shift P</span></div></div>
+  <div class="mid">
+    <div class="rail"><div class="ri on">❐</div><div class="ri">⌕</div><div class="ri">⑂</div><div class="ri">⚗</div><div class="ri">▷</div><div class="ri">☰</div></div>
+    <div class="island" style="flex:1">
+      <div class="tabs"><div class="tab on"><span class="ic" style="background:#2a2a1e;color:#e5c890">LG</span>server.log</div><span style="margin-left:auto;color:#7a7d86;font-size:11.5px;padding-right:8px">342 MB · 4.9 million lines</span></div>
+      <div style="position:relative;flex:1;overflow:hidden">
+      <div class="code"><span class="ln">1,204,300</span><span class="t">2026-11-17T10:31:40Z</span> <span class="c">INFO</span> request path=<span class="s">/api/orders/71333</span> status=<span class="n">200</span> took=608ms
+<span class="ln">1,204,301</span><span class="t">2026-11-17T10:31:41Z</span> <span class="c">INFO</span> request path=<span class="s">/health</span> status=<span class="n">200</span> took=620ms
+<span class="ln">1,204,302</span><span class="t">2026-11-17T10:31:42Z</span> <span class="c">INFO</span> request path=<span class="s">/login</span> status=<span class="n">200</span> took=622ms
+<span class="ln">1,204,303</span><span class="t">2026-11-17T10:31:43Z</span> <span class="c">INFO</span> request path=<span class="s">/api/orders/30714</span> status=<span class="n">200</span> took=566ms
+<span class="ln">1,204,304</span><span class="t">2026-11-17T10:31:44Z</span> <span class="n">WARN</span> request path=<span class="s">/health</span> status=<span class="n">500</span> <span class="m">timeout</span> after took=483ms
+<span class="ln">1,204,305</span><span class="t">2026-11-17T10:31:45Z</span> <span class="c">INFO</span> request path=<span class="s">/api/orders/83763</span> status=<span class="n">304</span> took=408ms
+<span class="ln">1,204,306</span><span class="t">2026-11-17T10:31:46Z</span> <span class="c">INFO</span> request path=<span class="s">/health</span> status=<span class="n">200</span> took=652ms
+<span class="ln">1,204,307</span><span class="t">2026-11-17T10:31:47Z</span> <span class="c">INFO</span> request path=<span class="s">/api/users</span> status=<span class="n">304</span> took=761ms
+<span class="ln">1,204,308</span><span class="t">2026-11-17T10:31:48Z</span> <span class="c">INFO</span> request path=<span class="s">/api/users</span> status=<span class="n">200</span> took=778ms
+<span class="ln">1,204,309</span><span class="t">2026-11-17T10:31:49Z</span> <span class="c">INFO</span> request path=<span class="s">/static/app.js</span> status=<span class="n">200</span> took=800ms
+<span class="ln">1,204,310</span><span class="t">2026-11-17T10:31:50Z</span> <span class="c">INFO</span> request path=<span class="s">/login</span> status=<span class="n">304</span> took=611ms
+<span class="ln">1,204,311</span><span class="t">2026-11-17T10:31:51Z</span> <span class="n">WARN</span> request path=<span class="s">/login</span> status=<span class="n">500</span> <span class="m mc">timeout</span> after took=809ms
+<span class="ln">1,204,312</span><span class="t">2026-11-17T10:31:52Z</span> <span class="n">WARN</span> request path=<span class="s">/login</span> status=<span class="n">500</span> took=822ms
+<span class="ln">1,204,313</span><span class="t">2026-11-17T10:31:53Z</span> <span class="c">INFO</span> request path=<span class="s">/api/users</span> status=<span class="n">200</span> took=376ms
+<span class="ln">1,204,314</span><span class="t">2026-11-17T10:31:54Z</span> <span class="c">INFO</span> request path=<span class="s">/static/app.js</span> status=<span class="n">200</span> took=508ms
+<span class="ln">1,204,315</span><span class="t">2026-11-17T10:31:55Z</span> <span class="n">WARN</span> request path=<span class="s">/static/app.js</span> status=<span class="n">500</span> took=448ms
+<span class="ln">1,204,316</span><span class="t">2026-11-17T10:31:56Z</span> <span class="c">INFO</span> request path=<span class="s">/health</span> status=<span class="n">304</span> took=521ms
+<span class="ln">1,204,317</span><span class="t">2026-11-17T10:31:57Z</span> <span class="c">INFO</span> request path=<span class="s">/login</span> status=<span class="n">200</span> <span class="m">timeout</span> after took=548ms
+<span class="ln">1,204,318</span><span class="t">2026-11-17T10:31:58Z</span> <span class="n">WARN</span> request path=<span class="s">/api/users</span> status=<span class="n">404</span> took=239ms
+<span class="ln">1,204,319</span><span class="t">2026-11-17T10:31:59Z</span> <span class="c">INFO</span> request path=<span class="s">/api/orders/87985</span> status=<span class="n">200</span> took=622ms
+<span class="ln">1,204,320</span><span class="t">2026-11-17T10:32:00Z</span> <span class="n">WARN</span> request path=<span class="s">/health</span> status=<span class="n">500</span> took=883ms
+<span class="ln">1,204,321</span><span class="t">2026-11-17T10:32:01Z</span> <span class="n">WARN</span> request path=<span class="s">/api/orders/13641</span> status=<span class="n">404</span> took=584ms
+<span class="ln">1,204,322</span><span class="t">2026-11-17T10:32:02Z</span> <span class="n">WARN</span> request path=<span class="s">/static/app.js</span> status=<span class="n">500</span> took=853ms
+<span class="ln">1,204,323</span><span class="t">2026-11-17T10:32:03Z</span> <span class="c">INFO</span> request path=<span class="s">/login</span> status=<span class="n">200</span> took=129ms
+<span class="ln">1,204,324</span><span class="t">2026-11-17T10:32:04Z</span> <span class="n">WARN</span> request path=<span class="s">/static/app.js</span> status=<span class="n">500</span> took=497ms
+<span class="ln">1,204,325</span><span class="t">2026-11-17T10:32:05Z</span> <span class="c">INFO</span> request path=<span class="s">/api/users</span> status=<span class="n">200</span> took=422ms
+<span class="ln">1,204,326</span><span class="t">2026-11-17T10:32:06Z</span> <span class="c">INFO</span> request path=<span class="s">/api/users</span> status=<span class="n">200</span> <span class="m">timeout</span> after took=439ms
+<span class="ln">1,204,327</span><span class="t">2026-11-17T10:32:07Z</span> <span class="c">INFO</span> request path=<span class="s">/api/users</span> status=<span class="n">200</span> took=621ms
+<span class="ln">1,204,328</span><span class="t">2026-11-17T10:32:08Z</span> <span class="c">INFO</span> request path=<span class="s">/static/app.js</span> status=<span class="n">304</span> took=737ms
+<span class="ln">1,204,329</span><span class="t">2026-11-17T10:32:09Z</span> <span class="n">WARN</span> request path=<span class="s">/api/orders/66246</span> status=<span class="n">404</span> took=287ms</div>
+      <div class="find"><span class="chev">›</span><div class="field"><span class="q">timeout</span><span class="caret"></span><span class="count"><span class="spin"></span>1,204 so far</span><span class="tg">Aa</span><span class="tg">ab</span><span class="tg">.*</span></div><span class="fb">↑</span><span class="fb">↓</span><span class="fb">⊟</span><span class="fb">✕</span><div class="prog" style="width:38%"></div></div>
+      <div class="bar2"><div class="thumb" style="top:35.0%;height:3%"></div><div class="mk" style="top:2.9%"></div><div class="mk" style="top:11.3%"></div><div class="mk" style="top:24.7%"></div><div class="mk" style="top:1.3%"></div><div class="mk" style="top:21.7%"></div><div class="mk" style="top:27.9%"></div><div class="mk" style="top:16.0%"></div><div class="mk" style="top:13.9%"></div><div class="mk" style="top:12.7%"></div><div class="mk" style="top:0.2%"></div><div class="mk" style="top:20.9%"></div><div class="mk" style="top:21.5%"></div><div class="mk" style="top:28.9%"></div><div class="mk" style="top:20.5%"></div><div class="mk" style="top:29.9%"></div><div class="mk" style="top:36.1%"></div><div class="mk" style="top:16.6%"></div><div class="mk" style="top:14.6%"></div><div class="mk" style="top:6.5%"></div><div class="mk" style="top:30.1%"></div><div class="mk" style="top:0.3%"></div><div class="mk" style="top:33.8%"></div><div class="mk" style="top:31.0%"></div><div class="mk" style="top:31.6%"></div><div class="mk" style="top:5.7%"></div><div class="mk" style="top:2.3%"></div><div class="mk" style="top:1.8%"></div><div class="mk" style="top:36.6%"></div><div class="mk" style="top:0.9%"></div><div class="mk" style="top:4.7%"></div><div class="mk" style="top:18.1%"></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="status">
+    <span class="si">⑂ main</span><span class="si">⊗ 0</span><span class="si">⚠ 0</span>
+    <span class="si" style="margin-left:auto">Ln 1,204,311, Col 41</span><span class="si">UTF-8</span><span class="si">LF</span>
+    
+    <span class="si">Plain Text</span>
+  </div>
+</div>
+<div class="w" style="height:auto;padding:22px 28px;gap:10px">
+  <div class="hd">1 · Find counts in the background</div>
+  <div class="note wnote">A large file's matches are counted on a few background threads, so typing in Find never waits. Above, a 342 MB log: <b>1,204 so far</b> with a spinner, and a thin line along the box's foot for how far through the file the count has got (38%). The scrollbar's match marks fill in from the top as the count passes them. ↑, ↓ and Enter go to the next match straight away: they search from the cursor and don't need the count. Typing again starts a new count; a query grown from the last one counts only where the last matched, so it's usually done before the next key. A file under about 8 MB is counted at once, as now, and never shows this.</div>
+</div>
+<div class="w">
+  <div class="bar"><div class="logo">m</div><div class="search">⌕ Search files, commands, symbols and text <span class="kbd" style="margin-left:auto">Ctrl Shift P</span></div></div>
+  <div class="mid">
+    <div class="rail"><div class="ri on">❐</div><div class="ri">⌕</div><div class="ri">⑂</div><div class="ri">⚗</div><div class="ri">▷</div><div class="ri">☰</div></div>
+    <div class="island" style="flex:1">
+      <div class="tabs"><div class="tab on"><span class="ic" style="background:#2a2a1e;color:#e5c890">LG</span>server.log</div><span style="margin-left:auto;color:#7a7d86;font-size:11.5px;padding-right:8px">342 MB · 4.9 million lines</span></div>
+      <div style="position:relative;flex:1;overflow:hidden">
+      <div class="code"><span class="ln">1,204,300</span><span class="t">2026-11-17T10:31:40Z</span> <span class="c">INFO</span> request path=<span class="s">/api/users</span> status=<span class="n">200</span> took=319ms
+<span class="ln">1,204,301</span><span class="t">2026-11-17T10:31:41Z</span> <span class="c">INFO</span> request path=<span class="s">/api/users</span> status=<span class="n">200</span> took=616ms
+<span class="ln">1,204,302</span><span class="t">2026-11-17T10:31:42Z</span> <span class="c">INFO</span> request path=<span class="s">/health</span> status=<span class="n">200</span> took=419ms
+<span class="ln">1,204,303</span><span class="t">2026-11-17T10:31:43Z</span> <span class="c">INFO</span> request path=<span class="s">/api/users</span> status=<span class="n">200</span> took=161ms
+<span class="ln">1,204,304</span><span class="t">2026-11-17T10:31:44Z</span> <span class="c">INFO</span> request path=<span class="s">/api/orders/47211</span> status=<span class="n">200</span> <span class="m">timeout</span> after took=323ms
+<span class="ln">1,204,305</span><span class="t">2026-11-17T10:31:45Z</span> <span class="c">INFO</span> request path=<span class="s">/health</span> status=<span class="n">304</span> took=387ms
+<span class="ln">1,204,306</span><span class="t">2026-11-17T10:31:46Z</span> <span class="c">INFO</span> request path=<span class="s">/health</span> status=<span class="n">304</span> took=661ms
+<span class="ln">1,204,307</span><span class="t">2026-11-17T10:31:47Z</span> <span class="c">INFO</span> request path=<span class="s">/static/app.js</span> status=<span class="n">200</span> took=637ms
+<span class="ln">1,204,308</span><span class="t">2026-11-17T10:31:48Z</span> <span class="c">INFO</span> request path=<span class="s">/api/orders/94412</span> status=<span class="n">304</span> took=651ms
+<span class="ln">1,204,309</span><span class="t">2026-11-17T10:31:49Z</span> <span class="c">INFO</span> request path=<span class="s">/health</span> status=<span class="n">200</span> took=449ms
+<span class="ln">1,204,310</span><span class="t">2026-11-17T10:31:50Z</span> <span class="c">INFO</span> request path=<span class="s">/api/users</span> status=<span class="n">200</span> took=563ms
+<span class="ln">1,204,311</span><span class="t">2026-11-17T10:31:51Z</span> <span class="c">INFO</span> request path=<span class="s">/api/users</span> status=<span class="n">304</span> <span class="m mc">timeout</span> after took=595ms
+<span class="ln">1,204,312</span><span class="t">2026-11-17T10:31:52Z</span> <span class="c">INFO</span> request path=<span class="s">/api/orders/77228</span> status=<span class="n">304</span> took=632ms
+<span class="ln">1,204,313</span><span class="t">2026-11-17T10:31:53Z</span> <span class="c">INFO</span> request path=<span class="s">/static/app.js</span> status=<span class="n">200</span> took=650ms
+<span class="ln">1,204,314</span><span class="t">2026-11-17T10:31:54Z</span> <span class="c">INFO</span> request path=<span class="s">/static/app.js</span> status=<span class="n">304</span> took=363ms
+<span class="ln">1,204,315</span><span class="t">2026-11-17T10:31:55Z</span> <span class="n">WARN</span> request path=<span class="s">/login</span> status=<span class="n">404</span> took=725ms
+<span class="ln">1,204,316</span><span class="t">2026-11-17T10:31:56Z</span> <span class="c">INFO</span> request path=<span class="s">/api/users</span> status=<span class="n">200</span> took=605ms
+<span class="ln">1,204,317</span><span class="t">2026-11-17T10:31:57Z</span> <span class="c">INFO</span> request path=<span class="s">/login</span> status=<span class="n">200</span> <span class="m">timeout</span> after took=259ms
+<span class="ln">1,204,318</span><span class="t">2026-11-17T10:31:58Z</span> <span class="c">INFO</span> request path=<span class="s">/static/app.js</span> status=<span class="n">200</span> took=608ms
+<span class="ln">1,204,319</span><span class="t">2026-11-17T10:31:59Z</span> <span class="c">INFO</span> request path=<span class="s">/static/app.js</span> status=<span class="n">200</span> took=374ms
+<span class="ln">1,204,320</span><span class="t">2026-11-17T10:32:00Z</span> <span class="c">INFO</span> request path=<span class="s">/static/app.js</span> status=<span class="n">200</span> took=866ms
+<span class="ln">1,204,321</span><span class="t">2026-11-17T10:32:01Z</span> <span class="c">INFO</span> request path=<span class="s">/api/users</span> status=<span class="n">200</span> took=808ms
+<span class="ln">1,204,322</span><span class="t">2026-11-17T10:32:02Z</span> <span class="c">INFO</span> request path=<span class="s">/api/orders/89618</span> status=<span class="n">200</span> took=584ms
+<span class="ln">1,204,323</span><span class="t">2026-11-17T10:32:03Z</span> <span class="c">INFO</span> request path=<span class="s">/static/app.js</span> status=<span class="n">200</span> took=514ms
+<span class="ln">1,204,324</span><span class="t">2026-11-17T10:32:04Z</span> <span class="c">INFO</span> request path=<span class="s">/login</span> status=<span class="n">200</span> took=337ms
+<span class="ln">1,204,325</span><span class="t">2026-11-17T10:32:05Z</span> <span class="n">WARN</span> request path=<span class="s">/api/users</span> status=<span class="n">500</span> took=716ms
+<span class="ln">1,204,326</span><span class="t">2026-11-17T10:32:06Z</span> <span class="n">WARN</span> request path=<span class="s">/api/orders/43745</span> status=<span class="n">404</span> <span class="m">timeout</span> after took=331ms
+<span class="ln">1,204,327</span><span class="t">2026-11-17T10:32:07Z</span> <span class="c">INFO</span> request path=<span class="s">/api/users</span> status=<span class="n">304</span> took=831ms
+<span class="ln">1,204,328</span><span class="t">2026-11-17T10:32:08Z</span> <span class="c">INFO</span> request path=<span class="s">/api/orders/85227</span> status=<span class="n">200</span> took=761ms
+<span class="ln">1,204,329</span><span class="t">2026-11-17T10:32:09Z</span> <span class="n">WARN</span> request path=<span class="s">/api/orders/35468</span> status=<span class="n">404</span> took=463ms</div>
+      <div class="find"><span class="chev">›</span><div class="field"><span class="q">timeout</span><span class="caret"></span><span class="count">12 of 48,201</span><span class="tg">Aa</span><span class="tg">ab</span><span class="tg">.*</span></div><span class="fb">↑</span><span class="fb">↓</span><span class="fb">⊟</span><span class="fb">✕</span></div>
+      <div class="bar2"><div class="thumb" style="top:35.0%;height:3%"></div><div class="mk" style="top:62.3%"></div><div class="mk" style="top:74.2%"></div><div class="mk" style="top:79.5%"></div><div class="mk" style="top:94.2%"></div><div class="mk" style="top:74.0%"></div><div class="mk" style="top:92.2%"></div><div class="mk" style="top:2.9%"></div><div class="mk" style="top:46.6%"></div><div class="mk" style="top:94.3%"></div><div class="mk" style="top:64.9%"></div><div class="mk" style="top:90.1%"></div><div class="mk" style="top:11.3%"></div><div class="mk" style="top:46.9%"></div><div class="mk" style="top:24.7%"></div><div class="mk" style="top:54.4%"></div><div class="mk" style="top:57.4%"></div><div class="mk" style="top:1.3%"></div><div class="mk" style="top:21.7%"></div><div class="mk" style="top:27.9%"></div><div class="mk" style="top:91.6%"></div><div class="mk" style="top:76.6%"></div><div class="mk" style="top:16.0%"></div><div class="mk" style="top:79.7%"></div><div class="mk" style="top:13.9%"></div><div class="mk" style="top:61.7%"></div><div class="mk" style="top:12.7%"></div><div class="mk" style="top:0.2%"></div><div class="mk" style="top:87.1%"></div><div class="mk" style="top:20.9%"></div><div class="mk" style="top:21.5%"></div><div class="mk" style="top:98.2%"></div><div class="mk" style="top:87.2%"></div><div class="mk" style="top:28.9%"></div><div class="mk" style="top:96.1%"></div><div class="mk" style="top:53.9%"></div><div class="mk" style="top:67.8%"></div><div class="mk" style="top:20.5%"></div><div class="mk" style="top:94.1%"></div><div class="mk" style="top:69.1%"></div><div class="mk" style="top:96.7%"></div><div class="mk" style="top:89.4%"></div><div class="mk" style="top:29.9%"></div><div class="mk" style="top:36.1%"></div><div class="mk" style="top:16.6%"></div><div class="mk" style="top:14.6%"></div><div class="mk" style="top:6.5%"></div><div class="mk" style="top:30.1%"></div><div class="mk" style="top:60.3%"></div><div class="mk" style="top:0.3%"></div><div class="mk" style="top:67.8%"></div><div class="mk" style="top:33.8%"></div><div class="mk" style="top:31.0%"></div><div class="mk" style="top:81.9%"></div><div class="mk" style="top:48.1%"></div><div class="mk" style="top:31.6%"></div><div class="mk" style="top:48.1%"></div><div class="mk" style="top:70.5%"></div><div class="mk" style="top:5.7%"></div><div class="mk" style="top:97.5%"></div><div class="mk" style="top:2.3%"></div><div class="mk" style="top:75.0%"></div><div class="mk" style="top:84.5%"></div><div class="mk" style="top:1.8%"></div><div class="mk" style="top:78.8%"></div><div class="mk" style="top:36.6%"></div><div class="mk" style="top:57.9%"></div><div class="mk" style="top:0.9%"></div><div class="mk" style="top:4.7%"></div><div class="mk" style="top:18.1%"></div><div class="mk" style="top:95.5%"></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="status">
+    <span class="si">⑂ main</span><span class="si">⊗ 0</span><span class="si">⚠ 0</span>
+    <span class="si" style="margin-left:auto">Ln 1,204,311, Col 41</span><span class="si">UTF-8</span><span class="si">LF</span>
+    
+    <span class="si">Plain Text</span>
+  </div>
+</div>
+<div class="w" style="height:auto;padding:22px 28px;gap:10px">
+  <div class="hd">2 · Done</div>
+  <div class="note wnote">When the count finishes, the spinner and the line go and the box reads as it does today: <b>12 of 48,201</b>, with every mark in the scrollbar.</div>
+</div>
+<div class="w" style="height:auto;padding:22px 28px;gap:16px">
+  <div class="hd">3 · Each state of the count</div>
+  <div class="states"><div class="state-row"><div class="mini"><span class="chev" style="width:20px;color:#7a7d86;text-align:center;font-size:11px">›</span><div class="field" style="border-color:#7c9cff"><span class="q">t</span><span class="count"><span class="spin"></span>Searching…</span><span class="tg">Aa</span><span class="tg">ab</span><span class="tg">.*</span></div><span class="fb">↑</span><span class="fb">↓</span><span class="fb">⊟</span><span class="fb">✕</span><div class="prog" style="width:6%"></div></div><div class="lbl">Just typed, nothing found yet: <b>Searching…</b>, never “No results” until the whole file is done.</div></div><div class="state-row"><div class="mini"><span class="chev" style="width:20px;color:#7a7d86;text-align:center;font-size:11px">›</span><div class="field" style="border-color:#7c9cff"><span class="q">timeout</span><span class="count"><span class="spin"></span>1,204 so far</span><span class="tg">Aa</span><span class="tg">ab</span><span class="tg">.*</span></div><span class="fb">↑</span><span class="fb">↓</span><span class="fb">⊟</span><span class="fb">✕</span><div class="prog" style="width:38%"></div></div><div class="lbl">Counting: how many so far, and the line along the foot shows how far through the file. ↑ ↓ and Enter work at once.</div></div><div class="state-row"><div class="mini"><span class="chev" style="width:20px;color:#7a7d86;text-align:center;font-size:11px">›</span><div class="field" style="border-color:#7c9cff"><span class="q">timeout</span><span class="count"><span class="spin"></span>12 of 1,204+</span><span class="tg">Aa</span><span class="tg">ab</span><span class="tg">.*</span></div><span class="fb">↑</span><span class="fb">↓</span><span class="fb">⊟</span><span class="fb">✕</span><div class="prog" style="width:38%"></div></div><div class="lbl">On a match while counting: which it is is known before the total, so it shows with a <b>+</b>.</div></div><div class="state-row"><div class="mini"><span class="chev" style="width:20px;color:#7a7d86;text-align:center;font-size:11px">›</span><div class="field" style="border-color:#7c9cff"><span class="q">timeout</span><span class="count">12 of 48,201</span><span class="tg">Aa</span><span class="tg">ab</span><span class="tg">.*</span></div><span class="fb">↑</span><span class="fb">↓</span><span class="fb">⊟</span><span class="fb">✕</span></div><div class="lbl">Done: as today.</div></div><div class="state-row"><div class="mini"><span class="chev" style="width:20px;color:#7a7d86;text-align:center;font-size:11px">›</span><div class="field" style="border-color:#e78284"><span class="q">timeuot</span><span class="count"><span class="count none" style="margin:0">No results</span></span><span class="tg">Aa</span><span class="tg">ab</span><span class="tg">.*</span></div><span class="fb">↑</span><span class="fb">↓</span><span class="fb">⊟</span><span class="fb">✕</span></div><div class="lbl">Done, none: as today, only once the whole file is searched.</div></div></div>
+</div>
+<div class="w">
+  <div class="bar"><div class="logo">m</div><div class="search">⌕ Search files, commands, symbols and text <span class="kbd" style="margin-left:auto">Ctrl Shift P</span></div></div>
+  <div class="mid">
+    <div class="rail"><div class="ri on">❐</div><div class="ri">⌕</div><div class="ri">⑂</div><div class="ri">⚗</div><div class="ri">▷</div><div class="ri">☰</div></div>
+    <div class="island" style="flex:1">
+      <div class="tabs"><div class="tab on"><span class="ic" style="background:#2a2a1e;color:#e5c890">LG</span>server.log</div><span style="margin-left:auto;color:#7a7d86;font-size:11.5px;padding-right:8px">342 MB · 4.9 million lines</span></div>
+      <div style="position:relative;flex:1;overflow:hidden">
+      <div class="code"><span class="ln">2,001,400</span><span class="t">2026-11-17T10:00:01Z</span> <span class="c">INFO</span> request path=<span class="s">/api/orders/41188</span> status=<span class="n">200</span> took=212ms user=4417 agent=<span class="s">"Mozilla/5.0 (X11; Linux x86_64)
+<span class="ln"></span>     <span class="s">AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131"</span> ref=<span class="s">/cart</span>
+<span class="ln">2,001,401</span><span class="t">2026-11-17T10:00:01Z</span> <span class="c">INFO</span> request path=<span class="s">/api/orders/41188</span> status=<span class="n">200</span> took=212ms user=4417 agent=<span class="s">"Mozilla/5.0 (X11; Linux x86_64)
+<span class="ln"></span>     <span class="s">AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131"</span> ref=<span class="s">/cart</span>
+<span class="ln">2,001,402</span><span class="t">2026-11-17T10:00:01Z</span> <span class="c">INFO</span> request path=<span class="s">/api/orders/41188</span> status=<span class="n">200</span> took=212ms user=4417 agent=<span class="s">"Mozilla/5.0 (X11; Linux x86_64)
+<span class="ln"></span>     <span class="s">AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131"</span> ref=<span class="s">/cart</span>
+<span class="ln">2,001,403</span><span class="t">2026-11-17T10:00:01Z</span> <span class="c">INFO</span> request path=<span class="s">/api/orders/41188</span> status=<span class="n">200</span> took=212ms user=4417 agent=<span class="s">"Mozilla/5.0 (X11; Linux x86_64)
+<span class="ln"></span>     <span class="s">AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131"</span> ref=<span class="s">/cart</span>
+<span class="ln">2,001,404</span><span class="t">2026-11-17T10:00:01Z</span> <span class="c">INFO</span> request path=<span class="s">/api/orders/41188</span> status=<span class="n">200</span> took=212ms user=4417 agent=<span class="s">"Mozilla/5.0 (X11; Linux x86_64)
+<span class="ln"></span>     <span class="s">AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131"</span> ref=<span class="s">/cart</span>
+<span class="ln">2,001,405</span><span class="t">2026-11-17T10:00:01Z</span> <span class="c">INFO</span> request path=<span class="s">/api/orders/41188</span> status=<span class="n">200</span> took=212ms user=4417 agent=<span class="s">"Mozilla/5.0 (X11; Linux x86_64)
+<span class="ln"></span>     <span class="s">AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131"</span> ref=<span class="s">/cart</span>
+<span class="ln">2,001,406</span><span class="t">2026-11-17T10:00:01Z</span> <span class="c">INFO</span> request path=<span class="s">/api/orders/41188</span> status=<span class="n">200</span> took=212ms user=4417 agent=<span class="s">"Mozilla/5.0 (X11; Linux x86_64)
+<span class="ln"></span>     <span class="s">AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131"</span> ref=<span class="s">/cart</span>
+<span class="ln">2,001,407</span><span class="t">2026-11-17T10:00:01Z</span> <span class="c">INFO</span> request path=<span class="s">/api/orders/41188</span> status=<span class="n">200</span> took=212ms user=4417 agent=<span class="s">"Mozilla/5.0 (X11; Linux x86_64)
+<span class="ln"></span>     <span class="s">AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131"</span> ref=<span class="s">/cart</span>
+<span class="ln">2,001,408</span><span class="t">2026-11-17T10:00:01Z</span> <span class="c">INFO</span> request path=<span class="s">/api/orders/41188</span> status=<span class="n">200</span> took=212ms user=4417 agent=<span class="s">"Mozilla/5.0 (X11; Linux x86_64)
+<span class="ln"></span>     <span class="s">AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131"</span> ref=<span class="s">/cart</span>
+<span class="ln">2,001,409</span><span class="t">2026-11-17T10:00:01Z</span> <span class="c">INFO</span> request path=<span class="s">/api/orders/41188</span> status=<span class="n">200</span> took=212ms user=4417 agent=<span class="s">"Mozilla/5.0 (X11; Linux x86_64)
+<span class="ln"></span>     <span class="s">AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131"</span> ref=<span class="s">/cart</span>
+<span class="ln">2,001,410</span><span class="t">2026-11-17T10:00:01Z</span> <span class="c">INFO</span> request path=<span class="s">/api/orders/41188</span> status=<span class="n">200</span> took=212ms user=4417 agent=<span class="s">"Mozilla/5.0 (X11; Linux x86_64)
+<span class="ln"></span>     <span class="s">AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131"</span> ref=<span class="s">/cart</span>
+<span class="ln">2,001,411</span><span class="t">2026-11-17T10:00:01Z</span> <span class="c">INFO</span> request path=<span class="s">/api/orders/41188</span> status=<span class="n">200</span> took=212ms user=4417 agent=<span class="s">"Mozilla/5.0 (X11; Linux x86_64)
+<span class="ln"></span>     <span class="s">AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131"</span> ref=<span class="s">/cart</span>
+<span class="ln">2,001,412</span><span class="t">2026-11-17T10:00:01Z</span> <span class="c">INFO</span> request path=<span class="s">/api/orders/41188</span> status=<span class="n">200</span> took=212ms user=4417 agent=<span class="s">"Mozilla/5.0 (X11; Linux x86_64)
+<span class="ln"></span>     <span class="s">AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131"</span> ref=<span class="s">/cart</span>
+<span class="ln">2,001,413</span><span class="t">2026-11-17T10:00:01Z</span> <span class="c">INFO</span> request path=<span class="s">/api/orders/41188</span> status=<span class="n">200</span> took=212ms user=4417 agent=<span class="s">"Mozilla/5.0 (X11; Linux x86_64)
+<span class="ln"></span>     <span class="s">AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131"</span> ref=<span class="s">/cart</span>
+<span class="ln">2,001,414</span><span class="t">2026-11-17T10:00:01Z</span> <span class="c">INFO</span> request path=<span class="s">/api/orders/41188</span> status=<span class="n">200</span> took=212ms user=4417 agent=<span class="s">"Mozilla/5.0 (X11; Linux x86_64)
+<span class="ln"></span>     <span class="s">AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131"</span> ref=<span class="s">/cart</span></div>
+      
+      <div class="bar2"><div class="thumb" style="top:41%;height:2%"></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="status">
+    <span class="si">⑂ main</span><span class="si">⊗ 0</span><span class="si">⚠ 0</span>
+    <span class="si" style="margin-left:auto">Ln 1,204,311, Col 41</span><span class="si">UTF-8</span><span class="si">LF</span>
+    <span class="si"><span class="spin"></span> Wrapping 41%</span>
+    <span class="si">Plain Text</span>
+  </div>
+</div>
+<div class="w" style="height:auto;padding:22px 28px;gap:10px">
+  <div class="hd">4 · Turning word wrap on in a large file</div>
+  <div class="note wnote">Wrapping a 342 MB file takes about half a second, now done in the background. The view wraps at once around the screen; the rest of the file counts as a row a line until it's done, so the scrollbar's thumb may shift a little when it finishes. The status bar shows <b>Wrapping 41%</b> with a spinner meanwhile, as it does for a language server's indexing. Resizing the window with wrap on does the same, once the resize stops. The git gutter's diffs and the outline's symbols also move to the background, with nothing new to show: they appear when ready, as they do now.</div>
+</div>
+</body>
+</html>
