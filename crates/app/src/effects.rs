@@ -52,6 +52,12 @@ impl App {
             }
             Effect::Open(path) => self.open_later(&path, false),
             Effect::OpenWhole(path) => self.open_later(&path, true),
+            Effect::SaveLarge { doc, path, text } => self.save_large(doc, path, text),
+            Effect::CancelSave(doc) => {
+                if let Some(save) = self.large_saves.get(&doc) {
+                    save.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
+            }
             Effect::ReadWindow { doc, text, from } => {
                 self.jobs.run(Lane::Disk, move || {
                     let window = merlin_core::bigfile::read_window(&text, from)

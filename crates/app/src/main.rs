@@ -218,6 +218,8 @@ struct App {
     show_excluded: bool,
     /// Which files open read-only from disk rather than loaded.
     large_files: merlin_core::bigfile::LargeFiles,
+    /// Large files being saved, by document: how far each has got.
+    large_saves: HashMap<u64, LargeSave>,
     /// They're edited in place, rather than read-only.
     large_edit: bool,
     /// What the watched folders were last worked out from.
@@ -710,10 +712,69 @@ impl App {
         }
     }
 
+    /// Saves a large file edited in place, on a thread of its own: its
+    /// text streamed to a new file beside it, then swapped in.
+    fn save_large(&mut self, doc: u64, path: PathBuf, text: merlin_core::bigfile::FileText) {
+        use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+        let full = self.root.join(&path);
+        let save = LargeSave {
+            written: std::sync::Arc::new(AtomicU64::new(0)),
+            stop: std::sync::Arc::new(AtomicBool::new(false)),
+            told: 0,
+        };
+        let (written, stop) = (save.written.clone(), save.stop.clone());
+        self.large_saves.insert(doc, save);
+        let wake = self.jobs.waker();
+        self.jobs.spawn(move || {
+            let free = full.parent().and_then(disk_free);
+            // Wakes the window every 64 MB, so the bar shows how far.
+            let tell = |at: u64| {
+                let before = written.swap(at, Ordering::Relaxed);
+                if before >> 26 != at >> 26
+                    && let Some(wake) = &wake
+                {
+                    wake();
+                }
+            };
+            let result = merlin_core::bigfile::save(&text, &full, free, &tell, &stop);
+            let when = modified(&full);
+            Box::new(move |app: &mut App| {
+                app.large_saves.remove(&doc);
+                if result.is_ok() {
+                    app.disk.insert(path.clone(), when);
+                }
+                vec![Event::LargeSaved {
+                    doc,
+                    path,
+                    full,
+                    result,
+                }]
+            })
+        });
+    }
+
+    /// How far the large files being saved have got, for their bars.
+    fn poll_large_saves(&mut self) -> bool {
+        let mut events = Vec::new();
+        for (&doc, save) in &mut self.large_saves {
+            let written = save.written.load(std::sync::atomic::Ordering::Relaxed);
+            if written != save.told {
+                save.told = written;
+                events.push(Event::LargeSaving { doc, written });
+            }
+        }
+        let any = !events.is_empty();
+        for event in events {
+            self.dispatch(event);
+        }
+        any
+    }
+
     /// Something woke the window: plugin output, a job done, or a change on
     /// disk. Returns whether the editor heard anything.
     pub(crate) fn wake(&mut self) -> bool {
-        let mut changed = self.poll_terminals();
+        let mut changed = self.poll_large_saves();
+        changed |= self.poll_terminals();
         changed |= self.poll_processes();
         changed |= self.finish_jobs();
         if self.watch.take(&mut self.changes) && self.settle.is_none() {
@@ -906,6 +967,34 @@ impl App {
 /// A file to edit, read whole. One that isn't there yet opens empty.
 /// Reads a file straight into a rope, a piece at a time, so it's never
 /// held whole twice.
+/// A large file's save under way: how far, and to stop it.
+struct LargeSave {
+    written: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// What the editor was last told.
+    told: u64,
+}
+
+/// The room left on the disk `dir` is on, if the system says.
+fn disk_free(dir: &Path) -> Option<u64> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let path = std::ffi::CString::new(dir.as_os_str().as_bytes()).ok()?;
+        let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+        // SAFETY: a NUL-ended path and a statvfs to fill, both ours.
+        if unsafe { libc::statvfs(path.as_ptr(), &mut stat) } != 0 {
+            return None;
+        }
+        Some(stat.f_bavail as u64 * stat.f_frsize as u64)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = dir;
+        None
+    }
+}
+
 /// The memory free for a file to load into, if the system says.
 fn memory_free() -> Option<u64> {
     #[cfg(target_os = "linux")]
@@ -1485,6 +1574,7 @@ fn main() -> Result<()> {
         exclusions: Default::default(),
         show_excluded: false,
         large_files: Default::default(),
+        large_saves: HashMap::new(),
         large_edit: true,
         watch_for: None,
         backups: Backups::new(backups_dir),

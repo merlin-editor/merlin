@@ -187,7 +187,7 @@ impl FileText {
     /// The line breaks in the file from the start of the block `at` is in
     /// up to `at`: what a cut of the file's ranges there needs to count its
     /// lines.
-    fn file_breaks(&self, at: u64) -> io::Result<u64> {
+    pub fn file_breaks(&self, at: u64) -> io::Result<u64> {
         let from = at / BLOCK * BLOCK;
         let mut bytes = Vec::new();
         read_file_at(&self.file, from, at - from + 1, &mut bytes)?;
@@ -527,6 +527,82 @@ pub fn seek_round(
     seek(text, matcher, other, forward, counts)
 }
 
+/// Why a large file's save didn't happen.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SaveError {
+    /// Stopped by Cancel: the file is as it was.
+    Cancelled,
+    /// The disk hasn't room for the whole new file: nothing was written.
+    NoRoom { need: u64, free: u64 },
+    /// Writing failed part way: the file is as it was.
+    Failed(String),
+}
+
+/// What a save of a large file wrote: the line breaks in each block of
+/// the new file, so its lines are known at once.
+pub type Saved = Result<Vec<u64>, SaveError>;
+
+/// Writes `text` to `path` a block at a time: to a new file beside it,
+/// flushed to disk, then renamed over it, so the file is whole whatever
+/// happens. Never in place, as the text reads the old file. `written` is
+/// told how far it's got after each block, and `stop` set cancels it.
+/// `free` is the room on the disk, if known.
+pub fn save(
+    text: &FileText,
+    path: &Path,
+    free: Option<u64>,
+    written: &dyn Fn(u64),
+    stop: &std::sync::atomic::AtomicBool,
+) -> Saved {
+    use std::io::Write;
+    use std::sync::atomic::Ordering;
+    let need = text.len();
+    // What's already there is freed only once the new file takes its
+    // place, so the whole new file needs room.
+    if let Some(free) = free
+        && free < need
+    {
+        return Err(SaveError::NoRoom { need, free });
+    }
+    let failed = |err: io::Error| SaveError::Failed(err.to_string());
+    let (Some(dir), Some(name)) = (path.parent(), path.file_name()) else {
+        return Err(SaveError::Failed("no folder to save in".into()));
+    };
+    let temp = dir.join(format!(".{}.merlin-save", name.to_string_lossy()));
+    let result = (|| {
+        let mut file = File::create(&temp).map_err(failed)?;
+        let mut counts = Vec::with_capacity(blocks(need));
+        let mut at = 0;
+        while at < need {
+            if stop.load(Ordering::Relaxed) {
+                return Err(SaveError::Cancelled);
+            }
+            let bytes = text.read(at, BLOCK + 1).map_err(failed)?;
+            let len = (BLOCK as usize).min(bytes.len());
+            if len == 0 {
+                return Err(SaveError::Failed("the text ended early".into()));
+            }
+            counts.push(breaks(&bytes[..len], bytes.get(len).copied()));
+            file.write_all(&bytes[..len]).map_err(failed)?;
+            at += len as u64;
+            written(at);
+        }
+        if counts.is_empty() {
+            counts.push(0);
+        }
+        file.sync_all().map_err(failed)?;
+        if let Ok(meta) = std::fs::metadata(path) {
+            std::fs::set_permissions(&temp, meta.permissions()).map_err(failed)?;
+        }
+        std::fs::rename(&temp, path).map_err(failed)?;
+        Ok(counts)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    result
+}
+
 /// Which files open read-only from disk rather than loaded: Settings ›
 /// Files, `large_file_read_only`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -788,6 +864,13 @@ pub struct Large {
     pub bar_hidden: bool,
     /// Loading it to edit was asked for.
     pub loading: bool,
+    /// A save under way, and how many bytes it's written.
+    pub saving: Option<u64>,
+    /// The last save failed: why, for the bar.
+    pub save_error: Option<SaveError>,
+    /// Where it was opened or last saved, as the document names it: a
+    /// Save As elsewhere saves even with nothing changed.
+    pub saved_as: Option<PathBuf>,
     /// Bytes the file grew by on disk while open, until seen.
     pub grew: Option<u64>,
     /// The search counted: its matches in each block, once counted.
@@ -845,6 +928,9 @@ impl Large {
             undoing: false,
             bar_hidden: false,
             loading: false,
+            saving: None,
+            save_error: None,
+            saved_as: None,
             grew: None,
             found: None,
         }
@@ -1102,5 +1188,38 @@ mod tests {
             .map(|b| count_matches(&edited, &Matcher::exact("typed"), b).unwrap())
             .sum();
         assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn a_save_with_no_room_or_cancelled_leaves_the_file() {
+        use std::sync::atomic::AtomicBool;
+        let text = numbered(1_000_000);
+        let (dir, file) = file(&text);
+        let path = dir.path().join("big.log");
+        let edited = file.splice(0, 0, Rope::from_str("new\n"));
+        let go = AtomicBool::new(false);
+        let room = save(&edited, &path, Some(1000), &|_| {}, &go);
+        assert_eq!(
+            room,
+            Err(SaveError::NoRoom {
+                need: edited.len(),
+                free: 1000
+            })
+        );
+        let stop = AtomicBool::new(true);
+        assert_eq!(
+            save(&edited, &path, None, &|_| {}, &stop),
+            Err(SaveError::Cancelled)
+        );
+        assert!(std::fs::read_to_string(&path).unwrap() == text);
+        assert_eq!(
+            std::fs::read_dir(dir.path()).unwrap().count(),
+            1,
+            "nothing left over"
+        );
+        // Saved: the counts are the new file's.
+        let counts = save(&edited, &path, None, &|_| {}, &go).unwrap();
+        assert_eq!(counts.iter().sum::<u64>(), 1_000_001);
+        assert!(std::fs::read_to_string(&path).unwrap() == format!("new\n{text}"));
     }
 }

@@ -274,6 +274,22 @@ impl Session {
                         .ok()
                         .flatten(),
                 }),
+                // Saved at once, beside the file the text reads.
+                Effect::SaveLarge { doc, path, text } => {
+                    let full = match text.path.parent() {
+                        Some(dir) if path.is_relative() => dir.join(&path),
+                        _ => path.clone(),
+                    };
+                    let stop = std::sync::atomic::AtomicBool::new(false);
+                    let result = crate::bigfile::save(&text, &full, None, &|_| {}, &stop);
+                    self.send(Event::LargeSaved {
+                        doc,
+                        path,
+                        full,
+                        result,
+                    });
+                }
+                Effect::CancelSave(_) => {}
                 Effect::OpenWhole(path) => self.send(Event::Error(format!(
                     "can't load {} in a script",
                     path.display()

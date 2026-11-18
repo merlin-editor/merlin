@@ -43,7 +43,8 @@ impl Editor {
             Err(err) => return self.error(format!("Can't open {}: {err}", path.display())),
         };
         let size = text.len();
-        let large = Box::new(Large::new(text, free, editable));
+        let mut large = Box::new(Large::new(text, free, editable));
+        large.saved_as = Some(path.clone());
         // Open already, as after it changed on disk: read again from the
         // same place.
         if let Some(i) = self.docs.iter().position(|d| {
@@ -381,6 +382,9 @@ impl Editor {
         if self.large().is_none() {
             return false;
         }
+        if self.refuse_large_edit() {
+            return true;
+        }
         for _ in 0..2 {
             let doc = self.doc_mut();
             let done = if redo {
@@ -434,6 +438,123 @@ impl Editor {
             .into(),
         );
         true
+    }
+
+    /// Saves a large file: its text, edits and all, streamed to a new file
+    /// that takes the old one's place. With nothing changed, only a Save
+    /// As elsewhere writes.
+    pub(super) fn save_large(&mut self, fx: &mut Vec<Effect>) {
+        self.sync_large();
+        let doc = self.doc();
+        let (id, dirty) = (doc.id, doc.buffer.is_dirty());
+        let Some(path) = doc.buffer.path.clone() else {
+            return;
+        };
+        let Some(large) = self.large_mut() else {
+            return;
+        };
+        if large.saving.is_some() {
+            return;
+        }
+        if !dirty && large.saved_as.as_ref() == Some(&path) {
+            return;
+        }
+        large.saving = Some(0);
+        large.save_error = None;
+        large.bar_hidden = false;
+        fx.push(Effect::SaveLarge {
+            doc: id,
+            path,
+            text: large.text.clone(),
+        });
+    }
+
+    /// How far a large file's save has got.
+    pub(super) fn large_saving(&mut self, id: u64, written: u64) {
+        if let Some(i) = self.index_of(id)
+            && let Some(large) = self.docs[i].large.as_deref_mut()
+            && large.saving.is_some()
+        {
+            large.saving = Some(written);
+        }
+    }
+
+    /// A large file's save is done: the text is now the new file, read
+    /// from it, with its lines as counted while writing, and the edits
+    /// saved. Undo still goes back past it. Or it failed, or was
+    /// cancelled, and the file is as it was.
+    pub(super) fn large_saved(
+        &mut self,
+        id: u64,
+        path: PathBuf,
+        full: PathBuf,
+        result: crate::bigfile::Saved,
+        fx: &mut Vec<Effect>,
+    ) {
+        let Some(i) = self.index_of(id) else {
+            return;
+        };
+        let doc = &mut self.docs[i];
+        let name = doc.name();
+        let Some(large) = doc.large.as_deref_mut() else {
+            return;
+        };
+        large.saving = None;
+        let blocks = match result {
+            Ok(blocks) => blocks,
+            Err(err) => {
+                self.quitting = false;
+                self.closing.retain(|&c| c != id);
+                if err == crate::bigfile::SaveError::Cancelled {
+                    large.save_error = None;
+                    return self.notify(format!("Save cancelled: {name} is as it was"));
+                }
+                large.save_error = Some(err);
+                return;
+            }
+        };
+        // The new file, read from now on: the same text, so the window,
+        // the cursor and undo stay as they are.
+        let file = match crate::bigfile::FileText::open(&full) {
+            Ok(file) if file.len() == large.size => file,
+            Ok(_) | Err(_) => {
+                let err = "it saved, but reads back a different size".to_string();
+                large.save_error = Some(crate::bigfile::SaveError::Failed(err));
+                return;
+            }
+        };
+        let mut lines = crate::bigfile::FileLines::new(file.len());
+        for (b, count) in blocks.into_iter().enumerate() {
+            if let Some(slot) = lines.blocks.get_mut(b) {
+                *slot = Some(count);
+            }
+        }
+        for at in [large.start, large.end] {
+            if at % crate::bigfile::BLOCK != 0
+                && at < file.len()
+                && let Ok(breaks) = file.file_breaks(at)
+            {
+                lines.edges.insert(at, breaks);
+            }
+        }
+        large.file = file.clone();
+        large.text = file;
+        large.lines = lines;
+        large.lines_job = None;
+        large.generation += 1;
+        large.found = None;
+        large.changed = false;
+        large.save_error = None;
+        large.saved_as = Some(path);
+        for kept in large.undos.iter_mut().chain(large.redos.iter_mut()) {
+            let revision = kept.buffer.revision();
+            kept.buffer.mark_saved(revision);
+        }
+        large.renumber();
+        let revision = doc.buffer.revision();
+        doc.buffer.mark_saved(revision);
+        doc.buffer.elsewhere = false;
+        self.after_save(id, fx);
     }
 
     /// A search past the window found its match, or none in the file.
@@ -560,6 +681,14 @@ impl Editor {
     /// Whether the current file can't be edited as it is: a large file
     /// read from disk. Says so, offering to load it.
     pub(crate) fn refuse_large_edit(&mut self) -> bool {
+        // Being written: an edit would land on text that's moving.
+        if self.large().is_some_and(|l| l.saving.is_some()) {
+            let name = self.doc().name();
+            self.notify(format!(
+                "{name} is being saved: editing waits until it's written"
+            ));
+            return true;
+        }
         let Some(large) = self.large().filter(|l| !l.editable) else {
             return false;
         };
@@ -606,6 +735,8 @@ impl Editor {
                 fx.push(Effect::OpenWhole(path));
             }
             "large.keep" => self.message = None,
+            "large.cancel" => fx.push(Effect::CancelSave(self.doc().id)),
+            "large.retry" => self.run("file.save", fx),
             "large.why" => self.large_why(),
             "large.end" => {
                 if let Some(large) = self.large_mut() {
@@ -628,8 +759,50 @@ impl Editor {
                 badge: Some("LOADING".into()),
                 calm: true,
                 text: format!("Loading {} to edit…", size_label(large.size)),
+                progress: None,
                 buttons: Vec::new(),
             });
+        }
+        if let Some(written) = large.saving {
+            return Some(super::bars::FileBarView {
+                index: LARGE_BAR,
+                badge: Some("SAVING".into()),
+                calm: true,
+                text: format!(
+                    "Saving… {} of {}. Editing waits until it's written.",
+                    size_label(written),
+                    size_label(large.size)
+                ),
+                buttons: vec![(2, "Cancel".into())],
+                progress: Some((written * 1000 / large.size.max(1)) as u16),
+            });
+        }
+        match &large.save_error {
+            Some(crate::bigfile::SaveError::NoRoom { need, free }) => {
+                return Some(super::bars::FileBarView {
+                    index: LARGE_BAR,
+                    badge: Some("NO ROOM".into()),
+                    calm: false,
+                    text: format!(
+                        "Saving needs {} free on disk; {} is. Nothing was written.",
+                        size_label(*need),
+                        size_label(*free)
+                    ),
+                    buttons: vec![(4, "Save As…".into())],
+                    progress: None,
+                });
+            }
+            Some(crate::bigfile::SaveError::Failed(why)) => {
+                return Some(super::bars::FileBarView {
+                    index: LARGE_BAR,
+                    badge: Some("NOT SAVED".into()),
+                    calm: false,
+                    text: format!("The save stopped: {why}. The file is as it was."),
+                    buttons: vec![(3, "Retry".into()), (4, "Save As…".into())],
+                    progress: None,
+                });
+            }
+            _ => {}
         }
         if let Some(grew) = large.grew {
             return Some(super::bars::FileBarView {
@@ -637,6 +810,7 @@ impl Editor {
                 badge: Some("READ-ONLY".into()),
                 calm: false,
                 text: format!("The file grew on disk: +{}", size_label(grew)),
+                progress: None,
                 buttons: vec![(1, "Go to End".into())],
             });
         }
@@ -654,6 +828,7 @@ impl Editor {
                     "{}, edited from disk. Colours, git and plugins are off; saving writes the whole file (about {secs} s).",
                     size_label(large.size)
                 ),
+                progress: None,
                 buttons: Vec::new(),
             });
         }
@@ -665,6 +840,7 @@ impl Editor {
                 "{} is too large to load. Scrolling, Find, Go to Line and copying work here; editing needs it loaded.",
                 size_label(large.size)
             ),
+            progress: None,
             buttons: vec![(0, "Load to Edit…".into())],
         })
     }
@@ -676,9 +852,14 @@ impl Editor {
                 self.refuse_large_edit();
             }
             "1" => self.large_command("large.end", fx),
+            "2" => self.large_command("large.cancel", fx),
+            "3" => self.large_command("large.retry", fx),
+            "4" => self.run("file.save_as", fx),
             _ => {
                 if let Some(large) = self.large_mut() {
-                    if large.grew.is_some() {
+                    if large.save_error.is_some() {
+                        large.save_error = None;
+                    } else if large.grew.is_some() {
                         large.grew = None;
                     } else {
                         large.bar_hidden = true;
@@ -827,6 +1008,9 @@ impl Editor {
     /// The status bar's note of the lines being counted.
     pub(crate) fn large_counting(&self) -> Option<String> {
         let large = self.large()?;
+        if let Some(written) = large.saving {
+            return Some(format!("Saving {}%", written * 100 / large.size.max(1)));
+        }
         (!large.lines_done()).then(|| {
             format!(
                 "Counting lines {}%",

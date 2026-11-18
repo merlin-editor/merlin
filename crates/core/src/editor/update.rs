@@ -128,6 +128,13 @@ impl Editor {
             Event::WindowRead { doc, window } => self.window_read(doc, window),
             Event::FileSought { doc, at } => self.file_sought(doc, at),
             Event::LargeResized { path, size } => self.large_resized(&path, size),
+            Event::LargeSaving { doc, written } => self.large_saving(doc, written),
+            Event::LargeSaved {
+                doc,
+                path,
+                full,
+                result,
+            } => self.large_saved(doc, path, full, result, &mut fx),
             Event::Opened { path, text } => {
                 self.opened(path.clone(), text);
                 self.split_opened(&path);

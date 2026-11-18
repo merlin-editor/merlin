@@ -102,15 +102,10 @@ impl Editor {
     }
 
     fn push_save(&mut self, fx: &mut Vec<Effect>) {
-        // A large file's text here is only a window of it: saving one
-        // edited in place streams its pieces (step 3 of
-        // docs/large-edit.md).
+        // A large file's text here is only a window of it: its pieces are
+        // streamed to a new file.
         if self.large().is_some() {
-            if self.doc().buffer.is_dirty() {
-                self.quitting = false;
-                self.error("Saving a file edited from disk isn't built yet".into());
-            }
-            return;
+            return self.save_large(fx);
         }
         let doc = self.doc();
         if let Some(path) = &doc.buffer.path {

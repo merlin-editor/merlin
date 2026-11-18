@@ -605,6 +605,20 @@ pub enum Event {
         doc: u64,
         at: Option<u64>,
     },
+    /// How far a large file's save has got, in bytes written.
+    LargeSaving {
+        doc: u64,
+        written: u64,
+    },
+    /// A large file's save, asked for with [`Effect::SaveLarge`], done or
+    /// not: `path` is where it was saved, as the document names it, and
+    /// `full` where that is.
+    LargeSaved {
+        doc: u64,
+        path: PathBuf,
+        full: PathBuf,
+        result: crate::bigfile::Saved,
+    },
     /// A large file open read-only is a new size on disk.
     LargeResized {
         path: PathBuf,
@@ -839,6 +853,16 @@ pub enum Effect {
         forward: bool,
         counts: Vec<Option<u32>>,
     },
+    /// Saves a large file edited in place to `path`, streaming its text
+    /// to a new file there, with [`Event::LargeSaving`] as it goes and
+    /// [`Event::LargeSaved`] at the end.
+    SaveLarge {
+        doc: u64,
+        path: PathBuf,
+        text: crate::bigfile::FileText,
+    },
+    /// Stops a large file's save, leaving the file as it was.
+    CancelSave(u64),
     /// Opens a file to edit, loading it whatever its size: Load to Edit
     /// on a large file shown read-only.
     OpenWhole(PathBuf),

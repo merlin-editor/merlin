@@ -188,16 +188,41 @@ passing.
      the end of the file in turn.
 
    **Left for later steps:**
-   - Saving (step 3). Until then, Ctrl+S says it isn't built. Quitting
-     with edits asks, even with hot exit on. Save All in that question
-     says so and doesn't quit.
+   - Saving: built in step 3. Quitting with edits still asks, even with
+     hot exit on, until step 6.
    - The Find count starts again after each edit (step 4).
    - With edits, a file that grows on disk is left as opened. One that
      was cut short gives a warning (step 6).
    - A window left with things to redo goes on the undo stack. Redo then
      takes the windows undone past first.
 3. **Saving**: streamed to a new file, the disk space check, progress,
-   undo kept after saving.
+   undo kept after saving. Done.
+   - **How it saves**: `bigfile::save` reads the text a block at a time,
+     through its pieces. It writes each block to a new file beside the
+     old one, counting its lines as it goes, then flushes and renames it
+     over the old one. It never writes in place, as the text reads the
+     old file.
+   - **Room is checked first** (statvfs on Unix). If there isn't enough,
+     the bar says "NO ROOM" with Save As…, and nothing is written.
+   - **In the app**, it runs on a thread of its own, so other saves
+     aren't held up. It wakes the window every 64 MB, and the bar shows
+     "Saving… 460 MB of 2.5 GB" with a line along its foot and Cancel.
+     The status bar shows "Saving 18%". Edits and undo wait until it's
+     done.
+   - **After saving**, the text is one piece, the new file, with the
+     lines counted while writing, so nothing is counted again. The
+     window, the cursor and undo stay as they are, since the text is the
+     same. Undo goes on past the save, and leaves the file unsaved
+     again.
+   - **Cancel or a failure** removes the new file and leaves the old one
+     as it was, with the edits still here. A failure shows "NOT SAVED"
+     with Retry and Save As…. Quitting or closing waits for the save, and
+     stops if it fails.
+   - **Save As** writes the text to the new place, edited or not, and
+     reads from there afterwards.
+   - **In the app**, a 2.5 GB log edited in three places saved in about
+     4.8 s, all three edits in the file. Memory stayed at 146 MB. Cancel
+     part-way left the file as it was, with nothing beside it.
 4. **Counts after edits**: lines and Find over the pieces, counting only
    the `Text` pieces again.
 5. **Large edits on the pieces**: cut, copy and delete past the window.

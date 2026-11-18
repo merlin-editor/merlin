@@ -344,6 +344,12 @@ impl Frame<'_> {
             Rect::new(r.x, r.bottom() - 1.0, r.w, 1.0),
             mix(tint, p.island, rule),
         );
+        // How far it's got, along its foot.
+        if let Some(done) = bar.progress {
+            let w = r.w * (done.min(1000) as f32 / 1000.0);
+            self.canvas
+                .fill(Rect::new(r.x, r.bottom() - 2.0, w, 2.0), p.accent);
+        }
         let (h, y) = (26.0, r.y + (r.h - 26.0) / 2.0);
         let mut x = r.right() - 8.0;
         // ✕ last.

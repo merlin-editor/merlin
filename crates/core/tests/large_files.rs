@@ -251,13 +251,56 @@ fn find_finds_what_was_typed_from_anywhere() {
 }
 
 #[test]
-fn the_file_on_disk_is_untouched() {
+fn saving_writes_every_edit_and_reads_the_new_file() {
     use merlin_core::Effect;
     let (dir, mut s, text) = edit(600_000);
-    s.run("type hello ");
+    s.run("type TOP");
+    s.run("key ctrl+end; type END");
     s.effects.clear();
     s.run("key ctrl+s");
-    assert!(!s.effects.iter().any(|e| matches!(e, Effect::Save { .. })));
+    assert!(
+        !s.effects.iter().any(|e| matches!(e, Effect::Save { .. })),
+        "never the window as a whole file"
+    );
     let on_disk = std::fs::read_to_string(dir.path().join("big.log")).unwrap();
-    assert!(on_disk == text);
+    assert!(on_disk == format!("TOP{text}END"), "both edits written");
+    assert!(!tab_dirty(&s), "saved");
+    // Numbered as before, read from the new file.
+    assert!(s.screen().contains("600001 END"), "{}", s.screen());
+    s.run("key ctrl+home");
+    assert!(s.screen().contains("1 TOPline 0"), "{}", s.screen());
+    // No temporary file left beside it.
+    let names: Vec<_> = std::fs::read_dir(dir.path()).unwrap().collect();
+    assert_eq!(names.len(), 1);
+}
+
+#[test]
+fn undo_goes_on_past_a_save() {
+    let (dir, mut s, text) = edit(600_000);
+    s.run("type A");
+    s.run("key ctrl+end; type Z");
+    s.run("key ctrl+s");
+    s.run("cmd edit.undo; cmd edit.undo");
+    assert!(tab_dirty(&s), "changed from what was saved");
+    assert!(
+        s.screen().contains("line 0") && !s.screen().contains("Aline 0"),
+        "{}",
+        s.screen()
+    );
+    s.run("key ctrl+s");
+    let on_disk = std::fs::read_to_string(dir.path().join("big.log")).unwrap();
+    assert!(on_disk == text, "back as it was");
+}
+
+#[test]
+fn a_file_with_nothing_changed_isnt_written() {
+    use merlin_core::Effect;
+    let (_dir, mut s, _) = edit(600_000);
+    s.effects.clear();
+    s.run("key ctrl+s");
+    assert!(
+        !s.effects
+            .iter()
+            .any(|e| matches!(e, Effect::SaveLarge { .. }))
+    );
 }

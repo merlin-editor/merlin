@@ -46,6 +46,9 @@ pub(crate) struct Jobs {
     inline: VecDeque<Finish>,
     /// Jobs asked for and not yet finished.
     pending: usize,
+    /// For jobs on threads of their own.
+    done_tx: Option<Sender<Finish>>,
+    wake: Option<Waker>,
 }
 
 impl Jobs {
@@ -80,6 +83,8 @@ impl Jobs {
             done,
             inline: VecDeque::new(),
             pending: 0,
+            done_tx: Some(done_tx),
+            wake: Some(wake),
         }
     }
 
@@ -90,6 +95,8 @@ impl Jobs {
             done: channel().1,
             inline: VecDeque::new(),
             pending: 0,
+            done_tx: None,
+            wake: None,
         }
     }
 
@@ -101,6 +108,30 @@ impl Jobs {
             }
             None => self.inline.push_back(work()),
         }
+    }
+
+    /// A long job on a thread of its own, such as a large file's save,
+    /// so it holds up no lane.
+    pub(crate) fn spawn(&mut self, work: impl FnOnce() -> Finish + Send + 'static) {
+        self.pending += 1;
+        match (&self.done_tx, &self.wake) {
+            (Some(tx), Some(wake)) => {
+                let (tx, wake) = (tx.clone(), wake.clone());
+                thread::Builder::new()
+                    .name("merlin-save".into())
+                    .spawn(move || {
+                        let _ = tx.send(work());
+                        wake();
+                    })
+                    .expect("starting a job thread");
+            }
+            _ => self.inline.push_back(work()),
+        }
+    }
+
+    /// What wakes the window, for a job to say how far it's got.
+    pub(crate) fn waker(&self) -> Option<Waker> {
+        self.wake.clone()
     }
 
     /// A finished job, if there's one waiting.

@@ -22,6 +22,9 @@ pub struct FileBarView {
     /// Says what the file is rather than that something's wrong: drawn in
     /// the accent.
     pub calm: bool,
+    /// How far something it says is under way has got, in thousandths: a
+    /// line along its foot.
+    pub progress: Option<u16>,
     pub text: String,
     /// The buttons there are commands for, by their place.
     pub buttons: Vec<(usize, String)>,
@@ -73,6 +76,7 @@ impl Editor {
             index,
             badge: None,
             calm: false,
+            progress: None,
             text: bar.text.clone(),
             buttons,
         })
