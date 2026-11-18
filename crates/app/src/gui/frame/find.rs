@@ -20,6 +20,16 @@ impl Frame<'_> {
         self.canvas.shadow(r, 8.0, theme::is_light(&p));
         self.canvas.outline(r, 8.0, 1.0, p.border, p.widget);
         self.hit(r, Hit::Block);
+        // How far through the file a background count has got, along the
+        // box's foot.
+        if let Some(pct) = find.counting {
+            let w = (r.w - 2.0) * pct as f32 / 100.0;
+            self.canvas.round(
+                Rect::new(r.x + 1.0, r.bottom() - 3.0, w.max(2.0), 2.0),
+                1.0,
+                p.accent,
+            );
+        }
         let ui = Face::ui(13.0);
         // The arrow that shows and hides the replacement.
         let toggle = Rect::new(r.x + 4.0, r.y + 4.0, 20.0, rows * 34.0);
@@ -37,12 +47,18 @@ impl Frame<'_> {
         let field_x = toggle.right() + 4.0;
         let buttons_w = 124.0;
         let field_w = r.w - (field_x - r.x) - buttons_w - 8.0;
-        let count = match (find.current, find.total) {
-            (_, 0) if find.query.is_empty() => String::new(),
-            (_, 0) => "No results".to_string(),
-            (Some(i), n) => format!("{i} of {n}"),
-            (None, n) => format!("{n} found"),
+        // While a large file is counted in the background: how many so far,
+        // never "No results" until it's all searched.
+        let count = match (find.current, find.total, find.counting) {
+            (_, 0, _) if find.query.is_empty() => String::new(),
+            (_, 0, Some(_)) => "Searching…".to_string(),
+            (_, 0, None) => "No results".to_string(),
+            (Some(i), n, Some(_)) => format!("{i} of {}+", thousands(n)),
+            (None, n, Some(_)) => format!("{} so far", thousands(n)),
+            (Some(i), n, None) => format!("{i} of {}", thousands(n)),
+            (None, n, None) => format!("{} found", thousands(n)),
         };
+        let spin = if find.counting.is_some() { 16.0 } else { 0.0 };
         let fields: Vec<(&str, bool, &str)> = std::iter::once((find.query.as_str(), false, "Find"))
             .chain(find.replace.as_deref().map(|t| (t, true, "Replace")))
             .collect();
@@ -72,7 +88,7 @@ impl Frame<'_> {
             let info_w = if is_replace || count.is_empty() {
                 0.0
             } else {
-                self.text.width(&count, Face::ui(12.0)) + 12.0
+                self.text.width(&count, Face::ui(12.0)) + 12.0 + spin
             };
             let room = field.w - 16.0 - info_w - toggles_w;
             let shown = self.text.fit(value, ui, room);
@@ -97,12 +113,17 @@ impl Frame<'_> {
                     .fill(Rect::new(cx, field.y + 5.0, 1.5, field.h - 10.0), p.accent);
             }
             if info_w > 0.0 {
-                let colour = if find.total == 0 { p.error } else { p.muted };
+                let none = find.total == 0 && find.counting.is_none();
+                let colour = if none { p.error } else { p.muted };
+                let x = field.right() - info_w - toggles_w;
+                if spin > 0.0 {
+                    self.spinner(x, field.y + (field.h - 10.0) / 2.0);
+                }
                 self.text.draw_in_row(
                     &mut self.canvas,
                     &count,
                     Face::ui(12.0),
-                    field.right() - info_w - toggles_w,
+                    x + spin,
                     field.y,
                     field.h,
                     colour,
@@ -431,4 +452,17 @@ impl Frame<'_> {
             }
         }
     }
+}
+
+/// `n` with commas between thousands, as 48,201.
+fn thousands(n: usize) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
 }

@@ -583,6 +583,11 @@ pub enum Event {
         path: PathBuf,
         text: String,
     },
+    /// A piece of background work, asked for with [`Effect::Work`], done.
+    Worked {
+        id: u64,
+        done: crate::work::Done,
+    },
     /// A file's text as of the last commit, or `None` if git doesn't track
     /// it. Lines that differ get signs in the gutter.
     GitBase {
@@ -785,6 +790,10 @@ pub enum ThemeKind {
 /// Work the editor asks its host to do. Results come back as events.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Effect {
+    /// Whole-file work for a few threads in the background, its pieces in
+    /// any order, each answered with [`Event::Worked`]. A newer job of
+    /// the same kind for the same document stops this one.
+    Work(crate::work::Job),
     /// The user changed a setting from a menu, such as View › Minimap: save
     /// it in their settings, as a TOML value.
     SetSetting {

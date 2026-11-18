@@ -6,6 +6,22 @@ use std::path::Path;
 
 use super::*;
 
+impl Editor {
+    /// Asks for the background work the current document waits on: a large
+    /// file's search count, and its rows when wrapped.
+    fn ask_work(&mut self, fx: &mut Vec<Effect>) {
+        let matcher = self.query();
+        let width = self.wrapping().then(|| self.text_columns());
+        let mut next = self.next_job;
+        let jobs = self.doc().wanted_jobs(matcher.as_ref(), width, || {
+            next += 1;
+            next
+        });
+        self.next_job = next;
+        fx.extend(jobs.into_iter().map(Effect::Work));
+    }
+}
+
 /// Files up to this many bytes are coloured whole by their grammar.
 const COLOURED_WHOLE: usize = 512 * 1024;
 /// Lines of colours kept either side of a large file's latest.
@@ -432,6 +448,19 @@ impl Editor {
                     }
                 }
             }
+            Event::Worked { id, done } => {
+                let current = self.doc().id;
+                let mut took = None;
+                for doc in &mut self.docs {
+                    if doc.worked(id, &done) {
+                        took = Some(doc.id);
+                        break;
+                    }
+                }
+                if took == Some(current) {
+                    self.seek_again();
+                }
+            }
             Event::GitBaseRead {
                 path,
                 against,
@@ -573,6 +602,7 @@ impl Editor {
         self.follow_change_peek();
         self.follow_merges();
         self.ask_blame(fx);
+        self.ask_work(fx);
         self.ask_highlights(fx);
         self.scroll_out_of_folds();
         // An edited preview stays open.

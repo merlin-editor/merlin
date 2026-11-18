@@ -96,7 +96,7 @@ impl Editor {
             let doc = self.doc();
             let width = self.text_columns();
             // The kept rows say which lines take one: most of them.
-            if doc.wrap_rows(width).rows(line) == 1 {
+            if doc.wrap_rows(width).is_one(line) {
                 let mut rows = vec![ONE_ROW];
                 rows.extend(std::iter::repeat_n(GAP_ROW, self.peek_gap(line)));
                 return rows;

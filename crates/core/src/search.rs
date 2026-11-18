@@ -47,6 +47,20 @@ enum Pattern {
     Regex(regex::Regex),
 }
 
+impl PartialEq for Matcher {
+    fn eq(&self, other: &Self) -> bool {
+        self.key() == other.key()
+    }
+}
+
+impl Eq for Matcher {}
+
+impl std::fmt::Debug for Matcher {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Matcher({:?})", self.key)
+    }
+}
+
 impl Matcher {
     /// A regular expression's matches.
     pub fn regex(re: regex::Regex) -> Self {
@@ -288,32 +302,12 @@ impl Matcher {
         rope: &Rope,
         from: usize,
         found: Option<&Found>,
-        mut take: impl FnMut(usize) -> bool,
+        take: impl FnMut(usize) -> bool,
     ) -> Option<(usize, usize)> {
-        let from = from.min(rope.len_chars());
-        let line = rope.char_to_line(from);
-        let lines = self.lines(rope);
-        let mut look = |range: Range<usize>, want: &dyn Fn(usize) -> bool| {
-            let mut hit = None;
-            for (span, count) in spans(rope, range, found) {
-                if count == Some(0) {
-                    continue;
-                }
-                let _ = self.matches_in(rope, span, |_, at, len| {
-                    if want(at) && take(at) {
-                        hit = Some((at, len));
-                        return ControlFlow::Break(());
-                    }
-                    ControlFlow::Continue(())
-                });
-                if hit.is_some() {
-                    break;
-                }
-            }
-            hit
-        };
-        look(line.max(lines.start)..lines.end, &|at| at >= from)
-            .or_else(|| look(lines.start..(line + 1).min(lines.end), &|at| at < from))
+        match self.seek_next(rope, from, found, usize::MAX, take) {
+            Seek::Hit(at, len) => Some((at, len)),
+            _ => None,
+        }
     }
 
     /// The last match before `before`, wrapping around to the end.
@@ -323,13 +317,81 @@ impl Matcher {
         before: usize,
         found: Option<&Found>,
     ) -> Option<(usize, usize)> {
+        match self.seek_previous(rope, before, found, usize::MAX) {
+            Seek::Hit(at, len) => Some((at, len)),
+            _ => None,
+        }
+    }
+
+    /// As [`Matcher::next`], searching at most `budget` lines that
+    /// `found`'s counts don't know about yet: [`Seek::Later`] once that's
+    /// spent, to try again when more is counted.
+    pub fn seek_next(
+        &self,
+        rope: &Rope,
+        from: usize,
+        found: Option<&Found>,
+        budget: usize,
+        mut take: impl FnMut(usize) -> bool,
+    ) -> Seek {
+        let from = from.min(rope.len_chars());
+        let line = rope.char_to_line(from);
+        let lines = self.lines(rope);
+        let mut left = budget;
+        let mut look = |range: Range<usize>, want: &dyn Fn(usize) -> bool| {
+            for (span, count) in spans(rope, range, found) {
+                if count == Some(0) {
+                    continue;
+                }
+                if count.is_none() && found.is_some() {
+                    if left == 0 {
+                        return Seek::Later;
+                    }
+                    left = left.saturating_sub(span.len());
+                }
+                let mut hit = None;
+                let _ = self.matches_in(rope, span, |_, at, len| {
+                    if want(at) && take(at) {
+                        hit = Some((at, len));
+                        return ControlFlow::Break(());
+                    }
+                    ControlFlow::Continue(())
+                });
+                if let Some((at, len)) = hit {
+                    return Seek::Hit(at, len);
+                }
+            }
+            Seek::None
+        };
+        match look(line.max(lines.start)..lines.end, &|at| at >= from) {
+            Seek::None => look(lines.start..(line + 1).min(lines.end), &|at| at < from),
+            seek => seek,
+        }
+    }
+
+    /// As [`Matcher::previous`], with a budget as [`Matcher::seek_next`]
+    /// has.
+    pub fn seek_previous(
+        &self,
+        rope: &Rope,
+        before: usize,
+        found: Option<&Found>,
+        budget: usize,
+    ) -> Seek {
         let before = before.min(rope.len_chars());
         let line = rope.char_to_line(before);
         let lines = self.lines(rope);
-        let look = |range: Range<usize>, want: &dyn Fn(usize) -> bool| {
+        let mut left = budget;
+        let mut look = |range: Range<usize>, want: &dyn Fn(usize) -> bool| {
             for (span, count) in spans(rope, range, found).into_iter().rev() {
                 if count == Some(0) {
                     continue;
+                }
+                if count.is_none() && found.is_some() {
+                    if left == 0 {
+                        return Seek::Later;
+                    }
+                    left = left.saturating_sub(span.len());
                 }
                 let mut last = None;
                 let _ = self.matches_in(rope, span, |_, at, len| {
@@ -338,15 +400,28 @@ impl Matcher {
                     }
                     ControlFlow::Continue(())
                 });
-                if last.is_some() {
-                    return last;
+                if let Some((at, len)) = last {
+                    return Seek::Hit(at, len);
                 }
             }
-            None
+            Seek::None
         };
-        look(lines.start..(line + 1).min(lines.end), &|at| at < before)
-            .or_else(|| look(line.max(lines.start)..lines.end, &|at| at >= before))
+        match look(lines.start..(line + 1).min(lines.end), &|at| at < before) {
+            Seek::None => look(line.max(lines.start)..lines.end, &|at| at >= before),
+            seek => seek,
+        }
     }
+}
+
+/// What a search with a budget found.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Seek {
+    /// A match: where it starts, and its length.
+    Hit(usize, usize),
+    /// None in the whole file.
+    None,
+    /// None in what it searched; more is to be counted.
+    Later,
 }
 
 /// Where a line's matches start, as characters, for byte ranges given left
@@ -472,7 +547,8 @@ fn spans(
                 start = block.end;
                 let piece = block.start.max(lines.start)..block.end.min(end);
                 if !piece.is_empty() {
-                    out.push((piece, Some(b.count as usize)));
+                    // A block not counted yet is searched as there's none.
+                    out.push((piece, (!b.stale).then_some(b.count as usize)));
                 }
             }
         }
@@ -495,9 +571,49 @@ struct Block {
     count: u32,
     /// Which of the block's bands of [`BAND`] lines have a match.
     bands: u64,
-    /// Counted from text that changed since: to count again.
+    /// Counted from text that changed since, or not yet counted, as while
+    /// a large file is counted in the background: to count.
     stale: bool,
 }
+
+/// One block's count, as a background job finds it: its matches, and the
+/// bands that have one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Counted {
+    count: u32,
+    bands: u64,
+}
+
+/// Blocks of lines a background count does at once, about 65 000 lines.
+pub const PIECE_BLOCKS: usize = 64;
+
+/// Counts `matcher`'s matches in blocks `blocks` of `rope`: what a
+/// background count does with each piece of a file, on any thread.
+pub fn count_blocks(matcher: &Matcher, rope: &Rope, blocks: Range<usize>) -> Vec<Counted> {
+    let lines = rope.len_lines();
+    blocks
+        .map(|b| {
+            let at = b * BLOCK;
+            let to = (at + BLOCK).min(lines);
+            let mut c = Counted { count: 0, bands: 0 };
+            let _ = matcher.matches_in(rope, at..to, |line, _, _| {
+                c.count += 1;
+                c.bands |= 1 << ((line - at) / BAND).min(63);
+                ControlFlow::Continue(())
+            });
+            c
+        })
+        .collect()
+}
+
+/// How many blocks of counts `rope` has.
+pub fn blocks_in(rope: &Rope) -> usize {
+    rope.len_lines().div_ceil(BLOCK)
+}
+
+/// How many matches start at or before a place, and whether one starts
+/// there.
+type Through = (usize, bool);
 
 /// What a search keeps about a document: a count for each block of lines,
 /// kept up to date with edits.
@@ -513,7 +629,9 @@ pub struct Found {
     /// The scrollbar's marks, made when first asked for.
     marks: RefCell<Option<Rc<Vec<usize>>>>,
     /// The last match asked about and which it is, from 1.
-    current: Cell<Option<(usize, usize, bool)>>,
+    current: Cell<Option<(usize, Option<Through>)>>,
+    /// The background job counting what isn't counted yet, once asked for.
+    pub job: Cell<Option<u64>>,
 }
 
 impl Found {
@@ -533,15 +651,76 @@ impl Found {
             total: 0,
             marks: RefCell::new(None),
             current: Cell::new(None),
+            job: Cell::new(None),
         };
         found.recount(rope);
         found
     }
 
+    /// Counts for `matcher` that a background job fills in: every block of
+    /// [`BLOCK`] lines waits to be counted, and is searched as it goes
+    /// until then.
+    pub fn pending(matcher: &Matcher, rope: &Rope, version: u64) -> Self {
+        let lines = rope.len_lines();
+        let blocks = (0..blocks_in(rope))
+            .map(|b| Block {
+                lines: ((b + 1) * BLOCK).min(lines).saturating_sub(b * BLOCK) as u32,
+                count: 0,
+                bands: 0,
+                stale: true,
+            })
+            .collect();
+        Self {
+            key: matcher.key(),
+            matcher: matcher.clone(),
+            scope: matcher.scope,
+            version,
+            blocks,
+            total: 0,
+            marks: RefCell::new(None),
+            current: Cell::new(None),
+            job: Cell::new(None),
+        }
+    }
+
+    /// Whether every block is counted.
+    pub fn complete(&self) -> bool {
+        !self.blocks.iter().any(|b| b.stale)
+    }
+
+    /// How much of the file is counted, from 0 to 1.
+    pub fn progress(&self) -> f32 {
+        let all: usize = self.blocks.iter().map(|b| b.lines as usize).sum();
+        let done: usize = self
+            .blocks
+            .iter()
+            .filter(|b| !b.stale)
+            .map(|b| b.lines as usize)
+            .sum();
+        done as f32 / all.max(1) as f32
+    }
+
+    /// The matcher counted.
+    pub fn matcher(&self) -> &Matcher {
+        &self.matcher
+    }
+
+    /// Fills in blocks from `first` with what a background job counted.
+    pub fn fill(&mut self, first: usize, counts: &[Counted]) {
+        for (b, c) in self.blocks.iter_mut().skip(first).zip(counts) {
+            if b.stale {
+                (b.count, b.bands, b.stale) = (c.count, c.bands, false);
+                self.total += c.count as usize;
+            }
+        }
+        self.marks.replace(None);
+        self.current.set(None);
+    }
+
     /// The counts for `matcher`, a query grown from this one's, from the
     /// bands of lines this one found matches in; `None` if it isn't one.
     pub fn narrowed(&self, matcher: &Matcher) -> Option<Self> {
-        (matcher.narrows(&self.matcher) && self.scope.is_none()).then_some(())?;
+        (matcher.narrows(&self.matcher) && self.scope.is_none() && self.complete()).then_some(())?;
         Some(Self {
             key: matcher.key(),
             matcher: matcher.clone(),
@@ -551,6 +730,7 @@ impl Found {
             total: self.total,
             marks: RefCell::new(None),
             current: Cell::new(None),
+            job: Cell::new(None),
         })
     }
 
@@ -604,7 +784,8 @@ impl Found {
     /// `version`: only the blocks they touched are counted again. Counts
     /// for a scope are dropped instead, as the scope moves; `false` then.
     pub fn update(&mut self, changes: &[Change], rope: &Rope, version: u64) -> bool {
-        if self.scope.is_some() {
+        // A count under way starts again, for the text now.
+        if self.scope.is_some() || !self.complete() {
             return false;
         }
         for change in changes {
@@ -672,25 +853,31 @@ impl Found {
         self.current.set(None);
     }
 
-    /// Which match starts at `at`, from 1, if one does.
+    /// Which match starts at `at`, from 1, if one does and the blocks
+    /// before it are counted.
     pub fn index_of(&self, rope: &Rope, at: usize) -> Option<usize> {
-        let (count, on) = self.through(rope, at);
+        let (count, on) = self.through(rope, at)?;
         on.then_some(count)
     }
 
     /// How many matches start at or before `at`, and whether one starts
     /// there. The blocks before it are counted from what's kept; only its
-    /// own block is searched.
-    pub fn through(&self, rope: &Rope, at: usize) -> (usize, bool) {
-        if let Some((pos, count, on)) = self.current.get()
+    /// own block is searched. `None` while a block before it isn't counted
+    /// yet.
+    pub fn through(&self, rope: &Rope, at: usize) -> Option<(usize, bool)> {
+        if let Some((pos, known)) = self.current.get()
             && pos == at
         {
-            return (count, on);
+            return known;
         }
         let line = rope.char_to_line(at.min(rope.len_chars()));
         let mut count = 0;
         let mut on = false;
         for (span, n) in spans(rope, 0..line + 1, Some(self)) {
+            if span.end <= line && n.is_none() {
+                self.current.set(Some((at, None)));
+                return None;
+            }
             let n = n.unwrap_or(0);
             if span.end <= line || n == 0 {
                 count += n;
@@ -705,8 +892,8 @@ impl Found {
                 ControlFlow::Continue(())
             });
         }
-        self.current.set(Some((at, count, on)));
-        (count, on)
+        self.current.set(Some((at, Some((count, on)))));
+        Some((count, on))
     }
 
     /// The lines the scrollbar marks: each line with a match in a file of
@@ -932,6 +1119,59 @@ mod tests {
             word.narrow(&Matcher::plain("Mainx", false, false, None), &rope)
                 .is_none()
         );
+    }
+
+    #[test]
+    fn a_count_filled_in_the_background_ends_as_one_done_at_once() {
+        let text = sample().repeat(40);
+        let rope = Rope::from_str(&text);
+        let m = Matcher::plain("main", true, false, None);
+        let whole = Found::new(&m, &rope, 0);
+        let mut found = Found::pending(&m, &rope, 0);
+        assert!(!found.complete() && found.total() == 0);
+        // Searched as it goes: next and previous don't wait.
+        let all = m.all(&rope, None);
+        assert_eq!(
+            m.next(&rope, 70_000, Some(&found), |_| true),
+            m.next(&rope, 70_000, None, |_| true)
+        );
+        assert_eq!(
+            m.previous(&rope, 70_000, Some(&found)),
+            all.iter().rev().find(|h| h.0 < 70_000).copied()
+        );
+        // Nothing to find, and the count not in: it searches so far, and
+        // says to try again rather than going through the whole file.
+        let none = Matcher::plain("zzz", false, false, None);
+        let waiting = Found::pending(&none, &rope, 0);
+        assert_eq!(
+            none.seek_next(&rope, 0, Some(&waiting), 2 * BLOCK, |_| true),
+            Seek::Later
+        );
+        assert_eq!(
+            none.seek_previous(&rope, 0, Some(&waiting), 2 * BLOCK),
+            Seek::Later
+        );
+        // Which match the cursor is on waits for the blocks before it.
+        let late = all[all.len() - 1].0;
+        assert_eq!(found.index_of(&rope, late), None);
+        let blocks = blocks_in(&rope);
+        let mut firsts: Vec<usize> = (0..blocks).step_by(3).collect();
+        firsts.reverse();
+        for first in firsts {
+            let counts = count_blocks(&m, &rope, first..(first + 3).min(blocks));
+            found.fill(first, &counts);
+        }
+        assert!(found.complete());
+        assert_eq!(found.total(), whole.total());
+        // With the count done, a search that finds nothing says so at once.
+        let none = Matcher::plain("zzz", false, false, None);
+        let counted = Found::new(&none, &rope, 0);
+        assert_eq!(
+            none.seek_next(&rope, 0, Some(&counted), 10, |_| true),
+            Seek::None
+        );
+        assert_eq!(found.index_of(&rope, late), Some(all.len()));
+        assert_eq!(*found.marks(&rope), *whole.marks(&rope));
     }
 
     #[test]

@@ -527,7 +527,10 @@ impl Editor {
         // From the counts kept for the search, not a copy of the text.
         let matcher = crate::search::Matcher::regex(re.clone());
         match doc.found(&matcher) {
-            Some(found) => (found.through(rope, at).0.max(1), found.total()),
+            Some(found) => (
+                found.through(rope, at).map_or(0, |t| t.0).max(1),
+                found.total(),
+            ),
             None => {
                 let all = matcher.all(rope, None);
                 (all.iter().filter(|m| m.0 <= at).count().max(1), all.len())

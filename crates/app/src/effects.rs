@@ -29,6 +29,7 @@ impl App {
     /// back later. Events it makes at once join `queue`.
     pub(super) fn run_effect(&mut self, effect: Effect, queue: &mut VecDeque<Event>) {
         match effect {
+            Effect::Work(job) => self.workers.run(job),
             Effect::Save {
                 doc,
                 path,

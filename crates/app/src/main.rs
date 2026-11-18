@@ -32,6 +32,7 @@ use std::{env, fs, io};
 use anyhow::{Context, Result, bail};
 use disk::{Backups, Changes, Watch};
 use jobs::{Jobs, Lane};
+mod work;
 use merlin_core::exclude::{Matcher, Why};
 use merlin_core::script::{self, Step};
 use merlin_core::{
@@ -200,6 +201,8 @@ struct App {
     watched: Vec<(PathBuf, Option<SystemTime>)>,
     /// Disk, git and project walks, off the window's thread.
     jobs: Jobs,
+    /// Whole-file work on large files, on a few threads of its own.
+    workers: work::Workers,
     /// The folders whose files the editor cares about.
     watch: Watch,
     /// What changed on disk, waiting to settle until `settle`.
@@ -645,6 +648,10 @@ impl App {
     /// Applies the jobs that are done. Returns whether there were any.
     fn finish_jobs(&mut self) -> bool {
         let mut any = false;
+        while let Some(event) = self.workers.take() {
+            any = true;
+            self.dispatch(event);
+        }
         while let Some(finish) = self.jobs.take() {
             any = true;
             for event in finish(self) {
@@ -1390,6 +1397,11 @@ fn main() -> Result<()> {
         packs: Vec::new(),
         choice: looks::Choice::default(),
         watched: Vec::new(),
+        workers: if gui {
+            work::Workers::threaded(gui::waker())
+        } else {
+            work::Workers::inline()
+        },
         jobs: if gui {
             Jobs::threaded(gui::waker())
         } else {

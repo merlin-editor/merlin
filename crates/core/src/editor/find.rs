@@ -24,9 +24,16 @@ pub struct FindView {
     pub in_selection: bool,
     /// The query isn't a regular expression that can be used.
     pub invalid: bool,
+    /// While a large file's matches are counted in the background, how far
+    /// through it the count is, in percent: `total` is so far.
+    pub counting: Option<u8>,
 }
 
 pub(crate) use crate::search::Matcher;
+
+/// Lines not yet counted that Find searches at once for the next match,
+/// about 4 MB.
+const SEEK_BUDGET: usize = 65_536;
 
 impl Editor {
     /// Opens find, starting from the selection if it's on one line.
@@ -51,6 +58,7 @@ impl Editor {
             whole_word: false,
             regex: false,
             scope: None,
+            waiting: None,
         });
         if let Some(text) = &selected {
             find.query = text.clone();
@@ -190,27 +198,45 @@ impl Editor {
     /// searches forward from there and stops at the first, skipping the
     /// blocks of lines the counts say have none.
     pub(crate) fn find_from(&mut self, from: usize) {
-        let Some(matcher) = self.query() else {
-            return;
-        };
-        let doc = self.doc();
-        let hit = matcher.next(
-            doc.buffer.rope(),
-            from,
-            doc.found(&matcher).as_deref(),
-            |_| true,
-        );
-        self.go_to_match(hit.map(|m| m.0));
+        self.seek(from, true);
     }
 
     /// Moves to the last match before `before`, wrapping around.
     pub(crate) fn find_before(&mut self, before: usize) {
+        self.seek(before, false);
+    }
+
+    /// Moves to the next match from `at`, or the previous. While a large
+    /// file is counted in the background, only so much of what isn't
+    /// counted yet is searched at once, so typing never waits on a query
+    /// that matches nothing: it's tried again as the count comes in.
+    fn seek(&mut self, at: usize, forward: bool) {
         let Some(matcher) = self.query() else {
             return;
         };
         let doc = self.doc();
-        let hit = matcher.previous(doc.buffer.rope(), before, doc.found(&matcher).as_deref());
-        self.go_to_match(hit.map(|m| m.0));
+        let found = doc.found(&matcher);
+        let rope = doc.buffer.rope();
+        let seek = match forward {
+            true => matcher.seek_next(rope, at, found.as_deref(), SEEK_BUDGET, |_| true),
+            false => matcher.seek_previous(rope, at, found.as_deref(), SEEK_BUDGET),
+        };
+        drop(found);
+        if let Some(find) = &mut self.find {
+            find.waiting = (seek == crate::search::Seek::Later).then_some((at, forward));
+        }
+        match seek {
+            crate::search::Seek::Hit(pos, _) => self.go_to_match(Some(pos)),
+            crate::search::Seek::None => self.go_to_match(None),
+            crate::search::Seek::Later => {}
+        }
+    }
+
+    /// More of the count came in: a search that waited for it, again.
+    pub(crate) fn seek_again(&mut self) {
+        if let Some((at, forward)) = self.find.as_ref().and_then(|f| f.waiting) {
+            self.seek(at, forward);
+        }
     }
 
     pub(crate) fn go_to_match(&mut self, hit: Option<usize>) {
@@ -286,16 +312,17 @@ impl Editor {
         let invalid = matcher.is_err();
         let doc = self.doc();
         let at = doc.selection().map(|(start, _)| start);
-        let (current, total, ignore_case) = match matcher.ok().flatten() {
+        let (current, total, ignore_case, counting) = match matcher.ok().flatten() {
             Some(m) => match doc.found(&m) {
                 Some(found) => {
                     let rope = doc.buffer.rope();
                     let current = at.and_then(|a| found.index_of(rope, a));
-                    (current, found.total(), m.folds())
+                    let counting = (!found.complete()).then(|| (found.progress() * 100.0) as u8);
+                    (current, found.total(), m.folds(), counting)
                 }
-                None => (None, 0, m.folds()),
+                None => (None, 0, m.folds(), None),
             },
-            None => (None, 0, !find.match_case),
+            None => (None, 0, !find.match_case, None),
         };
         Some(FindView {
             query: find.query.clone(),
@@ -310,6 +337,7 @@ impl Editor {
             regex: find.regex,
             in_selection: find.scope.is_some(),
             invalid,
+            counting,
         })
     }
 

@@ -28,6 +28,7 @@ pub mod script;
 pub mod search;
 pub mod style;
 pub mod symbols;
+pub mod work;
 
 pub use editor::{
     AgentAnswer, AgentAsks, AgentCall, AgentContext, AgentMode, AgentOutcome, AgentPart,

@@ -297,6 +297,15 @@ impl Editor {
         if let Some(busy) = &busy {
             right.push((busy.clone(), card.clone()));
         }
+        // A large file wrapping in the background.
+        let wrapping = self
+            .wrapping()
+            .then(|| self.doc().work_progress(Some(self.text_columns())).1)
+            .flatten()
+            .map(|p| format!("Wrapping {}%", (p * 100.0) as u32));
+        if let Some(text) = &wrapping {
+            right.push((text.clone(), None));
+        }
         right.push((self.language(), card));
         let left_w: usize = left.iter().map(|(t, ..)| str_width(t)).sum();
         // A diagnostic under the cursor needs room more than the encoding.
@@ -334,7 +343,11 @@ impl Editor {
         for (i, (text, action)) in right.into_iter().enumerate() {
             let mark = match i {
                 _ if i == last => state.map(super::StatusMark::Braces),
-                _ if busy.as_deref() == Some(text.as_str()) => Some(super::StatusMark::Spinner),
+                _ if busy.as_deref() == Some(text.as_str())
+                    || wrapping.as_deref() == Some(text.as_str()) =>
+                {
+                    Some(super::StatusMark::Spinner)
+                }
                 _ => None,
             };
             items.push(StatusItem {

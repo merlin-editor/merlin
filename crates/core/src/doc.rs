@@ -323,6 +323,8 @@ impl Doc {
         let unseen = &changes[wrapped.applied.min(changes.len())..];
         for rows in &mut wrapped.rows {
             std::rc::Rc::make_mut(rows).update(unseen);
+            // Its lines moved: the job under way answers for the old ones.
+            rows.job.set(None);
         }
         wrapped.applied = 0;
         let found = self.found.get_mut();
@@ -484,8 +486,13 @@ impl Doc {
                 .as_ref()
                 .filter(|f| f.is_at(version))
                 .and_then(|f| f.narrow(matcher, rope));
-            let found =
-                narrowed.unwrap_or_else(|| crate::search::Found::new(matcher, rope, version));
+            // A large file is counted in the background, and searched as it
+            // goes until then.
+            let large = rope.len_bytes() > crate::work::BACKGROUND_BYTES && matcher.scope.is_none();
+            let found = narrowed.unwrap_or_else(|| match large {
+                true => crate::search::Found::pending(matcher, rope, version),
+                false => crate::search::Found::new(matcher, rope, version),
+            });
             self.found.replace(Some(found));
         }
         std::cell::Ref::filter_map(self.found.borrow(), Option::as_ref).ok()
@@ -501,6 +508,7 @@ impl Doc {
             let applied = wrapped.applied;
             for rows in &mut wrapped.rows {
                 Rc::make_mut(rows).update(&pending[applied..]);
+                rows.job.set(None);
             }
             wrapped.applied = pending.len();
         }
@@ -519,13 +527,118 @@ impl Doc {
                 }
             }
             None => {
-                wrapped
-                    .rows
-                    .insert(0, Rc::new(crate::rows::WrapRows::new(&src, width)));
+                // A large file is wrapped in the background, the lines around
+                // the view at once.
+                let rows = match self.buffer.rope().len_bytes() > crate::work::BACKGROUND_BYTES {
+                    true => crate::rows::WrapRows::pending(&src, width),
+                    false => crate::rows::WrapRows::new(&src, width),
+                };
+                wrapped.rows.insert(0, Rc::new(rows));
                 wrapped.rows.truncate(WIDTHS);
             }
         }
         wrapped.rows[0].clone()
+    }
+
+    /// Wraps now the lines in `lines` that a background job hasn't yet, for
+    /// rows at `width`.
+    pub fn wrap_near(&self, width: usize, lines: std::ops::Range<usize>) {
+        let rows = self.wrap_rows(width);
+        if !rows.waits_in(lines.clone()) {
+            return;
+        }
+        drop(rows);
+        let src = crate::rows::Source {
+            rope: self.buffer.rope(),
+            inlays: &self.inlays,
+            inlays_version: self.inlays_version,
+        };
+        let mut wrapped = self.wrapped.borrow_mut();
+        std::rc::Rc::make_mut(&mut wrapped.rows[0]).ensure(&src, lines);
+    }
+
+    /// The background work this document waits on: a search count for
+    /// `matcher` and rows at `width`, each not yet asked for; `id` gives
+    /// each its id.
+    pub fn wanted_jobs(
+        &self,
+        matcher: Option<&crate::search::Matcher>,
+        width: Option<usize>,
+        mut id: impl FnMut() -> u64,
+    ) -> Vec<crate::work::Job> {
+        let mut jobs = Vec::new();
+        let text = || self.buffer.rope().clone();
+        if let Some(matcher) = matcher
+            && let Some(found) = self.found(matcher)
+            && !found.complete()
+            && found.job.get().is_none()
+        {
+            let job = id();
+            found.job.set(Some(job));
+            jobs.push(crate::work::Job {
+                id: job,
+                kind: crate::work::Kind::Count(found.matcher().clone()),
+                text: text(),
+            });
+        }
+        if let Some(width) = width
+            && !self.buffer.has_changes()
+        {
+            let rows = self.wrap_rows(width);
+            if rows.is_pending() && rows.job.get().is_none() {
+                let job = id();
+                rows.job.set(Some(job));
+                jobs.push(crate::work::Job {
+                    id: job,
+                    kind: crate::work::Kind::Wrap(width),
+                    text: text(),
+                });
+            }
+        }
+        jobs
+    }
+
+    /// Takes a piece of background job `id`'s work, if it's still wanted.
+    /// Whether it was.
+    pub fn worked(&mut self, id: u64, done: &crate::work::Done) -> bool {
+        match done {
+            crate::work::Done::Count { first, counts } => match self.found.get_mut() {
+                Some(found) if found.job.get() == Some(id) => {
+                    found.fill(*first, counts);
+                    true
+                }
+                _ => false,
+            },
+            crate::work::Done::Wrap { first, rows, tall } => {
+                let wrapped = self.wrapped.get_mut();
+                match wrapped.rows.iter_mut().find(|r| r.job.get() == Some(id)) {
+                    // Pending changes would shift its lines: a newer job
+                    // comes once they're synced.
+                    Some(r) if wrapped.applied == 0 && !self.buffer.has_changes() => {
+                        std::rc::Rc::make_mut(r).fill(*first, rows, tall);
+                        true
+                    }
+                    _ => false,
+                }
+            }
+        }
+    }
+
+    /// How far each background job for this document has got, from 0 to
+    /// 1: the search count, and the wrap.
+    pub fn work_progress(&self, width: Option<usize>) -> (Option<f32>, Option<f32>) {
+        let count = self
+            .found
+            .borrow()
+            .as_ref()
+            .filter(|f| !f.complete())
+            .map(|f| f.progress());
+        let wrap = width.and_then(|w| {
+            let wrapped = self.wrapped.borrow();
+            let rows = wrapped.rows.iter().find(|r| r.width() == w)?;
+            rows.is_pending().then(|| rows.progress())
+        });
+        (count, wrap)
     }
 
     pub fn last_line(&self) -> usize {

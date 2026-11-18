@@ -98,7 +98,12 @@ impl Editor {
             return index;
         }
         if self.wrapping() {
-            index.wrap = Some(doc.wrap_rows(self.text_columns()));
+            let width = self.text_columns();
+            // Lines a background wrap hasn't reached, around the view: now.
+            let v = self.view();
+            let near = v.scroll.saturating_sub(NEAR)..v.scroll + self.text_height() + NEAR;
+            doc.wrap_near(width, near);
+            index.wrap = Some(doc.wrap_rows(width));
         }
         index.hidden = self.hidden_lines();
         let mut steps: Vec<(usize, i64)> = Vec::new();
@@ -165,6 +170,10 @@ impl Editor {
         };
     }
 }
+
+/// Lines either side of the view wrapped at once while a large file is
+/// wrapped in the background.
+const NEAR: usize = 200;
 
 /// The rows before each line drawn, and in all.
 #[derive(Clone)]

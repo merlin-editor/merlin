@@ -18,9 +18,12 @@ const SUM: usize = 64;
 const BLOCK_SUMS: usize = 16;
 /// Lines in a block.
 const BLOCK: usize = SUM * BLOCK_SUMS;
-/// A line's byte when it takes this many rows or more: its rows are in
+/// A line's byte when it takes [`PENDING`] rows or more: its rows are in
 /// `tall`.
 const TALL: u8 = u8::MAX;
+/// A line's byte while a background job wraps it: it counts as one row
+/// until then.
+const PENDING: u8 = u8::MAX - 1;
 /// A line's byte while it waits to be wrapped again.
 const STALE: u8 = 0;
 
@@ -43,6 +46,10 @@ pub struct WrapRows {
     hinted: Vec<usize>,
     /// Whether some lines are [`STALE`].
     stale: bool,
+    /// Lines a background job is still to wrap.
+    pending: usize,
+    /// The background job wrapping them, once asked for.
+    pub job: std::cell::Cell<Option<u64>>,
 }
 
 /// What wrapping needs to know of a document.
@@ -91,6 +98,30 @@ fn count(text: &str, inlays: &[(usize, usize)], width: usize, chars: &mut Vec<ch
     wrap(chars, inlays, width).len()
 }
 
+/// Each of `lines`' rows when wrapped at `width`, without inlay hints, as
+/// a background job finds them: a byte a line, and the lines that take too
+/// many for one.
+pub fn wrap_lines(
+    rope: &Rope,
+    width: usize,
+    lines: Range<usize>,
+) -> (Vec<u8>, Vec<(usize, usize)>) {
+    let mut rows = Vec::with_capacity(lines.len());
+    let mut tall = Vec::new();
+    let mut chars = Vec::new();
+    let _ = crate::search::each_line(rope, lines, |line, _, text| {
+        let n = count(text, &[], width, &mut chars);
+        if n >= PENDING as usize {
+            rows.push(TALL);
+            tall.push((line, n));
+        } else {
+            rows.push(n as u8);
+        }
+        ControlFlow::Continue(())
+    });
+    (rows, tall)
+}
+
 impl WrapRows {
     /// Wraps every line of `src` at `width` columns.
     pub fn new(src: &Source, width: usize) -> Self {
@@ -104,9 +135,91 @@ impl WrapRows {
             blocks: Vec::new(),
             hinted: src.hinted(),
             stale: true,
+            pending: 0,
+            job: Default::default(),
         };
         rows.refresh(src);
         rows
+    }
+
+    /// Rows for a large file that a background job wraps: every line
+    /// counts as one row until it's done, save those with inlay hints,
+    /// which are wrapped now. [`WrapRows::ensure`] wraps the lines around
+    /// the view at once.
+    pub fn pending(src: &Source, width: usize) -> Self {
+        let lines = src.rope.len_lines();
+        let mut rows = Self {
+            width,
+            inlays: src.inlays_version,
+            lines: vec![PENDING; lines],
+            tall: BTreeMap::new(),
+            sums: Vec::new(),
+            blocks: Vec::new(),
+            hinted: src.hinted(),
+            stale: true,
+            pending: lines,
+            job: Default::default(),
+        };
+        for &l in &rows.hinted.clone() {
+            if let Some(b) = rows.lines.get_mut(l) {
+                *b = STALE;
+                rows.pending -= 1;
+            }
+        }
+        rows.refresh(src);
+        rows.sum_from(0);
+        rows
+    }
+
+    /// Whether a background job is still to wrap some lines.
+    pub fn is_pending(&self) -> bool {
+        self.pending > 0
+    }
+
+    /// How much is wrapped, from 0 to 1.
+    pub fn progress(&self) -> f32 {
+        1.0 - self.pending as f32 / self.lines.len().max(1) as f32
+    }
+
+    /// Wraps now the lines in `lines` a background job hasn't yet.
+    pub fn ensure(&mut self, src: &Source, lines: Range<usize>) {
+        let end = lines.end.min(self.lines.len());
+        let start = lines.start.min(end);
+        for b in &mut self.lines[start..end] {
+            if *b == PENDING {
+                *b = STALE;
+                self.pending -= 1;
+                self.stale = true;
+            }
+        }
+        self.refresh(src);
+    }
+
+    /// Whether `lines` has a line a background job is still to wrap.
+    pub fn waits_in(&self, lines: Range<usize>) -> bool {
+        let end = lines.end.min(self.lines.len());
+        self.pending > 0 && self.lines[lines.start.min(end)..end].contains(&PENDING)
+    }
+
+    /// Takes a background job's rows for lines from `first`, those it
+    /// hasn't wrapped otherwise since.
+    pub fn fill(&mut self, first: usize, rows: &[u8], tall: &[(usize, usize)]) {
+        let mut changed = false;
+        for (l, &n) in (first..).zip(rows) {
+            if self.lines.get(l) == Some(&PENDING) {
+                self.lines[l] = n;
+                self.pending -= 1;
+                changed = true;
+            }
+        }
+        for &(l, n) in tall {
+            if self.lines.get(l) == Some(&TALL) {
+                self.tall.insert(l, n);
+            }
+        }
+        if changed {
+            self.sum_from(first);
+        }
     }
 
     /// The width the rows are for.
@@ -122,6 +235,11 @@ impl WrapRows {
             let old_last = old_last.min(self.lines.len().saturating_sub(1));
             let removed = old_last + 1 - first.min(old_last + 1);
             let added = new_last + 1 - first;
+            let gone = self.lines[first..first + removed]
+                .iter()
+                .filter(|&&b| b == PENDING)
+                .count();
+            self.pending -= gone;
             self.lines
                 .splice(first..first + removed, std::iter::repeat_n(STALE, added));
             let shift = |l: usize| {
@@ -195,7 +313,7 @@ impl WrapRows {
                 Vec::new()
             };
             let n = count(text, &inlays, width, chars);
-            if n >= TALL as usize {
+            if n >= PENDING as usize {
                 lines[line] = TALL;
                 tall.insert(line, n);
             } else {
@@ -229,7 +347,11 @@ impl WrapRows {
 
     /// The rows of `lines`, one by one.
     fn sum_lines(&self, lines: Range<usize>) -> usize {
-        let mut rows: usize = self.lines[lines.clone()].iter().map(|&b| b as usize).sum();
+        let bytes = &self.lines[lines.clone()];
+        let mut rows: usize = bytes.iter().map(|&b| b as usize).sum();
+        if self.pending > 0 {
+            rows -= bytes.iter().filter(|&&b| b == PENDING).count() * (PENDING as usize - 1);
+        }
         if self.lines[lines.clone()].contains(&TALL) {
             for (_, &n) in self.tall.range(lines) {
                 rows += n - TALL as usize;
@@ -239,9 +361,15 @@ impl WrapRows {
     }
 
     /// The rows `line` takes.
+    /// Whether `line` is known to take one row: wrapped, not waiting.
+    pub fn is_one(&self, line: usize) -> bool {
+        self.lines.get(line) == Some(&1)
+    }
+
     pub fn rows(&self, line: usize) -> usize {
         match self.lines.get(line) {
             Some(&TALL) => self.tall[&line],
+            Some(&PENDING) => 1,
             Some(&n) => n as usize,
             None => 1,
         }
@@ -418,5 +546,44 @@ mod tests {
         };
         rows.refresh(&src);
         assert_eq!(rows.rows(0), 1);
+    }
+}
+
+#[cfg(test)]
+mod pending_tests {
+    use super::*;
+
+    #[test]
+    fn rows_a_background_job_fills_in_are_those_wrapped_at_once() {
+        let text: String = (0..200_000)
+            .map(|i| match i % 3 {
+                0 => "short\n".to_string(),
+                1 => format!("{}\n", "word ".repeat(i % 60)),
+                _ => "\tx\n".to_string(),
+            })
+            .collect();
+        let rope = Rope::from_str(&text);
+        let src = Source {
+            rope: &rope,
+            inlays: &[],
+            inlays_version: 0,
+        };
+        let whole = WrapRows::new(&src, 40);
+        let mut rows = WrapRows::pending(&src, 40);
+        assert!(rows.is_pending());
+        assert_eq!(rows.total(), rope.len_lines(), "a row a line until wrapped");
+        rows.ensure(&src, 1000..1100);
+        assert_eq!(rows.rows(1001), whole.rows(1001));
+        // In pieces, out of order.
+        for first in [131_072, 0, 65_536, 196_608] {
+            let end = (first + 65_536).min(rope.len_lines());
+            let (r, tall) = wrap_lines(&rope, 40, first..end);
+            rows.fill(first, &r, &tall);
+        }
+        assert!(!rows.is_pending());
+        assert_eq!(rows.total(), whole.total());
+        for line in (0..rope.len_lines()).step_by(997) {
+            assert_eq!(rows.before(line), whole.before(line), "{line}");
+        }
     }
 }

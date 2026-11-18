@@ -188,6 +188,9 @@ struct Find {
     regex: bool,
     /// Only text in this range is searched, as Find in Selection has it.
     scope: Option<(usize, usize)>,
+    /// A search for the next match, from here and forward or not, that
+    /// waits for a background count.
+    waiting: Option<(usize, bool)>,
 }
 
 impl Find {
@@ -493,6 +496,8 @@ pub struct Editor {
     /// and what was last asked for. `now` is the time blame last came.
     blames: HashMap<PathBuf, (u64, crate::git::Blame)>,
     blame_asked: Option<(PathBuf, u64, Option<std::ops::Range<usize>>)>,
+    /// The last background job's id.
+    next_job: u64,
     /// The name under the cursor's uses, from its language server, and the
     /// name last asked about.
     highlights: Option<highlights::Highlights>,
@@ -740,6 +745,7 @@ impl Editor {
             compare_on_left: false,
             blames: HashMap::new(),
             blame_asked: None,
+            next_job: 0,
             highlights: None,
             highlight_asked: None,
             hierarchy: None,

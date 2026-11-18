@@ -109,3 +109,46 @@ fn the_range_moves_with_edits_before_it() {
     assert!(find(&s).in_selection);
     assert_eq!(find(&s).total, 2, "both still inside it");
 }
+
+#[test]
+fn a_large_files_matches_are_counted_in_the_background() {
+    use merlin_core::Effect;
+    // Over 8 MB: counted by a background job, which the script's session
+    // runs at once.
+    let line = "the quick brown fox jumps over the lazy dog\n";
+    let text = line.repeat((9 << 20) / line.len());
+    let lines = text.matches('\n').count();
+    let mut s = Session::new(&text, Some("big.txt"), 100, 20);
+    s.effects.clear();
+    s.run("key ctrl+f; type lazy");
+    let jobs = s
+        .effects
+        .iter()
+        .filter(|e| matches!(e, Effect::Work(_)))
+        .count();
+    assert!(jobs >= 1, "a count asked for");
+    let find = s.editor.window_view().find.expect("find open");
+    assert_eq!(find.total, lines);
+    assert_eq!(find.counting, None, "all counted");
+    // The next key narrows what was counted: no new job.
+    s.effects.clear();
+    s.run("type  d");
+    assert!(!s.effects.iter().any(|e| matches!(e, Effect::Work(_))));
+    assert_eq!(s.editor.window_view().find.unwrap().total, lines);
+}
+
+#[test]
+fn a_large_file_wraps_in_the_background() {
+    use merlin_core::Effect;
+    let long = format!("{}\n", "word ".repeat(40));
+    let text = long.repeat((9 << 20) / long.len()) + "the very end";
+    let mut s = Session::new(&text, Some("big.txt"), 100, 20);
+    s.effects.clear();
+    s.run("cmd view.wrap");
+    assert!(
+        s.effects.iter().any(|e| matches!(e, Effect::Work(_))),
+        "a wrap asked for"
+    );
+    s.run("key ctrl+end");
+    assert!(s.screen().contains("the very end"), "{}", s.screen());
+}

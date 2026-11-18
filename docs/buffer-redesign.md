@@ -449,6 +449,50 @@ a tiny Rust file, and uses 1.1 s of CPU over 20 s.
   errors. A clean window still takes one parse (44 ms); one that started
   in a string takes 117 ms.
 
+### Step 7: whole-file work in the background, done
+
+Built from `docs/mockups/BackgroundWork.html`, approved 2026-11-18.
+
+**What changed:**
+- **Jobs** (`work.rs`): the core stays free of threads. It asks for a
+  `Job`, a search count or a wrap, with `Effect::Work`, carrying a
+  snapshot of the rope. A job is split into pieces of about 65 000 lines,
+  each a pure function, and each piece's result comes back as
+  `Event::Worked`. A script's session runs every piece at once, so the
+  tests see the finished result.
+- **The app's workers** (`crates/app/src/work.rs`): four threads at low
+  priority take a job's pieces in order, so the count fills in from the
+  top, and send each one as it's done. A newer job of the same kind stops
+  the one before it.
+- **Find on a file over 8 MB**: it's counted in the background. Until
+  then, blocks not yet counted are searched as they're met.
+  - The box reads "Searching…", then "1,245,184 so far" with a spinner and
+    a line along its foot for how far the count has got. "12 of 1,204+"
+    shows on a match once the blocks before it are counted. "No results"
+    shows only once the whole file is searched.
+  - A query grown from a finished count still narrows at once.
+  - Find next searches at most 65 536 lines that aren't counted yet. If it
+    finds nothing there, it waits for the count and tries again as pieces
+    come in. A query that matches nothing no longer searches the whole
+    file on the window's thread for every key.
+- **Word wrap on a file over 8 MB**: the lines within 200 of the view are
+  wrapped at once, and the rest count as one row each until the
+  background job fills them in. The status bar shows "Wrapping 41%" with
+  a spinner. An edit while it wraps asks for a new job, since the lines
+  have moved.
+
+**In the app**, on a 360 MB log: typing "request" counted 4 823 097
+matches, through "1,245,184 so far" and "3,801,088 so far", in about a
+third of a second. A whole regular expression typed key by key went in
+within 0.07 s, where each key had waited seconds for a full search.
+Turning wrap on showed "Wrapping 0%" for a moment. In `large_probe` the
+times include the work, as its session runs jobs at once, on one thread.
+
+**Not moved:** the git gutter and the outline's symbols. Since step 5 the
+gutter costs what the edits touched. The outline still finds symbols
+over the whole file after each edit while it shows; it can move the same
+way.
+
 ### Fixed on this branch so far
 
 Committed (8181070) and covered by tests:
@@ -796,9 +840,9 @@ comparison with VS Code.
    - The 512 KB limit goes.
 
    This brings colours to large files at a few MB.
-7. **Background jobs and their UI.** Search counts, git hunks and
-   `LineIndex` builds off the window's thread, with the count that fills
-   in. The count needs a mock-up first.
+7. **Background jobs and their UI.** Done; see "Step 7" above. Search
+   counts and the wrap off the window's thread, with the count that fills
+   in, as `docs/mockups/BackgroundWork.html` shows.
 8. **Later, if wanted:** positions in bytes; a read-only view for files
    too large to load.
 

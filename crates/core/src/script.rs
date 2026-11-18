@@ -247,6 +247,12 @@ impl Session {
                     });
                 }
                 // Scripts have no launch.toml: plugins' targets only.
+                // Background work, done at once, every piece in order.
+                Effect::Work(job) => {
+                    for done in job.run_all() {
+                        self.send(Event::Worked { id: job.id, done });
+                    }
+                }
                 Effect::ReadLaunch => self.send(Event::LaunchConfigs(Ok(Vec::new()))),
                 Effect::Open(path) => {
                     let event = match self.files.get(&path.display().to_string()) {
